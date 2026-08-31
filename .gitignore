@@ -52,3 +52,9 @@ logs/
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# your thoughts
+thoughts/
+
+# agent
+.agents/
