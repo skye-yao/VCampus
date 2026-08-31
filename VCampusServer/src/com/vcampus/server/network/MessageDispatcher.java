@@ -4,6 +4,7 @@ import com.vcampus.common.protocol.Message;
 import com.vcampus.common.protocol.MessageCode;
 import com.vcampus.common.protocol.MessageType;
 import com.vcampus.server.handler.UserHandler;
+import com.vcampus.server.handler.StudentHandler;
 //import com.vcampus.server.handler.StudentHandler;
 //import com.vcampus.server.handler.CourseHandler;
 //import com.vcampus.server.handler.LibraryHandler;
@@ -23,7 +24,7 @@ public class MessageDispatcher {
 
     // 各模块 Handler
     private UserHandler userHandler;
-    //private StudentHandler studentHandler;
+    private StudentHandler studentHandler;
     //private CourseHandler courseHandler;
     //private LibraryHandler libraryHandler;
     //private BankHandler bankHandler;
@@ -32,7 +33,7 @@ public class MessageDispatcher {
 
     public MessageDispatcher() {
         this.userHandler = new UserHandler();
-        //this.studentHandler = new StudentHandler();
+        this.studentHandler = new StudentHandler();
         //this.courseHandler = new CourseHandler();
         //this.libraryHandler = new LibraryHandler();
         //this.bankHandler = new BankHandler();
@@ -53,8 +54,8 @@ public class MessageDispatcher {
         if ("user".equalsIgnoreCase(module)) {
             return userHandler.handle(request);
         }
-        //else if ("student".equalsIgnoreCase(module)) {
-      //      return studentHandler.handle(request);
+        else if ("student".equalsIgnoreCase(module)) {
+            return studentHandler.handle(request);
       //  } else if ("course".equalsIgnoreCase(module)) {
        //     return courseHandler.handle(request);
       //  } else if ("library".equalsIgnoreCase(module)) {
@@ -74,6 +75,9 @@ public class MessageDispatcher {
          //   response.setCode(MessageCode.BAD_REQUEST);
           //  response.setMessage("未知模块: " + module);
        //     return response;
-      //  }
+        }
+        Message response = new Message(MessageType.RESPONSE, module, request.getAction(), MessageCode.BAD_REQUEST);
+        response.setMessage("未知模块: " + module);
+        return response;
     }
 }

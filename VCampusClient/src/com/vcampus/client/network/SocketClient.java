@@ -121,6 +121,11 @@ public class SocketClient {
         send(request);
     }
 
+    public MessageDispatcher getDispatcher() {
+        if (dispatcher == null) throw new IllegalStateException("尚未连接服务器");
+        return dispatcher;
+    }
+
     /**
      * 关闭连接。
      */

@@ -1,5 +1,9 @@
 package com.vcampus.client.network;
 
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
+
 import com.vcampus.common.protocol.Message;
 import com.vcampus.common.protocol.MessageType;
 
@@ -10,6 +14,11 @@ import com.vcampus.common.protocol.MessageType;
  * 将消息分发给对应的处理逻辑。
  */
 public class MessageDispatcher {
+    private final Map<String, Consumer<Message>> responseHandlers = new ConcurrentHashMap<>();
+
+    public void onResponse(String action, Consumer<Message> handler) {
+        if (handler == null) responseHandlers.remove(action); else responseHandlers.put(action, handler);
+    }
 
     /**
      * 分发服务器消息。
@@ -42,6 +51,12 @@ public class MessageDispatcher {
      * 处理普通响应。
      */
     private void handleResponse(Message message) {
+
+        Consumer<Message> handler = responseHandlers.get(message.getAction());
+        if (handler != null) {
+            handler.accept(message);
+            return;
+        }
 
         System.out.println(
                 "收到服务器响应: " +

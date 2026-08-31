@@ -78,7 +78,7 @@ public class ClientHandler implements Runnable {
      */
     private Message processMessage(Message request) {
         // 检查消息类型
-        if (request.getType() != MessageType.REQUEST) {
+        if (request.getType() == MessageType.RESPONSE || request.getType() == MessageType.PUSH) {
             Message response = new Message();
             response.setType(MessageType.RESPONSE);
             response.setModule(request.getModule());
