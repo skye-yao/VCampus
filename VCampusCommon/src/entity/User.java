@@ -40,9 +40,6 @@ public class User implements Serializable {
     /** 电子邮箱 */
     private String email;
 
-    /** 头像Base64编码*/
-    private  String avatar;
-
     /** 电子钱包余额 */
     private int balance;
 
@@ -135,12 +132,6 @@ public class User implements Serializable {
 
     public void setEmail(String email) {
         this.email = email;
-    }
-
-    public String getAvatar() {return avatar;};
-
-    public void setAvatar(String avatar) {
-        this.avatar = avatar;
     }
 
     public int getBalance() {

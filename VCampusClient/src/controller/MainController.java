@@ -2,6 +2,7 @@ package controller;
 
 import app.ClientMain;
 import entity.User;
+import javafx.application.Platform;
 import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
 import javafx.scene.control.MenuButton;

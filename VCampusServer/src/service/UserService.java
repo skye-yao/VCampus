@@ -124,30 +124,4 @@ public class UserService {
             throw new DatabaseException("数据库更新个人信息异常", e);
         }
     }
-
-    /**
-     * 修改用户头像
-     */
-    public void updateAvatar(String UID, String avatarBase64) throws BusinessException, DatabaseException {
-
-
-        try {
-            if(UID == null){
-                throw new BusinessException("UID为空");
-            }
-            if(avatarBase64 == null){
-                throw new BusinessException("头像内容为空");
-            }
-            if(avatarBase64.length()>2800000){//2800000是2Mb图片转base64之后的大约大小
-                throw new BusinessException("头像大于2Mb");
-            }
-
-            boolean success = userDAO.updateAvatar(UID, avatarBase64);
-            if (!success) {
-                throw new BusinessException("头像更新失败");
-            }
-        } catch (SQLException e) {
-            throw new DatabaseException("数据库更新个人信息异常", e);
-        }
-    }
 }
