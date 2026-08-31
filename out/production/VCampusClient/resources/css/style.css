@@ -1,0 +1,346 @@
+/* ====================================================
+   SEU vCampus 主题色彩系统
+   主色：#587558 (森林绿), #fdd000 (金色), #231815 (深黑)
+   辅助色：#f6ab00 (琥珀橙), #151E49 (深邃藏青)
+   ==================================================== */
+
+* {
+    -fx-seu-green: #587558;
+    -fx-seu-green-dark: #3f553f;
+    -fx-seu-green-light: #eaf0ea;
+    -fx-seu-gold: #fdd000;
+    -fx-seu-amber: #f6ab00;
+    -fx-seu-navy: #151E49;
+    -fx-seu-dark: #231815;
+    -fx-text-muted: #6b7280;
+    -fx-font-family: "-apple-system", "BlinkMacSystemFont", "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+}
+
+/* ================= 1. 登录界面样式 ================= */
+.login-background {
+    -fx-background-color: radial-gradient(center 50% 35%, radius 75%, #f2f5f2 0%, #dce4dc 100%);
+}
+
+.login-card {
+    -fx-background-color: #ffffff;
+    -fx-background-radius: 14px;
+    -fx-border-radius: 14px;
+    -fx-border-color: #cfd8cf;
+    -fx-border-width: 1px;
+    -fx-effect: dropshadow(three-pass-box, rgba(35, 24, 21, 0.12), 26, 0, 0, 8);
+}
+
+.login-title {
+    -fx-font-size: 22px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #231815;
+}
+
+.login-subtitle {
+    -fx-font-size: 13px;
+    -fx-text-fill: #587558;
+    -fx-font-weight: bold;
+}
+
+/* 表单输入组件 */
+.form-label {
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #231815;
+}
+
+.form-control {
+    -fx-background-color: #f8faf8;
+    -fx-background-radius: 6px;
+    -fx-border-color: #c4d0c4;
+    -fx-border-radius: 6px;
+    -fx-border-width: 1.5px;
+    -fx-text-fill: #231815;
+    -fx-font-size: 13px;
+    -fx-padding: 0 10px;
+}
+
+.form-control:focused {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #587558;
+    -fx-effect: dropshadow(three-pass-box, rgba(88, 117, 88, 0.25), 6, 0, 0, 0);
+}
+
+.readonly-input {
+    -fx-background-color: #f1f4f1;
+    -fx-text-fill: #727e72;
+}
+
+/* 按钮规范 */
+.btn-primary {
+    -fx-background-color: linear-gradient(to bottom right, #587558, #3f553f);
+    -fx-text-fill: #ffffff;
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+    -fx-background-radius: 6px;
+    -fx-cursor: hand;
+    -fx-padding: 8px 18px;
+    -fx-effect: dropshadow(three-pass-box, rgba(63, 85, 63, 0.28), 8, 0, 0, 3);
+}
+
+.btn-primary:hover {
+    -fx-background-color: linear-gradient(to bottom right, #668666, #4d664d);
+    -fx-effect: dropshadow(three-pass-box, rgba(63, 85, 63, 0.4), 10, 0, 0, 4);
+}
+
+.btn-secondary {
+    -fx-background-color: #e5ebe5;
+    -fx-text-fill: #231815;
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-background-radius: 6px;
+    -fx-cursor: hand;
+    -fx-padding: 8px 16px;
+}
+
+.btn-secondary:hover {
+    -fx-background-color: #d3ded3;
+}
+
+.login-link {
+    -fx-text-fill: #587558;
+    -fx-font-size: 12px;
+    -fx-underline: true;
+}
+
+.login-link:hover {
+    -fx-text-fill: #f6ab00;
+}
+
+/* ================= 2. 主界面应用中心 ================= */
+.main-window {
+    -fx-background-color: #f6f8f6;
+}
+
+.app-topbar {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #e2e8e2;
+    -fx-border-width: 0 0 1px 0;
+    -fx-effect: dropshadow(three-pass-box, rgba(35, 24, 21, 0.04), 8, 0, 0, 2);
+}
+
+/* 品牌 Logo（藏青底 + 金黄字） */
+.brand-logo {
+    -fx-background-color: linear-gradient(to bottom right, #151E49, #0d1433);
+    -fx-background-radius: 50%;
+    -fx-border-color: #fdd000;
+    -fx-border-width: 1px;
+    -fx-border-radius: 50%;
+}
+
+.brand-logo-text {
+    -fx-text-fill: #fdd000;
+    -fx-font-size: 16px;
+    -fx-font-weight: bold;
+}
+
+.brand-title {
+    -fx-font-size: 16px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #231815;
+}
+
+.brand-divider {
+    -fx-text-fill: #cbd5cb;
+    -fx-font-size: 14px;
+}
+
+.brand-subtitle {
+    -fx-font-size: 15px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #587558;
+}
+
+/* 用户状态胶囊按钮 */
+.user-menu-btn {
+    -fx-background-color: #f0f4f0;
+    -fx-background-radius: 20px;
+    -fx-border-color: #cfd8cf;
+    -fx-border-radius: 20px;
+    -fx-text-fill: #231815;
+    -fx-font-weight: bold;
+    -fx-padding: 4px 12px;
+}
+
+.user-menu-btn:hover {
+    -fx-background-color: #e2ece2;
+    -fx-border-color: #587558;
+}
+
+.section-title {
+    -fx-font-size: 18px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #231815;
+}
+
+/* 应用网格卡片 */
+.app-card {
+    -fx-background-color: #ffffff;
+    -fx-background-radius: 12px;
+    -fx-border-radius: 12px;
+    -fx-border-color: #e2e8e2;
+    -fx-border-width: 1px;
+    -fx-cursor: hand;
+    -fx-padding: 16px;
+    -fx-effect: dropshadow(three-pass-box, rgba(35, 24, 21, 0.03), 6, 0, 0, 2);
+}
+
+.app-card:hover {
+    -fx-border-color: #587558;
+    -fx-background-color: #fafcfa;
+    -fx-effect: dropshadow(three-pass-box, rgba(88, 117, 88, 0.16), 14, 0, 0, 4);
+}
+
+.app-icon {
+    -fx-background-radius: 14px;
+}
+
+.icon-text {
+    -fx-font-size: 24px;
+    -fx-text-fill: #ffffff;
+}
+
+/* 卡片主题色分配（主色与辅助色搭配） */
+.icon-academic { -fx-background-color: linear-gradient(to bottom right, #587558, #3a503a); } /* 森林绿 */
+.icon-library  { -fx-background-color: linear-gradient(to bottom right, #151E49, #253375); } /* 藏青 */
+.icon-course   { -fx-background-color: linear-gradient(to bottom right, #f6ab00, #c78600); } /* 琥珀橙 */
+.icon-store    { -fx-background-color: linear-gradient(to bottom right, #4a6850, #283a2c); } /* 深绿 */
+.icon-bank     { -fx-background-color: linear-gradient(to bottom right, #fdd000, #e09b00); } /* 金黄 */
+.icon-hospital { -fx-background-color: linear-gradient(to bottom right, #c0392b, #962d22); } /* 医疗红 */
+.icon-sports   { -fx-background-color: linear-gradient(to bottom right, #2e7d32, #1b5e20); } /* 翠绿 */
+.icon-dorm     { -fx-background-color: linear-gradient(to bottom right, #283593, #151E49); } /* 蓝青 */
+
+.app-card-title {
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #231815;
+}
+
+/* ================= 3. 个人中心 / 账号管理 ================= */
+.profile-topbar {
+    -fx-background-color: #f7faf7;
+    -fx-border-color: #e2e8e2;
+    -fx-border-width: 0 0 1px 0;
+}
+
+.btn-back {
+    -fx-background-color: transparent;
+    -fx-text-fill: #231815;
+    -fx-font-weight: bold;
+    -fx-font-size: 13px;
+    -fx-cursor: hand;
+}
+
+.btn-back:hover {
+    -fx-text-fill: #587558;
+}
+
+.profile-sidebar {
+    -fx-background-color: #f7faf7;
+    -fx-border-color: #e2e8e2;
+    -fx-border-width: 0 1px 0 0;
+}
+
+.sidebar-tab-btn {
+    -fx-background-color: transparent;
+    -fx-alignment: CENTER_LEFT;
+    -fx-text-fill: #4e5a4e;
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+    -fx-padding: 10px 14px;
+    -fx-background-radius: 8px;
+    -fx-cursor: hand;
+}
+
+.sidebar-tab-btn:hover {
+    -fx-background-color: #ebf1eb;
+    -fx-text-fill: #231815;
+}
+
+.sidebar-tab-btn:selected {
+    -fx-background-color: #eaf0ea;
+    -fx-text-fill: #587558;
+    -fx-border-color: #587558;
+    -fx-border-width: 0 0 0 4px;
+    -fx-border-radius: 2px 8px 8px 2px;
+}
+
+/* 个人头像大徽标 */
+.profile-avatar-lg {
+    -fx-background-color: linear-gradient(to bottom right, #587558, #151E49);
+    -fx-background-radius: 50%;
+    -fx-effect: dropshadow(three-pass-box, rgba(88, 117, 88, 0.35), 10, 0, 0, 3);
+}
+
+.avatar-text-lg { -fx-font-size: 26px; -fx-text-fill: #ffffff; }
+.avatar-text-xl { -fx-font-size: 34px; -fx-text-fill: #ffffff; }
+
+.profile-name-title {
+    -fx-font-size: 19px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #231815;
+}
+
+/* 身份标签（金黄背景 + 深黑文本） */
+.profile-tag {
+    -fx-background-color: #fef5cc;
+    -fx-text-fill: #8a5e00;
+    -fx-border-color: #fdd000;
+    -fx-border-width: 1px;
+    -fx-padding: 2px 10px;
+    -fx-background-radius: 12px;
+    -fx-border-radius: 12px;
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+}
+
+/* 钱包卡片（藏青渐变 + 金额金色醒目标注） */
+.wallet-card {
+    -fx-background-color: linear-gradient(to bottom right, #151E49, #253375);
+    -fx-background-radius: 12px;
+    -fx-border-color: rgba(253, 208, 0, 0.4);
+    -fx-border-width: 1px;
+    -fx-border-radius: 12px;
+    -fx-effect: dropshadow(three-pass-box, rgba(21, 30, 73, 0.35), 16, 0, 0, 6);
+}
+
+.wallet-subtitle {
+    -fx-font-size: 12px;
+    -fx-text-fill: rgba(255, 255, 255, 0.85);
+}
+
+.wallet-balance {
+    -fx-font-size: 30px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #fdd000; /* 金黄色金额突出显示 */
+}
+
+.wallet-footer-info {
+    -fx-font-size: 11px;
+    -fx-text-fill: rgba(255, 255, 255, 0.7);
+}
+
+.subpanel-title {
+    -fx-font-size: 18px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #231815;
+}
+
+.hint-text {
+    -fx-font-size: 12px;
+    -fx-text-fill: #6b7280;
+}
+
+.content-scroll-pane {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+}
+
+.content-scroll-pane > .viewport {
+    -fx-background-color: transparent;
+}

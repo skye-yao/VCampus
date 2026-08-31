@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.MenuButton?>
+<?import javafx.scene.control.MenuItem?>
+<?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.layout.BorderPane?>
+<?import javafx.scene.layout.ColumnConstraints?>
+<?import javafx.scene.layout.GridPane?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.layout.RowConstraints?>
+<?import javafx.scene.layout.StackPane?>
+<?import javafx.scene.layout.VBox?>
+
+<BorderPane fx:id="rootMain" prefHeight="580.0" prefWidth="860.0" styleClass="main-window" stylesheets="@../css/style.css" xmlns="http://javafx.com/javafx/17" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.MainController">
+    <!-- 顶部导航栏 -->
+    <top>
+        <HBox alignment="CENTER_LEFT" prefHeight="56.0" spacing="12.0" styleClass="app-topbar" BorderPane.alignment="CENTER">
+            <padding>
+                <Insets left="24.0" right="24.0" />
+            </padding>
+            <children>
+                <!-- Logo 与系统名称 -->
+                <StackPane prefHeight="32.0" prefWidth="32.0" styleClass="brand-logo">
+                    <children>
+                        <Label styleClass="brand-logo-text" text="東" />
+                    </children>
+                </StackPane>
+                <Label styleClass="brand-title" text="东南大学" />
+                <Label styleClass="brand-divider" text="|" />
+                <Label styleClass="brand-subtitle" text="vCampus" />
+                <Region HBox.hgrow="ALWAYS" />
+
+                <!-- 用户信息下拉菜单 -->
+                <MenuButton fx:id="userMenuButton" styleClass="user-menu-btn" text="张三">
+                    <items>
+                        <MenuItem onAction="#handleNavigateProfile" styleClass="menu-item-custom" text="👤 帐号管理" />
+                        <MenuItem onAction="#handleLogout" styleClass="menu-item-danger" text="🚪 安全退出" />
+                    </items>
+                </MenuButton>
+            </children>
+        </HBox>
+    </top>
+
+    <!-- 应用网格主体 -->
+    <center>
+        <ScrollPane fitToWidth="true" styleClass="content-scroll-pane" BorderPane.alignment="CENTER">
+            <content>
+                <VBox spacing="20.0" styleClass="app-body">
+                    <padding>
+                        <Insets bottom="24.0" left="30.0" right="30.0" top="24.0" />
+                    </padding>
+                    <children>
+                        <Label styleClass="section-title" text="应用中心" />
+
+                        <!-- 八大子系统网格 (4列 x 2行) -->
+                        <GridPane hgap="20.0" vgap="20.0">
+                            <columnConstraints>
+                                <ColumnConstraints percentWidth="25.0" />
+                                <ColumnConstraints percentWidth="25.0" />
+                                <ColumnConstraints percentWidth="25.0" />
+                                <ColumnConstraints percentWidth="25.0" />
+                            </columnConstraints>
+                            <rowConstraints>
+                                <RowConstraints minHeight="120.0" />
+                                <RowConstraints minHeight="120.0" />
+                            </rowConstraints>
+                            <children>
+                                <!-- 学籍管理 -->
+                                <VBox alignment="CENTER" onMouseClicked="#openStudentAffairs" spacing="10.0" styleClass="app-card" GridPane.columnIndex="0" GridPane.rowIndex="0">
+                                    <children>
+                                        <StackPane prefHeight="54.0" prefWidth="54.0" styleClass="app-icon, icon-academic">
+                                            <children><Label styleClass="icon-text" text="🎓" /></children>
+                                        </StackPane>
+                                        <Label styleClass="app-card-title" text="学籍" />
+                                    </children>
+                                </VBox>
+
+                                <!-- 图书馆 -->
+                                <VBox alignment="CENTER" onMouseClicked="#openLibrary" spacing="10.0" styleClass="app-card" GridPane.columnIndex="1" GridPane.rowIndex="0">
+                                    <children>
+                                        <StackPane prefHeight="54.0" prefWidth="54.0" styleClass="app-icon, icon-library">
+                                            <children><Label styleClass="icon-text" text="📚" /></children>
+                                        </StackPane>
+                                        <Label styleClass="app-card-title" text="图书馆" />
+                                    </children>
+                                </VBox>
+
+                                <!-- 选课 -->
+                                <VBox alignment="CENTER" onMouseClicked="#openCourseSelection" spacing="10.0" styleClass="app-card" GridPane.columnIndex="2" GridPane.rowIndex="0">
+                                    <children>
+                                        <StackPane prefHeight="54.0" prefWidth="54.0" styleClass="app-icon, icon-course">
+                                            <children><Label styleClass="icon-text" text="📝" /></children>
+                                        </StackPane>
+                                        <Label styleClass="app-card-title" text="选课" />
+                                    </children>
+                                </VBox>
+
+                                <!-- 商店 -->
+                                <VBox alignment="CENTER" onMouseClicked="#openStore" spacing="10.0" styleClass="app-card" GridPane.columnIndex="3" GridPane.rowIndex="0">
+                                    <children>
+                                        <StackPane prefHeight="54.0" prefWidth="54.0" styleClass="app-icon, icon-store">
+                                            <children><Label styleClass="icon-text" text="🛒" /></children>
+                                        </StackPane>
+                                        <Label styleClass="app-card-title" text="商店" />
+                                    </children>
+                                </VBox>
+
+                                <!-- 银行 -->
+                                <VBox alignment="CENTER" onMouseClicked="#openBank" spacing="10.0" styleClass="app-card" GridPane.columnIndex="0" GridPane.rowIndex="1">
+                                    <children>
+                                        <StackPane prefHeight="54.0" prefWidth="54.0" styleClass="app-icon, icon-bank">
+                                            <children><Label styleClass="icon-text" text="💳" /></children>
+                                        </StackPane>
+                                        <Label styleClass="app-card-title" text="银行" />
+                                    </children>
+                                </VBox>
+
+                                <!-- 校医院 -->
+                                <VBox alignment="CENTER" onMouseClicked="#openHospital" spacing="10.0" styleClass="app-card" GridPane.columnIndex="1" GridPane.rowIndex="1">
+                                    <children>
+                                        <StackPane prefHeight="54.0" prefWidth="54.0" styleClass="app-icon, icon-hospital">
+                                            <children><Label styleClass="icon-text" text="🏥" /></children>
+                                        </StackPane>
+                                        <Label styleClass="app-card-title" text="医院" />
+                                    </children>
+                                </VBox>
+
+                                <!-- 体育预约 -->
+                                <VBox alignment="CENTER" onMouseClicked="#openGym" spacing="10.0" styleClass="app-card" GridPane.columnIndex="2" GridPane.rowIndex="1">
+                                    <children>
+                                        <StackPane prefHeight="54.0" prefWidth="54.0" styleClass="app-icon, icon-sports">
+                                            <children><Label styleClass="icon-text" text="🏸" /></children>
+                                        </StackPane>
+                                        <Label styleClass="app-card-title" text="体育预约" />
+                                    </children>
+                                </VBox>
+
+                                <!-- 宿舍管理 -->
+                                <VBox alignment="CENTER" onMouseClicked="#openDormitory" spacing="10.0" styleClass="app-card" GridPane.columnIndex="3" GridPane.rowIndex="1">
+                                    <children>
+                                        <StackPane prefHeight="54.0" prefWidth="54.0" styleClass="app-icon, icon-dorm">
+                                            <children><Label styleClass="icon-text" text="🏢" /></children>
+                                        </StackPane>
+                                        <Label styleClass="app-card-title" text="宿舍管理" />
+                                    </children>
+                                </VBox>
+                            </children>
+                        </GridPane>
+                    </children>
+                </VBox>
+            </content>
+        </ScrollPane>
+    </center>
+</BorderPane>
