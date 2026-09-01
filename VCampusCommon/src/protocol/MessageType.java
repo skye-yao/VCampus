@@ -27,7 +27,6 @@ STUDENT_QUERY,              // 管理员查询指定学生完整信息
 
 STUDENT_CHANGE_SUBMIT,      // 学生提交一份信息修改申请
 STUDENT_CHANGE_LIST,        // 学生查询自己的历史修改申请
-STUDENT_CHANGE_CANCEL,      // 学生撤销自己的待审核申请
 
 STUDENT_REVIEW_LIST,        // 管理员查询待审核申请列表
 STUDENT_REVIEW_QUERY,       // 管理员查询某一申请详情

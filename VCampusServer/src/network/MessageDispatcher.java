@@ -4,7 +4,6 @@ import protocol.Message;
 import protocol.MessageCode;
 import protocol.MessageType;
 import handler.UserHandler;
-import handler.StudentHandler;
 
 /**
  * 服务端消息分发器
@@ -18,11 +17,9 @@ public class MessageDispatcher {
 
     // 各模块 Handler
     private final UserHandler userHandler;
-    private final StudentHandler studentHandler;
 
     public MessageDispatcher() {
         this.userHandler = new UserHandler();
-        this.studentHandler = new StudentHandler();
     }
 
     /**
@@ -44,8 +41,6 @@ public class MessageDispatcher {
         // 根据模块分发
         if ("user".equalsIgnoreCase(module)) {
             return userHandler.handle(request);
-        } else if ("student".equalsIgnoreCase(module)) {
-            return studentHandler.handle(request);
         } else {
             // 未知模块或未实现的模块
             Message response = new Message(MessageType.RESPONSE, module, request.getAction());
