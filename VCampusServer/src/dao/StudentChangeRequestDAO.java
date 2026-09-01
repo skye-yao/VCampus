@@ -1,5 +1,6 @@
 package dao;
 import entity.*; import enums.StudentChangeStatus; import util.DBUtil; import java.sql.*; import java.util.*;
+@SuppressWarnings({"SqlNoDataSourceInspection", "SqlResolve"})
 public class StudentChangeRequestDAO {
  private final StudentChangeItemDAO items=new StudentChangeItemDAO();
  public long insert(Connection c,StudentChangeRequest r)throws SQLException{try(PreparedStatement p=c.prepareStatement("INSERT INTO tblStudentChangeRequest(studentId,status,submitTime)VALUES(?,'PENDING',CURRENT_TIMESTAMP)",Statement.RETURN_GENERATED_KEYS)){p.setString(1,r.getStudentId());p.executeUpdate();try(ResultSet k=p.getGeneratedKeys()){if(!k.next())throw new SQLException("未生成申请编号");long id=k.getLong(1);items.insertAll(c,id,r.getItems());return id;}}}
