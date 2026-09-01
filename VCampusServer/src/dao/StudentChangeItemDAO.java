@@ -2,6 +2,7 @@ package dao;
 import entity.StudentChangeItem;
 import java.sql.*;
 import java.util.*;
+@SuppressWarnings({"SqlNoDataSourceInspection", "SqlResolve"})
 public class StudentChangeItemDAO {
     public void insertAll(Connection c,long id,List<StudentChangeItem>xs)throws SQLException {
         try(PreparedStatement p=c.prepareStatement("INSERT INTO tblStudentChangeItem(requestId,fieldName,oldValue,newValue)VALUES(?,?,?,?)")) {

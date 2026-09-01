@@ -4,6 +4,7 @@ import enums.StudentAwardType;
 import util.DBUtil;
 import java.sql.*;
 import java.util.*;
+@SuppressWarnings({"SqlNoDataSourceInspection", "SqlResolve"})
 public class StudentAwardDAO {
     public List<StudentAward> findByStudentId(String id)throws SQLException {
         List<StudentAward>o=new ArrayList<>();
