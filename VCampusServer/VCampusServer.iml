@@ -6,6 +6,16 @@
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
     </content>
     <orderEntry type="inheritedJdk" />
+    <orderEntry type="module-library">
+      <library>
+        <CLASSES>
+          <root url="file://$MODULE_DIR$/lib" />
+        </CLASSES>
+        <JAVADOC />
+        <SOURCES />
+        <jarDirectory url="file://$MODULE_DIR$/lib" recursive="false" />
+      </library>
+    </orderEntry>
     <orderEntry type="module" module-name="VCampusCommon" />
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="library" name="lib (server)" level="project" />

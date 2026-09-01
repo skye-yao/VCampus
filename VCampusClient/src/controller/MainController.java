@@ -49,7 +49,7 @@ public class MainController {
 
     @FXML
     private void openStudentAffairs(MouseEvent event) {
-        showSubsystemNotice("学籍管理子系统");
+        ClientMain.switchScene("/resources/fxml/StudentView.fxml");
     }
 
     @FXML
