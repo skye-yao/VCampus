@@ -40,6 +40,8 @@ public class UserHandler {
                     return handleChangePassword(request, response);
                 case "updateprofile":
                     return handleUpdateProfile(request, response);
+                case "updateavatar":
+                    return handleUpdateAvatar(request,response);
                 case "logout":
                     return handleLogout(request, response);
                 default:
@@ -136,6 +138,23 @@ public class UserHandler {
         user.setEmail(request.getData("email"));
 
         userService.updateProfile(user);
+        response.setCode(MessageCode.SUCCESS);
+        response.setMessage("个人资料更新成功");
+        return response;
+    }
+
+    private Message handleUpdateAvatar(Message request, Message response) throws BusinessException, DatabaseException {
+        String token = request.getToken();
+        if (!SessionManager.getInstance().isValid(token)) {
+            response.setCode(MessageCode.UNAUTHORIZED);
+            response.setMessage("登录会话已失效，请重新登录");
+            return response;
+        }
+
+        // 此处可从 request 的 data 中组装 user
+        String UID = request.getSender();
+        String avatarBase64 = request.getData("avatar");
+        userService.updateAvatar(UID,avatarBase64);
         response.setCode(MessageCode.SUCCESS);
         response.setMessage("个人资料更新成功");
         return response;
