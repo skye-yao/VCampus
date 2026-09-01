@@ -368,13 +368,13 @@
 .student-edit-link:hover { -fx-background-color: #eaf0ea; -fx-background-radius: 6px; }
 .student-record-section { -fx-background-color: #ffffff; -fx-padding: 16px 18px; -fx-background-radius: 12px; -fx-border-radius: 12px; -fx-border-color: #dce5dc; }
 .student-section-accent { -fx-background-color: #159a86; -fx-background-radius: 2px; }
-.student-record-card { -fx-padding: 7px 5px; -fx-min-width: 175px; -fx-max-width: 175px; }
+.student-record-card { -fx-padding: 8px 5px; -fx-min-width: 185px; -fx-pref-width: 205px; -fx-max-width: 235px; }
 .award-record-icon, .aid-record-icon { -fx-min-width: 50px; -fx-min-height: 50px; -fx-max-width: 50px; -fx-max-height: 50px; -fx-alignment: CENTER; -fx-background-radius: 25px; -fx-text-fill: white; -fx-font-size: 22px; }
 .award-record-icon { -fx-background-color: #ff7a29; }
 .aid-record-icon { -fx-background-color: #51b9c9; }
-.record-title { -fx-font-size: 13px; -fx-text-fill: #30363a; -fx-font-weight: bold; -fx-max-width: 112px; -fx-text-overrun: ELLIPSIS; }
-.record-meta { -fx-font-size: 11px; -fx-text-fill: #6b7280; -fx-max-width: 112px; -fx-text-overrun: ELLIPSIS; }
-.record-date { -fx-font-size: 11px; -fx-text-fill: #a4a9ad; }
+.record-title { -fx-font-size: 14px; -fx-text-fill: #30363a; -fx-font-weight: bold; -fx-max-width: 155px; -fx-text-overrun: ELLIPSIS; }
+.record-meta { -fx-font-size: 12px; -fx-text-fill: #6b7280; -fx-max-width: 155px; -fx-text-overrun: ELLIPSIS; }
+.record-date { -fx-font-size: 12px; -fx-text-fill: #a4a9ad; }
 .record-empty { -fx-font-size: 13px; -fx-text-fill: #9aa19c; -fx-padding: 12px 4px; }
 .student-search-bar { -fx-background-color: #ffffff; -fx-padding: 10px 12px; -fx-background-radius: 8px; -fx-border-radius: 8px; -fx-border-color: #dce5dc; }
 .student-pagination { -fx-background-color: #ffffff; -fx-padding: 7px 10px; -fx-border-color: #dce5dc; -fx-border-width: 1px 0 0 0; }
@@ -382,3 +382,6 @@
 .page-button:hover { -fx-background-color: #eaf0ea; -fx-border-color: #587558; }
 .table-action-button { -fx-background-color: transparent; -fx-text-fill: #587558; -fx-font-weight: bold; -fx-cursor: hand; -fx-padding: 3px 7px; }
 .table-action-button:hover { -fx-background-color: #eaf0ea; -fx-background-radius: 5px; }
+.review-bucket-tabs { -fx-border-color: #dce5dc; -fx-border-width: 0 0 1px 0; }
+.review-bucket-tab { -fx-background-color: transparent; -fx-padding: 8px 20px; -fx-font-weight: bold; -fx-text-fill: #667066; -fx-cursor: hand; }
+.review-bucket-tab:selected { -fx-background-color: #eaf0ea; -fx-text-fill: #3f553f; -fx-border-color: #587558; -fx-border-width: 0 0 3px 0; }

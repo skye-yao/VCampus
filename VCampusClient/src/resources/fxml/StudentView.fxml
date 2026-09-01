@@ -1,19 +1,359 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<?import javafx.geometry.Insets?><?import javafx.scene.control.*?><?import javafx.scene.layout.*?>
-<BorderPane prefHeight="580" prefWidth="860" styleClass="main-window" stylesheets="@../css/style.css" xmlns="http://javafx.com/javafx/17" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.StudentController">
-<top><HBox alignment="CENTER_LEFT" prefHeight="56" spacing="12" styleClass="app-topbar"><padding><Insets left="22" right="22"/></padding><Button onAction="#handleBack" styleClass="btn-back" text="← 返回"/><Label fx:id="titleLabel" styleClass="brand-title" text="我的学籍"/><Region HBox.hgrow="ALWAYS"/><Button onAction="#handleRefresh" styleClass="btn-secondary" text="刷新"/></HBox></top>
-<center><TabPane fx:id="studentTabs" tabClosingPolicy="UNAVAILABLE" styleClass="student-tab-pane"><tabs>
-<Tab fx:id="overviewTab" text="学生基本信息"><ScrollPane fitToWidth="true" hbarPolicy="NEVER" styleClass="student-scroll"><VBox spacing="16" styleClass="student-page"><padding><Insets bottom="22" left="25" right="25" top="20"/></padding>
-<HBox alignment="CENTER_LEFT" spacing="18" styleClass="student-hero"><StackPane minHeight="82" minWidth="82" styleClass="student-avatar"><Label fx:id="avatarLabel" styleClass="avatar-text-xl" text="学"/></StackPane><VBox spacing="7" HBox.hgrow="ALWAYS"><Label fx:id="nameLabel" styleClass="profile-name-title" text="正在加载"/><Label fx:id="studentMetaLabel" styleClass="student-meta" text="学号 · 年级 · 学院 · 专业"/><Label fx:id="pendingHintLabel" styleClass="profile-tag" text="当前无待审核申请"/></VBox><Button onAction="#handleViewDetails" styleClass="btn-primary" text="查看详情 →"/></HBox>
-<Label styleClass="student-section-title" text="我的学籍"/><GridPane hgap="12"><columnConstraints><ColumnConstraints percentWidth="25"/><ColumnConstraints percentWidth="25"/><ColumnConstraints percentWidth="25"/><ColumnConstraints percentWidth="25"/></columnConstraints>
-<VBox spacing="7" styleClass="student-stat-card"><Label styleClass="hint-text" text="学生类别"/><Label fx:id="categoryValue" styleClass="student-stat-value" text="-"/></VBox>
-<VBox spacing="7" styleClass="student-stat-card" GridPane.columnIndex="1"><Label styleClass="hint-text" text="学籍状态"/><Label fx:id="statusValue" styleClass="student-stat-value" text="-"/></VBox>
-<VBox spacing="7" styleClass="student-stat-card" GridPane.columnIndex="2"><Label styleClass="hint-text" text="当前年级"/><Label fx:id="gradeValue" styleClass="student-stat-value" text="-"/></VBox>
-<VBox spacing="7" styleClass="student-stat-card" GridPane.columnIndex="3"><Label styleClass="hint-text" text="是否在校"/><Label fx:id="inSchoolValue" styleClass="student-stat-value" text="-"/></VBox></GridPane>
-<HBox spacing="12"><VBox spacing="8" styleClass="student-panel" HBox.hgrow="ALWAYS"><Label styleClass="student-section-title" text="我受到的奖励"/><TableView fx:id="awardTable" prefHeight="185"><columns><TableColumn fx:id="awardNameCol" prefWidth="140" text="奖励名称"/><TableColumn fx:id="awardTypeCol" prefWidth="85" text="类型"/><TableColumn fx:id="awardLevelCol" prefWidth="80" text="级别"/><TableColumn fx:id="awardDateCol" prefWidth="90" text="日期"/></columns></TableView></VBox>
-<VBox spacing="8" styleClass="student-panel" HBox.hgrow="ALWAYS"><Label styleClass="student-section-title" text="我受到的资助"/><TableView fx:id="aidTable" prefHeight="185"><columns><TableColumn fx:id="aidNameCol" prefWidth="130" text="资助名称"/><TableColumn fx:id="aidTypeCol" prefWidth="80" text="类型"/><TableColumn fx:id="aidAmountCol" prefWidth="85" text="金额"/><TableColumn fx:id="aidStatusCol" prefWidth="85" text="状态"/></columns></TableView></VBox></HBox></VBox></ScrollPane></Tab>
-<Tab fx:id="detailTab" text="学籍详情"><BorderPane styleClass="student-page"><left><VBox alignment="TOP_CENTER" prefWidth="172" spacing="10" styleClass="student-sidebar"><padding><Insets left="14" right="14" top="24"/></padding><StackPane minHeight="70" minWidth="70" styleClass="student-avatar"><Label styleClass="avatar-text-lg" text="学"/></StackPane><Label styleClass="student-side-name" text="信息索引"/><Separator/><Button maxWidth="Infinity" onAction="#handleIndexBase" styleClass="student-side-button-active" text="个人基本信息"/><Button maxWidth="Infinity" onAction="#handleIndexStudy" styleClass="student-side-button" text="学籍信息"/><Button maxWidth="Infinity" onAction="#handleIndexAdmission" styleClass="student-side-button" text="入学信息"/><Button maxWidth="Infinity" onAction="#handleIndexContact" styleClass="student-side-button" text="联系信息"/></VBox></left>
-<center><ScrollPane fx:id="detailScrollPane" fitToWidth="true" hbarPolicy="NEVER" styleClass="student-scroll"><VBox spacing="12"><padding><Insets bottom="20" left="20" right="22" top="18"/></padding><VBox spacing="8" styleClass="student-panel"><HBox alignment="CENTER_LEFT"><Label styleClass="student-section-title" text="个人基本信息"/><Region HBox.hgrow="ALWAYS"/><Button onAction="#handleInlineEdit" styleClass="student-edit-link" text="编辑"/></HBox><GridPane fx:id="baseInfoGrid" hgap="10" vgap="7"/></VBox><VBox spacing="8" styleClass="student-panel"><HBox alignment="CENTER_LEFT"><Label styleClass="student-section-title" text="学籍信息"/><Region HBox.hgrow="ALWAYS"/><Button onAction="#handleInlineEdit" styleClass="student-edit-link" text="编辑"/></HBox><GridPane fx:id="studyInfoGrid" hgap="10" vgap="7"/></VBox><VBox spacing="8" styleClass="student-panel"><HBox alignment="CENTER_LEFT"><Label styleClass="student-section-title" text="入学信息"/><Region HBox.hgrow="ALWAYS"/><Button onAction="#handleInlineEdit" styleClass="student-edit-link" text="编辑"/></HBox><GridPane fx:id="admissionInfoGrid" hgap="10" vgap="7"/></VBox><VBox spacing="8" styleClass="student-panel"><HBox alignment="CENTER_LEFT"><Label styleClass="student-section-title" text="联系信息"/><Region HBox.hgrow="ALWAYS"/><Button fx:id="inlineEditButton" onAction="#handleInlineEdit" styleClass="student-edit-link" text="编辑"/></HBox><GridPane fx:id="contactInfoGrid" hgap="10" vgap="7"/><VBox fx:id="inlineEditBox" managed="false" spacing="9" visible="false"><Label styleClass="hint-text" text="除学号和用户关联外，当前允许申请修改全部学籍信息"/><GridPane fx:id="editGrid" hgap="10" vgap="9"/><Label styleClass="form-label" text="修改理由"/><TextArea fx:id="changeReasonArea" prefRowCount="3" promptText="请说明本次修改原因" wrapText="true"/><HBox alignment="CENTER_RIGHT" spacing="8"><Button onAction="#handleCancelInlineEdit" styleClass="btn-secondary" text="取消"/><Button onAction="#handleSubmitChange" styleClass="btn-primary" text="提交修改申请"/></HBox></VBox></VBox><VBox spacing="8" styleClass="student-panel"><Label styleClass="student-section-title" text="我的申请记录"/><TableView fx:id="myRequestTable" prefHeight="210"><columns><TableColumn fx:id="requestIdCol" prefWidth="75" text="编号"/><TableColumn fx:id="requestTimeCol" prefWidth="155" text="提交时间"/><TableColumn fx:id="requestStatusCol" prefWidth="95" text="状态"/><TableColumn fx:id="requestRemarkCol" prefWidth="400" text="审核意见"/></columns></TableView></VBox></VBox></ScrollPane></center></BorderPane></Tab>
-<Tab fx:id="adminListTab" text="学生列表"><BorderPane styleClass="student-page"><left><VBox alignment="TOP_CENTER" prefWidth="140" spacing="12" styleClass="student-sidebar"><padding><Insets left="14" right="14" top="24"/></padding><StackPane minHeight="70" minWidth="70" styleClass="student-avatar"><Label styleClass="avatar-text-lg" text="管"/></StackPane><Label styleClass="student-side-name" text="管理员"/><Button maxWidth="Infinity" styleClass="student-side-button-active" text="学籍信息"/><Button maxWidth="Infinity" onAction="#handleShowReview" styleClass="student-side-button" text="信息审核"/></VBox></left><center><VBox spacing="10"><padding><Insets bottom="18" left="18" right="22" top="18"/></padding><HBox spacing="8"><TextField fx:id="searchField" promptText="学号、姓名、学院、专业" HBox.hgrow="ALWAYS"/><Button onAction="#handleSearchStudents" styleClass="btn-primary" text="查询"/><Button onAction="#handleShowSelectedStudent" styleClass="btn-secondary" text="查看详情"/></HBox><TableView fx:id="studentTable" VBox.vgrow="ALWAYS"><columns><TableColumn fx:id="stuIdCol" prefWidth="95" text="用户名"/><TableColumn fx:id="stuNameCol" prefWidth="80" text="姓名"/><TableColumn fx:id="stuGenderCol" prefWidth="60" text="性别"/><TableColumn fx:id="stuGradeCol" prefWidth="70" text="年级"/><TableColumn fx:id="stuCollegeCol" prefWidth="125" text="学院"/><TableColumn fx:id="stuMajorCol" prefWidth="125" text="专业"/><TableColumn fx:id="stuStatusCol" prefWidth="90" text="学籍状态"/></columns></TableView></VBox></center></BorderPane></Tab>
-<Tab fx:id="reviewTab" text="信息审核"><HBox spacing="12" styleClass="student-page"><padding><Insets bottom="18" left="22" right="22" top="18"/></padding><VBox spacing="8" styleClass="student-panel" HBox.hgrow="ALWAYS"><Label styleClass="student-section-title" text="未完成审核"/><TableView fx:id="reviewTable" VBox.vgrow="ALWAYS"><columns><TableColumn fx:id="reviewIdCol" prefWidth="60" text="编号"/><TableColumn fx:id="reviewStudentCol" prefWidth="85" text="学号"/><TableColumn fx:id="reviewTimeCol" prefWidth="130" text="时间"/><TableColumn fx:id="reviewStatusCol" prefWidth="70" text="状态"/></columns></TableView></VBox><VBox spacing="8" styleClass="student-panel" HBox.hgrow="ALWAYS"><Label styleClass="student-section-title" text="审核详情"/><TableView fx:id="reviewItemTable" VBox.vgrow="ALWAYS"><columns><TableColumn fx:id="itemFieldCol" prefWidth="100" text="字段"/><TableColumn fx:id="itemOldCol" prefWidth="140" text="原内容"/><TableColumn fx:id="itemNewCol" prefWidth="140" text="新内容"/></columns></TableView><Label text="审核理由"/><TextArea fx:id="reviewRemarkArea" prefRowCount="3"/><HBox alignment="CENTER_RIGHT" spacing="8"><Button fx:id="rejectButton" disable="true" onAction="#handleReject" styleClass="btn-secondary" text="不通过"/><Button fx:id="approveButton" disable="true" onAction="#handleApprove" styleClass="btn-primary" text="通过"/></HBox></VBox></HBox></Tab>
-</tabs></TabPane></center><bottom><HBox alignment="CENTER_LEFT" prefHeight="28" styleClass="student-statusbar"><padding><Insets left="22"/></padding><Label fx:id="statusBarLabel" styleClass="hint-text" text="就绪"/></HBox></bottom></BorderPane>
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<BorderPane xmlns="http://javafx.com/javafx/17" xmlns:fx="http://javafx.com/fxml/1" prefHeight="580" prefWidth="860" styleClass="main-window" stylesheets="@../css/style.css" fx:controller="controller.StudentController">
+  <top>
+    <HBox alignment="CENTER_LEFT" prefHeight="56" spacing="12" styleClass="app-topbar">
+      <padding>
+        <Insets left="22" right="22"/>
+      </padding>
+      <Button onAction="#handleBack" styleClass="btn-back" text="← 返回"/>
+      <Label fx:id="titleLabel" styleClass="brand-title" text="我的学籍"/>
+      <Region HBox.hgrow="ALWAYS"/>
+      <Button onAction="#handleRefresh" styleClass="btn-secondary" text="刷新"/>
+    </HBox>
+  </top>
+  <center>
+    <TabPane fx:id="studentTabs" tabClosingPolicy="UNAVAILABLE" styleClass="student-tab-pane">
+      <tabs>
+        <Tab fx:id="overviewTab" text="学生基本信息">
+          <ScrollPane fitToWidth="true" hbarPolicy="NEVER" styleClass="student-scroll">
+            <VBox spacing="16" styleClass="student-page">
+              <padding>
+                <Insets bottom="22" left="25" right="25" top="20"/>
+              </padding>
+              <HBox alignment="CENTER_LEFT" spacing="18" styleClass="student-hero">
+                <StackPane minHeight="82" minWidth="82" styleClass="student-avatar">
+                  <Label fx:id="avatarLabel" styleClass="avatar-text-xl" text="学"/>
+                </StackPane>
+                <VBox spacing="7" HBox.hgrow="ALWAYS">
+                  <Label fx:id="nameLabel" styleClass="profile-name-title" text="正在加载"/>
+                  <Label fx:id="studentMetaLabel" styleClass="student-meta" text="学号 · 年级 · 学院 · 专业"/>
+                  <Label fx:id="pendingHintLabel" managed="false" styleClass="profile-tag" text="" visible="false"/>
+                </VBox>
+                <Button onAction="#handleViewDetails" styleClass="btn-primary" text="查看详情 →"/>
+              </HBox>
+              <Label styleClass="student-section-title" text="我的学籍"/>
+              <GridPane hgap="12">
+                <columnConstraints>
+                  <ColumnConstraints percentWidth="25"/>
+                  <ColumnConstraints percentWidth="25"/>
+                  <ColumnConstraints percentWidth="25"/>
+                  <ColumnConstraints percentWidth="25"/>
+                </columnConstraints>
+                <VBox spacing="7" styleClass="student-stat-card">
+                  <Label styleClass="hint-text" text="学生类别"/>
+                  <Label fx:id="categoryValue" styleClass="student-stat-value" text="-"/>
+                </VBox>
+                <VBox spacing="7" styleClass="student-stat-card" GridPane.columnIndex="1">
+                  <Label styleClass="hint-text" text="学籍状态"/>
+                  <Label fx:id="statusValue" styleClass="student-stat-value" text="-"/>
+                </VBox>
+                <VBox spacing="7" styleClass="student-stat-card" GridPane.columnIndex="2">
+                  <Label styleClass="hint-text" text="当前年级"/>
+                  <Label fx:id="gradeValue" styleClass="student-stat-value" text="-"/>
+                </VBox>
+                <VBox spacing="7" styleClass="student-stat-card" GridPane.columnIndex="3">
+                  <Label styleClass="hint-text" text="是否在校"/>
+                  <Label fx:id="inSchoolValue" styleClass="student-stat-value" text="-"/>
+                </VBox>
+              </GridPane>
+              <VBox spacing="14" styleClass="student-record-section">
+                <HBox alignment="CENTER_LEFT" spacing="10">
+                  <Region minHeight="24" minWidth="5" prefHeight="24" prefWidth="5" styleClass="student-section-accent"/>
+                  <Label styleClass="student-section-title" text="奖惩记录"/>
+                </HBox>
+                <TilePane fx:id="awardTile" hgap="22" prefColumns="4" tileAlignment="CENTER_LEFT" vgap="16"/>
+              </VBox>
+              <VBox spacing="14" styleClass="student-record-section">
+                <HBox alignment="CENTER_LEFT" spacing="10">
+                  <Region minHeight="24" minWidth="5" prefHeight="24" prefWidth="5" styleClass="student-section-accent"/>
+                  <Label styleClass="student-section-title" text="资助记录"/>
+                </HBox>
+                <TilePane fx:id="aidTile" hgap="22" prefColumns="4" tileAlignment="CENTER_LEFT" vgap="16"/>
+              </VBox>
+            </VBox>
+          </ScrollPane>
+        </Tab>
+        <Tab fx:id="detailTab" text="学籍详情">
+          <BorderPane styleClass="student-page">
+            <left>
+              <StackPane>
+                <VBox fx:id="studentDetailSidebar" alignment="TOP_CENTER" prefWidth="172" spacing="10" styleClass="student-sidebar">
+                  <padding>
+                    <Insets left="14" right="14" top="24"/>
+                  </padding>
+                  <StackPane minHeight="70" minWidth="70" styleClass="student-avatar">
+                    <Label fx:id="sidebarAvatarLabel" styleClass="avatar-text-lg" text="学"/>
+                  </StackPane>
+                  <Label fx:id="sidebarNameLabel" styleClass="student-side-name" text="学生姓名"/>
+                  <Label fx:id="sidebarMajorLabel" styleClass="hint-text" text="专业"/>
+                  <Separator/>
+                  <Button maxWidth="Infinity" onAction="#handleIndexBase" styleClass="student-side-button-active" text="个人基本信息"/>
+                  <Button maxWidth="Infinity" onAction="#handleIndexStudy" styleClass="student-side-button" text="学籍信息"/>
+                  <Button maxWidth="Infinity" onAction="#handleIndexAdmission" styleClass="student-side-button" text="入学信息"/>
+                  <Button maxWidth="Infinity" onAction="#handleIndexContact" styleClass="student-side-button" text="联系信息"/>
+                </VBox>
+                <VBox fx:id="adminDetailSidebar" alignment="TOP_CENTER" managed="false" prefWidth="160" spacing="12" styleClass="student-sidebar" visible="false">
+                  <padding>
+                    <Insets left="14" right="14" top="24"/>
+                  </padding>
+                  <StackPane minHeight="70" minWidth="70" styleClass="student-avatar">
+                    <Label styleClass="avatar-text-lg" text="管"/>
+                  </StackPane>
+                  <Label styleClass="student-side-name" text="管理员"/>
+                  <Button maxWidth="Infinity" onAction="#handleShowStudentManagement" styleClass="student-side-button" text="学生信息管理"/>
+                  <Button maxWidth="Infinity" onAction="#handleShowStudentMaintenance" styleClass="student-side-button-active" text="学生信息维护"/>
+                  <Button maxWidth="Infinity" onAction="#handleShowReview" styleClass="student-side-button" text="审核信息"/>
+                </VBox>
+              </StackPane>
+            </left>
+            <center>
+              <ScrollPane fx:id="detailScrollPane" fitToHeight="false" fitToWidth="false" hbarPolicy="AS_NEEDED" pannable="true" styleClass="student-scroll" vbarPolicy="AS_NEEDED">
+                <VBox minWidth="1080" spacing="12">
+                  <padding>
+                    <Insets bottom="20" left="20" right="22" top="18"/>
+                  </padding>
+                  <Button fx:id="detailReturnButton" alignment="CENTER_LEFT" onAction="#handleReturnFromDetails" styleClass="btn-secondary" text="← 返回学籍总览"/>
+                  <VBox spacing="10" styleClass="student-panel">
+                    <HBox alignment="CENTER_LEFT">
+                      <Label styleClass="student-section-title" text="个人基本信息"/>
+                      <Region HBox.hgrow="ALWAYS"/>
+                      <Button fx:id="editBaseButton" onAction="#handleEditBase" styleClass="student-edit-link" text="编辑"/>
+                    </HBox>
+                    <GridPane fx:id="baseInfoGrid" hgap="12" vgap="9"/>
+                  </VBox>
+                  <VBox spacing="10" styleClass="student-panel">
+                    <HBox alignment="CENTER_LEFT">
+                      <Label styleClass="student-section-title" text="学籍信息"/>
+                      <Region HBox.hgrow="ALWAYS"/>
+                      <Button fx:id="editStudyButton" onAction="#handleEditStudy" styleClass="student-edit-link" text="编辑"/>
+                    </HBox>
+                    <GridPane fx:id="studyInfoGrid" hgap="12" vgap="9"/>
+                  </VBox>
+                  <VBox spacing="10" styleClass="student-panel">
+                    <HBox alignment="CENTER_LEFT">
+                      <Label styleClass="student-section-title" text="入学信息"/>
+                      <Region HBox.hgrow="ALWAYS"/>
+                      <Button fx:id="editAdmissionButton" onAction="#handleEditAdmission" styleClass="student-edit-link" text="编辑"/>
+                    </HBox>
+                    <GridPane fx:id="admissionInfoGrid" hgap="12" vgap="9"/>
+                  </VBox>
+                  <VBox spacing="10" styleClass="student-panel">
+                    <HBox alignment="CENTER_LEFT">
+                      <Label styleClass="student-section-title" text="联系信息"/>
+                      <Region HBox.hgrow="ALWAYS"/>
+                      <Button fx:id="editContactButton" onAction="#handleEditContact" styleClass="student-edit-link" text="编辑"/>
+                    </HBox>
+                    <GridPane fx:id="contactInfoGrid" hgap="12" vgap="9"/>
+                  </VBox>
+                  <VBox fx:id="adminRecordMaintenancePane" managed="false" spacing="12" visible="false">
+                    <VBox spacing="8" styleClass="student-panel">
+                      <HBox alignment="CENTER_LEFT">
+                        <Label styleClass="student-section-title" text="学生奖励维护"/>
+                        <Region HBox.hgrow="ALWAYS"/>
+                        <Button onAction="#handleAddAward" styleClass="btn-primary" text="新增奖励"/>
+                        <Button onAction="#handleEditAward" styleClass="btn-secondary" text="编辑"/>
+                        <Button onAction="#handleDeleteAward" styleClass="btn-secondary" text="删除"/>
+                      </HBox>
+                      <TableView fx:id="maintenanceAwardTable" prefHeight="190">
+                        <columns>
+                          <TableColumn fx:id="maintenanceAwardIdCol" prefWidth="80" text="奖励ID"/>
+                          <TableColumn fx:id="maintenanceAwardStudentCol" prefWidth="120" text="学号"/>
+                          <TableColumn fx:id="maintenanceAwardNameCol" prefWidth="180" text="奖励名称"/>
+                          <TableColumn fx:id="maintenanceAwardTypeCol" prefWidth="130" text="类型"/>
+                          <TableColumn fx:id="maintenanceAwardLevelCol" prefWidth="120" text="级别"/>
+                          <TableColumn fx:id="maintenanceAwardDateCol" prefWidth="120" text="日期"/>
+                          <TableColumn fx:id="maintenanceAwardOrganizationCol" prefWidth="160" text="颁发单位"/>
+                          <TableColumn fx:id="maintenanceAwardDescriptionCol" prefWidth="220" text="说明"/>
+                        </columns>
+                      </TableView>
+                    </VBox>
+                    <VBox spacing="8" styleClass="student-panel">
+                      <HBox alignment="CENTER_LEFT">
+                        <Label styleClass="student-section-title" text="学生资助维护"/>
+                        <Region HBox.hgrow="ALWAYS"/>
+                        <Button onAction="#handleAddAid" styleClass="btn-primary" text="新增资助"/>
+                        <Button onAction="#handleEditAid" styleClass="btn-secondary" text="编辑"/>
+                        <Button onAction="#handleDeleteAid" styleClass="btn-secondary" text="删除"/>
+                      </HBox>
+                      <TableView fx:id="maintenanceAidTable" prefHeight="190">
+                        <columns>
+                          <TableColumn fx:id="maintenanceAidIdCol" prefWidth="80" text="资助ID"/>
+                          <TableColumn fx:id="maintenanceAidStudentCol" prefWidth="120" text="学号"/>
+                          <TableColumn fx:id="maintenanceAidNameCol" prefWidth="170" text="资助名称"/>
+                          <TableColumn fx:id="maintenanceAidTypeCol" prefWidth="120" text="类型"/>
+                          <TableColumn fx:id="maintenanceAidAmountCol" prefWidth="110" text="金额"/>
+                          <TableColumn fx:id="maintenanceAidDateCol" prefWidth="120" text="日期"/>
+                          <TableColumn fx:id="maintenanceAidProviderCol" prefWidth="160" text="提供方"/>
+                          <TableColumn fx:id="maintenanceAidStatusCol" prefWidth="120" text="状态"/>
+                          <TableColumn fx:id="maintenanceAidDescriptionCol" prefWidth="220" text="说明"/>
+                        </columns>
+                      </TableView>
+                    </VBox>
+                  </VBox>
+                </VBox>
+              </ScrollPane>
+            </center>
+          </BorderPane>
+        </Tab>
+        <Tab fx:id="adminListTab" text="学生列表">
+          <BorderPane styleClass="student-page">
+            <left>
+              <VBox alignment="TOP_CENTER" prefWidth="160" spacing="12" styleClass="student-sidebar">
+                <padding>
+                  <Insets left="14" right="14" top="24"/>
+                </padding>
+                <StackPane minHeight="70" minWidth="70" styleClass="student-avatar">
+                  <Label styleClass="avatar-text-lg" text="管"/>
+                </StackPane>
+                <Label styleClass="student-side-name" text="管理员"/>
+                <Button fx:id="managementNavButton" maxWidth="Infinity" onAction="#handleShowStudentManagement" styleClass="student-side-button-active" text="学生信息管理"/>
+                <Button fx:id="maintenanceNavButton" maxWidth="Infinity" onAction="#handleShowStudentMaintenance" styleClass="student-side-button" text="学生信息维护"/>
+                <Button maxWidth="Infinity" onAction="#handleShowReview" styleClass="student-side-button" text="审核信息"/>
+              </VBox>
+            </left>
+            <center>
+              <VBox spacing="10">
+                <padding>
+                  <Insets bottom="14" left="18" right="22" top="18"/>
+                </padding>
+                <Label fx:id="adminWorkspaceTitle" styleClass="student-section-title" text="学生信息管理"/>
+                <HBox alignment="CENTER_LEFT" spacing="8" styleClass="student-search-bar">
+                  <Label text="学号"/>
+                  <TextField fx:id="searchIdField" prefWidth="145" promptText="支持学号片段"/>
+                  <Label text="姓名"/>
+                  <TextField fx:id="searchNameField" prefWidth="125" promptText="支持姓名片段"/>
+                  <Label text="关键词"/>
+                  <TextField fx:id="searchCollegeField" prefWidth="180" promptText="学院/专业/年级/状态"/>
+                  <Region HBox.hgrow="ALWAYS"/>
+                  <Button onAction="#handleSearchStudents" styleClass="btn-primary" text="查询"/>
+                  <Button onAction="#handleResetSearch" styleClass="btn-secondary" text="重置"/>
+                </HBox>
+                <TableView fx:id="studentTable" VBox.vgrow="ALWAYS">
+                  <columns>
+                    <TableColumn fx:id="stuIdCol" prefWidth="105" text="用户名"/>
+                    <TableColumn fx:id="stuNameCol" prefWidth="90" text="姓名"/>
+                    <TableColumn fx:id="stuGenderCol" prefWidth="70" text="性别"/>
+                    <TableColumn fx:id="stuGradeCol" prefWidth="85" text="年级"/>
+                    <TableColumn fx:id="stuCollegeCol" prefWidth="185" text="学院"/>
+                    <TableColumn fx:id="stuMajorCol" prefWidth="170" text="专业"/>
+                    <TableColumn fx:id="stuStatusCol" prefWidth="100" text="学籍状态"/>
+                    <TableColumn fx:id="stuActionCol" prefWidth="105" text="操作"/>
+                  </columns>
+                </TableView>
+                <HBox alignment="CENTER" spacing="8" styleClass="student-pagination">
+                  <Label fx:id="pageSummaryLabel" text="共0条  共1页"/>
+                  <Button onAction="#handleFirstPage" styleClass="page-button" text="|&lt;"/>
+                  <Button onAction="#handlePreviousPage" styleClass="page-button" text="&lt;"/>
+                  <Label text="第"/>
+                  <TextField fx:id="pageNumberField" alignment="CENTER" onAction="#handleGoPage" prefWidth="48" text="1"/>
+                  <Label text="页"/>
+                  <Button onAction="#handleNextPage" styleClass="page-button" text="&gt;"/>
+                  <Button onAction="#handleLastPage" styleClass="page-button" text="&gt;|"/>
+                  <Button onAction="#handleGoPage" styleClass="page-button" text="GO"/>
+                </HBox>
+              </VBox>
+            </center>
+          </BorderPane>
+        </Tab>
+        <Tab fx:id="reviewTab" text="信息审核">
+          <BorderPane styleClass="student-page">
+            <left>
+              <VBox alignment="TOP_CENTER" prefWidth="160" spacing="12" styleClass="student-sidebar">
+                <padding>
+                  <Insets left="14" right="14" top="24"/>
+                </padding>
+                <StackPane minHeight="70" minWidth="70" styleClass="student-avatar">
+                  <Label styleClass="avatar-text-lg" text="管"/>
+                </StackPane>
+                <Label styleClass="student-side-name" text="管理员"/>
+                <Button maxWidth="Infinity" onAction="#handleShowStudentManagement" styleClass="student-side-button" text="学生信息管理"/>
+                <Button maxWidth="Infinity" onAction="#handleShowStudentMaintenance" styleClass="student-side-button" text="学生信息维护"/>
+                <Button maxWidth="Infinity" styleClass="student-side-button-active" text="审核信息"/>
+              </VBox>
+            </left>
+            <center>
+              <StackPane>
+                <VBox fx:id="reviewOverviewPane" spacing="10">
+                  <padding>
+                    <Insets bottom="14" left="18" right="22" top="18"/>
+                  </padding>
+                  <Label styleClass="student-section-title" text="修改申请总览"/>
+                  <HBox spacing="0" styleClass="review-bucket-tabs">
+                    <ToggleButton fx:id="unfinishedReviewButton" onAction="#handleShowUnfinishedReviews" selected="true" styleClass="review-bucket-tab" text="未完成"/>
+                    <ToggleButton fx:id="completedReviewButton" onAction="#handleShowCompletedReviews" styleClass="review-bucket-tab" text="已完成"/>
+                  </HBox>
+                  <HBox alignment="CENTER_LEFT" spacing="8" styleClass="student-search-bar">
+                    <Label text="姓名"/>
+                    <TextField fx:id="reviewSearchIdField" prefWidth="145" promptText="支持姓名片段"/>
+                    <Label text="学号"/>
+                    <TextField fx:id="reviewSearchStudentField" prefWidth="155" promptText="搜索学号"/>
+                    <Label text="状态"/>
+                    <TextField fx:id="reviewSearchStatusField" prefWidth="145" promptText="待审核/已通过"/>
+                    <Region HBox.hgrow="ALWAYS"/>
+                    <Button onAction="#handleSearchReviews" styleClass="btn-primary" text="查询"/>
+                    <Button onAction="#handleResetReviewSearch" styleClass="btn-secondary" text="重置"/>
+                  </HBox>
+                  <TableView fx:id="reviewTable" VBox.vgrow="ALWAYS">
+                    <columns>
+                      <TableColumn fx:id="reviewNameCol" prefWidth="160" text="姓名"/>
+                      <TableColumn fx:id="reviewStudentCol" prefWidth="180" text="学号"/>
+                      <TableColumn fx:id="reviewTimeCol" prefWidth="260" text="提交时间"/>
+                      <TableColumn fx:id="reviewStatusCol" prefWidth="150" text="状态"/>
+                      <TableColumn fx:id="reviewActionCol" prefWidth="150" text="操作"/>
+                    </columns>
+                  </TableView>
+                  <HBox alignment="CENTER" spacing="8" styleClass="student-pagination">
+                    <Label fx:id="reviewPageSummaryLabel" text="共0条  共1页"/>
+                    <Button onAction="#handleReviewFirstPage" styleClass="page-button" text="|&lt;"/>
+                    <Button onAction="#handleReviewPreviousPage" styleClass="page-button" text="&lt;"/>
+                    <Label text="第"/>
+                    <TextField fx:id="reviewPageNumberField" alignment="CENTER" onAction="#handleReviewGoPage" prefWidth="48" text="1"/>
+                    <Label text="页"/>
+                    <Button onAction="#handleReviewNextPage" styleClass="page-button" text="&gt;"/>
+                    <Button onAction="#handleReviewLastPage" styleClass="page-button" text="&gt;|"/>
+                    <Button onAction="#handleReviewGoPage" styleClass="page-button" text="GO"/>
+                  </HBox>
+                </VBox>
+                <VBox fx:id="reviewDetailPane" managed="false" spacing="10" visible="false">
+                  <padding>
+                    <Insets bottom="18" left="22" right="22" top="18"/>
+                  </padding>
+                  <HBox alignment="CENTER_LEFT" spacing="12">
+                    <Button onAction="#handleBackToReviewOverview" styleClass="btn-secondary" text="← 返回审核总览"/>
+                    <Label styleClass="student-section-title" text="申请修改详情"/>
+                  </HBox>
+                  <HBox spacing="14" VBox.vgrow="ALWAYS">
+                    <ScrollPane fitToWidth="true" hbarPolicy="AS_NEEDED" styleClass="student-scroll" HBox.hgrow="ALWAYS">
+                      <VBox spacing="12">
+                        <VBox spacing="8" styleClass="student-panel"><Label styleClass="student-section-title" text="个人信息"/><GridPane fx:id="reviewStudentBaseGrid" hgap="12" vgap="9"/></VBox>
+                        <VBox spacing="8" styleClass="student-panel"><Label styleClass="student-section-title" text="学籍信息"/><GridPane fx:id="reviewStudentStudyGrid" hgap="12" vgap="9"/></VBox>
+                        <VBox spacing="8" styleClass="student-panel"><Label styleClass="student-section-title" text="本次修改内容"/><TableView fx:id="reviewItemTable" prefHeight="220"><columns><TableColumn fx:id="itemFieldCol" prefWidth="170" text="字段"/><TableColumn fx:id="itemOldCol" prefWidth="250" text="原内容"/><TableColumn fx:id="itemNewCol" prefWidth="250" text="新内容"/></columns></TableView></VBox>
+                      </VBox>
+                    </ScrollPane>
+                    <VBox prefWidth="260" spacing="12" styleClass="student-panel">
+                      <Label styleClass="student-section-title" text="审核处理"/>
+                      <HBox spacing="8"><Button fx:id="approveButton" disable="true" maxWidth="Infinity" onAction="#handleApprove" styleClass="btn-primary" text="通过" HBox.hgrow="ALWAYS"/><Button fx:id="rejectButton" disable="true" maxWidth="Infinity" onAction="#handleReject" styleClass="btn-secondary" text="不通过" HBox.hgrow="ALWAYS"/></HBox>
+                      <Label text="理由"/>
+                      <TextArea fx:id="reviewRemarkArea" prefRowCount="8" promptText="请输入审核意见或不通过理由" VBox.vgrow="ALWAYS"/>
+                    </VBox>
+                  </HBox>
+                </VBox>
+              </StackPane>
+            </center>
+          </BorderPane>
+        </Tab>
+      </tabs>
+    </TabPane>
+  </center>
+  <bottom>
+    <HBox alignment="CENTER_LEFT" prefHeight="28" styleClass="student-statusbar">
+      <padding>
+        <Insets left="22"/>
+      </padding>
+      <Label fx:id="statusBarLabel" styleClass="hint-text" text="就绪"/>
+    </HBox>
+  </bottom>
+</BorderPane>

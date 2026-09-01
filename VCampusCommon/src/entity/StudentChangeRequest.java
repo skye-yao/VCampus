@@ -1,6 +1,64 @@
 package entity;
-import java.io.Serializable; import java.sql.Timestamp; import java.util.*; import enums.StudentChangeStatus;
+import java.io.Serializable;
+import java.sql.Timestamp;
+import java.util.*;
+import enums.StudentChangeStatus;
 public class StudentChangeRequest implements Serializable {
- private static final long serialVersionUID=1L; private Long requestId; private String studentId; private StudentChangeStatus status=StudentChangeStatus.PENDING; private Timestamp submitTime; private String reviewerId; private Timestamp reviewTime; private String reviewRemark; private List<StudentChangeItem> items=new ArrayList<>();
- public Long getRequestId(){return requestId;} public void setRequestId(Long v){requestId=v;} public String getStudentId(){return studentId;} public void setStudentId(String v){studentId=v;} public StudentChangeStatus getStatus(){return status;} public void setStatus(StudentChangeStatus v){status=v;} public Timestamp getSubmitTime(){return submitTime;} public void setSubmitTime(Timestamp v){submitTime=v;} public String getReviewerId(){return reviewerId;} public void setReviewerId(String v){reviewerId=v;} public Timestamp getReviewTime(){return reviewTime;} public void setReviewTime(Timestamp v){reviewTime=v;} public String getReviewRemark(){return reviewRemark;} public void setReviewRemark(String v){reviewRemark=v;} public List<StudentChangeItem> getItems(){return items;} public void setItems(List<StudentChangeItem> v){items=v==null?new ArrayList<>():v;}
+    private static final long serialVersionUID=1L;
+    private Long requestId;
+    private String studentId;
+    private StudentChangeStatus status=StudentChangeStatus.PENDING;
+    private Timestamp submitTime;
+    private String reviewerId;
+    private Timestamp reviewTime;
+    private String reviewRemark;
+    private List<StudentChangeItem> items=new ArrayList<>();
+    public Long getRequestId() {
+        return requestId;
+    }
+    public void setRequestId(Long v) {
+        requestId=v;
+    }
+    public String getStudentId() {
+        return studentId;
+    }
+    public void setStudentId(String v) {
+        studentId=v;
+    }
+    public StudentChangeStatus getStatus() {
+        return status;
+    }
+    public void setStatus(StudentChangeStatus v) {
+        status=v;
+    }
+    public Timestamp getSubmitTime() {
+        return submitTime;
+    }
+    public void setSubmitTime(Timestamp v) {
+        submitTime=v;
+    }
+    public String getReviewerId() {
+        return reviewerId;
+    }
+    public void setReviewerId(String v) {
+        reviewerId=v;
+    }
+    public Timestamp getReviewTime() {
+        return reviewTime;
+    }
+    public void setReviewTime(Timestamp v) {
+        reviewTime=v;
+    }
+    public String getReviewRemark() {
+        return reviewRemark;
+    }
+    public void setReviewRemark(String v) {
+        reviewRemark=v;
+    }
+    public List<StudentChangeItem> getItems() {
+        return items;
+    }
+    public void setItems(List<StudentChangeItem> v) {
+        items=v==null?new ArrayList<>():v;
+    }
 }

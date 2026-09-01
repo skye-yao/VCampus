@@ -34,6 +34,8 @@ STUDENT_REVIEW_QUERY,       // 管理员查询某一申请详情
 STUDENT_REVIEW,             // 管理员审核通过/驳
 
 STUDENT_ADMIN_UPDATE,       // 管理员直接修改正式学籍
+STUDENT_EDIT_BEGIN,         // 学生或管理员进入学籍编辑状态
+STUDENT_EDIT_END,           // 学生或管理员退出学籍编辑状态
 STUDENT_AWARD_ADD,          // 新增奖励
 STUDENT_AWARD_UPDATE,       // 修改奖励
 STUDENT_AWARD_DELETE,       // 删除奖励
@@ -142,4 +144,15 @@ AI_INDEX_BUILD,                     // 为新文档建立向量索引
 AI_INDEX_REBUILD,                   // 重新生成文档向量索引
 AI_INDEX_STATUS,                    // 查询向量索引构建状态
 AI_RETRIEVAL_TEST;                  // 测试知识库检索结果
+
+/**
+ * 是否为允许客户端主动发送的请求类型。
+ * REQUEST 用于尚未细分枚举的旧模块；具体业务应优先使用对应的业务枚举。
+ */
+public boolean isClientRequest() {
+    return switch (this) {
+        case RESPONSE, PUSH, AI_CHAT_CHUNK, AI_CHAT_DONE -> false;
+        default -> true;
+    };
+}
 }
