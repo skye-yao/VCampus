@@ -4,7 +4,7 @@ USE `virtual_campus`;
 
 -- 用户表
 CREATE TABLE IF NOT EXISTS `tbl_user` (
-    `uid` VARCHAR(32) NOT NULL COMMENT '一卡通号',
+    `UID` VARCHAR(32) NOT NULL COMMENT '一卡通号',
     `name` VARCHAR(50) NOT NULL COMMENT '姓名',
     `gender` VARCHAR(10) DEFAULT '男' COMMENT '性别',
     `password` VARCHAR(128) NOT NULL COMMENT '密码哈希值',
@@ -14,15 +14,16 @@ CREATE TABLE IF NOT EXISTS `tbl_user` (
     `major` VARCHAR(100) DEFAULT '' COMMENT '专业/职称/职务',
     `phone` VARCHAR(20) DEFAULT '' COMMENT '电话',
     `email` VARCHAR(100) DEFAULT '' COMMENT '邮箱',
+    `avatar` LONGTEXT DEFAULT NULL COMMENT '头像图片Base64编码',
     `balance` DECIMAL(10,2) DEFAULT 0.00 COMMENT '一卡通余额',
     `create_time` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-    PRIMARY KEY (`uid`)
+    PRIMARY KEY (`UID`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户基本信息表';
 
 -- 插入默认测试数据（明文密码统一为 123456）
 -- salt: 'dGVzdHNhbHQxMjM0NTY='
 -- hash: PasswordUtil.hashPassword("123456", "dGVzdHNhbHQxMjM0NTY=")
-INSERT INTO `tbl_user` (`uid`, `name`, `gender`, `password`, `salt`, `role`, `college`, `major`, `phone`, `email`, `balance`)
+INSERT INTO `tbl_user` (`UID`, `name`, `gender`, `password`, `salt`, `role`, `college`, `major`, `phone`, `email`, `balance`)
 VALUES 
 ('213242789', '张三', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '计算机科学与工程学院', '计算机科学与技术', '13800138000', 'zhangsan@seu.edu.cn', 32850),
 ('213242790', '李雨桐', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '电子科学与工程学院', '信息工程', '13800138001', 'liyutong@seu.edu.cn', 1200),

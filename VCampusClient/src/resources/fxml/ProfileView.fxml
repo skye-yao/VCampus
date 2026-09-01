@@ -10,15 +10,16 @@
 <?import javafx.scene.control.ScrollPane?>
 <?import javafx.scene.control.TextField?>
 <?import javafx.scene.control.ToggleButton?>
-<?import javafx.scene.control.ToggleGroup?>
+<?import javafx.scene.image.ImageView?>
 <?import javafx.scene.layout.BorderPane?>
 <?import javafx.scene.layout.ColumnConstraints?>
 <?import javafx.scene.layout.GridPane?>
 <?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.RowConstraints?>
 <?import javafx.scene.layout.StackPane?>
 <?import javafx.scene.layout.VBox?>
 
-<BorderPane fx:id="rootProfile" prefHeight="580.0" prefWidth="860.0" stylesheets="@../css/style.css" xmlns="http://javafx.com/javafx/17" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.ProfileController">
+<BorderPane fx:id="rootProfile" prefHeight="580.0" prefWidth="860.0" stylesheets="@../css/style.css" xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.ProfileController">
     <!-- 顶部返回栏 -->
     <top>
         <HBox alignment="CENTER_LEFT" prefHeight="50.0" styleClass="profile-topbar" BorderPane.alignment="CENTER">
@@ -38,13 +39,10 @@
                 <Insets bottom="16.0" left="10.0" right="10.0" top="16.0" />
             </padding>
             <children>
-                <fx:define>
-                    <ToggleGroup fx:id="profileNavGroup" />
-                </fx:define>
-                <ToggleButton fx:id="tabInfoBtn" maxWidth="1.7976931348623157E308" onAction="#switchSubView" selected="true" styleClass="sidebar-tab-btn" text="📝 信息修改" toggleGroup="$profileNavGroup" />
-                <ToggleButton fx:id="tabPwdBtn" maxWidth="1.7976931348623157E308" onAction="#switchSubView" styleClass="sidebar-tab-btn" text="🔒 账密修改" toggleGroup="$profileNavGroup" />
-                <ToggleButton fx:id="tabAvatarBtn" maxWidth="1.7976931348623157E308" onAction="#switchSubView" styleClass="sidebar-tab-btn" text="🖼️ 头像修改" toggleGroup="$profileNavGroup" />
-                <ToggleButton fx:id="tabWalletBtn" maxWidth="1.7976931348623157E308" onAction="#switchSubView" styleClass="sidebar-tab-btn" text="💰 钱包设置" toggleGroup="$profileNavGroup" />
+                <ToggleButton fx:id="tabInfoBtn" maxWidth="1.7976931348623157E308" onAction="#switchSubView" selected="true" styleClass="sidebar-tab-btn" text="📝 信息修改" />
+                <ToggleButton fx:id="tabPwdBtn" maxWidth="1.7976931348623157E308" onAction="#switchSubView" styleClass="sidebar-tab-btn" text="🔒 账密修改" />
+                <ToggleButton fx:id="tabAvatarBtn" maxWidth="1.7976931348623157E308" onAction="#switchSubView" styleClass="sidebar-tab-btn" text="👤 头像修改" />
+                <ToggleButton fx:id="tabWalletBtn" maxWidth="1.7976931348623157E308" onAction="#switchSubView" styleClass="sidebar-tab-btn" text="💰 钱包设置" />
             </children>
         </VBox>
     </left>
@@ -66,12 +64,13 @@
                                     <padding><Insets bottom="18.0" /></padding>
                                     <children>
                                         <StackPane prefHeight="64.0" prefWidth="64.0" styleClass="profile-avatar-lg">
-                                            <children><Label styleClass="avatar-text-lg" text="👤" /></children>
+                                            <children><Label styleClass="avatar-text-lg" text="👤" />
+                                    <ImageView fx:id="headerAvatarView" fitHeight="80.0" fitWidth="80.0" pickOnBounds="true" preserveRatio="true" /></children>
                                         </StackPane>
-                                        <VBox spacing="4.0">
+                                        <VBox prefHeight="80.0" prefWidth="253.0" spacing="10.0">
                                             <children>
-                                                <Label fx:id="headerNameLabel" styleClass="profile-name-title" text="张三" />
-                                                <Label fx:id="headerTagLabel" styleClass="profile-tag" text="计算机科学学院 · 大三 · 学生" />
+                                                <Label fx:id="headerNameLabel" prefHeight="37.0" prefWidth="53.0" styleClass="profile-name-title" text="张三" />
+                                                <Label fx:id="headerTagLabel" prefHeight="22.0" prefWidth="216.0" styleClass="profile-tag" text="计算机科学与工程学院 · 大三 · 学生" />
                                             </children>
                                         </VBox>
                                     </children>
@@ -86,15 +85,15 @@
                                     <children>
                                         <VBox spacing="6.0" GridPane.columnIndex="0" GridPane.rowIndex="0">
                                             <Label styleClass="form-label" text="用户名 (一卡通号)" />
-                                            <TextField fx:id="profUIDField" editable="false" styleClass="form-control, readonly-input" text="213242789" />
+                                            <TextField fx:id="profUidField" editable="false" prefHeight="30.0" styleClass="form-control readonly-input" text="213242789" />
                                         </VBox>
                                         <VBox spacing="6.0" GridPane.columnIndex="1" GridPane.rowIndex="0">
                                             <Label styleClass="form-label" text="姓名" />
-                                            <TextField fx:id="profNameField" styleClass="form-control" text="张三" />
+                                            <TextField fx:id="profNameField" prefHeight="30.0" styleClass="form-control" text="张三" />
                                         </VBox>
                                         <VBox spacing="6.0" GridPane.columnIndex="0" GridPane.rowIndex="1">
                                             <Label styleClass="form-label" text="性别" />
-                                            <ComboBox fx:id="profSexCombo" maxWidth="1.7976931348623157E308" styleClass="form-control">
+                                            <ComboBox fx:id="profSexCombo" maxWidth="1.7976931348623157E308" prefHeight="30.0" styleClass="form-control">
                                                 <items>
                                                     <FXCollections fx:factory="observableArrayList">
                                                         <String fx:value="男" />
@@ -105,29 +104,35 @@
                                         </VBox>
                                         <VBox spacing="6.0" GridPane.columnIndex="1" GridPane.rowIndex="1">
                                             <Label styleClass="form-label" text="学院" />
-                                            <TextField fx:id="profCollegeField" styleClass="form-control" text="计院 (计算机科学与工程学院)" />
+                                            <TextField fx:id="profCollegeField" prefHeight="30.0" styleClass="form-control" text="计算机科学与工程学院" />
                                         </VBox>
                                         <VBox spacing="6.0" GridPane.columnIndex="0" GridPane.rowIndex="2">
                                             <Label styleClass="form-label" text="专业" />
-                                            <TextField fx:id="profMajorField" styleClass="form-control" text="计科 (计算机科学与技术)" />
+                                            <TextField fx:id="profMajorField" prefHeight="30.0" styleClass="form-control" text="计算机科学与技术" />
                                         </VBox>
                                         <VBox spacing="6.0" GridPane.columnIndex="1" GridPane.rowIndex="2">
                                             <Label styleClass="form-label" text="手机号" />
-                                            <TextField fx:id="profPhoneField" styleClass="form-control" text="10086" />
+                                            <TextField fx:id="profPhoneField" prefHeight="30.0" styleClass="form-control" text="10086" />
                                         </VBox>
                                         <VBox spacing="6.0" GridPane.columnIndex="0" GridPane.columnSpan="2" GridPane.rowIndex="3">
                                             <Label styleClass="form-label" text="邮箱" />
-                                            <TextField fx:id="profEmailField" styleClass="form-control" text="tencent@qq.com" />
+                                            <TextField fx:id="profEmailField" prefHeight="30.0" styleClass="form-control" text="love.from.seu@seu.edu.cn" />
                                         </VBox>
                                     </children>
+                           <rowConstraints>
+                              <RowConstraints />
+                              <RowConstraints />
+                              <RowConstraints />
+                              <RowConstraints />
+                           </rowConstraints>
                                 </GridPane>
 
                                 <!-- 按钮组 -->
                                 <HBox spacing="12.0">
                                     <VBox.margin><Insets top="12.0" /></VBox.margin>
                                     <children>
-                                        <Button onAction="#handleSaveProfile" styleClass="btn-primary" text="保存修改" />
-                                        <Button onAction="#handleBackToMain" styleClass="btn-secondary" text="取消返回" />
+                                        <Button onAction="#handleSaveProfile" prefHeight="30.0" styleClass="btn-primary" text="保存修改" />
+                                        <Button onAction="#handleBackToMain" prefHeight="35.0" styleClass="btn-secondary" text="取消返回" />
                                     </children>
                                 </HBox>
                             </children>
@@ -143,15 +148,15 @@
                         <VBox maxWidth="380.0" spacing="12.0">
                             <VBox spacing="6.0">
                                 <Label styleClass="form-label" text="原密码" />
-                                <PasswordField fx:id="oldPwdField" promptText="请输入原密码" styleClass="form-control" />
+                                <PasswordField fx:id="oldPwdField" prefHeight="30.0" promptText="请输入原密码" styleClass="form-control" />
                             </VBox>
                             <VBox spacing="6.0">
                                 <Label styleClass="form-label" text="新密码" />
-                                <PasswordField fx:id="newPwdField" promptText="6-16位新密码" styleClass="form-control" />
+                                <PasswordField fx:id="newPwdField" prefHeight="30.0" promptText="6-16位新密码" styleClass="form-control" />
                             </VBox>
                             <VBox spacing="6.0">
                                 <Label styleClass="form-label" text="再次确认新密码" />
-                                <PasswordField fx:id="confirmPwdField" promptText="再次输入新密码" styleClass="form-control" />
+                                <PasswordField fx:id="confirmPwdField" prefHeight="30.0" promptText="再次输入新密码" styleClass="form-control" />
                             </VBox>
                             <Button onAction="#handleChangePassword" styleClass="btn-primary" text="确认修改密码">
                                 <VBox.margin><Insets top="10.0" /></VBox.margin>
@@ -168,12 +173,13 @@
                         <HBox alignment="CENTER_LEFT" spacing="24.0">
                             <children>
                                 <StackPane prefHeight="84.0" prefWidth="84.0" styleClass="profile-avatar-lg">
-                                    <children><Label styleClass="avatar-text-xl" text="👤" /></children>
+                                    <children><Label styleClass="avatar-text-xl" text="👤" />
+                              <ImageView fx:id="updateAvatarView" fitHeight="80.0" fitWidth="80.0" pickOnBounds="true" preserveRatio="true" /></children>
                                 </StackPane>
-                                <VBox spacing="8.0">
+                                <VBox prefHeight="84.0" prefWidth="311.0" spacing="15.0">
                                     <children>
                                         <Button onAction="#handleChooseAvatar" styleClass="btn-secondary" text="选择本地图片" />
-                                        <Label styleClass="hint-text" text="支持 JPG、PNG 格式，建议尺寸 200x200 像素" />
+                                        <Label styleClass="hint-text" text="支持 JPG、PNG 格式，建议选用圆形图片，大小≤2Mb" />
                                     </children>
                                 </VBox>
                             </children>

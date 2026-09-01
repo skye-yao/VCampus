@@ -8,6 +8,8 @@ import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
 import javafx.scene.Node;
 import javafx.scene.control.*;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
 import javafx.stage.FileChooser;
 import network.SocketClient;
 import protocol.Message;
@@ -16,7 +18,12 @@ import protocol.MessageType;
 import session.ClientSession;
 import util.AlertUtil;
 
+
 import java.io.File;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.util.Base64;
 
 public class ProfileController {
 
@@ -32,8 +39,9 @@ public class ProfileController {
 
     @FXML private Label headerNameLabel;
     @FXML private Label headerTagLabel;
+    @FXML private ImageView headerAvatarView;
 
-    @FXML private TextField profUidField;
+    @FXML private TextField profUIDField;
     @FXML private TextField profNameField;
     @FXML private ComboBox<String> profSexCombo;
     @FXML private TextField profCollegeField;
@@ -44,6 +52,8 @@ public class ProfileController {
     @FXML private PasswordField oldPwdField;
     @FXML private PasswordField newPwdField;
     @FXML private PasswordField confirmPwdField;
+
+    @FXML private ImageView updateAvatarView;
 
     private final Gson gson = new Gson();
 
@@ -63,9 +73,11 @@ public class ProfileController {
             if (headerTagLabel != null) {
                 String college = user.getCollege() != null ? user.getCollege() : "";
                 headerTagLabel.setText(college + " · " + roleStr);
+                showAvatar(headerAvatarView, user.getAvatar());
+                showAvatar(updateAvatarView, user.getAvatar());
             }
 
-            if (profUidField != null) profUidField.setText(user.getUID() != null ? user.getUID() : "");
+            if (profUIDField != null) profUIDField.setText(user.getUID() != null ? user.getUID() : "");
             if (profNameField != null) profNameField.setText(user.getName() != null ? user.getName() : "");
             if (profSexCombo != null) {
                 String gender = user.getGender() != null ? user.getGender() : "男";
@@ -76,7 +88,20 @@ public class ProfileController {
             if (profPhoneField != null) profPhoneField.setText(user.getPhone() != null ? user.getPhone() : "");
             if (profEmailField != null) profEmailField.setText(user.getEmail() != null ? user.getEmail() : "");
         } else {
-            if (profUidField != null) profUidField.setText(ClientSession.getInstance().getUsername());
+            if (profUIDField != null) profUIDField.setText(ClientSession.getInstance().getUsername());
+        }
+    }
+
+    private void showAvatar(ImageView view, String base64) {
+        if (view == null) return;
+        if (base64 == null || base64.isEmpty()) {
+            view.setImage(null);
+            return;
+        }
+        try {
+            view.setImage(new Image(new ByteArrayInputStream(Base64.getDecoder().decode(base64))));
+        } catch (Exception e) {
+            view.setImage(null);
         }
     }
 
@@ -85,9 +110,25 @@ public class ProfileController {
         ClientMain.switchScene("/resources/fxml/MainView.fxml");
     }
 
+    @FXML
+    private void switchSubView(ActionEvent event) {
+        // 不依赖 ToggleGroup，避免 Scene Builder / FXMLLoader 对
+        // toggleGroup="$profileNavGroup" 的引用解析兼容性问题。
+        ToggleButton source = (ToggleButton) event.getSource();
+
+        if (tabInfoBtn != null) tabInfoBtn.setSelected(source == tabInfoBtn);
+        if (tabPwdBtn != null) tabPwdBtn.setSelected(source == tabPwdBtn);
+        if (tabAvatarBtn != null) tabAvatarBtn.setSelected(source == tabAvatarBtn);
+        if (tabWalletBtn != null) tabWalletBtn.setSelected(source == tabWalletBtn);
+
+        if (panelInfo != null) panelInfo.setVisible(source == tabInfoBtn);
+        if (panelPwd != null) panelPwd.setVisible(source == tabPwdBtn);
+        if (panelAvatar != null) panelAvatar.setVisible(source == tabAvatarBtn);
+        if (panelWallet != null) panelWallet.setVisible(source == tabWalletBtn);
+    }
+
     /**
-     * 侧边栏子面板切换
-     */
+    //侧边栏子面板切换
     @FXML
     private void switchSubView(ActionEvent event) {
         if (panelInfo != null) panelInfo.setVisible(false);
@@ -105,6 +146,7 @@ public class ProfileController {
             if (panelWallet != null) panelWallet.setVisible(true);
         }
     }
+     */
 
     @FXML
     private void handleSaveProfile(ActionEvent event) {
@@ -194,12 +236,58 @@ public class ProfileController {
         FileChooser fileChooser = new FileChooser();
         fileChooser.setTitle("选择本地头像文件");
         fileChooser.getExtensionFilters().addAll(
-                new FileChooser.ExtensionFilter("图片文件", "*.jpg", "*.png", "*.jpeg")
-        );
+                new FileChooser.ExtensionFilter("图片文件", "*.jpg", "*.png", "*.jpeg"));
         File selectedFile = fileChooser.showOpenDialog(null);
-        if (selectedFile != null) {
-            AlertUtil.showInfo("提示", "已选取新头像: " + selectedFile.getName());
+        if (selectedFile == null) return;
+
+        byte[] fileBytes;
+        try {
+            fileBytes = Files.readAllBytes(selectedFile.toPath());
+        } catch (IOException e) {
+            AlertUtil.showError("读取失败", "无法读取所选图片文件");
+            return;
         }
+
+        final long MAX_AVATAR_BYTES = 2 * 1024 * 1024;
+        if (fileBytes.length > MAX_AVATAR_BYTES) {
+            AlertUtil.showWarning("提示", "图片过大，请选择 2MB 以内的图片");
+            return;
+        }
+
+        String base64 = Base64.getEncoder().encodeToString(fileBytes);
+
+        // 先本地预览
+        showAvatar(updateAvatarView, base64);
+
+        Message request = new Message(MessageType.REQUEST, "user", "updateavatar");
+        request.putData("avatar", base64);
+
+        SocketClient.getInstance().sendAsync(request)
+                .thenAccept(response -> Platform.runLater(() -> {
+                    if (response.getCode() == MessageCode.SUCCESS) {
+                        User currentUser = ClientSession.getInstance().getCurrentUser();
+                        if (currentUser != null) {
+                            currentUser.setAvatar(base64);
+                        }
+                        showAvatar(headerAvatarView, base64);
+                        AlertUtil.showInfo("操作提示", "头像更换成功！");
+                    } else {
+                        rollbackAvatarPreview();
+                        AlertUtil.showError("更换失败", response.getMessage());
+                    }
+                }))
+                .exceptionally(ex -> {
+                    Platform.runLater(() -> {
+                        rollbackAvatarPreview();
+                        AlertUtil.showError("网络异常", "更换头像失败: " + ex.getMessage());
+                    });
+                    return null;
+                });
+    }
+
+    private void rollbackAvatarPreview() {
+        User currentUser = ClientSession.getInstance().getCurrentUser();
+        showAvatar(updateAvatarView, currentUser != null ? currentUser.getAvatar() : null);
     }
 
     @FXML

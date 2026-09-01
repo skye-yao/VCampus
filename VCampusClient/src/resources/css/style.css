@@ -178,6 +178,29 @@
     -fx-text-fill: #231815;
 }
 
+/* 下拉菜单 */
+
+.context-menu {
+    -fx-pref-width: 125px;
+    -fx-padding: 6px;
+}
+
+.menu-item {
+    -fx-padding: 2px 16px;   /* 上下 4px，左右 16px */
+}
+
+.menu-item > .label {
+    -fx-font-size: 14px;
+}
+
+.menu-icon {
+    -fx-min-width: 24px;
+    -fx-pref-width: 24px;
+    -fx-max-width: 24px;
+    -fx-alignment: center;
+}
+
+
 /* 应用网格卡片 */
 .app-card {
     -fx-background-color: #ffffff;
