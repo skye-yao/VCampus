@@ -68,7 +68,7 @@ public class MainController {
 
     @FXML
     private void openBank(MouseEvent event) {
-        showSubsystemNotice("校园银行子系统");
+        ClientMain.switchScene("/resources/fxml/BankView.fxml");
     }
 
     @FXML

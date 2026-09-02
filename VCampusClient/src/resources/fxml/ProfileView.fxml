@@ -197,16 +197,13 @@
                             <padding><Insets bottom="22.0" left="22.0" right="22.0" top="22.0" /></padding>
                             <children>
                                 <Label styleClass="wallet-subtitle" text="当前一卡通余额 (CNY)" />
-                                <Label styleClass="wallet-balance" text="¥ 328.50" />
-                                <Label styleClass="wallet-footer-info" text="绑定卡号：213242789 (正常使用中)" />
+                                <Label fx:id="walletBalanceLabel" styleClass="wallet-balance" text="正在读取" />
+                                <Label fx:id="walletAccountLabel" styleClass="wallet-footer-info" text="正在读取一卡通信息" />
                             </children>
                         </VBox>
-                        <HBox spacing="12.0">
-                            <children>
-                                <Button onAction="#handleRecharge" styleClass="btn-primary" text="账户充值" />
-                                <Button onAction="#handleViewBills" styleClass="btn-secondary" text="消费明细" />
-                            </children>
-                        </HBox>
+                        <Label maxWidth="400.0" styleClass="hint-text"
+                               text="一卡通钱包由用户管理模块独立维护，与校园银行账户余额互不相通。"
+                               wrapText="true" />
                     </children>
                 </VBox>
             </children>

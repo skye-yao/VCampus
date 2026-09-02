@@ -83,7 +83,6 @@ SHOP_PRODUCT_UPDATE,                // 管理员修改商品信息
 SHOP_PRODUCT_STATUS_CHANGE,         // 管理员修改商品上下架状态
 SHOP_PRODUCT_STOCK_UPDATE,          // 管理员调整商品库存数量
 
-SHOP_ORDER_PROCESS,                 // 管理员处理已支付订单
 SHOP_REFUND_REVIEW,                 // 管理员审核退款申请
 SHOP_SALES_SUMMARY,                 // 管理员查询商店销售统计
 SHOP_OPERATION_LOG_QUERY,           // 管理员查询商店操作日志

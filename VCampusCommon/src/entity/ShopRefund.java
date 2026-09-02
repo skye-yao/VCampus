@@ -1,6 +1,7 @@
 package entity;
 
 import enums.RefundStatus;
+import enums.OrderStatus;
 
 import java.io.Serializable;
 import java.math.BigDecimal;
@@ -20,6 +21,7 @@ public class ShopRefund implements Serializable {
     private String refundTransactionNo;
     private String reviewerId;
     private String reviewComment;
+    private OrderStatus previousOrderStatus;
     private String requestedAt;
     private String reviewedAt;
 
@@ -45,6 +47,8 @@ public class ShopRefund implements Serializable {
     public void setReviewerId(String reviewerId) { this.reviewerId = reviewerId; }
     public String getReviewComment() { return reviewComment; }
     public void setReviewComment(String reviewComment) { this.reviewComment = reviewComment; }
+    public OrderStatus getPreviousOrderStatus() { return previousOrderStatus; }
+    public void setPreviousOrderStatus(OrderStatus previousOrderStatus) { this.previousOrderStatus = previousOrderStatus; }
     public String getRequestedAt() { return requestedAt; }
     public void setRequestedAt(String requestedAt) { this.requestedAt = requestedAt; }
     public String getReviewedAt() { return reviewedAt; }

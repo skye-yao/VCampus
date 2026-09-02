@@ -4,8 +4,6 @@ package enums;
 public enum OrderStatus {
     WAIT_PAY("WAIT_PAY", "待支付"),
     PAID("PAID", "已支付"),
-    PROCESSING("PROCESSING", "处理中"),
-    COMPLETED("COMPLETED", "已完成"),
     CANCELLED("CANCELLED", "已取消"),
     EXPIRED("EXPIRED", "已过期"),
     REFUNDING("REFUNDING", "退款中"),
@@ -28,6 +26,9 @@ public enum OrderStatus {
     }
 
     public static OrderStatus fromCode(String code) {
+        if ("PROCESSING".equalsIgnoreCase(code) || "COMPLETED".equalsIgnoreCase(code)) {
+            return PAID;
+        }
         for (OrderStatus status : values()) {
             if (status.code.equalsIgnoreCase(code)) {
                 return status;

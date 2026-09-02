@@ -25,7 +25,7 @@ public class ProductDAO {
             sql.append(" AND category = ?");
             params.add(category.trim());
         }
-        sql.append(" ORDER BY status DESC, product_id DESC");
+        sql.append(" ORDER BY product_id ASC");
 
         try (Connection conn = DBUtil.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql.toString())) {
@@ -75,6 +75,27 @@ public class ProductDAO {
         throw new SQLException("新增商品后未获取到商品编号");
     }
 
+    public Product findByName(Connection conn, String name, Long excludeProductId) throws SQLException {
+        String sql = "SELECT * FROM tbl_product WHERE product_name=?" +
+                (excludeProductId == null ? "" : " AND product_id<>?") + " LIMIT 1";
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, name.trim());
+            if (excludeProductId != null) stmt.setLong(2, excludeProductId);
+            try (ResultSet rs = stmt.executeQuery()) { return rs.next() ? map(rs) : null; }
+        }
+    }
+
+    public long insert(Connection conn, Product product) throws SQLException {
+        String sql = "INSERT INTO tbl_product(product_name,description,category,price,stock,status) VALUES(?,?,?,?,?,?)";
+        try (PreparedStatement stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+            stmt.setString(1, product.getProductName()); stmt.setString(2, product.getDescription());
+            stmt.setString(3, product.getCategory()); stmt.setBigDecimal(4, product.getPrice());
+            stmt.setInt(5, product.getStock()); stmt.setString(6, product.getStatus().getCode()); stmt.executeUpdate();
+            try (ResultSet keys = stmt.getGeneratedKeys()) { if (keys.next()) return keys.getLong(1); }
+        }
+        throw new SQLException("新增商品后未获取到商品编号");
+    }
+
     public boolean update(Product product) throws SQLException {
         String sql = "UPDATE tbl_product SET product_name=?, description=?, category=?, price=?, " +
                 "version=version+1 WHERE product_id=? AND version=?";
@@ -90,22 +111,24 @@ public class ProductDAO {
         }
     }
 
-    public boolean changeStatus(long productId, ProductStatus status) throws SQLException {
-        String sql = "UPDATE tbl_product SET status=?, version=version+1 WHERE product_id=?";
+    public boolean changeStatus(long productId, ProductStatus status, int expectedVersion) throws SQLException {
+        String sql = "UPDATE tbl_product SET status=?, version=version+1 WHERE product_id=? AND version=?";
         try (Connection conn = DBUtil.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, status.getCode());
             stmt.setLong(2, productId);
+            stmt.setInt(3, expectedVersion);
             return stmt.executeUpdate() == 1;
         }
     }
 
-    public boolean updateStock(long productId, int stock) throws SQLException {
-        String sql = "UPDATE tbl_product SET stock=?, version=version+1 WHERE product_id=?";
+    public boolean updateStock(long productId, int stock, int expectedVersion) throws SQLException {
+        String sql = "UPDATE tbl_product SET stock=?, version=version+1 WHERE product_id=? AND version=?";
         try (Connection conn = DBUtil.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, stock);
             stmt.setLong(2, productId);
+            stmt.setInt(3, expectedVersion);
             return stmt.executeUpdate() == 1;
         }
     }

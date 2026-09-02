@@ -14,7 +14,7 @@
             <Region HBox.hgrow="ALWAYS"/>
             <Label styleClass="brand-title" text="校园商店"/>
             <Label styleClass="brand-divider" text="|"/>
-            <Label styleClass="brand-subtitle" text="商品 · 购物车 · 订单"/>
+            <Label fx:id="shopSubtitleLabel" styleClass="brand-subtitle" text="商品 · 购物车 · 订单"/>
         </HBox>
     </top>
     <center>
@@ -27,12 +27,12 @@
                                 <padding><Insets bottom="12" left="18" right="18" top="16"/></padding>
                                 <TextField fx:id="keywordField" prefWidth="250" promptText="搜索商品名称" styleClass="form-control"/>
                                 <ComboBox fx:id="categoryCombo" prefWidth="150" styleClass="form-control"/>
-                                <Button onAction="#handleSearch" styleClass="btn-secondary" text="查询"/>
+                                <Button minWidth="82" onAction="#handleSearch" styleClass="btn-secondary" text="查询"/>
                                 <Region HBox.hgrow="ALWAYS"/>
-                                <Label text="数量"/>
+                                <Label fx:id="productQuantityLabel" minWidth="42" text="数量"/>
                                 <Spinner fx:id="productQuantitySpinner" prefWidth="90"/>
-                                <Button onAction="#handleProductDetail" styleClass="btn-secondary" text="查看详情"/>
-                                <Button onAction="#handleAddCart" styleClass="btn-primary" text="加入购物车"/>
+                                <Button minWidth="108" onAction="#handleProductDetail" styleClass="btn-secondary" text="商品详情"/>
+                                <Button fx:id="addCartButton" minWidth="132" onAction="#handleAddCart" styleClass="btn-primary" text="加入购物车"/>
                             </HBox>
                         </top>
                         <center>
@@ -50,15 +50,16 @@
                         </center>
                     </BorderPane>
                 </Tab>
-                <Tab text="购物车">
+                <Tab fx:id="cartTab" text="购物车">
                     <BorderPane>
                         <center>
                             <TableView fx:id="cartTable" styleClass="shop-table">
                                 <columns>
-                                    <TableColumn fx:id="cartNameColumn" prefWidth="300" text="商品"/>
-                                    <TableColumn fx:id="cartPriceColumn" prefWidth="150" text="单价（元）"/>
-                                    <TableColumn fx:id="cartQuantityColumn" prefWidth="130" text="数量"/>
-                                    <TableColumn fx:id="cartSubtotalColumn" prefWidth="180" text="小计（元）"/>
+                                    <TableColumn fx:id="cartSelectColumn" maxWidth="70" minWidth="70" prefWidth="70" text="选择"/>
+                                    <TableColumn fx:id="cartNameColumn" prefWidth="280" text="商品"/>
+                                    <TableColumn fx:id="cartPriceColumn" prefWidth="140" text="单价（元）"/>
+                                    <TableColumn fx:id="cartQuantityColumn" prefWidth="120" text="数量"/>
+                                    <TableColumn fx:id="cartSubtotalColumn" prefWidth="170" text="小计（元）"/>
                                 </columns>
                                 <BorderPane.margin><Insets bottom="12" left="18" right="18" top="18"/></BorderPane.margin>
                             </TableView>
@@ -66,18 +67,20 @@
                         <bottom>
                             <HBox alignment="CENTER_RIGHT" spacing="10" styleClass="shop-actionbar">
                                 <padding><Insets bottom="18" left="18" right="18" top="10"/></padding>
-                                <Label text="选中商品数量"/>
+                                <CheckBox fx:id="selectAllCartCheckBox" onAction="#handleSelectAllCart" text="全选"/>
+                                <Label text="当前行数量"/>
                                 <Spinner fx:id="cartQuantitySpinner" prefWidth="90"/>
                                 <Button onAction="#handleUpdateCart" styleClass="btn-secondary" text="修改数量"/>
                                 <Button onAction="#handleRemoveCart" styleClass="btn-secondary" text="删除"/>
+                                <Button onAction="#handleCartProductDetail" styleClass="btn-secondary" text="商品详情"/>
                                 <Region HBox.hgrow="ALWAYS"/>
-                                <Label fx:id="cartTotalLabel" styleClass="shop-total" text="合计：¥0.00"/>
-                                <Button onAction="#handleCreateOrder" styleClass="btn-primary" text="创建订单"/>
+                                <Label fx:id="cartTotalLabel" styleClass="shop-total" text="已选0项，合计：¥0.00"/>
+                                <Button minWidth="110" onAction="#handleCreateOrder" styleClass="btn-primary" text="创建订单"/>
                             </HBox>
                         </bottom>
                     </BorderPane>
                 </Tab>
-                <Tab text="我的订单">
+                <Tab fx:id="orderTab" text="我的订单">
                     <BorderPane>
                         <center>
                             <TableView fx:id="orderTable" styleClass="shop-table">
@@ -101,49 +104,125 @@
                         </bottom>
                     </BorderPane>
                 </Tab>
-                <Tab fx:id="adminTab" text="商品管理">
-                    <SplitPane dividerPositions="0.62">
-                        <items>
-                            <TableView fx:id="adminProductTable" styleClass="shop-table">
-                                <columns>
-                                    <TableColumn fx:id="adminIdColumn" prefWidth="60" text="编号"/>
-                                    <TableColumn fx:id="adminNameColumn" prefWidth="180" text="商品"/>
-                                    <TableColumn fx:id="adminCategoryColumn" prefWidth="110" text="分类"/>
-                                    <TableColumn fx:id="adminPriceColumn" prefWidth="90" text="价格"/>
-                                    <TableColumn fx:id="adminStockColumn" prefWidth="75" text="库存"/>
-                                    <TableColumn fx:id="adminStatusColumn" prefWidth="90" text="状态"/>
-                                </columns>
-                            </TableView>
-                            <ScrollPane fitToWidth="true" styleClass="content-scroll-pane">
-                                <content>
-                                    <VBox spacing="10" styleClass="shop-admin-card">
-                                        <padding><Insets bottom="20" left="20" right="20" top="20"/></padding>
-                                        <Label styleClass="subpanel-title" text="商品信息"/>
-                                        <Label styleClass="form-label" text="商品名称"/>
-                                        <TextField fx:id="adminNameField" styleClass="form-control"/>
-                                        <Label styleClass="form-label" text="分类"/>
-                                        <TextField fx:id="adminCategoryField" styleClass="form-control"/>
-                                        <Label styleClass="form-label" text="价格"/>
-                                        <TextField fx:id="adminPriceField" styleClass="form-control"/>
-                                        <Label styleClass="form-label" text="库存"/>
-                                        <TextField fx:id="adminStockField" styleClass="form-control"/>
-                                        <Label styleClass="form-label" text="商品说明"/>
-                                        <TextArea fx:id="adminDescriptionArea" prefRowCount="4" wrapText="true"/>
-                                        <HBox spacing="8">
-                                            <Button onAction="#handleAdminNew" styleClass="btn-secondary" text="清空"/>
-                                            <Button onAction="#handleAdminCreate" styleClass="btn-primary" text="新增"/>
-                                            <Button onAction="#handleAdminUpdate" styleClass="btn-secondary" text="保存修改"/>
+                <Tab fx:id="adminTab" text="商店后台">
+                    <TabPane tabClosingPolicy="UNAVAILABLE" styleClass="admin-subtabs">
+                        <tabs>
+                            <Tab text="商品维护">
+                                <BorderPane>
+                                    <top>
+                                        <HBox alignment="CENTER_RIGHT" spacing="10" styleClass="shop-actionbar">
+                                            <padding><Insets bottom="12" left="18" right="18" top="14"/></padding>
+                                            <Label styleClass="hint-text" text="选择商品后可修改基本信息或调整上下架状态"/>
+                                            <Region HBox.hgrow="ALWAYS"/>
+                                            <Button onAction="#handleOpenCreateProduct" styleClass="btn-primary" text="新增商品"/>
                                         </HBox>
-                                        <HBox spacing="8">
-                                            <Button onAction="#handleAdminToggleStatus" styleClass="btn-secondary" text="上架/下架"/>
-                                            <Button onAction="#handleAdminStock" styleClass="btn-secondary" text="更新库存"/>
+                                    </top>
+                                    <center>
+                                      <SplitPane dividerPositions="0.66">
+                                        <items>
+                                        <TableView fx:id="adminProductTable" styleClass="shop-table">
+                                            <columns>
+                                                <TableColumn fx:id="adminIdColumn" prefWidth="60" text="编号"/>
+                                                <TableColumn fx:id="adminNameColumn" prefWidth="180" text="商品"/>
+                                                <TableColumn fx:id="adminCategoryColumn" prefWidth="110" text="分类"/>
+                                                <TableColumn fx:id="adminPriceColumn" prefWidth="90" text="价格"/>
+                                                <TableColumn fx:id="adminStatusColumn" prefWidth="90" text="状态"/>
+                                            </columns>
+                                        </TableView>
+                                        <ScrollPane fitToWidth="true" styleClass="content-scroll-pane">
+                                            <content>
+                                                <VBox spacing="10" styleClass="shop-admin-card">
+                                                    <padding><Insets bottom="20" left="20" right="20" top="20"/></padding>
+                                                    <Label styleClass="subpanel-title" text="商品基本信息"/>
+                                                    <Label styleClass="form-label" text="商品名称"/>
+                                                    <TextField fx:id="adminNameField" styleClass="form-control"/>
+                                                    <Label styleClass="form-label" text="分类"/>
+                                                    <ComboBox fx:id="adminCategoryField" maxWidth="Infinity" promptText="请选择商品分类" styleClass="form-control"/>
+                                                    <Label styleClass="form-label" text="价格"/>
+                                                    <TextField fx:id="adminPriceField" styleClass="form-control"/>
+                                                    <Label styleClass="form-label" text="商品说明"/>
+                                                    <TextArea fx:id="adminDescriptionArea" prefRowCount="4" wrapText="true"/>
+                                                    <Button maxWidth="Infinity" onAction="#handleAdminUpdate" styleClass="btn-primary" text="修改商品信息"/>
+                                                    <Button maxWidth="Infinity" onAction="#handleAdminToggleStatus" styleClass="btn-secondary" text="上架/下架"/>
+                                                    <Label styleClass="hint-text" text="此处只维护名称、分类、价格和说明；库存请到“库存管理”界面调整。" wrapText="true"/>
+                                                </VBox>
+                                            </content>
+                                        </ScrollPane>
+                                        </items>
+                                      </SplitPane>
+                                    </center>
+                                </BorderPane>
+                            </Tab>
+                            <Tab text="库存管理">
+                                <BorderPane>
+                                    <center>
+                                        <TableView fx:id="inventoryProductTable" styleClass="shop-table">
+                                            <columns>
+                                                <TableColumn fx:id="inventoryIdColumn" prefWidth="100" text="编号"/>
+                                                <TableColumn fx:id="inventoryNameColumn" prefWidth="300" text="商品名称"/>
+                                                <TableColumn fx:id="inventoryCategoryColumn" prefWidth="180" text="分类"/>
+                                                <TableColumn fx:id="inventoryStockColumn" prefWidth="160" text="当前库存"/>
+                                                <TableColumn fx:id="inventoryStatusColumn" prefWidth="160" text="销售状态"/>
+                                            </columns>
+                                            <BorderPane.margin><Insets bottom="12" left="18" right="18" top="18"/></BorderPane.margin>
+                                        </TableView>
+                                    </center>
+                                    <bottom>
+                                        <HBox alignment="CENTER_RIGHT" spacing="12" styleClass="shop-actionbar">
+                                            <padding><Insets bottom="18" left="18" right="18" top="10"/></padding>
+                                            <Label text="选择商品后输入调整后的库存数量"/>
+                                            <Region HBox.hgrow="ALWAYS"/>
+                                            <Label styleClass="form-label" text="新库存"/>
+                                            <TextField fx:id="inventoryStockField" prefWidth="130" promptText="非负整数" styleClass="form-control"/>
+                                            <Button onAction="#handleAdminStock" styleClass="btn-primary" text="保存库存调整"/>
                                         </HBox>
-                                        <Label styleClass="hint-text" text="提示：选择左侧商品后可修改；库存更新使用上方库存值。" wrapText="true"/>
-                                    </VBox>
-                                </content>
-                            </ScrollPane>
-                        </items>
-                    </SplitPane>
+                                    </bottom>
+                                </BorderPane>
+                            </Tab>
+                            <Tab text="退款审核">
+                                <BorderPane>
+                                    <center><TableView fx:id="adminRefundTable" styleClass="shop-table">
+                                        <columns>
+                                            <TableColumn fx:id="adminRefundNoColumn" prefWidth="230" text="退款单号"/>
+                                            <TableColumn fx:id="adminRefundOrderColumn" prefWidth="100" text="订单编号"/>
+                                            <TableColumn fx:id="adminRefundUserColumn" prefWidth="130" text="申请用户"/>
+                                            <TableColumn fx:id="adminRefundAmountColumn" prefWidth="120" text="退款金额"/>
+                                            <TableColumn fx:id="adminRefundStatusColumn" prefWidth="120" text="状态"/>
+                                        </columns>
+                                    </TableView></center>
+                                    <bottom><HBox alignment="CENTER_RIGHT" spacing="10" styleClass="shop-actionbar">
+                                        <padding><Insets bottom="12" left="16" right="16" top="12"/></padding>
+                                        <Button onAction="#handleRefreshAdminDashboard" styleClass="btn-secondary" text="刷新"/>
+                                        <Button onAction="#handleRejectRefund" styleClass="btn-secondary" text="拒绝退款"/>
+                                        <Button onAction="#handleApproveRefund" styleClass="btn-primary" text="同意并原路退款"/>
+                                    </HBox></bottom>
+                                </BorderPane>
+                            </Tab>
+                            <Tab text="销售记录">
+                                <BorderPane>
+                                    <top><HBox spacing="12" styleClass="shop-summary-bar">
+                                        <padding><Insets bottom="12" left="16" right="16" top="12"/></padding>
+                                        <Label fx:id="salesTotalOrdersLabel" styleClass="summary-chip" text="全部订单：0"/>
+                                        <Label fx:id="salesPaidOrdersLabel" styleClass="summary-chip" text="有效销售：0"/>
+                                        <Label fx:id="salesAmountLabel" styleClass="summary-chip" text="销售金额：¥0.00"/>
+                                        <Label fx:id="salesRefundedLabel" styleClass="summary-chip" text="已退款：0"/>
+                                        <Region HBox.hgrow="ALWAYS"/>
+                                        <Button onAction="#handleSalesOrderDetail" styleClass="btn-secondary" text="查看订单详情"/>
+                                        <Button onAction="#handleRefreshAdminDashboard" styleClass="btn-secondary" text="刷新记录"/>
+                                    </HBox></top>
+                                    <center><TableView fx:id="salesOrderTable" styleClass="shop-table">
+                                        <columns>
+                                            <TableColumn fx:id="salesOrderNoColumn" prefWidth="245" text="订单号"/>
+                                            <TableColumn fx:id="salesUserColumn" prefWidth="140" text="用户"/>
+                                            <TableColumn fx:id="salesAmountColumn" prefWidth="130" text="金额"/>
+                                            <TableColumn fx:id="salesStatusColumn" prefWidth="120" text="状态"/>
+                                            <TableColumn fx:id="salesTimeColumn" prefWidth="190" text="创建时间"/>
+                                        </columns>
+                                    </TableView></center>
+                                </BorderPane>
+                            </Tab>
+                        </tabs>
+                    </TabPane>
                 </Tab>
             </tabs>
         </TabPane>

@@ -1,7 +1,6 @@
 package controller;
 
 import app.ClientMain;
-import com.google.gson.Gson;
 import entity.User;
 import javafx.application.Platform;
 import javafx.event.ActionEvent;
@@ -54,8 +53,8 @@ public class ProfileController {
     @FXML private PasswordField confirmPwdField;
 
     @FXML private ImageView updateAvatarView;
-
-    private final Gson gson = new Gson();
+    @FXML private Label walletBalanceLabel;
+    @FXML private Label walletAccountLabel;
 
     @FXML
     public void initialize() {
@@ -87,8 +86,19 @@ public class ProfileController {
             if (profMajorField != null) profMajorField.setText(user.getMajor() != null ? user.getMajor() : "");
             if (profPhoneField != null) profPhoneField.setText(user.getPhone() != null ? user.getPhone() : "");
             if (profEmailField != null) profEmailField.setText(user.getEmail() != null ? user.getEmail() : "");
+            if (walletBalanceLabel != null) {
+                walletBalanceLabel.setText("¥ " + (user.getBalance() == null
+                        ? "0.00" : user.getBalance().setScale(2).toPlainString()));
+            }
+            if (walletAccountLabel != null) {
+                walletAccountLabel.setText("一卡通号：" + (user.getUID() == null ? "" : user.getUID()));
+            }
         } else {
             if (profUIDField != null) profUIDField.setText(ClientSession.getInstance().getUsername());
+            if (walletBalanceLabel != null) walletBalanceLabel.setText("¥ 0.00");
+            if (walletAccountLabel != null) {
+                walletAccountLabel.setText("一卡通号：" + ClientSession.getInstance().getUsername());
+            }
         }
     }
 
@@ -290,13 +300,4 @@ public class ProfileController {
         showAvatar(updateAvatarView, currentUser != null ? currentUser.getAvatar() : null);
     }
 
-    @FXML
-    private void handleRecharge(ActionEvent event) {
-        AlertUtil.showInfo("账户充值", "一卡通充值通道正在建设中，请前往校园网银或人工服务窗口。");
-    }
-
-    @FXML
-    private void handleViewBills(ActionEvent event) {
-        AlertUtil.showInfo("消费明细", "正在查询近 30 天一卡通账单流水...");
-    }
 }

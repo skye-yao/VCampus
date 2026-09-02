@@ -5,6 +5,8 @@ import protocol.MessageCode;
 import protocol.MessageType;
 import handler.UserHandler;
 import handler.ShopHandler;
+import handler.BankHandler;
+import service.BankService;
 
 /**
  * 服务端消息分发器
@@ -19,10 +21,13 @@ public class MessageDispatcher {
     // 各模块 Handler
     private final UserHandler userHandler;
     private final ShopHandler shopHandler;
+    private final BankHandler bankHandler;
 
     public MessageDispatcher() {
         this.userHandler = new UserHandler();
-        this.shopHandler = new ShopHandler();
+        BankService bankService = new BankService();
+        this.shopHandler = new ShopHandler(bankService);
+        this.bankHandler = new BankHandler(bankService);
     }
 
     /**
@@ -46,6 +51,8 @@ public class MessageDispatcher {
             return userHandler.handle(request);
         } else if ("shop".equalsIgnoreCase(module)) {
             return shopHandler.handle(request);
+        } else if ("bank".equalsIgnoreCase(module)) {
+            return bankHandler.handle(request);
         } else {
             // 未知模块或未实现的模块
             Message response = new Message(MessageType.RESPONSE, module, request.getAction());
