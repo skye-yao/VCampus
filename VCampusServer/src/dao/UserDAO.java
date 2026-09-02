@@ -22,8 +22,8 @@ public class UserDAO {
      * @throws SQLException 数据库异常
      */
     public User findByUID(String UID) throws SQLException {
-        String sql = "SELECT uid, name, gender, password, salt, role, college, major, phone, email, balance " +
-                     "FROM tbl_user WHERE uid = ?";
+        String sql = "SELECT UID, name, gender, password, salt, role, college, major, phone, email, avatar ,balance " +
+                     "FROM tbl_user WHERE UID = ?";
         
         Connection conn = null;
         PreparedStatement stmt = null;
@@ -37,7 +37,7 @@ public class UserDAO {
 
             if (rs.next()) {
                 User user = new User();
-                user.setUID(rs.getString("uid"));
+                user.setUID(rs.getString("UID"));
                 user.setName(rs.getString("name"));
                 user.setGender(rs.getString("gender"));
                 user.setPassword(rs.getString("password"));
@@ -47,6 +47,7 @@ public class UserDAO {
                 user.setMajor(rs.getString("major"));
                 user.setPhone(rs.getString("phone"));
                 user.setEmail(rs.getString("email"));
+                user.setAvatar(rs.getString("avatar"));
                 user.setBalance(rs.getInt("balance"));
                 return user;
             }
@@ -60,7 +61,7 @@ public class UserDAO {
      * 修改密码与盐值
      */
     public boolean updatePassword(String UID, String newPasswordHash, String newSalt) throws SQLException {
-        String sql = "UPDATE tbl_user SET password = ?, salt = ? WHERE uid = ?";
+        String sql = "UPDATE tbl_user SET password = ?, salt = ? WHERE UID = ?";
         Connection conn = null;
         PreparedStatement stmt = null;
 
@@ -80,7 +81,7 @@ public class UserDAO {
      * 更新用户个人基本信息
      */
     public boolean updateProfile(User user) throws SQLException {
-        String sql = "UPDATE tbl_user SET name = ?, gender = ?, college = ?, major = ?, phone = ?, email = ? WHERE uid = ?";
+        String sql = "UPDATE tbl_user SET name = ?, gender = ?, college = ?, major = ?, phone = ?, email = ? WHERE UID = ?";
         Connection conn = null;
         PreparedStatement stmt = null;
 
@@ -98,5 +99,24 @@ public class UserDAO {
         } finally {
             DBUtil.close(conn, stmt, null);
         }
+    }
+
+    /**
+     * 修改头像
+     */
+    public boolean updateAvatar(String UID, String avatarBase64) throws SQLException {
+        String sql = "UPDATE tbl_user SET avatar = ? WHERE UID = ?";
+        Connection conn = null;
+        PreparedStatement stmt = null;
+        try {
+            conn = DBUtil.getConnection();
+            stmt = conn.prepareStatement(sql);
+            stmt.setString(1, avatarBase64);
+            stmt.setString(2, UID);
+            return stmt.executeUpdate() > 0;
+        }finally {
+            DBUtil.close(conn, stmt, null);
+        }
+
     }
 }
