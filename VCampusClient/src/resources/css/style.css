@@ -367,3 +367,86 @@
 .content-scroll-pane > .viewport {
     -fx-background-color: transparent;
 }
+
+/* ================= 4. 校园商店 ================= */
+.shop-tabs {
+    -fx-background-color: #f6f8f6;
+    -fx-tab-min-width: 120px;
+    -fx-tab-min-height: 38px;
+}
+
+.shop-tabs .tab-header-background {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #e2e8e2;
+    -fx-border-width: 0 0 1px 0;
+}
+
+.shop-tabs .tab {
+    -fx-background-color: transparent;
+    -fx-padding: 6px 18px;
+}
+
+.shop-tabs .tab:selected {
+    -fx-background-color: #eaf0ea;
+    -fx-border-color: #587558;
+    -fx-border-width: 0 0 3px 0;
+}
+
+.shop-tabs .tab-label {
+    -fx-text-fill: #4e5a4e;
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+}
+
+.shop-tabs .tab:selected .tab-label {
+    -fx-text-fill: #3f553f;
+}
+
+.shop-toolbar,
+.shop-actionbar {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #e2e8e2;
+}
+
+.shop-toolbar { -fx-border-width: 0 0 1px 0; }
+.shop-actionbar { -fx-border-width: 1px 0 0 0; }
+
+.shop-table {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #dbe3db;
+    -fx-border-radius: 8px;
+    -fx-background-radius: 8px;
+}
+
+.shop-table .column-header-background {
+    -fx-background-color: #eaf0ea;
+    -fx-background-radius: 8px 8px 0 0;
+}
+
+.shop-table .column-header,
+.shop-table .filler {
+    -fx-background-color: transparent;
+    -fx-size: 38px;
+}
+
+.shop-table .column-header .label {
+    -fx-text-fill: #3f553f;
+    -fx-font-weight: bold;
+}
+
+.shop-table .table-row-cell:selected {
+    -fx-background-color: #dce8dc;
+    -fx-text-background-color: #231815;
+}
+
+.shop-total {
+    -fx-font-size: 17px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #8a5e00;
+}
+
+.shop-admin-card {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #e2e8e2;
+    -fx-border-width: 0 0 0 1px;
+}

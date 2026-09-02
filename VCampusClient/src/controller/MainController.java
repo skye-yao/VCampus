@@ -63,7 +63,7 @@ public class MainController {
 
     @FXML
     private void openStore(MouseEvent event) {
-        showSubsystemNotice("校园商店子系统");
+        ClientMain.switchScene("/resources/fxml/ShopView.fxml");
     }
 
     @FXML

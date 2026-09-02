@@ -4,6 +4,7 @@
 **/out/
 **/target/
 **/build/
+build-check/
 **/dist/
 *.war
 *.ear
