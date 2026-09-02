@@ -5,7 +5,7 @@ public class Student implements Serializable {
     private static final long serialVersionUID = 1L;
 
     private String studentId;
-    private String userId;
+    private String UID;
     private String name;
     private String gender;
     private String politicalStatus;
@@ -60,11 +60,11 @@ public class Student implements Serializable {
     public void setStudentId(String v) {
         studentId=v;
     }
-    public String getUserId() {
-        return userId;
+    public String getUID() {
+        return UID;
     }
-    public void setUserId(String v) {
-        userId=v;
+    public void setUID(String v) {
+        UID=v;
     }
     public String getName() {
         return name;

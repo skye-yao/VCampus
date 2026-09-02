@@ -408,3 +408,4 @@
 .review-bucket-tabs { -fx-border-color: #dce5dc; -fx-border-width: 0 0 1px 0; }
 .review-bucket-tab { -fx-background-color: transparent; -fx-padding: 8px 20px; -fx-font-weight: bold; -fx-text-fill: #667066; -fx-cursor: hand; }
 .review-bucket-tab:selected { -fx-background-color: #eaf0ea; -fx-text-fill: #3f553f; -fx-border-color: #587558; -fx-border-width: 0 0 3px 0; }
+.teacher-tabs > .tab-header-area { -fx-max-height: 0; -fx-pref-height: 0; -fx-opacity: 0; }

@@ -10,6 +10,7 @@ import javafx.application.Platform;
 import javafx.beans.property.SimpleStringProperty;
 import javafx.collections.FXCollections;
 import javafx.fxml.FXML;
+import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
@@ -35,7 +36,7 @@ public class StudentController {
     @FXML private Label pageSummaryLabel,reviewPageSummaryLabel,adminWorkspaceTitle;
     @FXML private TilePane awardTile,aidTile;
     @FXML private TableView<StudentChangeRequest> reviewTable;
-    @FXML private TableColumn<StudentChangeRequest,String> reviewNameCol,reviewStudentCol,reviewTimeCol,reviewStatusCol;
+    @FXML private TableColumn<StudentChangeRequest,String> reviewNameCol,reviewStudentCol,reviewTimeCol,reviewProcessedTimeCol,reviewStatusCol;
     @FXML private TableColumn<StudentChangeRequest,Void> reviewActionCol;
     @FXML private TableView<Student> studentTable;
     @FXML private TableColumn<Student,String> stuIdCol,stuNameCol,stuGenderCol,stuGradeCol,stuCollegeCol,stuMajorCol,stuStatusCol;
@@ -44,8 +45,6 @@ public class StudentController {
     @FXML private TableColumn<StudentAward,String> maintenanceAwardIdCol,maintenanceAwardStudentCol,maintenanceAwardNameCol,maintenanceAwardTypeCol,maintenanceAwardLevelCol,maintenanceAwardDateCol,maintenanceAwardOrganizationCol,maintenanceAwardDescriptionCol;
     @FXML private TableView<StudentAid> maintenanceAidTable;
     @FXML private TableColumn<StudentAid,String> maintenanceAidIdCol,maintenanceAidStudentCol,maintenanceAidNameCol,maintenanceAidTypeCol,maintenanceAidAmountCol,maintenanceAidDateCol,maintenanceAidProviderCol,maintenanceAidStatusCol,maintenanceAidDescriptionCol;
-    @FXML private TableView<StudentChangeItem> reviewItemTable;
-    @FXML private TableColumn<StudentChangeItem,String> itemFieldCol,itemOldCol,itemNewCol;
     @FXML private Button approveButton,rejectButton;
     @FXML private ToggleButton unfinishedReviewButton,completedReviewButton;
     private static final int PAGE_SIZE=12;
@@ -127,7 +126,7 @@ public class StudentController {
     }
     private List<String> baseFields() {
         return List.of(
-                "userId", "studentId", "name", "politicalStatus", "nationality", "gender",
+                "UID", "studentId", "name", "politicalStatus", "nationality", "gender",
                 "idType", "idNumber", "idIssueDate", "birthDate", "nativePlace", "householdType",
                 "birthPlace", "sourcePlace", "registeredResidence", "leagueMember", "leagueJoinDate",
                 "partyMember", "partyJoinDate", "healthStatus"
@@ -318,10 +317,14 @@ public class StudentController {
         reviewNameCol.setCellValueFactory(c->text(studentName(c.getValue().getStudentId())));
         reviewStudentCol.setCellValueFactory(c->text(c.getValue().getStudentId()));
         reviewTimeCol.setCellValueFactory(c->text(c.getValue().getSubmitTime()));
+        reviewProcessedTimeCol.setCellValueFactory(c->text(c.getValue().getReviewTime()));
         reviewStatusCol.setCellValueFactory(c->text(status(c.getValue().getStatus())));
-        itemFieldCol.setCellValueFactory(c->text(title(c.getValue().getFieldName())));
-        itemOldCol.setCellValueFactory(c->text(c.getValue().getOldValue()));
-        itemNewCol.setCellValueFactory(c->text(c.getValue().getNewValue()));
+        reviewActionCol.setSortable(false);
+        reviewTable.setSortPolicy(table->{
+            Comparator<StudentChangeRequest> comparator=table.getComparator();
+            if(comparator!=null)filteredReviewRequests.sort(comparator);
+            reviewCurrentPage=1;refreshReviewPage();return true;
+        });
         maintenanceAwardIdCol.setCellValueFactory(c->text(c.getValue().getAwardId()));
         maintenanceAwardStudentCol.setCellValueFactory(c->text(c.getValue().getStudentId()));
         maintenanceAwardNameCol.setCellValueFactory(c->text(c.getValue().getAwardName()));
@@ -353,7 +356,10 @@ public class StudentController {
             if(!ok(m)) {
                 setStatus(message(m,"学籍信息加载失败"));return;
             }
-            overview=data(m,"overview",StudentOverviewVO.class);render(overview);setStatus("学籍信息已更新");
+            overview=data(m,"overview",StudentOverviewVO.class);
+            if(!isAdmin()&&overview!=null&&overview.getStudent()!=null&&safe(overview.getStudent().getUID()).isBlank())
+                overview.getStudent().setUID(safe(ClientSession.getInstance().getUsername()));
+            render(overview);setStatus("学籍信息已更新");
         }
         );
     }
@@ -378,12 +384,12 @@ public class StudentController {
         String nameKeyword=safe(reviewSearchIdField.getText()).toLowerCase();
         String studentId=safe(reviewSearchStudentField.getText()).toLowerCase();
         String state=safe(reviewSearchStatusField.getText()).toLowerCase();
-        filteredReviewRequests=reviewRequests.stream().filter(this::matchesReviewBucket).filter(request->
+        filteredReviewRequests=new ArrayList<>(reviewRequests.stream().filter(this::matchesReviewBucket).filter(request->
                 (nameKeyword.isEmpty()||studentName(request.getStudentId()).toLowerCase().contains(nameKeyword))&&
                 (studentId.isEmpty()||safe(request.getStudentId()).toLowerCase().contains(studentId))&&
                 (state.isEmpty()||(status(request.getStatus())+" "+String.valueOf(request.getStatus())).toLowerCase().contains(state)))
-                .toList();
-        reviewCurrentPage=1;refreshReviewPage();
+                .toList());
+        applyCurrentReviewSort();reviewCurrentPage=1;refreshReviewPage();
     }
     @FXML private void handleResetReviewSearch() {
         reviewSearchIdField.clear();reviewSearchStudentField.clear();reviewSearchStatusField.clear();
@@ -394,7 +400,12 @@ public class StudentController {
     private boolean matchesReviewBucket(StudentChangeRequest request){return showCompletedReviews?request.getStatus()!=StudentChangeStatus.PENDING:request.getStatus()==StudentChangeStatus.PENDING;}
     private void applyReviewBucket(){
         unfinishedReviewButton.setSelected(!showCompletedReviews);completedReviewButton.setSelected(showCompletedReviews);
-        filteredReviewRequests=reviewRequests.stream().filter(this::matchesReviewBucket).toList();reviewCurrentPage=1;refreshReviewPage();
+        reviewProcessedTimeCol.setVisible(showCompletedReviews);
+        filteredReviewRequests=new ArrayList<>(reviewRequests.stream().filter(this::matchesReviewBucket).toList());applyCurrentReviewSort();reviewCurrentPage=1;refreshReviewPage();
+    }
+    private void applyCurrentReviewSort(){
+        Comparator<StudentChangeRequest> comparator=reviewTable.getComparator();
+        if(comparator!=null)filteredReviewRequests.sort(comparator);
     }
     private int reviewPageCount(){return Math.max(1,(filteredReviewRequests.size()+PAGE_SIZE-1)/PAGE_SIZE);}
     private void refreshReviewPage() {
@@ -424,7 +435,7 @@ public class StudentController {
         refreshStudentPage();
     }
     private String studentSearchText(Student s) {
-        return String.join(" ",safe(s.getStudentId()),safe(s.getUserId()),safe(s.getName()),safe(s.getGender()),
+        return String.join(" ",safe(s.getStudentId()),safe(s.getUID()),safe(s.getName()),safe(s.getGender()),
                 safe(s.getGrade()),safe(s.getCollege()),safe(s.getMajor()),safe(s.getClassName()),
                 safe(s.getCampus()),safe(s.getStudentStatus()),safe(s.getStudentCategory())).toLowerCase();
     }
@@ -589,7 +600,7 @@ public class StudentController {
             if(selected==null||selected.getRequestId()!=expected)return;StudentChangeRequest detail=ok(m)?data(m,"request",StudentChangeRequest.class):null;if(detail==null) {
                 setStatus(message(m,"审核详情加载失败"));handleBackToReviewOverview();return;
             }
-            selected=detail;List<StudentChangeItem> items=detail.getItems();reviewItemTable.setItems(FXCollections.observableArrayList(items==null?List.of():items));
+            selected=detail;
         }
         ));
         service.queryStudentOverview(r.getStudentId(),m->Platform.runLater(()-> {
@@ -602,7 +613,6 @@ public class StudentController {
     }
     @FXML private void handleBackToReviewOverview() {
         selected=null;
-        reviewItemTable.getItems().clear();
         reviewRemarkArea.clear();
         approveButton.setDisable(true);
         rejectButton.setDisable(true);
@@ -625,7 +635,16 @@ public class StudentController {
         v.setReviewRemark(safe(reviewRemarkArea.getText()));
         service.reviewChangeRequest(v,m->Platform.runLater(()-> {
             setStatus(message(m,"审核完成"));if(ok(m)) {
-                handleBackToReviewOverview();loadAdmin();
+                StudentChangeRequest reviewed=selected;
+                reviewed.setStatus(s);
+                reviewed.setReviewTime(new java.sql.Timestamp(System.currentTimeMillis()));
+                reviewed.setReviewRemark(v.getReviewRemark());
+                boolean exists=reviewRequests.stream().anyMatch(request->request.getRequestId()==reviewed.getRequestId());
+                if(!exists)reviewRequests.add(reviewed);
+                handleBackToReviewOverview();
+                showCompletedReviews=true;
+                reviewSearchIdField.clear();reviewSearchStudentField.clear();reviewSearchStatusField.clear();
+                applyReviewBucket();
             }
         }
         ));
@@ -713,15 +732,20 @@ public class StudentController {
     }
     private void saveAward(StudentAward source){
         StudentAward award=source==null?new StudentAward():source;
-        String name=ask("奖励维护","奖励名称",award.getAwardName());if(name==null)return;
-        String type=ask("奖励维护","类型：SCHOLARSHIP/HONOR/COMPETITION/RESEARCH/PRACTICE/OTHER",award.getAwardType()==null?"HONOR":award.getAwardType().name());if(type==null)return;
-        String level=ask("奖励维护","奖励级别",award.getAwardLevel());if(level==null)return;
-        String date=ask("奖励维护","奖励日期（yyyy-MM-dd，可留空）",showForInput(award.getAwardDate()));if(date==null)return;
-        String organization=ask("奖励维护","颁发单位",award.getOrganization());if(organization==null)return;
-        String description=ask("奖励维护","奖励说明",award.getDescription());if(description==null)return;
+        LinkedHashMap<String,String> initial=new LinkedHashMap<>();
+        initial.put("奖励名称",showForInput(award.getAwardName()));
+        initial.put("类型（SCHOLARSHIP/HONOR/COMPETITION/RESEARCH/PRACTICE/OTHER）",award.getAwardType()==null?"HONOR":award.getAwardType().name());
+        initial.put("奖励级别",showForInput(award.getAwardLevel()));
+        initial.put("奖励日期（yyyy-MM-dd，可留空）",showForInput(award.getAwardDate()));
+        initial.put("颁发单位",showForInput(award.getOrganization()));
+        initial.put("奖励说明",showForInput(award.getDescription()));
+        Optional<Map<String,String>> result=showRecordDialog("奖励维护",initial);if(result.isEmpty())return;
+        Map<String,String> values=result.get();
         try{
-            award.setStudentId(overview.getStudent().getStudentId());award.setAwardName(name);award.setAwardType(StudentAwardType.valueOf(type.trim().toUpperCase()));
-            award.setAwardLevel(level);award.setAwardDate(date.isBlank()?null:Date.valueOf(date.trim()));award.setOrganization(organization);award.setDescription(description);
+            award.setStudentId(overview.getStudent().getStudentId());award.setAwardName(values.get("奖励名称"));
+            award.setAwardType(StudentAwardType.valueOf(values.get("类型（SCHOLARSHIP/HONOR/COMPETITION/RESEARCH/PRACTICE/OTHER）").toUpperCase()));
+            award.setAwardLevel(values.get("奖励级别"));String date=values.get("奖励日期（yyyy-MM-dd，可留空）");
+            award.setAwardDate(date.isBlank()?null:Date.valueOf(date));award.setOrganization(values.get("颁发单位"));award.setDescription(values.get("奖励说明"));
         }catch(Exception e){setStatus("奖励信息格式错误："+e.getMessage());return;}
         java.util.function.Consumer<Message> done=m->Platform.runLater(()->{setStatus(message(m,"奖励维护完成"));if(ok(m))reloadCurrentOverview();});
         if(source==null)service.addAward(award,done);else service.updateAward(award,done);
@@ -738,16 +762,18 @@ public class StudentController {
     }
     private void saveAid(StudentAid source){
         StudentAid aid=source==null?new StudentAid():source;
-        String name=ask("资助维护","资助名称",aid.getAidName());if(name==null)return;
-        String type=ask("资助维护","资助类型",aid.getAidType());if(type==null)return;
-        String amount=ask("资助维护","金额",aid.getAmount()==null?"0":aid.getAmount().toPlainString());if(amount==null)return;
-        String date=ask("资助维护","资助日期（yyyy-MM-dd，可留空）",showForInput(aid.getAidDate()));if(date==null)return;
-        String provider=ask("资助维护","资助提供方",aid.getProvider());if(provider==null)return;
-        String state=ask("资助维护","状态：PENDING/ISSUED/CANCELLED",aid.getStatus()==null?"PENDING":aid.getStatus().name());if(state==null)return;
-        String description=ask("资助维护","资助说明",aid.getDescription());if(description==null)return;
+        LinkedHashMap<String,String> initial=new LinkedHashMap<>();
+        initial.put("资助名称",showForInput(aid.getAidName()));initial.put("资助类型",showForInput(aid.getAidType()));
+        initial.put("金额",aid.getAmount()==null?"0":aid.getAmount().toPlainString());initial.put("资助日期（yyyy-MM-dd，可留空）",showForInput(aid.getAidDate()));
+        initial.put("资助提供方",showForInput(aid.getProvider()));initial.put("状态（PENDING/ISSUED/CANCELLED）",aid.getStatus()==null?"PENDING":aid.getStatus().name());
+        initial.put("资助说明",showForInput(aid.getDescription()));
+        Optional<Map<String,String>> result=showRecordDialog("资助维护",initial);if(result.isEmpty())return;
+        Map<String,String> values=result.get();
         try{
-            aid.setStudentId(overview.getStudent().getStudentId());aid.setAidName(name);aid.setAidType(type);
-            aid.setAmount(new java.math.BigDecimal(amount.trim()));aid.setAidDate(date.isBlank()?null:Date.valueOf(date.trim()));aid.setProvider(provider);aid.setStatus(StudentAidStatus.valueOf(state.trim().toUpperCase()));aid.setDescription(description);
+            aid.setStudentId(overview.getStudent().getStudentId());aid.setAidName(values.get("资助名称"));aid.setAidType(values.get("资助类型"));
+            aid.setAmount(new java.math.BigDecimal(values.get("金额")));String date=values.get("资助日期（yyyy-MM-dd，可留空）");
+            aid.setAidDate(date.isBlank()?null:Date.valueOf(date));aid.setProvider(values.get("资助提供方"));
+            aid.setStatus(StudentAidStatus.valueOf(values.get("状态（PENDING/ISSUED/CANCELLED）").toUpperCase()));aid.setDescription(values.get("资助说明"));
         }catch(Exception e){setStatus("资助信息格式错误："+e.getMessage());return;}
         java.util.function.Consumer<Message> done=m->Platform.runLater(()->{setStatus(message(m,"资助维护完成"));if(ok(m))reloadCurrentOverview();});
         if(source==null)service.addAid(aid,done);else service.updateAid(aid,done);
@@ -757,9 +783,20 @@ public class StudentController {
         if(aid==null){setStatus("请先选择资助记录");return;}
         service.deleteAid(aid.getAidId(),m->Platform.runLater(()->{setStatus(message(m,"资助已删除"));if(ok(m))reloadCurrentOverview();}));
     }
-    private String ask(String title,String header,Object initial){
-        TextInputDialog dialog=new TextInputDialog(showForInput(initial));dialog.setTitle(title);dialog.setHeaderText(header);dialog.setContentText("请输入：");
-        return dialog.showAndWait().map(String::trim).orElse(null);
+    private Optional<Map<String,String>> showRecordDialog(String title,LinkedHashMap<String,String> initial){
+        Dialog<Map<String,String>> dialog=new Dialog<>();dialog.setTitle(title);dialog.setHeaderText("请在同一表单中填写全部信息");
+        GridPane grid=new GridPane();grid.setHgap(12);grid.setVgap(10);grid.setPadding(new Insets(8,12,8,12));
+        LinkedHashMap<String,TextField> fields=new LinkedHashMap<>();int row=0;
+        for(Map.Entry<String,String> entry:initial.entrySet()){
+            TextField field=new TextField(entry.getValue());field.setPrefWidth(360);fields.put(entry.getKey(),field);
+            Label label=new Label(entry.getKey());label.setWrapText(true);label.setMaxWidth(250);grid.add(label,0,row);grid.add(field,1,row++);
+        }
+        dialog.getDialogPane().setContent(grid);dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK,ButtonType.CANCEL);
+        dialog.setResultConverter(button->{
+            if(button!=ButtonType.OK)return null;Map<String,String> values=new LinkedHashMap<>();
+            fields.forEach((key,field)->values.put(key,field.getText().trim()));return values;
+        });
+        return dialog.showAndWait();
     }
     private String showForInput(Object value){return value==null?"":String.valueOf(value);}
     private void reloadCurrentOverview(){
@@ -824,7 +861,7 @@ public class StudentController {
     private int[] fieldPosition(GridPane g,String n,int index) {
         if(g==baseInfoGrid) {
             return switch(n) {
-                case"userId"->new int[] {
+                case"UID"->new int[] {
                     0,0
                 }
                 ;
@@ -976,7 +1013,7 @@ public class StudentController {
     }
     private String title(String n) {
         return switch (n) {
-            case "userId" -> "用户";
+            case "UID" -> "用户名";
             case "studentId" -> "学号";
             case "name" -> "姓名";
             case "gender" -> "性别";

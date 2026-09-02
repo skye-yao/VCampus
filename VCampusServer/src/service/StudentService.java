@@ -35,8 +35,8 @@ public class StudentService {
     private final StudentChangeRequestDAO requests = new StudentChangeRequestDAO();
     private final StudentAwardDAO awards = new StudentAwardDAO();
     private final StudentAidDAO aids = new StudentAidDAO();
-    public StudentOverviewVO queryByUserId(String userId) throws SQLException {
-        Student student = students.findByUserId(userId);
+    public StudentOverviewVO queryByUID(String UID) throws SQLException {
+        Student student = students.findByUID(UID);
         return student == null ? null : overview(student);
     }
     public StudentOverviewVO queryByStudentId(String studentId) throws SQLException {
@@ -54,8 +54,8 @@ public class StudentService {
     public List<Student> listStudents() throws SQLException {
         return students.findAll();
     }
-    public List<StudentChangeRequest> listMyRequests(String userId) throws SQLException {
-        return requests.findByStudentId(requireStudent(userId).getStudentId());
+    public List<StudentChangeRequest> listMyRequests(String UID) throws SQLException {
+        return requests.findByStudentId(requireStudent(UID).getStudentId());
     }
     public List<StudentChangeRequest> listPending() throws SQLException {
         return requests.findAll();
@@ -65,21 +65,21 @@ public class StudentService {
         if (request == null) throw new IllegalArgumentException("修改申请不存在");
         return request;
     }
-    public void cancel(String userId, long requestId) throws SQLException {
-        if (!requests.cancel(requestId, requireStudent(userId).getStudentId())) {
+    public void cancel(String UID, long requestId) throws SQLException {
+        if (!requests.cancel(requestId, requireStudent(UID).getStudentId())) {
             throw new IllegalStateException("申请不存在或已处理");
         }
     }
-    public long submit(String userId, StudentChangeRequest request) throws SQLException {
+    public long submit(String UID, StudentChangeRequest request) throws SQLException {
         if (request == null || request.getItems() == null || request.getItems().isEmpty()) {
             throw new IllegalArgumentException("修改项不能为空");
         }
         try (Connection connection = DBUtil.getConnection()) {
             connection.setAutoCommit(false);
             try {
-                Student student = students.lockByUserId(connection, userId);
+                Student student = students.lockByUID(connection, UID);
                 if (student == null) throw new IllegalArgumentException("当前用户没有学籍");
-                assertMayMutate(student.getStudentId(),"STUDENT:"+userId);
+                assertMayMutate(student.getStudentId(),"STUDENT:"+UID);
                 validateStudentRequest(student, request);
                 if (requests.findPendingByStudentId(connection, student.getStudentId()) != null) {
                     throw new IllegalStateException("已有待审核申请");
@@ -87,7 +87,7 @@ public class StudentService {
                 request.setStudentId(student.getStudentId());
                 long requestId = requests.insert(connection, request);
                 connection.commit();
-                releaseLease(student.getStudentId(),"STUDENT:"+userId);
+                releaseLease(student.getStudentId(),"STUDENT:"+UID);
                 return requestId;
             }
             catch (Exception exception) {
@@ -130,10 +130,10 @@ public class StudentService {
         releaseLease(student.getStudentId(),"ADMIN:"+adminId);
         return true;
     }
-    public String beginEdit(String userId, boolean admin, String requestedStudentId) throws SQLException {
-        Student student = admin ? students.findByStudentId(required(requestedStudentId,"缺少学生学号")) : requireStudent(userId);
+    public String beginEdit(String UID, boolean admin, String requestedStudentId) throws SQLException {
+        Student student = admin ? students.findByStudentId(required(requestedStudentId,"缺少学生学号")) : requireStudent(UID);
         if (student == null) throw new IllegalArgumentException("学生不存在");
-        String studentId=student.getStudentId(), owner=(admin?"ADMIN:":"STUDENT:")+userId;
+        String studentId=student.getStudentId(), owner=(admin?"ADMIN:":"STUDENT:")+UID;
         long now=System.currentTimeMillis();
         EDIT_LEASES.compute(studentId,(id,current)-> {
             if(current==null||current.expiresAt()<now||current.owner().equals(owner))return new EditLease(owner,now+EDIT_LEASE_MILLIS);
@@ -141,10 +141,10 @@ public class StudentService {
         });
         return studentId;
     }
-    public void endEdit(String userId, boolean admin, String requestedStudentId) throws SQLException {
-        Student student=admin?null:requireStudent(userId);
+    public void endEdit(String UID, boolean admin, String requestedStudentId) throws SQLException {
+        Student student=admin?null:requireStudent(UID);
         String studentId=admin?required(requestedStudentId,"缺少学生学号"):student.getStudentId();
-        String owner=(admin?"ADMIN:":"STUDENT:")+userId;
+        String owner=(admin?"ADMIN:":"STUDENT:")+UID;
         EDIT_LEASES.computeIfPresent(studentId,(id,current)->current.owner().equals(owner)?null:current);
     }
     public boolean addAward(StudentAward award) throws SQLException {
@@ -165,8 +165,8 @@ public class StudentService {
     public boolean deleteAid(long aidId) throws SQLException {
         return aids.delete(aidId);
     }
-    private Student requireStudent(String userId) throws SQLException {
-        Student student = students.findByUserId(userId);
+    private Student requireStudent(String UID) throws SQLException {
+        Student student = students.findByUID(UID);
         if (student == null) throw new IllegalArgumentException("当前用户没有学籍");
         return student;
     }

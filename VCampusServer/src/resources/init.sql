@@ -20,6 +20,18 @@ CREATE TABLE IF NOT EXISTS `tbl_user` (
     PRIMARY KEY (`UID`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户基本信息表';
 
+-- CREATE TABLE IF NOT EXISTS 不会为旧表补列；以下迁移可重复执行。
+SET @avatar_column_missing = (
+    SELECT COUNT(*) = 0 FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tbl_user' AND COLUMN_NAME = 'avatar'
+);
+SET @avatar_ddl = IF(@avatar_column_missing,
+    'ALTER TABLE `tbl_user` ADD COLUMN `avatar` LONGTEXT DEFAULT NULL COMMENT ''头像图片Base64编码'' AFTER `email`',
+    'SELECT 1');
+PREPARE avatar_stmt FROM @avatar_ddl;
+EXECUTE avatar_stmt;
+DEALLOCATE PREPARE avatar_stmt;
+
 -- 插入默认测试数据（明文密码统一为 123456）
 -- salt: 'dGVzdHNhbHQxMjM0NTY='
 -- hash: PasswordUtil.hashPassword("123456", "dGVzdHNhbHQxMjM0NTY=")
@@ -40,7 +52,7 @@ ON DUPLICATE KEY UPDATE `name`=VALUES(`name`);
 
 -- 学籍管理
 CREATE TABLE IF NOT EXISTS tblStudent (
-    studentId VARCHAR(20) PRIMARY KEY, userId VARCHAR(32) NOT NULL UNIQUE,
+    studentId VARCHAR(20) PRIMARY KEY, UID VARCHAR(32) NOT NULL UNIQUE,
     name VARCHAR(50) NOT NULL, gender VARCHAR(10) NOT NULL,
     politicalStatus VARCHAR(30), nationality VARCHAR(30),
     idType VARCHAR(30),
@@ -85,8 +97,23 @@ CREATE TABLE IF NOT EXISTS tblStudent (
     campusAddress VARCHAR(150),
     emergencyContact VARCHAR(50),
     emergencyPhone VARCHAR(30),
-    CONSTRAINT fk_student_user FOREIGN KEY(userId) REFERENCES tbl_user(uid)
+    CONSTRAINT fk_student_user FOREIGN KEY(UID) REFERENCES tbl_user(UID)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 兼容已经使用旧列名 userId 创建的数据库；BINARY 用于区分列名大小写。
+SET @has_legacy_student_user_id = (
+    SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblStudent'
+      AND BINARY COLUMN_NAME = BINARY 'userId'
+);
+SET @student_uid_migration = IF(
+    @has_legacy_student_user_id > 0,
+    'ALTER TABLE tblStudent CHANGE COLUMN userId UID VARCHAR(32) NOT NULL',
+    'SELECT 1'
+);
+PREPARE student_uid_statement FROM @student_uid_migration;
+EXECUTE student_uid_statement;
+DEALLOCATE PREPARE student_uid_statement;
 
 CREATE TABLE IF NOT EXISTS tblStudentChangeRequest (
     requestId BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -100,6 +127,32 @@ CREATE TABLE IF NOT EXISTS tblStudentChangeRequest (
     FOREIGN KEY(studentId) REFERENCES tblStudent(studentId),
     FOREIGN KEY(reviewerId) REFERENCES tbl_user(uid)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 教师个人信息管理
+CREATE TABLE IF NOT EXISTS tblTeacher (
+ teacherId VARCHAR(20) PRIMARY KEY, UID VARCHAR(32) NOT NULL UNIQUE, name VARCHAR(50) NOT NULL,
+ politicalStatus VARCHAR(30) NOT NULL, nationality VARCHAR(30) NOT NULL, gender VARCHAR(10) NOT NULL,
+ idType VARCHAR(30) NOT NULL, idNumber VARCHAR(30) NOT NULL UNIQUE, idIssueDate DATE NOT NULL, birthDate DATE NOT NULL,
+ nativePlace VARCHAR(100) NOT NULL, householdType VARCHAR(30) NOT NULL, birthPlace VARCHAR(100) NOT NULL,
+ sourcePlace VARCHAR(100), registeredResidence VARCHAR(150) NOT NULL, partyMember TINYINT(1) NOT NULL DEFAULT 0,
+ partyJoinDate DATE, healthStatus VARCHAR(50) NOT NULL, employed TINYINT(1) NOT NULL DEFAULT 1,
+ employmentStatus VARCHAR(20) NOT NULL DEFAULT 'ACTIVE', campus VARCHAR(50), college VARCHAR(100) NOT NULL,
+ department VARCHAR(100), title VARCHAR(50), position VARCHAR(50), telephone VARCHAR(30), mobile VARCHAR(30),
+ email VARCHAR(100), qq VARCHAR(30), wechat VARCHAR(50), officeAddress VARCHAR(150), emergencyContact VARCHAR(50), emergencyPhone VARCHAR(30),
+ CONSTRAINT fk_teacher_user FOREIGN KEY(UID) REFERENCES tbl_user(UID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS tblTeacherChangeRequest (
+ requestId BIGINT PRIMARY KEY AUTO_INCREMENT, teacherId VARCHAR(20) NOT NULL, status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+ submitTime DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, reviewerId VARCHAR(32), reviewTime DATETIME, reviewRemark VARCHAR(255),
+ FOREIGN KEY(teacherId) REFERENCES tblTeacher(teacherId), FOREIGN KEY(reviewerId) REFERENCES tbl_user(UID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS tblTeacherChangeItem (
+ itemId BIGINT PRIMARY KEY AUTO_INCREMENT, requestId BIGINT NOT NULL, fieldName VARCHAR(50) NOT NULL,
+ oldValue VARCHAR(255), newValue VARCHAR(255), FOREIGN KEY(requestId) REFERENCES tblTeacherChangeRequest(requestId) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+INSERT INTO tblTeacher(teacherId,UID,name,politicalStatus,nationality,gender,idType,idNumber,idIssueDate,birthDate,nativePlace,householdType,birthPlace,sourcePlace,registeredResidence,partyMember,partyJoinDate,healthStatus,employed,employmentStatus,campus,college,department,title,position,telephone,mobile,email,officeAddress,emergencyContact,emergencyPhone)
+VALUES('T00001','teacher01','李老师','中共党员','汉族','女','居民身份证','320100198001010001','2015-01-01','1980-01-01','江苏南京','城镇户口','江苏南京','江苏南京','江苏省南京市',1,'2005-07-01','健康',1,'在职','九龙湖校区','计算机科学与工程学院','计算机科学系','副教授','教师','025-52090001','13700137000','teacher@seu.edu.cn','九龙湖校区计算机楼','李家属','13600136000')
+ON DUPLICATE KEY UPDATE name=VALUES(name);
 
 CREATE TABLE IF NOT EXISTS tblStudentChangeItem (
     itemId BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -134,7 +187,7 @@ CREATE TABLE IF NOT EXISTS tblStudentAid (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 INSERT INTO tblStudent(
- studentId,userId,name,gender,politicalStatus,nationality,idType,idNumber,idIssueDate,birthDate,
+ studentId,UID,name,gender,politicalStatus,nationality,idType,idNumber,idIssueDate,birthDate,
  nativePlace,householdType,birthPlace,sourcePlace,registeredResidence,leagueMember,leagueJoinDate,
  partyMember,partyJoinDate,healthStatus,studentCategory,registered,inSchool,studentStatus,campus,
  grade,college,major,className,educationLevel,trainingMode,schoolingLength,counselorName,
@@ -160,7 +213,7 @@ WHERE studentId > '' AND householdType IN ('农村','农村户口');
 
 -- 搜索与分页功能测试学生。测试账号密码均为 123456。
 INSERT INTO tblStudent(
- studentId,userId,name,gender,politicalStatus,nationality,idType,idNumber,idIssueDate,birthDate,
+ studentId,UID,name,gender,politicalStatus,nationality,idType,idNumber,idIssueDate,birthDate,
  nativePlace,householdType,birthPlace,sourcePlace,registeredResidence,leagueMember,leagueJoinDate,
  partyMember,partyJoinDate,healthStatus,studentCategory,registered,inSchool,studentStatus,campus,
  grade,college,major,className,educationLevel,trainingMode,schoolingLength,counselorName,

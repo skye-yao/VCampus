@@ -17,7 +17,7 @@ public class StudentHandler {
             boolean admin="管理员".equals(s.getRole())||"ADMIN".equalsIgnoreCase(s.getRole());
             if(q.getType()==null)return fail(r,MessageCode.BAD_REQUEST,"缺少消息类型");
             switch(q.getType()) {
-                case STUDENT_OVERVIEW_QUERY->r.putData("overview",service.queryByUserId(s.getUsername()));
+                case STUDENT_OVERVIEW_QUERY->r.putData("overview",service.queryByUID(s.getUsername()));
                 case STUDENT_CHANGE_SUBMIT->r.putData("requestId",service.submit(s.getUsername(),value(q,"request",StudentChangeRequest.class)));
                 case STUDENT_CHANGE_LIST->r.putData("requests",service.listMyRequests(s.getUsername()));
                 case STUDENT_CHANGE_CANCEL->service.cancel(s.getUsername(),number(q,"requestId"));

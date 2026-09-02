@@ -222,11 +222,11 @@
                 <Label fx:id="adminWorkspaceTitle" styleClass="student-section-title" text="学生信息管理"/>
                 <HBox alignment="CENTER_LEFT" spacing="8" styleClass="student-search-bar">
                   <Label text="学号"/>
-                  <TextField fx:id="searchIdField" prefWidth="145" promptText="支持学号片段"/>
+                  <TextField fx:id="searchIdField" onAction="#handleSearchStudents" prefWidth="145" promptText="支持学号片段"/>
                   <Label text="姓名"/>
-                  <TextField fx:id="searchNameField" prefWidth="125" promptText="支持姓名片段"/>
+                  <TextField fx:id="searchNameField" onAction="#handleSearchStudents" prefWidth="125" promptText="支持姓名片段"/>
                   <Label text="关键词"/>
-                  <TextField fx:id="searchCollegeField" prefWidth="180" promptText="学院/专业/年级/状态"/>
+                  <TextField fx:id="searchCollegeField" onAction="#handleSearchStudents" prefWidth="180" promptText="学院/专业/年级/状态"/>
                   <Region HBox.hgrow="ALWAYS"/>
                   <Button onAction="#handleSearchStudents" styleClass="btn-primary" text="查询"/>
                   <Button onAction="#handleResetSearch" styleClass="btn-secondary" text="重置"/>
@@ -287,11 +287,11 @@
                   </HBox>
                   <HBox alignment="CENTER_LEFT" spacing="8" styleClass="student-search-bar">
                     <Label text="姓名"/>
-                    <TextField fx:id="reviewSearchIdField" prefWidth="145" promptText="支持姓名片段"/>
+                    <TextField fx:id="reviewSearchIdField" onAction="#handleSearchReviews" prefWidth="145" promptText="支持姓名片段"/>
                     <Label text="学号"/>
-                    <TextField fx:id="reviewSearchStudentField" prefWidth="155" promptText="搜索学号"/>
+                    <TextField fx:id="reviewSearchStudentField" onAction="#handleSearchReviews" prefWidth="155" promptText="搜索学号"/>
                     <Label text="状态"/>
-                    <TextField fx:id="reviewSearchStatusField" prefWidth="145" promptText="待审核/已通过"/>
+                    <TextField fx:id="reviewSearchStatusField" onAction="#handleSearchReviews" prefWidth="145" promptText="待审核/已通过"/>
                     <Region HBox.hgrow="ALWAYS"/>
                     <Button onAction="#handleSearchReviews" styleClass="btn-primary" text="查询"/>
                     <Button onAction="#handleResetReviewSearch" styleClass="btn-secondary" text="重置"/>
@@ -301,6 +301,7 @@
                       <TableColumn fx:id="reviewNameCol" prefWidth="160" text="姓名"/>
                       <TableColumn fx:id="reviewStudentCol" prefWidth="180" text="学号"/>
                       <TableColumn fx:id="reviewTimeCol" prefWidth="260" text="提交时间"/>
+                      <TableColumn fx:id="reviewProcessedTimeCol" prefWidth="260" text="处理时间" visible="false"/>
                       <TableColumn fx:id="reviewStatusCol" prefWidth="150" text="状态"/>
                       <TableColumn fx:id="reviewActionCol" prefWidth="150" text="操作"/>
                     </columns>
@@ -330,7 +331,6 @@
                       <VBox spacing="12">
                         <VBox spacing="8" styleClass="student-panel"><Label styleClass="student-section-title" text="个人信息"/><GridPane fx:id="reviewStudentBaseGrid" hgap="12" vgap="9"/></VBox>
                         <VBox spacing="8" styleClass="student-panel"><Label styleClass="student-section-title" text="学籍信息"/><GridPane fx:id="reviewStudentStudyGrid" hgap="12" vgap="9"/></VBox>
-                        <VBox spacing="8" styleClass="student-panel"><Label styleClass="student-section-title" text="本次修改内容"/><TableView fx:id="reviewItemTable" prefHeight="220"><columns><TableColumn fx:id="itemFieldCol" prefWidth="170" text="字段"/><TableColumn fx:id="itemOldCol" prefWidth="250" text="原内容"/><TableColumn fx:id="itemNewCol" prefWidth="250" text="新内容"/></columns></TableView></VBox>
                       </VBox>
                     </ScrollPane>
                     <VBox prefWidth="260" spacing="12" styleClass="student-panel">

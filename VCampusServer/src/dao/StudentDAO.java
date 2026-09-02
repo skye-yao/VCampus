@@ -7,7 +7,7 @@ import java.util.*;
 @SuppressWarnings({"SqlNoDataSourceInspection", "SqlResolve", "SqlSourceToSinkFlow"})
 public class StudentDAO {
     private static final List<String> COLUMNS = List.of(
-            "studentId", "userId", "name", "gender", "politicalStatus", "nationality",
+            "studentId", "UID", "name", "gender", "politicalStatus", "nationality",
             "idType", "idNumber", "idIssueDate", "birthDate", "nativePlace", "householdType",
             "birthPlace", "sourcePlace", "registeredResidence", "leagueMember", "leagueJoinDate",
             "partyMember", "partyJoinDate", "healthStatus", "studentCategory", "registered",
@@ -17,8 +17,8 @@ public class StudentDAO {
             "middleSchoolClass", "middleSchoolTeacher", "telephone", "mobile", "email", "qq",
             "wechat", "campusAddress", "emergencyContact", "emergencyPhone"
     );
-    public Student findByUserId(String v)throws SQLException {
-        try(Connection c=DBUtil.getConnection();PreparedStatement p=c.prepareStatement("SELECT * FROM tblStudent WHERE userId=?")) {
+    public Student findByUID(String v)throws SQLException {
+        try(Connection c=DBUtil.getConnection();PreparedStatement p=c.prepareStatement("SELECT * FROM tblStudent WHERE UID=?")) {
             p.setString(1,v);
             try(ResultSet r=p.executeQuery()) {
                 return r.next()?map(r):null;
@@ -33,8 +33,8 @@ public class StudentDAO {
             }
         }
     }
-    public Student lockByUserId(Connection c,String v)throws SQLException {
-        try(PreparedStatement p=c.prepareStatement("SELECT * FROM tblStudent WHERE userId=? FOR UPDATE")) {
+    public Student lockByUID(Connection c,String v)throws SQLException {
+        try(PreparedStatement p=c.prepareStatement("SELECT * FROM tblStudent WHERE UID=? FOR UPDATE")) {
             p.setString(1,v);
             try(ResultSet r=p.executeQuery()) {
                 return r.next()?map(r):null;
@@ -68,7 +68,7 @@ public class StudentDAO {
     public boolean updateApprovedFields(Connection c,String id,List<StudentChangeItem>items)throws SQLException {
         Set<String>a=new HashSet<>(COLUMNS);
         a.remove("studentId");
-        a.remove("userId");
+        a.remove("UID");
         if(items==null||items.isEmpty())return false;
         Set<String>seen=new HashSet<>();
         for(StudentChangeItem i:items)if(i.getFieldName()==null||!a.contains(i.getFieldName())||!seen.add(i.getFieldName()))throw new SQLException("修改字段无效");
