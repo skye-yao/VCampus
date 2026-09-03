@@ -403,7 +403,7 @@
 .student-info-record-card:hover { -fx-background-color: #fafcfa; -fx-border-color: #9caf9c; }
 .student-info-record-card-selected { -fx-background-color: #eef5ee; -fx-border-color: #587558; -fx-border-width: 2px; }
 .student-info-record-grid { -fx-hgap: 12px; -fx-vgap: 8px; }
-.student-info-empty-card { -fx-alignment: center; -fx-padding: 26px; -fx-background-color: #f8faf8; -fx-background-radius: 9px; -fx-border-radius: 9px; -fx-border-color: #dce5dc; -fx-border-style: segments(5, 5); -fx-text-fill: #7b877b; }
+.student-info-empty-card { -fx-alignment: center; -fx-padding: 26px; -fx-background-color: #f8faf8; -fx-background-radius: 9px; -fx-border-radius: 9px; -fx-border-color: #dce5dc; -fx-border-style: dashed; -fx-text-fill: #7b877b; }
 .award-record-icon, .aid-record-icon { -fx-min-width: 50px; -fx-min-height: 50px; -fx-max-width: 50px; -fx-max-height: 50px; -fx-alignment: CENTER; -fx-background-radius: 25px; -fx-text-fill: white; -fx-font-size: 22px; }
 .award-record-icon { -fx-background-color: #ff7a29; }
 .aid-record-icon { -fx-background-color: #51b9c9; }

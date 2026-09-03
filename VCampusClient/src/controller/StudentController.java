@@ -672,7 +672,7 @@ public class StudentController {
     private List<StudentChangeItem> changedItems() {
         List<StudentChangeItem> items=new ArrayList<>();
         for(Control f:editable) {
-            String n=(String)f.getUserData(),old=safe(read(overview.getStudent(),n)),now=controlValue(f);
+            String n=(String)f.getUserData(),old=editValue(read(overview.getStudent(),n)),now=controlValue(f);
             if(!old.equals(now)) {
                 StudentChangeItem i=new StudentChangeItem();
                 i.setFieldName(n);
@@ -1360,6 +1360,9 @@ public class StudentController {
     }
     private String safe(Object v) {
         return v==null?"":String.valueOf(v).trim();
+    }
+    private String editValue(Object v) {
+        return v instanceof Boolean ? ((Boolean)v?"是":"否") : safe(v);
     }
     private String status(StudentChangeStatus s) {
         return s==null?"-":switch(s) {
