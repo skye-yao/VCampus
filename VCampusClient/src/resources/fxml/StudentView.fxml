@@ -32,7 +32,7 @@
                   <Label fx:id="studentMetaLabel" styleClass="student-meta" text="学号 · 年级 · 学院 · 专业"/>
                   <Label fx:id="pendingHintLabel" managed="false" styleClass="profile-tag" text="" visible="false"/>
                 </VBox>
-                <Button onAction="#handleViewDetails" styleClass="btn-primary" text="查看详情 →"/>
+                <VBox spacing="8"><Button onAction="#handleViewDetails" styleClass="btn-primary" text="查看详情 →"/><Button onAction="#handleViewExperiences" styleClass="btn-primary" text="查看经历 →"/></VBox>
               </HBox>
               <Label styleClass="student-section-title" text="我的学籍"/>
               <GridPane hgap="12">
@@ -94,6 +94,8 @@
                   <Button maxWidth="Infinity" onAction="#handleIndexStudy" styleClass="student-side-button" text="学籍信息"/>
                   <Button maxWidth="Infinity" onAction="#handleIndexAdmission" styleClass="student-side-button" text="入学信息"/>
                   <Button maxWidth="Infinity" onAction="#handleIndexContact" styleClass="student-side-button" text="联系信息"/>
+                  <Separator/>
+                  <Button fx:id="exportPdfButton" maxWidth="Infinity" onAction="#handleExportPdf" styleClass="student-export-button" text="↓  导出信息"/>
                 </VBox>
                 <VBox fx:id="adminDetailSidebar" alignment="TOP_CENTER" managed="false" prefWidth="160" spacing="12" styleClass="student-sidebar" visible="false">
                   <padding>
@@ -193,10 +195,29 @@
                       </TableView>
                     </VBox>
                   </VBox>
+                  <VBox fx:id="adminReadOnlyInfoPane" managed="false" spacing="12" visible="false">
+                    <VBox spacing="10" styleClass="student-panel"><Label styleClass="student-section-title" text="奖励信息"/><TilePane fx:id="adminAwardTile" hgap="22" prefColumns="4" tileAlignment="CENTER_LEFT" vgap="16"/></VBox>
+                    <VBox spacing="10" styleClass="student-panel"><Label styleClass="student-section-title" text="资助信息"/><TilePane fx:id="adminAidTile" hgap="22" prefColumns="4" tileAlignment="CENTER_LEFT" vgap="16"/></VBox>
+                    <VBox spacing="10" styleClass="student-panel"><Label styleClass="student-section-title" text="本人经历"/><VBox fx:id="adminExperienceCardContainer" fillWidth="true" spacing="10"/></VBox>
+                    <VBox spacing="10" styleClass="student-panel"><Label styleClass="student-section-title" text="主要社会关系"/><VBox fx:id="adminFamilyCardContainer" fillWidth="true" spacing="10"/></VBox>
+                  </VBox>
                 </VBox>
               </ScrollPane>
             </center>
           </BorderPane>
+        </Tab>
+        <Tab fx:id="experienceTab" text="个人经历">
+          <ScrollPane fitToWidth="true" hbarPolicy="NEVER" styleClass="student-scroll">
+            <VBox spacing="14" styleClass="student-page"><padding><Insets bottom="20" left="24" right="24" top="18"/></padding>
+              <Button alignment="CENTER_LEFT" onAction="#handleBackFromExperiences" styleClass="btn-secondary" text="← 返回学籍总览"/>
+              <VBox spacing="10" styleClass="student-panel"><HBox alignment="CENTER_LEFT" spacing="8"><Label styleClass="student-section-title" text="本人主要学习经历"/><Region HBox.hgrow="ALWAYS"/><Button onAction="#handleAddExperience" styleClass="btn-primary" text="添加经历"/><Button fx:id="editExperienceButton" disable="true" onAction="#handleEditExperience" styleClass="btn-secondary" text="编辑选中"/><Button fx:id="deleteExperienceButton" disable="true" onAction="#handleDeleteExperience" styleClass="btn-secondary" text="删除选中"/></HBox>
+                <VBox fx:id="experienceCardContainer" spacing="10" fillWidth="true"/>
+              </VBox>
+              <VBox spacing="10" styleClass="student-panel"><HBox alignment="CENTER_LEFT" spacing="8"><Label styleClass="student-section-title" text="家庭主要关系成员"/><Region HBox.hgrow="ALWAYS"/><Button onAction="#handleAddFamilyMember" styleClass="btn-primary" text="添加成员"/><Button fx:id="editFamilyButton" disable="true" onAction="#handleEditFamilyMember" styleClass="btn-secondary" text="编辑选中"/><Button fx:id="deleteFamilyButton" disable="true" onAction="#handleDeleteFamilyMember" styleClass="btn-secondary" text="删除选中"/></HBox>
+                <VBox fx:id="familyCardContainer" spacing="10" fillWidth="true"/>
+              </VBox>
+            </VBox>
+          </ScrollPane>
         </Tab>
         <Tab fx:id="adminListTab" text="学生列表">
           <BorderPane styleClass="student-page">
@@ -220,6 +241,10 @@
                   <Insets bottom="14" left="18" right="22" top="18"/>
                 </padding>
                 <Label fx:id="adminWorkspaceTitle" styleClass="student-section-title" text="学生信息管理"/>
+                <HBox alignment="CENTER_LEFT" spacing="10" styleClass="student-export-toolbar">
+                  <Button fx:id="exportStudentsButton" disable="true" onAction="#handleExportSelectedStudents" styleClass="student-export-action" text="↓  导出"/>
+                  <Label fx:id="selectedStudentCountLabel" styleClass="hint-text" text="已选择 0 人"/>
+                </HBox>
                 <HBox alignment="CENTER_LEFT" spacing="8" styleClass="student-search-bar">
                   <Label text="学号"/>
                   <TextField fx:id="searchIdField" onAction="#handleSearchStudents" prefWidth="145" promptText="支持学号片段"/>
@@ -233,6 +258,7 @@
                 </HBox>
                 <TableView fx:id="studentTable" VBox.vgrow="ALWAYS">
                   <columns>
+                    <TableColumn fx:id="stuSelectCol" prefWidth="54" sortable="false"/>
                     <TableColumn fx:id="stuIdCol" prefWidth="105" text="用户名"/>
                     <TableColumn fx:id="stuNameCol" prefWidth="90" text="姓名"/>
                     <TableColumn fx:id="stuGenderCol" prefWidth="70" text="性别"/>
@@ -335,6 +361,8 @@
                     </ScrollPane>
                     <VBox prefWidth="260" spacing="12" styleClass="student-panel">
                       <Label styleClass="student-section-title" text="审核处理"/>
+                      <Label text="申请内容"/>
+                      <TextArea fx:id="reviewChangeSummaryArea" editable="false" prefRowCount="10" wrapText="true"/>
                       <HBox spacing="8"><Button fx:id="approveButton" disable="true" maxWidth="Infinity" onAction="#handleApprove" styleClass="btn-primary" text="通过" HBox.hgrow="ALWAYS"/><Button fx:id="rejectButton" disable="true" maxWidth="Infinity" onAction="#handleReject" styleClass="btn-secondary" text="不通过" HBox.hgrow="ALWAYS"/></HBox>
                       <Label text="理由"/>
                       <TextArea fx:id="reviewRemarkArea" prefRowCount="8" promptText="请输入审核意见或不通过理由" VBox.vgrow="ALWAYS"/>

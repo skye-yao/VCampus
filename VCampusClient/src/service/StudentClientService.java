@@ -41,6 +41,12 @@ public class StudentClientService implements IStudentClientService {
             case "addAid" -> MessageType.STUDENT_AID_ADD;
             case "updateAid" -> MessageType.STUDENT_AID_UPDATE;
             case "deleteAid" -> MessageType.STUDENT_AID_DELETE;
+            case "addExperience" -> MessageType.STUDENT_EXPERIENCE_ADD;
+            case "addFamilyMember" -> MessageType.STUDENT_FAMILY_MEMBER_ADD;
+            case "updateExperience" -> MessageType.STUDENT_EXPERIENCE_UPDATE;
+            case "deleteExperience" -> MessageType.STUDENT_EXPERIENCE_DELETE;
+            case "updateFamilyMember" -> MessageType.STUDENT_FAMILY_MEMBER_UPDATE;
+            case "deleteFamilyMember" -> MessageType.STUDENT_FAMILY_MEMBER_DELETE;
             default -> throw new IllegalArgumentException("未知学籍消息类型: "+action);
         };
     }
@@ -92,4 +98,10 @@ public class StudentClientService implements IStudentClientService {
     public void deleteAid(long id,Consumer<Message> c) {
         send("deleteAid","aidId",id,c);
     }
+    public void addExperience(StudentExperience x,Consumer<Message> c){send("addExperience","experience",x,c);}
+    public void addFamilyMember(StudentFamilyMember x,Consumer<Message> c){send("addFamilyMember","member",x,c);}
+    public void updateExperience(StudentExperience x,Consumer<Message> c){send("updateExperience","experience",x,c);}
+    public void deleteExperience(long id,Consumer<Message> c){send("deleteExperience","experienceId",id,c);}
+    public void updateFamilyMember(StudentFamilyMember x,Consumer<Message> c){send("updateFamilyMember","member",x,c);}
+    public void deleteFamilyMember(long id,Consumer<Message> c){send("deleteFamilyMember","memberId",id,c);}
 }

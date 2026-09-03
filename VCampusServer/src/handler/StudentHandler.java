@@ -72,6 +72,12 @@ public class StudentHandler {
                     needAdmin(admin);
                     r.putData("updated",service.deleteAid(number(q,"aidId")));
                 }
+                case STUDENT_EXPERIENCE_ADD->r.putData("updated",service.addExperience(s.getUsername(),value(q,"experience",StudentExperience.class)));
+                case STUDENT_FAMILY_MEMBER_ADD->r.putData("updated",service.addFamilyMember(s.getUsername(),value(q,"member",StudentFamilyMember.class)));
+                case STUDENT_EXPERIENCE_UPDATE->r.putData("updated",service.updateExperience(s.getUsername(),value(q,"experience",StudentExperience.class)));
+                case STUDENT_EXPERIENCE_DELETE->r.putData("updated",service.deleteExperience(s.getUsername(),number(q,"experienceId")));
+                case STUDENT_FAMILY_MEMBER_UPDATE->r.putData("updated",service.updateFamilyMember(s.getUsername(),value(q,"member",StudentFamilyMember.class)));
+                case STUDENT_FAMILY_MEMBER_DELETE->r.putData("updated",service.deleteFamilyMember(s.getUsername(),number(q,"memberId")));
                 default-> {
                     return fail(r,MessageCode.BAD_REQUEST,"不支持的学籍操作");
                 }

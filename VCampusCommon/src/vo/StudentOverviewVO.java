@@ -8,6 +8,8 @@ public class StudentOverviewVO implements Serializable {
     private List<Object> grades=new ArrayList<>();
     private List<StudentAward> awards=new ArrayList<>();
     private List<StudentAid> aids=new ArrayList<>();
+    private List<StudentExperience> experiences=new ArrayList<>();
+    private List<StudentFamilyMember> familyMembers=new ArrayList<>();
     private StudentChangeRequest pendingRequest;
     public Student getStudent() {
         return student;
@@ -33,6 +35,10 @@ public class StudentOverviewVO implements Serializable {
     public void setAids(List<StudentAid> v) {
         aids=v==null?new ArrayList<>():v;
     }
+    public List<StudentExperience> getExperiences(){return experiences;}
+    public void setExperiences(List<StudentExperience> v){experiences=v==null?new ArrayList<>():v;}
+    public List<StudentFamilyMember> getFamilyMembers(){return familyMembers;}
+    public void setFamilyMembers(List<StudentFamilyMember> v){familyMembers=v==null?new ArrayList<>():v;}
     public StudentChangeRequest getPendingRequest() {
         return pendingRequest;
     }

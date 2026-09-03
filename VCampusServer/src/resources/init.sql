@@ -158,8 +158,8 @@ CREATE TABLE IF NOT EXISTS tblStudentChangeItem (
     itemId BIGINT PRIMARY KEY AUTO_INCREMENT,
     requestId BIGINT NOT NULL,
     fieldName VARCHAR(50) NOT NULL,
-    oldValue VARCHAR(255),
-    newValue VARCHAR(255) NOT NULL,
+    oldValue TEXT,
+    newValue TEXT NOT NULL,
     FOREIGN KEY(requestId) REFERENCES tblStudentChangeRequest(requestId) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -185,6 +185,32 @@ CREATE TABLE IF NOT EXISTS tblStudentAid (
     description VARCHAR(255),
     FOREIGN KEY(studentId) REFERENCES tblStudent(studentId)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+ALTER TABLE tblStudentChangeItem MODIFY oldValue TEXT NULL, MODIFY newValue TEXT NOT NULL;
+
+CREATE TABLE IF NOT EXISTS tblStudentExperience (
+ experienceId BIGINT PRIMARY KEY AUTO_INCREMENT, studentId VARCHAR(20) NOT NULL,
+ startDate DATE NOT NULL, endDate DATE, schoolName VARCHAR(150) NOT NULL,
+ educationLevel VARCHAR(50), description VARCHAR(255),
+ FOREIGN KEY(studentId) REFERENCES tblStudent(studentId) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE IF NOT EXISTS tblTeacherWorkExperience (
+ experienceId BIGINT PRIMARY KEY AUTO_INCREMENT, teacherId VARCHAR(20) COLLATE utf8mb4_0900_ai_ci NOT NULL,
+ startDate DATE NOT NULL, endDate DATE, organization VARCHAR(150) NOT NULL,
+ department VARCHAR(100), position VARCHAR(100) NOT NULL, description VARCHAR(255),
+ FOREIGN KEY(teacherId) REFERENCES tblTeacher(teacherId) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+CREATE TABLE IF NOT EXISTS tblStudentFamilyMember (
+ memberId BIGINT PRIMARY KEY AUTO_INCREMENT, studentId VARCHAR(20) NOT NULL,
+ name VARCHAR(50) NOT NULL, relationship VARCHAR(30) NOT NULL, birthDate DATE,
+ registeredResidence VARCHAR(150), workplace VARCHAR(150), workplaceAddress VARCHAR(200),
+ healthStatus VARCHAR(50), phone VARCHAR(30),
+ FOREIGN KEY(studentId) REFERENCES tblStudent(studentId) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- 兼容已创建的旧版家庭成员表，按需补充新增字段。
+SET @ddl=IF((SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tblStudentFamilyMember' AND COLUMN_NAME='birthDate')=0,'ALTER TABLE tblStudentFamilyMember ADD birthDate DATE','SELECT 1');PREPARE s FROM @ddl;EXECUTE s;DEALLOCATE PREPARE s;
+SET @ddl=IF((SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tblStudentFamilyMember' AND COLUMN_NAME='registeredResidence')=0,'ALTER TABLE tblStudentFamilyMember ADD registeredResidence VARCHAR(150)','SELECT 1');PREPARE s FROM @ddl;EXECUTE s;DEALLOCATE PREPARE s;
+SET @ddl=IF((SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tblStudentFamilyMember' AND COLUMN_NAME='workplaceAddress')=0,'ALTER TABLE tblStudentFamilyMember ADD workplaceAddress VARCHAR(200)','SELECT 1');PREPARE s FROM @ddl;EXECUTE s;DEALLOCATE PREPARE s;
+SET @ddl=IF((SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tblStudentFamilyMember' AND COLUMN_NAME='healthStatus')=0,'ALTER TABLE tblStudentFamilyMember ADD healthStatus VARCHAR(50)','SELECT 1');PREPARE s FROM @ddl;EXECUTE s;DEALLOCATE PREPARE s;
 
 INSERT INTO tblStudent(
  studentId,UID,name,gender,politicalStatus,nationality,idType,idNumber,idIssueDate,birthDate,

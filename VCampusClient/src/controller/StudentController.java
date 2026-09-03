@@ -9,36 +9,44 @@ import enums.StudentAidStatus;
 import javafx.application.Platform;
 import javafx.beans.property.SimpleStringProperty;
 import javafx.collections.FXCollections;
+import javafx.concurrent.Task;
 import javafx.fxml.FXML;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.scene.Node;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
+import javafx.stage.FileChooser;
 import service.StudentClientService;
 import session.ClientSession;
 import protocol.*;
+import util.AlertUtil;
+import util.pdf.StudentPdfExport;
+import util.spreadsheet.StudentExcelExport;
 import vo.*;
+import java.io.File;
 import java.lang.reflect.*;
 import java.sql.Date;
 import java.util.*;
 public class StudentController {
     @FXML private Label titleLabel,statusBarLabel,avatarLabel,sidebarAvatarLabel,sidebarNameLabel,sidebarMajorLabel,nameLabel,studentMetaLabel,pendingHintLabel,categoryValue,statusValue,gradeValue,inSchoolValue;
     @FXML private TabPane studentTabs;
-    @FXML private Tab overviewTab,detailTab,adminListTab,reviewTab;
+    @FXML private Tab overviewTab,detailTab,experienceTab,adminListTab,reviewTab;
     @FXML private ScrollPane detailScrollPane;
     @FXML private GridPane baseInfoGrid,studyInfoGrid,admissionInfoGrid,contactInfoGrid;
     @FXML private GridPane reviewStudentBaseGrid,reviewStudentStudyGrid;
-    @FXML private VBox studentDetailSidebar,adminDetailSidebar,reviewOverviewPane,reviewDetailPane;
-    @FXML private Button detailReturnButton,editBaseButton,editStudyButton,editAdmissionButton,editContactButton,managementNavButton,maintenanceNavButton;
+    @FXML private VBox studentDetailSidebar,adminDetailSidebar,reviewOverviewPane,reviewDetailPane,experienceCardContainer,familyCardContainer,adminReadOnlyInfoPane,adminExperienceCardContainer,adminFamilyCardContainer;
+    @FXML private Button detailReturnButton,editBaseButton,editStudyButton,editAdmissionButton,editContactButton,exportPdfButton,exportStudentsButton,managementNavButton,maintenanceNavButton,editExperienceButton,deleteExperienceButton,editFamilyButton,deleteFamilyButton;
     @FXML private VBox adminRecordMaintenancePane;
-    @FXML private TextArea reviewRemarkArea;
+    @FXML private TextArea reviewRemarkArea,reviewChangeSummaryArea;
     @FXML private TextField searchIdField,searchNameField,searchCollegeField,pageNumberField,reviewSearchIdField,reviewSearchStudentField,reviewSearchStatusField,reviewPageNumberField;
-    @FXML private Label pageSummaryLabel,reviewPageSummaryLabel,adminWorkspaceTitle;
-    @FXML private TilePane awardTile,aidTile;
+    @FXML private Label pageSummaryLabel,reviewPageSummaryLabel,adminWorkspaceTitle,selectedStudentCountLabel;
+    @FXML private TilePane awardTile,aidTile,adminAwardTile,adminAidTile;
     @FXML private TableView<StudentChangeRequest> reviewTable;
     @FXML private TableColumn<StudentChangeRequest,String> reviewNameCol,reviewStudentCol,reviewTimeCol,reviewProcessedTimeCol,reviewStatusCol;
     @FXML private TableColumn<StudentChangeRequest,Void> reviewActionCol;
     @FXML private TableView<Student> studentTable;
+    @FXML private TableColumn<Student,Void> stuSelectCol;
     @FXML private TableColumn<Student,String> stuIdCol,stuNameCol,stuGenderCol,stuGradeCol,stuCollegeCol,stuMajorCol,stuStatusCol;
     @FXML private TableColumn<Student,Void> stuActionCol;
     @FXML private TableView<StudentAward> maintenanceAwardTable;
@@ -66,12 +74,17 @@ public class StudentController {
     private boolean editing;
     private StudentOverviewVO overview;
     private List<Student> students=new ArrayList<>(),filteredStudents=new ArrayList<>();
+    private final Set<String> selectedStudentIds=new LinkedHashSet<>();
+    private CheckBox selectCurrentPageCheckBox;
     private int currentPage=1;
     private List<StudentChangeRequest> reviewRequests=new ArrayList<>(),filteredReviewRequests=new ArrayList<>();
     private int reviewCurrentPage=1;
     private boolean showCompletedReviews;
     private boolean adminMaintenanceMode;
     private StudentChangeRequest selected;
+    private StudentExperience selectedExperience;
+    private StudentFamilyMember selectedFamilyMember;
+    private Pane selectedExperienceCard,selectedFamilyCard;
     @FXML public void initialize() {
         setupTables();
         setupRole();
@@ -88,11 +101,17 @@ public class StudentController {
     }
     @FXML private void handleRefresh() {
         if(editing){releaseEditLock();editing=false;}
-        refreshData();
+        if(isAdmin()&&studentTabs.getSelectionModel().getSelectedItem()==detailTab
+                &&overview!=null&&overview.getStudent()!=null) {
+            setStatus("正在刷新学生详情...");
+            service.queryStudentOverview(overview.getStudent().getStudentId(),this::onOverview);
+        } else refreshData();
     }
     @FXML private void handleViewDetails() {
         studentTabs.getSelectionModel().select(detailTab);
     }
+    @FXML private void handleViewExperiences(){studentTabs.getSelectionModel().select(experienceTab);}
+    @FXML private void handleBackFromExperiences(){studentTabs.getSelectionModel().select(overviewTab);}
     @FXML private void handleShowOverview() {
         studentTabs.getSelectionModel().select(overviewTab);
     }
@@ -223,7 +242,7 @@ public class StudentController {
             control=new ComboBox<>(FXCollections.observableArrayList("居民身份证","港澳台居民居住证","护照","其他"));
             ((ComboBox<String>)control).setValue(initial);
         } else if("householdType".equals(name)) {
-            control=new ComboBox<>(FXCollections.observableArrayList("城镇户口","农村居民户口","集体户口"));
+            control=new ComboBox<>(FXCollections.observableArrayList("城镇户口","农村居民户口","集体户口","其他"));
             ((ComboBox<String>)control).setValue(initial);
         } else if(Set.of("leagueMember","partyMember","registered","inSchool").contains(name)) {
             control=new ComboBox<>(FXCollections.observableArrayList("是","否"));
@@ -251,19 +270,63 @@ public class StudentController {
     @FXML private void handleIndexContact() {
         scrollDetail(1.0);
     }
+    @FXML private void handleExportPdf() {
+        if(overview==null||overview.getStudent()==null){
+            AlertUtil.showWarning("暂时无法导出", "学籍信息尚未加载完成，请稍后重试。");
+            return;
+        }
+        Student student=overview.getStudent();
+        List<StudentAward> awards=overview.getAwards()==null?List.of():List.copyOf(overview.getAwards());
+        FileChooser chooser=new FileChooser();
+        chooser.setTitle("导出学生信息");
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("PDF 文件 (*.pdf)", "*.pdf"));
+        chooser.setInitialFileName(exportFileName(student));
+        File selected=chooser.showSaveDialog(studentTabs.getScene().getWindow());
+        if(selected==null)return;
+        File output=selected.getName().toLowerCase(Locale.ROOT).endsWith(".pdf")
+                ?selected:new File(selected.getParentFile(),selected.getName()+".pdf");
+        exportPdfButton.setDisable(true);
+        setStatus("正在导出学生信息...");
+        Task<Void> task=new Task<>() {
+            @Override protected Void call() throws Exception {
+                StudentPdfExport.export(student,overview.getExperiences(),awards,overview.getFamilyMembers(),output);
+                return null;
+            }
+        };
+        task.setOnSucceeded(event->{
+            exportPdfButton.setDisable(false);
+            setStatus("学生信息已导出");
+            AlertUtil.showInfo("导出成功", "PDF 已保存至：\n"+output.getAbsolutePath());
+        });
+        task.setOnFailed(event->{
+            exportPdfButton.setDisable(false);
+            setStatus("学生信息导出失败");
+            Throwable error=task.getException();
+            AlertUtil.showError("导出失败", error==null?"无法生成 PDF 文件。":"无法生成 PDF 文件：\n"+error.getMessage());
+        });
+        Thread worker=new Thread(task,"student-pdf-export");
+        worker.setDaemon(true);
+        worker.start();
+    }
+    private String exportFileName(Student student) {
+        String identity=safe(student.getStudentId());
+        String name=safe(student.getName());
+        String base=(identity+"_"+name+"_学籍信息").replaceAll("[\\\\/:*?\"<>|]", "_");
+        return base.replaceAll("^_+|_+$", "")+".pdf";
+    }
     private void scrollDetail(double value) {
         studentTabs.getSelectionModel().select(detailTab);
         Platform.runLater(()->detailScrollPane.setVvalue(value));
     }
     private void setupRole() {
         if(isAdmin()) {
-            studentTabs.getTabs().removeAll(overviewTab);
+            studentTabs.getTabs().removeAll(overviewTab,experienceTab);
             titleLabel.setText("学籍管理");
             studentDetailSidebar.setVisible(false);
             studentDetailSidebar.setManaged(false);
             adminDetailSidebar.setVisible(true);
             adminDetailSidebar.setManaged(true);
-            detailReturnButton.setText("← 返回学生总览");
+            detailReturnButton.setText("← 返回");
             studentTabs.getSelectionModel().select(adminListTab);
         }
         else {
@@ -271,7 +334,7 @@ public class StudentController {
             titleLabel.setText("我的学籍");
             adminDetailSidebar.setVisible(false);
             adminDetailSidebar.setManaged(false);
-            detailReturnButton.setText("← 返回学籍总览");
+            detailReturnButton.setText("← 返回");
         }
     }
     private boolean isAdmin() {
@@ -283,6 +346,34 @@ public class StudentController {
         else handleShowOverview();
     }
     private void setupTables() {
+        selectCurrentPageCheckBox=new CheckBox();
+        selectCurrentPageCheckBox.setOnAction(event->{
+            for(Student student:studentTable.getItems()){
+                if(selectCurrentPageCheckBox.isSelected())selectedStudentIds.add(student.getStudentId());
+                else selectedStudentIds.remove(student.getStudentId());
+            }
+            studentTable.refresh();updateStudentSelectionState();
+        });
+        stuSelectCol.setGraphic(selectCurrentPageCheckBox);
+        stuSelectCol.setCellFactory(column->new TableCell<>() {
+            private final CheckBox checkBox=new CheckBox(); {
+                setAlignment(Pos.CENTER);
+                checkBox.setOnAction(event->{
+                    Student student=getTableView().getItems().get(getIndex());
+                    if(checkBox.isSelected())selectedStudentIds.add(student.getStudentId());
+                    else selectedStudentIds.remove(student.getStudentId());
+                    updateStudentSelectionState();
+                });
+            }
+            @Override protected void updateItem(Void item,boolean empty){
+                super.updateItem(item,empty);
+                if(empty||getIndex()>=getTableView().getItems().size())setGraphic(null);
+                else{
+                    checkBox.setSelected(selectedStudentIds.contains(getTableView().getItems().get(getIndex()).getStudentId()));
+                    setGraphic(checkBox);
+                }
+            }
+        });
         stuIdCol.setCellValueFactory(c->text(c.getValue().getStudentId()));
         stuNameCol.setCellValueFactory(c->text(c.getValue().getName()));
         stuGenderCol.setCellValueFactory(c->text(c.getValue().getGender()));
@@ -368,7 +459,7 @@ public class StudentController {
             if(ok(m)) {
                 List<Student> v=data(m,"students",new TypeToken<List<Student>>() {
                 }
-                .getType());students=v==null?new ArrayList<>():v;filteredStudents=new ArrayList<>(students);currentPage=1;refreshStudentPage();reviewTable.refresh();
+                .getType());students=v==null?new ArrayList<>():v;filteredStudents=new ArrayList<>(students);selectedStudentIds.clear();currentPage=1;refreshStudentPage();reviewTable.refresh();
             }
             else setStatus(message(m,"学生列表加载失败"));
         }
@@ -450,6 +541,24 @@ public class StudentController {
         currentPage=1;
         refreshStudentPage();
     }
+    @FXML private void handleExportSelectedStudents(){
+        List<Student> selected=students.stream().filter(student->selectedStudentIds.contains(student.getStudentId())).toList();
+        if(selected.isEmpty()){
+            AlertUtil.showWarning("请选择学生", "请先勾选需要导出的学生。");return;
+        }
+        FileChooser chooser=new FileChooser();chooser.setTitle("导出学生信息");
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Excel 工作簿 (*.xlsx)", "*.xlsx"));
+        chooser.setInitialFileName("学生信息_"+java.time.LocalDate.now()+".xlsx");
+        File chosen=chooser.showSaveDialog(studentTable.getScene().getWindow());if(chosen==null)return;
+        File output=chosen.getName().toLowerCase(Locale.ROOT).endsWith(".xlsx")?chosen:new File(chosen.getParentFile(),chosen.getName()+".xlsx");
+        exportStudentsButton.setDisable(true);setStatus("正在导出 "+selected.size()+" 名学生的信息...");
+        Task<Void> task=new Task<>(){
+            @Override protected Void call() throws Exception{StudentExcelExport.export(selected,output);return null;}
+        };
+        task.setOnSucceeded(event->{exportStudentsButton.setDisable(false);setStatus("已导出 "+selected.size()+" 名学生的信息");AlertUtil.showInfo("导出成功", "Excel 已保存至：\n"+output.getAbsolutePath());});
+        task.setOnFailed(event->{exportStudentsButton.setDisable(false);setStatus("学生信息导出失败");Throwable error=task.getException();AlertUtil.showError("导出失败", error==null?"无法生成 Excel 文件。":"无法生成 Excel 文件：\n"+error.getMessage());});
+        Thread worker=new Thread(task,"student-excel-export");worker.setDaemon(true);worker.start();
+    }
     @FXML private void handleShowSelectedStudent() {
         Student s=studentTable.getSelectionModel().getSelectedItem();
         if(s==null) {
@@ -464,10 +573,16 @@ public class StudentController {
             button.setVisible(!isAdmin()||editableAdmin);button.setManaged(!isAdmin()||editableAdmin);
         }
         adminRecordMaintenancePane.setVisible(editableAdmin);adminRecordMaintenancePane.setManaged(editableAdmin);
-        service.queryStudentOverview(s.getStudentId(),m-> {
-            onOverview(m);Platform.runLater(()->studentTabs.getSelectionModel().select(detailTab));
-        }
-        );
+        adminReadOnlyInfoPane.setVisible(isAdmin()&&!editableAdmin);adminReadOnlyInfoPane.setManaged(isAdmin()&&!editableAdmin);
+        setStatus("正在加载学生完整信息...");
+        service.queryStudentOverview(s.getStudentId(),m->Platform.runLater(()->{
+            if(!ok(m)){setStatus(message(m,"学生完整信息加载失败"));return;}
+            overview=data(m,"overview",StudentOverviewVO.class);
+            render(overview);
+            detailScrollPane.setVvalue(0);
+            studentTabs.getSelectionModel().select(detailTab);
+            setStatus("学生完整信息已加载");
+        }));
     }
     @FXML private void handleReturnToStudentList() {
         editing=false;
@@ -482,6 +597,17 @@ public class StudentController {
         studentTable.setItems(FXCollections.observableArrayList(filteredStudents.subList(from,to)));
         pageNumberField.setText(String.valueOf(currentPage));
         pageSummaryLabel.setText("共"+filteredStudents.size()+"条  共"+pageCount()+"页");
+        updateStudentSelectionState();
+    }
+    private void updateStudentSelectionState(){
+        if(selectCurrentPageCheckBox!=null){
+            boolean any=!studentTable.getItems().isEmpty();
+            long selectedOnPage=studentTable.getItems().stream().filter(student->selectedStudentIds.contains(student.getStudentId())).count();
+            selectCurrentPageCheckBox.setIndeterminate(selectedOnPage>0&&selectedOnPage<studentTable.getItems().size());
+            selectCurrentPageCheckBox.setSelected(any&&selectedOnPage==studentTable.getItems().size());
+        }
+        if(selectedStudentCountLabel!=null)selectedStudentCountLabel.setText("已选择 "+selectedStudentIds.size()+" 人");
+        if(exportStudentsButton!=null)exportStudentsButton.setDisable(selectedStudentIds.isEmpty());
     }
     @FXML private void handleFirstPage() {
         currentPage=1;
@@ -601,6 +727,7 @@ public class StudentController {
                 setStatus(message(m,"审核详情加载失败"));handleBackToReviewOverview();return;
             }
             selected=detail;
+            reviewChangeSummaryArea.setText(changeSummary(detail));
         }
         ));
         service.queryStudentOverview(r.getStudentId(),m->Platform.runLater(()-> {
@@ -613,6 +740,7 @@ public class StudentController {
     }
     @FXML private void handleBackToReviewOverview() {
         selected=null;
+        reviewChangeSummaryArea.clear();
         reviewRemarkArea.clear();
         approveButton.setDisable(true);
         rejectButton.setDisable(true);
@@ -677,24 +805,103 @@ public class StudentController {
         renderAids(v.getAids());
         if(maintenanceAwardTable!=null)maintenanceAwardTable.setItems(FXCollections.observableArrayList(v.getAwards()==null?List.of():v.getAwards()));
         if(maintenanceAidTable!=null)maintenanceAidTable.setItems(FXCollections.observableArrayList(v.getAids()==null?List.of():v.getAids()));
+        renderExperienceCards(v.getExperiences());
+        renderFamilyCards(v.getFamilyMembers());
+        renderAdminReadOnlyInfo(v);
     }
+    private void renderAdminReadOnlyInfo(StudentOverviewVO value){
+        if(adminReadOnlyInfoPane==null)return;
+        renderAwards(value.getAwards(),adminAwardTile);renderAids(value.getAids(),adminAidTile);
+        renderAdminExperiences(value.getExperiences());renderAdminFamily(value.getFamilyMembers());
+    }
+    private void renderAdminExperiences(List<StudentExperience> records){
+        adminExperienceCardContainer.getChildren().clear();
+        if(records==null||records.isEmpty()){adminExperienceCardContainer.getChildren().add(emptyInfoCard("暂无学习经历"));return;}
+        for(StudentExperience record:records){GridPane grid=recordGrid();addRecordField(grid,"开始年月",showMonth(record.getStartDate()),0,0);addRecordField(grid,"结束年月",showMonth(record.getEndDate()),0,1);addRecordField(grid,"学校名称",record.getSchoolName(),1,0);addRecordField(grid,"学习阶段",record.getEducationLevel(),1,1);addWideRecordField(grid,"备注",record.getDescription(),2);adminExperienceCardContainer.getChildren().add(recordCard(grid));}
+    }
+    private void renderAdminFamily(List<StudentFamilyMember> records){
+        adminFamilyCardContainer.getChildren().clear();
+        if(records==null||records.isEmpty()){adminFamilyCardContainer.getChildren().add(emptyInfoCard("暂无家庭成员"));return;}
+        for(StudentFamilyMember record:records){GridPane grid=recordGrid();addRecordField(grid,"姓名",record.getName(),0,0);addRecordField(grid,"与本人关系",record.getRelationship(),0,1);addRecordField(grid,"出生年月",record.getBirthDate(),1,0);addRecordField(grid,"健康状况",record.getHealthStatus(),1,1);addRecordField(grid,"户口所在地",record.getRegisteredResidence(),2,0);addRecordField(grid,"联系电话",record.getPhone(),2,1);addRecordField(grid,"工作单位",record.getWorkplace(),3,0);addRecordField(grid,"工作单位地址",record.getWorkplaceAddress(),3,1);adminFamilyCardContainer.getChildren().add(recordCard(grid));}
+    }
+    private void renderExperienceCards(List<StudentExperience> records){
+        if(experienceCardContainer==null)return;
+        clearExperienceSelection();experienceCardContainer.getChildren().clear();
+        if(records==null||records.isEmpty()){experienceCardContainer.getChildren().add(emptyInfoCard("暂无学习经历"));return;}
+        for(StudentExperience record:records){
+            GridPane grid=recordGrid();
+            addRecordField(grid,"开始年月",showMonth(record.getStartDate()),0,0);addRecordField(grid,"结束年月",showMonth(record.getEndDate()),0,1);
+            addRecordField(grid,"学校名称",record.getSchoolName(),1,0);addRecordField(grid,"学习阶段",record.getEducationLevel(),1,1);
+            addWideRecordField(grid,"备注",record.getDescription(),2);
+            VBox card=recordCard(grid);card.setOnMouseClicked(event->selectExperience(record,card));experienceCardContainer.getChildren().add(card);
+        }
+    }
+    private void renderFamilyCards(List<StudentFamilyMember> records){
+        if(familyCardContainer==null)return;
+        clearFamilySelection();familyCardContainer.getChildren().clear();
+        if(records==null||records.isEmpty()){familyCardContainer.getChildren().add(emptyInfoCard("暂无家庭成员"));return;}
+        for(StudentFamilyMember record:records){
+            GridPane grid=recordGrid();
+            addRecordField(grid,"姓名",record.getName(),0,0);addRecordField(grid,"与本人关系",record.getRelationship(),0,1);
+            addRecordField(grid,"出生年月",record.getBirthDate(),1,0);addRecordField(grid,"健康状况",record.getHealthStatus(),1,1);
+            addRecordField(grid,"户口所在地",record.getRegisteredResidence(),2,0);addRecordField(grid,"联系电话",record.getPhone(),2,1);
+            addRecordField(grid,"工作单位",record.getWorkplace(),3,0);addRecordField(grid,"工作单位地址",record.getWorkplaceAddress(),3,1);
+            VBox card=recordCard(grid);card.setOnMouseClicked(event->selectFamilyMember(record,card));familyCardContainer.getChildren().add(card);
+        }
+    }
+    private GridPane recordGrid(){
+        GridPane grid=new GridPane();grid.getStyleClass().add("student-info-record-grid");grid.setMaxWidth(Double.MAX_VALUE);
+        ColumnConstraints key1=new ColumnConstraints(120),value1=new ColumnConstraints(),key2=new ColumnConstraints(120),value2=new ColumnConstraints();
+        value1.setHgrow(Priority.ALWAYS);value1.setFillWidth(true);value2.setHgrow(Priority.ALWAYS);value2.setFillWidth(true);
+        grid.getColumnConstraints().addAll(key1,value1,key2,value2);return grid;
+    }
+    private VBox recordCard(GridPane content){VBox card=new VBox(content);card.getStyleClass().add("student-info-record-card");card.setMaxWidth(Double.MAX_VALUE);return card;}
+    private Label emptyInfoCard(String text){Label label=new Label(text);label.getStyleClass().add("student-info-empty-card");label.setMaxWidth(Double.MAX_VALUE);return label;}
+    private void addRecordField(GridPane grid,String name,Object value,int row,int pair){
+        Label key=new Label(name),text=new Label(show(value));styleRecordLabels(key,text);grid.add(key,pair*2,row);grid.add(text,pair*2+1,row);
+    }
+    private void addWideRecordField(GridPane grid,String name,Object value,int row){
+        Label key=new Label(name),text=new Label(show(value));styleRecordLabels(key,text);grid.add(key,0,row);grid.add(text,1,row,3,1);
+    }
+    private void styleRecordLabels(Label key,Label value){
+        key.getStyleClass().add("student-field-key");key.setMaxWidth(Double.MAX_VALUE);
+        value.getStyleClass().add("student-field-value");value.setWrapText(true);value.setMaxWidth(Double.MAX_VALUE);GridPane.setHgrow(value,Priority.ALWAYS);
+    }
+    private void selectExperience(StudentExperience record,Pane card){
+        if(selectedExperienceCard!=null)selectedExperienceCard.getStyleClass().remove("student-info-record-card-selected");
+        selectedExperience=record;selectedExperienceCard=card;card.getStyleClass().add("student-info-record-card-selected");
+        editExperienceButton.setDisable(false);deleteExperienceButton.setDisable(false);
+    }
+    private void selectFamilyMember(StudentFamilyMember record,Pane card){
+        if(selectedFamilyCard!=null)selectedFamilyCard.getStyleClass().remove("student-info-record-card-selected");
+        selectedFamilyMember=record;selectedFamilyCard=card;card.getStyleClass().add("student-info-record-card-selected");
+        editFamilyButton.setDisable(false);deleteFamilyButton.setDisable(false);
+    }
+    private void clearExperienceSelection(){selectedExperience=null;selectedExperienceCard=null;if(editExperienceButton!=null)editExperienceButton.setDisable(true);if(deleteExperienceButton!=null)deleteExperienceButton.setDisable(true);}
+    private void clearFamilySelection(){selectedFamilyMember=null;selectedFamilyCard=null;if(editFamilyButton!=null)editFamilyButton.setDisable(true);if(deleteFamilyButton!=null)deleteFamilyButton.setDisable(true);}
     private void renderAwards(List<StudentAward> list) {
-        awardTile.getChildren().clear();
+        renderAwards(list,awardTile);
+    }
+    private void renderAwards(List<StudentAward> list,TilePane target) {
+        target.getChildren().clear();
         if(list==null||list.isEmpty()) {
-            awardTile.getChildren().add(emptyRecord("暂无奖励记录"));
+            target.getChildren().add(emptyRecord("暂无奖励记录"));
             return;
         }
-        for(StudentAward a:list)awardTile.getChildren().add(recordCard("🏆",show(a.getAwardName()),joinLine(show(a.getAwardType()),show(a.getAwardLevel())),show(a.getAwardDate()),"award-record-icon"));
+        for(StudentAward a:list)target.getChildren().add(recordCard("🏆",show(a.getAwardName()),joinLine(show(a.getAwardType()),show(a.getAwardLevel())),show(a.getAwardDate()),"award-record-icon"));
     }
     private void renderAids(List<StudentAid> list) {
-        aidTile.getChildren().clear();
+        renderAids(list,aidTile);
+    }
+    private void renderAids(List<StudentAid> list,TilePane target) {
+        target.getChildren().clear();
         if(list==null||list.isEmpty()) {
-            aidTile.getChildren().add(emptyRecord("暂无资助记录"));
+            target.getChildren().add(emptyRecord("暂无资助记录"));
             return;
         }
         for(StudentAid a:list) {
             String amount=a.getAmount()==null?"":("¥"+a.getAmount());
-            aidTile.getChildren().add(recordCard("◉",show(a.getAidName()),joinLine(show(a.getAidType()),amount),show(a.getAidDate()),"aid-record-icon"));
+            target.getChildren().add(recordCard("◉",show(a.getAidName()),joinLine(show(a.getAidType()),amount),show(a.getAidDate()),"aid-record-icon"));
         }
     }
     private HBox recordCard(String icon,String name,String meta,String date,String iconStyle) {
@@ -786,18 +993,64 @@ public class StudentController {
     private Optional<Map<String,String>> showRecordDialog(String title,LinkedHashMap<String,String> initial){
         Dialog<Map<String,String>> dialog=new Dialog<>();dialog.setTitle(title);dialog.setHeaderText("请在同一表单中填写全部信息");
         GridPane grid=new GridPane();grid.setHgap(12);grid.setVgap(10);grid.setPadding(new Insets(8,12,8,12));
-        LinkedHashMap<String,TextField> fields=new LinkedHashMap<>();int row=0;
+        LinkedHashMap<String,Node> fields=new LinkedHashMap<>();
+        LinkedHashMap<String,java.util.function.Supplier<String>> readers=new LinkedHashMap<>();int row=0;
         for(Map.Entry<String,String> entry:initial.entrySet()){
-            TextField field=new TextField(entry.getValue());field.setPrefWidth(360);fields.put(entry.getKey(),field);
-            Label label=new Label(entry.getKey());label.setWrapText(true);label.setMaxWidth(250);grid.add(label,0,row);grid.add(field,1,row++);
+            String key=entry.getKey();Node field;
+            if(key.startsWith("开始年月")||key.startsWith("结束年月")){
+                ComboBox<Integer> year=new ComboBox<>(),month=new ComboBox<>();
+                int currentYear=java.time.Year.now().getValue();
+                for(int value=currentYear+10;value>=1900;value--)year.getItems().add(value);
+                for(int value=1;value<=12;value++)month.getItems().add(value);
+                String initialValue=entry.getValue();
+                if(!initialValue.isBlank())try{String[] parts=initialValue.split("-");year.setValue(Integer.parseInt(parts[0]));month.setValue(Integer.parseInt(parts[1]));}catch(Exception ignored){}
+                year.setPromptText("年份");month.setPromptText("月份");year.setPrefWidth(210);month.setPrefWidth(135);
+                field=new HBox(10,year,month);
+                readers.put(key,()->year.getValue()==null||month.getValue()==null?"":String.format("%04d-%02d",year.getValue(),month.getValue()));
+            }else if(key.startsWith("出生年月")){
+                DatePicker picker=new DatePicker();
+                if(!entry.getValue().isBlank())try{picker.setValue(java.time.LocalDate.parse(entry.getValue()));}catch(Exception ignored){}
+                picker.setPrefWidth(360);field=picker;readers.put(key,()->picker.getValue()==null?"":picker.getValue().toString());
+            }else if("学习阶段".equals(key)){
+                ComboBox<String> combo=new ComboBox<>(FXCollections.observableArrayList("小学","初中","高中","大学","研究生","博士"));
+                combo.setValue(entry.getValue().isBlank()?null:entry.getValue());combo.setPrefWidth(360);field=combo;readers.put(key,()->combo.getValue()==null?"":combo.getValue());
+            }else if("与本人关系".equals(key)){
+                ComboBox<String> combo=new ComboBox<>(FXCollections.observableArrayList("父亲","母亲","配偶","子女","兄弟","姐妹","祖父","祖母","外祖父","外祖母","其他"));
+                combo.setValue(entry.getValue().isBlank()?null:entry.getValue());combo.setPrefWidth(360);field=combo;readers.put(key,()->combo.getValue()==null?"":combo.getValue());
+            }else{
+                TextField text=new TextField(entry.getValue());text.setPrefWidth(360);field=text;readers.put(key,()->text.getText().trim());
+            }
+            fields.put(key,field);
+            Label label=new Label(key);label.setWrapText(true);label.setMaxWidth(250);
+            if((title.contains("学习经历")&&Set.of("开始年月","结束年月","学校名称","学习阶段").stream().anyMatch(key::startsWith))
+                    ||(title.contains("家庭")&&Set.of("姓名","与本人关系","户口所在地","工作单位","联系电话").contains(key))){
+                Label star=new Label("*");star.setStyle("-fx-text-fill: #dc2626; -fx-font-weight: bold;");
+                label.setGraphic(star);label.setContentDisplay(ContentDisplay.RIGHT);
+            }
+            grid.add(label,0,row);grid.add(field,1,row++);
         }
         dialog.getDialogPane().setContent(grid);dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK,ButtonType.CANCEL);
         dialog.setResultConverter(button->{
             if(button!=ButtonType.OK)return null;Map<String,String> values=new LinkedHashMap<>();
-            fields.forEach((key,field)->values.put(key,field.getText().trim()));return values;
+            readers.forEach((key,reader)->values.put(key,reader.get()));return values;
         });
         return dialog.showAndWait();
     }
+    @FXML private void handleAddExperience(){LinkedHashMap<String,String> f=new LinkedHashMap<>();f.put("开始年月","");f.put("结束年月","");f.put("学校名称","");f.put("学习阶段","");f.put("备注","");showRecordDialog("新增主要学习经历",f).ifPresent(v->{try{validateExperienceForm(v);StudentExperience x=new StudentExperience();x.setStartDate(monthDate(v.get("开始年月")));x.setEndDate(monthDate(v.get("结束年月")));x.setSchoolName(v.get("学校名称"));x.setEducationLevel(v.get("学习阶段"));x.setDescription(v.get("备注"));service.addExperience(x,m->Platform.runLater(()->{setStatus(message(m,"学习经历已添加"));if(ok(m))refreshData();}));}catch(Exception e){setStatus("学习经历格式错误："+e.getMessage());}});}
+    @FXML private void handleAddFamilyMember(){LinkedHashMap<String,String> f=new LinkedHashMap<>();f.put("姓名","");f.put("与本人关系","");f.put("出生年月","");f.put("户口所在地","");f.put("工作单位","");f.put("工作单位地址","");f.put("健康状况","");f.put("联系电话","");showRecordDialog("新增家庭主要关系成员",f).ifPresent(v->{try{validateFamilyForm(v);StudentFamilyMember x=new StudentFamilyMember();x.setName(v.get("姓名"));x.setRelationship(v.get("与本人关系"));String birth=v.get("出生年月");x.setBirthDate(birth.isBlank()?null:Date.valueOf(birth));x.setRegisteredResidence(v.get("户口所在地"));x.setWorkplace(v.get("工作单位"));x.setWorkplaceAddress(v.get("工作单位地址"));x.setHealthStatus(v.get("健康状况"));x.setPhone(v.get("联系电话"));service.addFamilyMember(x,m->Platform.runLater(()->{setStatus(message(m,"家庭成员已添加"));if(ok(m))refreshData();}));}catch(Exception e){setStatus("家庭成员信息格式错误："+e.getMessage());}});}
+    @FXML private void handleEditExperience(){StudentExperience x=selectedExperience;if(x==null){setStatus("请先选择学习经历");return;}LinkedHashMap<String,String> f=new LinkedHashMap<>();f.put("开始年月",showMonth(x.getStartDate()));f.put("结束年月",showMonth(x.getEndDate()));f.put("学校名称",showForInput(x.getSchoolName()));f.put("学习阶段",showForInput(x.getEducationLevel()));f.put("备注",showForInput(x.getDescription()));showRecordDialog("编辑主要学习经历",f).ifPresent(v->{try{validateExperienceForm(v);StudentExperience changed=gson.fromJson(gson.toJson(x),StudentExperience.class);changed.setStartDate(monthDate(v.get("开始年月")));changed.setEndDate(monthDate(v.get("结束年月")));changed.setSchoolName(v.get("学校名称"));changed.setEducationLevel(v.get("学习阶段"));changed.setDescription(v.get("备注"));service.updateExperience(changed,m->Platform.runLater(()->{setStatus(message(m,"学习经历已更新"));if(ok(m))refreshData();}));}catch(Exception e){setStatus("学习经历格式错误："+e.getMessage());}});}
+    @FXML private void handleDeleteExperience(){StudentExperience x=selectedExperience;if(x==null){setStatus("请先选择学习经历");return;}if(!confirmDelete("确定删除选中的学习经历吗？"))return;service.deleteExperience(x.getExperienceId(),m->Platform.runLater(()->{setStatus(message(m,"学习经历已删除"));if(ok(m))refreshData();}));}
+    @FXML private void handleEditFamilyMember(){StudentFamilyMember x=selectedFamilyMember;if(x==null){setStatus("请先选择家庭成员");return;}LinkedHashMap<String,String> f=new LinkedHashMap<>();f.put("姓名",showForInput(x.getName()));f.put("与本人关系",showForInput(x.getRelationship()));f.put("出生年月",showForInput(x.getBirthDate()));f.put("户口所在地",showForInput(x.getRegisteredResidence()));f.put("工作单位",showForInput(x.getWorkplace()));f.put("工作单位地址",showForInput(x.getWorkplaceAddress()));f.put("健康状况",showForInput(x.getHealthStatus()));f.put("联系电话",showForInput(x.getPhone()));showRecordDialog("编辑家庭主要关系成员",f).ifPresent(v->{try{validateFamilyForm(v);StudentFamilyMember changed=gson.fromJson(gson.toJson(x),StudentFamilyMember.class);changed.setName(v.get("姓名"));changed.setRelationship(v.get("与本人关系"));String birth=v.get("出生年月");changed.setBirthDate(birth.isBlank()?null:Date.valueOf(birth));changed.setRegisteredResidence(v.get("户口所在地"));changed.setWorkplace(v.get("工作单位"));changed.setWorkplaceAddress(v.get("工作单位地址"));changed.setHealthStatus(v.get("健康状况"));changed.setPhone(v.get("联系电话"));service.updateFamilyMember(changed,m->Platform.runLater(()->{setStatus(message(m,"家庭成员已更新"));if(ok(m))refreshData();}));}catch(Exception e){setStatus("家庭成员信息格式错误："+e.getMessage());}});}
+    @FXML private void handleDeleteFamilyMember(){StudentFamilyMember x=selectedFamilyMember;if(x==null){setStatus("请先选择家庭成员");return;}if(!confirmDelete("确定删除选中的家庭成员吗？"))return;service.deleteFamilyMember(x.getMemberId(),m->Platform.runLater(()->{setStatus(message(m,"家庭成员已删除"));if(ok(m))refreshData();}));}
+    private boolean confirmDelete(String text){Alert alert=new Alert(Alert.AlertType.CONFIRMATION,text,ButtonType.OK,ButtonType.CANCEL);alert.setTitle("删除确认");alert.setHeaderText(null);return alert.showAndWait().orElse(ButtonType.CANCEL)==ButtonType.OK;}
+    private void validateExperienceForm(Map<String,String> values){
+        for(String field:List.of("开始年月","结束年月","学校名称","学习阶段"))if(values.getOrDefault(field,"").isBlank())throw new IllegalArgumentException(field+"不能为空");
+        Date start=monthDate(values.get("开始年月")),end=monthDate(values.get("结束年月"));
+        if(end.before(start))throw new IllegalArgumentException("结束日期不能早于开始日期");
+    }
+    private void validateFamilyForm(Map<String,String> values){for(String field:List.of("姓名","与本人关系","户口所在地","工作单位","联系电话"))if(values.getOrDefault(field,"").isBlank())throw new IllegalArgumentException(field+"不能为空");}
+    private Date monthDate(String value){return Date.valueOf(value+"-01");}
+    private String showMonth(Date value){return value==null?"":value.toString().substring(0,7);}
     private String showForInput(Object value){return value==null?"":String.valueOf(value);}
     private void reloadCurrentOverview(){
         if(overview!=null&&overview.getStudent()!=null)service.queryStudentOverview(overview.getStudent().getStudentId(),this::onOverview);
@@ -1061,8 +1314,35 @@ public class StudentController {
             case "campusAddress" -> "在校地址";
             case "emergencyContact" -> "紧急联系人";
             case "emergencyPhone" -> "紧急联系人联系方式";
+            case "experience.add" -> "新增主要学习经历";
+            case "experience.update" -> "修改主要学习经历";
+            case "experience.delete" -> "删除主要学习经历";
+            case "family.add" -> "新增家庭主要关系成员";
+            case "family.update" -> "修改家庭主要关系成员";
+            case "family.delete" -> "删除家庭主要关系成员";
             default -> n;
         };
+    }
+    private String changeSummary(StudentChangeRequest request){
+        if(request==null||request.getItems()==null||request.getItems().isEmpty())return "无修改内容";
+        StringBuilder out=new StringBuilder();
+        for(StudentChangeItem item:request.getItems()){
+            if(out.length()>0)out.append("\n\n");
+            out.append(title(item.getFieldName())).append("\n");
+            if(item.getFieldName().startsWith("experience.")){
+                StudentExperience x=gson.fromJson(item.getNewValue(),StudentExperience.class);
+                out.append("时间：").append(showMonth(x.getStartDate())).append(" 至 ").append(showMonth(x.getEndDate()))
+                   .append("\n学校：").append(show(x.getSchoolName())).append("\n学习阶段：").append(show(x.getEducationLevel()))
+                   .append("\n备注：").append(show(x.getDescription()));
+            }else if(item.getFieldName().startsWith("family.")){
+                StudentFamilyMember x=gson.fromJson(item.getNewValue(),StudentFamilyMember.class);
+                out.append("姓名：").append(show(x.getName())).append("；关系：").append(show(x.getRelationship()))
+                   .append("\n出生年月：").append(show(x.getBirthDate())).append("；健康状况：").append(show(x.getHealthStatus()))
+                   .append("\n户口所在地：").append(show(x.getRegisteredResidence())).append("\n工作单位：").append(show(x.getWorkplace()))
+                   .append("；单位地址：").append(show(x.getWorkplaceAddress())).append("\n联系电话：").append(show(x.getPhone()));
+            }else out.append("原内容：").append(show(item.getOldValue())).append("\n新内容：").append(show(item.getNewValue()));
+        }
+        return out.toString();
     }
     private boolean ok(Message m) {
         return m!=null&&m.getCode()==MessageCode.SUCCESS;

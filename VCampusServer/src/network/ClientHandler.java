@@ -109,7 +109,9 @@ public class ClientHandler implements Runnable {
             response.setModule(request.getModule());
             response.setAction(request.getAction());
             response.setCode(MessageCode.BAD_REQUEST);
-            response.setMessage("不支持的消息类型: " + request.getType());
+            response.setMessage(request.getType() == null
+                    ? "客户端与服务端版本不一致，请重新编译并重启服务端"
+                    : "不支持的消息类型: " + request.getType());
             return response;
         }
 
