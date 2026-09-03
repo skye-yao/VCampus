@@ -40,6 +40,9 @@ public class ProfileController {
     @FXML private Label headerTagLabel;
     @FXML private ImageView headerAvatarView;
 
+    @FXML private Label collegeOrDepartment;
+    @FXML private Label majorOrTitle;
+
     @FXML private TextField profUIDField;
     @FXML private TextField profNameField;
     @FXML private ComboBox<String> profSexCombo;
@@ -98,6 +101,21 @@ public class ProfileController {
             if (walletBalanceLabel != null) walletBalanceLabel.setText("¥ 0.00");
             if (walletAccountLabel != null) {
                 walletAccountLabel.setText("一卡通号：" + ClientSession.getInstance().getUsername());
+            }
+        }
+
+        // 根据角色动态设置标签显示：学生(学院/专业)、教师(学院/职称)、管理员(部门/职务)
+        if (collegeOrDepartment != null && majorOrTitle != null) {
+            enums.Role role = (user != null) ? user.getRole() : null;
+            if (role == enums.Role.STUDENT || "学生".equals(roleStr)) {
+                majorOrTitle.setText("专业");
+                collegeOrDepartment.setText("学院");
+            } else if (role == enums.Role.TEACHER || "教师".equals(roleStr)) {
+                majorOrTitle.setText("职称");
+                collegeOrDepartment.setText("学院");
+            } else if (role == enums.Role.ADMIN || "管理员".equals(roleStr)) {
+                majorOrTitle.setText("职务");
+                collegeOrDepartment.setText("部门");
             }
         }
     }

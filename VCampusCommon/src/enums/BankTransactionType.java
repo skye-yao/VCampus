@@ -13,7 +13,8 @@ public enum BankTransactionType {
     TUITION_PAYMENT("学费缴纳"),
     REIMBURSEMENT_PAYOUT("报销支出"),
     REIMBURSEMENT("报销入账"),
-    GRANT("补助发放");
+    GRANT("补助发放"),
+    AI_SERVICE_FEE("AI服务费");
 
     private final String description;
 

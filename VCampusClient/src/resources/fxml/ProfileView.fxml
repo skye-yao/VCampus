@@ -69,7 +69,7 @@
                                         </StackPane>
                                         <VBox prefHeight="80.0" prefWidth="253.0" spacing="10.0">
                                             <children>
-                                                <Label fx:id="headerNameLabel" prefHeight="37.0" prefWidth="53.0" styleClass="profile-name-title" text="张三" />
+                                                <Label fx:id="headerNameLabel" prefHeight="37.0" prefWidth="206.0" styleClass="profile-name-title" text="张三" />
                                                 <Label fx:id="headerTagLabel" prefHeight="22.0" prefWidth="216.0" styleClass="profile-tag" text="计算机科学与工程学院 · 大三 · 学生" />
                                             </children>
                                         </VBox>
@@ -85,7 +85,7 @@
                                     <children>
                                         <VBox spacing="6.0" GridPane.columnIndex="0" GridPane.rowIndex="0">
                                             <Label styleClass="form-label" text="用户名 (一卡通号)" />
-                                            <TextField fx:id="profUidField" editable="false" prefHeight="30.0" styleClass="form-control readonly-input" text="213242789" />
+                                            <TextField fx:id="profUIDField" editable="false" prefHeight="30.0" styleClass="form-control readonly-input" text="213242789" />
                                         </VBox>
                                         <VBox spacing="6.0" GridPane.columnIndex="1" GridPane.rowIndex="0">
                                             <Label styleClass="form-label" text="姓名" />
@@ -103,11 +103,11 @@
                                             </ComboBox>
                                         </VBox>
                                         <VBox spacing="6.0" GridPane.columnIndex="1" GridPane.rowIndex="1">
-                                            <Label styleClass="form-label" text="学院" />
+                                            <Label fx:id="collegeOrDepartment" styleClass="form-label" text="学院" />
                                             <TextField fx:id="profCollegeField" prefHeight="30.0" styleClass="form-control" text="计算机科学与工程学院" />
                                         </VBox>
                                         <VBox spacing="6.0" GridPane.columnIndex="0" GridPane.rowIndex="2">
-                                            <Label styleClass="form-label" text="专业" />
+                                            <Label fx:id="majorOrTitle" styleClass="form-label" text="专业" />
                                             <TextField fx:id="profMajorField" prefHeight="30.0" styleClass="form-control" text="计算机科学与技术" />
                                         </VBox>
                                         <VBox spacing="6.0" GridPane.columnIndex="1" GridPane.rowIndex="2">
@@ -201,9 +201,7 @@
                                 <Label fx:id="walletAccountLabel" styleClass="wallet-footer-info" text="正在读取一卡通信息" />
                             </children>
                         </VBox>
-                        <Label maxWidth="400.0" styleClass="hint-text"
-                               text="一卡通钱包由用户管理模块独立维护，与校园银行账户余额互不相通。"
-                               wrapText="true" />
+                        <Label maxWidth="400.0" styleClass="hint-text" text="一卡通钱包由用户管理模块独立维护，与校园银行账户余额互不相通。" wrapText="true" />
                     </children>
                 </VBox>
             </children>

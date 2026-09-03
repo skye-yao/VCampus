@@ -110,10 +110,10 @@ public class SocketClient {
                 request.setToken(session.getToken());
             }
 
-            // 注册等待
-            dispatcher.registerPendingRequest(request.getUID(), future);
             final Long requestUID = request.getUID();
-            future.orTimeout(15, TimeUnit.SECONDS)
+            dispatcher.registerPendingRequest(requestUID, future);
+            long timeoutSeconds = "ai".equalsIgnoreCase(request.getModule()) ? 60 : 20;
+            future.orTimeout(timeoutSeconds, TimeUnit.SECONDS)
                     .whenComplete((response, error) -> dispatcher.removePendingRequest(requestUID));
 
             // 序列化并发送

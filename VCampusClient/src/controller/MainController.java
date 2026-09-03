@@ -73,7 +73,7 @@ public class MainController {
 
     @FXML
     private void openHospital(MouseEvent event) {
-        showSubsystemNotice("校医院挂号系统");
+        ClientMain.switchScene("/resources/fxml/AIview.fxml");
     }
 
     @FXML

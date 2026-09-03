@@ -327,6 +327,80 @@ public class BankService implements IBankPaymentService {
         }
     }
 
+    @Override
+    public String deductAiFee(Connection conn, String userId, BigDecimal actualAmount,
+                              String requestId, String remark) {
+        try {
+            requireRequestId(requestId);
+            BigDecimal amount = normalizeAmount(actualAmount);
+            BankAccount userPreview = requireAccount(conn, userId, false);
+            BankAccount financePreview = requireAccount(conn, FINANCE_ACCOUNT_USER_ID, false);
+            BankTransaction duplicate = transactionDAO.findByRequestId(conn, requestId);
+            if (duplicate != null) {
+                validateDuplicate(duplicate, userPreview.getAccountId(), BankTransactionType.AI_SERVICE_FEE,
+                        amount.negate(), null);
+                return duplicate.getTransactionNo();
+            }
+
+            // 按账户编号升序固定加锁，避免并发死锁
+            String firstUser = userPreview.getAccountId() < financePreview.getAccountId()
+                    ? userId : FINANCE_ACCOUNT_USER_ID;
+            String secondUser = firstUser.equals(userId) ? FINANCE_ACCOUNT_USER_ID : userId;
+            BankAccount firstLocked = requireAccount(conn, firstUser, true);
+            BankAccount secondLocked = requireAccount(conn, secondUser, true);
+            BankAccount account = firstUser.equals(userId) ? firstLocked : secondLocked;
+            BankAccount financeAccount = firstUser.equals(userId) ? secondLocked : firstLocked;
+            requireActive(account);
+            requireActive(financeAccount);
+
+            if (account.getBalance().compareTo(amount) < 0) {
+                throw new BusinessException("校园银行账户余额不足以支付AI问答Token费用");
+            }
+
+            if (!accountDAO.changeBalance(conn, account.getAccountId(), amount.negate())) {
+                throw new BusinessException("扣减AI服务费失败，请重试");
+            }
+            if (!accountDAO.changeBalance(conn, financeAccount.getAccountId(), amount)) {
+                throw new BusinessException("AI服务费记入校园财务账户失败");
+            }
+
+            String txNo = newTransactionNo();
+            insertTransaction(conn, txNo, account, financeAccount.getUserId(),
+                    BankTransactionType.AI_SERVICE_FEE, amount.negate(),
+                    account.getBalance().subtract(amount), null, requestId,
+                    remark != null ? remark : "AI问答Token服务费");
+            insertTransaction(conn, newTransactionNo(), financeAccount, account.getUserId(),
+                    BankTransactionType.AI_SERVICE_FEE, amount,
+                    financeAccount.getBalance().add(amount), null, null,
+                    "收 " + account.getUserId() + " AI问答服务费");
+            return txNo;
+        } catch (SQLException e) {
+            throw new DatabaseException("扣减AI服务费失败", e);
+        }
+    }
+
+    /**
+     * 便捷方法：独立事务扣减 AI Token 服务费
+     */
+    public String deductAiFee(String userId, BigDecimal actualAmount, String requestId, String remark) {
+        Connection conn = null;
+        try {
+            conn = DBUtil.getConnection();
+            conn.setAutoCommit(false);
+            String txNo = deductAiFee(conn, userId, actualAmount, requestId, remark);
+            conn.commit();
+            return txNo;
+        } catch (BusinessException e) {
+            rollback(conn);
+            throw e;
+        } catch (SQLException e) {
+            rollback(conn);
+            throw new DatabaseException("扣减AI服务费失败", e);
+        } finally {
+            resetAndClose(conn);
+        }
+    }
+
     private String accountUserId(Connection conn, long accountId) throws SQLException {
         try (var stmt = conn.prepareStatement("SELECT user_id FROM tbl_bank_account WHERE account_id=?")) {
             stmt.setLong(1, accountId);

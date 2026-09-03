@@ -15,4 +15,10 @@ public interface IBankPaymentService {
     String refundShopOrder(Connection connection, long orderId,
                            String originalTransactionNo, BigDecimal actualAmount,
                            String requestId);
+
+    /**
+     * 扣除 AI 助手 Token 服务费（服务端内部调用，带事务控制）
+     */
+    String deductAiFee(Connection connection, String userId,
+                       BigDecimal actualAmount, String requestId, String remark);
 }
