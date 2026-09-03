@@ -15,6 +15,7 @@ import util.AlertUtil;
 public class MainController {
 
     @FXML private MenuButton userMenuButton;
+    @FXML private javafx.scene.control.Label informationCardTitle;
 
     @FXML
     public void initialize() {
@@ -25,6 +26,11 @@ public class MainController {
             if (displayName != null) {
                 userMenuButton.setText("你好，" + displayName);
             }
+        }
+        if(informationCardTitle!=null){
+            String role=session.getRole();
+            informationCardTitle.setText(("TEACHER".equalsIgnoreCase(role)||"教师".equals(role))?"个人信息":
+                    (("ADMIN".equalsIgnoreCase(role)||"管理员".equals(role))?"基本信息":"学籍信息"));
         }
     }
 
@@ -48,7 +54,12 @@ public class MainController {
 
     @FXML
     private void openStudentAffairs(MouseEvent event) {
-        showSubsystemNotice("学籍管理子系统");
+        String role=ClientSession.getInstance().getRole();
+        if("TEACHER".equalsIgnoreCase(role)||"教师".equals(role)) {
+            ClientMain.switchScene("/resources/fxml/TeacherView.fxml");
+        } else if("ADMIN".equalsIgnoreCase(role)||"管理员".equals(role)) {
+            ClientMain.switchScene("/resources/fxml/InformationSelectView.fxml");
+        } else ClientMain.switchScene("/resources/fxml/StudentView.fxml");
     }
 
     @FXML

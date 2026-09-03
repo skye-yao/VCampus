@@ -4,6 +4,8 @@ import protocol.Message;
 import protocol.MessageCode;
 import protocol.MessageType;
 import handler.UserHandler;
+import handler.StudentHandler;
+import handler.TeacherHandler;
 import handler.ShopHandler;
 import handler.BankHandler;
 import service.BankService;
@@ -20,12 +22,16 @@ public class MessageDispatcher {
 
     // 各模块 Handler
     private final UserHandler userHandler;
+    private final StudentHandler studentHandler;
+    private final TeacherHandler teacherHandler;
     private final ShopHandler shopHandler;
     private final BankHandler bankHandler;
     private final handler.AiHandler aiHandler;
-
+  
     public MessageDispatcher() {
         this.userHandler = new UserHandler();
+        this.studentHandler = new StudentHandler();
+        this.teacherHandler = new TeacherHandler();
         BankService bankService = new BankService();
         this.shopHandler = new ShopHandler(bankService);
         this.bankHandler = new BankHandler(bankService);
@@ -51,6 +57,10 @@ public class MessageDispatcher {
         // 根据模块分发
         if ("user".equalsIgnoreCase(module)) {
             return userHandler.handle(request);
+        } else if ("student".equalsIgnoreCase(module)) {
+            return studentHandler.handle(request);
+        } else if ("teacher".equalsIgnoreCase(module)) {
+            return teacherHandler.handle(request);
         } else if ("shop".equalsIgnoreCase(module)) {
             return shopHandler.handle(request);
         } else if ("bank".equalsIgnoreCase(module)) {

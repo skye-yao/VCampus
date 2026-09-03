@@ -368,6 +368,59 @@
     -fx-background-color: transparent;
 }
 
+/* 学籍管理 */
+.student-page, .student-scroll, .student-scroll > .viewport { -fx-background-color: #f4f7f4; }
+.student-scroll { -fx-border-color: transparent; }
+.student-tab-pane > .tab-header-area { -fx-padding: 0; -fx-pref-height: 0; -fx-max-height: 0; -fx-opacity: 0; }
+.student-tab-pane > .tab-header-area > .headers-region > .tab { -fx-background-color: transparent; -fx-padding: 8px 16px; }
+.student-tab-pane > .tab-header-area > .headers-region > .tab:selected { -fx-background-color: #eaf0ea; -fx-border-color: #587558; -fx-border-width: 0 0 3px 0; }
+.student-hero, .student-panel, .student-stat-card { -fx-background-color: #ffffff; -fx-background-radius: 12px; -fx-border-radius: 12px; -fx-border-color: #dce5dc; -fx-border-width: 1px; -fx-padding: 15px; }
+.student-hero { -fx-effect: dropshadow(three-pass-box, rgba(35,24,21,0.07), 12, 0, 0, 3); }
+.student-avatar { -fx-background-color: linear-gradient(to bottom right, #587558, #3f553f); -fx-background-radius: 50%; }
+.student-meta { -fx-font-size: 13px; -fx-text-fill: #526052; }
+.student-section-title { -fx-font-size: 16px; -fx-font-weight: bold; -fx-text-fill: #231815; }
+.student-stat-value { -fx-font-size: 18px; -fx-font-weight: bold; -fx-text-fill: #231815; }
+.student-sidebar { -fx-background-color: #ffffff; -fx-border-color: #dce5dc; -fx-border-width: 0 1px 0 0; }
+.student-side-name { -fx-font-size: 15px; -fx-font-weight: bold; }
+.student-side-button, .student-side-button-active { -fx-background-color: transparent; -fx-alignment: CENTER_LEFT; -fx-padding: 9px 12px; -fx-background-radius: 7px; -fx-text-fill: #526052; -fx-font-weight: bold; -fx-cursor: hand; }
+.student-side-button:hover, .student-side-button-active { -fx-background-color: #eaf0ea; -fx-text-fill: #3f553f; }
+.student-export-button { -fx-background-color: #496a4f; -fx-background-radius: 7px; -fx-alignment: CENTER; -fx-padding: 9px 12px; -fx-text-fill: white; -fx-font-weight: bold; -fx-cursor: hand; }
+.student-export-button:hover { -fx-background-color: #38583f; }
+.student-export-button:disabled { -fx-opacity: 0.65; }
+.student-export-toolbar { -fx-padding: 2px 0 0 0; }
+.student-export-action { -fx-background-color: white; -fx-background-radius: 18px; -fx-border-color: #b9c8bc; -fx-border-radius: 18px; -fx-padding: 7px 18px; -fx-text-fill: #3f6548; -fx-font-weight: bold; -fx-cursor: hand; }
+.student-export-action:hover { -fx-background-color: #eef6f0; -fx-border-color: #73917a; }
+.student-export-action:disabled { -fx-opacity: 0.55; }
+.student-field-key { -fx-background-color: #f0f4f0; -fx-padding: 7px 9px; -fx-font-weight: bold; -fx-text-fill: #4b584b; -fx-min-width: 92px; }
+.student-field-value { -fx-padding: 7px 9px; -fx-text-fill: #231815; -fx-min-width: 175px; }
+.student-statusbar { -fx-background-color: #ffffff; -fx-border-color: #dce5dc; -fx-border-width: 1px 0 0 0; }
+.student-edit-link { -fx-background-color: transparent; -fx-text-fill: #587558; -fx-font-size: 13px; -fx-font-weight: bold; -fx-padding: 4px 10px; -fx-cursor: hand; }
+.student-edit-link:hover { -fx-background-color: #eaf0ea; -fx-background-radius: 6px; }
+.student-record-section { -fx-background-color: #ffffff; -fx-padding: 16px 18px; -fx-background-radius: 12px; -fx-border-radius: 12px; -fx-border-color: #dce5dc; }
+.student-section-accent { -fx-background-color: #159a86; -fx-background-radius: 2px; }
+.student-record-card { -fx-padding: 8px 5px; -fx-min-width: 185px; -fx-pref-width: 205px; -fx-max-width: 235px; }
+.student-info-record-card { -fx-background-color: #ffffff; -fx-background-radius: 9px; -fx-border-radius: 9px; -fx-border-color: #dce5dc; -fx-border-width: 1px; -fx-padding: 12px; -fx-cursor: hand; }
+.student-info-record-card:hover { -fx-background-color: #fafcfa; -fx-border-color: #9caf9c; }
+.student-info-record-card-selected { -fx-background-color: #eef5ee; -fx-border-color: #587558; -fx-border-width: 2px; }
+.student-info-record-grid { -fx-hgap: 12px; -fx-vgap: 8px; }
+.student-info-empty-card { -fx-alignment: center; -fx-padding: 26px; -fx-background-color: #f8faf8; -fx-background-radius: 9px; -fx-border-radius: 9px; -fx-border-color: #dce5dc; -fx-border-style: dashed; -fx-text-fill: #7b877b; }
+.award-record-icon, .aid-record-icon { -fx-min-width: 50px; -fx-min-height: 50px; -fx-max-width: 50px; -fx-max-height: 50px; -fx-alignment: CENTER; -fx-background-radius: 25px; -fx-text-fill: white; -fx-font-size: 22px; }
+.award-record-icon { -fx-background-color: #ff7a29; }
+.aid-record-icon { -fx-background-color: #51b9c9; }
+.record-title { -fx-font-size: 14px; -fx-text-fill: #30363a; -fx-font-weight: bold; -fx-max-width: 155px; -fx-text-overrun: ELLIPSIS; }
+.record-meta { -fx-font-size: 12px; -fx-text-fill: #6b7280; -fx-max-width: 155px; -fx-text-overrun: ELLIPSIS; }
+.record-date { -fx-font-size: 12px; -fx-text-fill: #a4a9ad; }
+.record-empty { -fx-font-size: 13px; -fx-text-fill: #9aa19c; -fx-padding: 12px 4px; }
+.student-search-bar { -fx-background-color: #ffffff; -fx-padding: 10px 12px; -fx-background-radius: 8px; -fx-border-radius: 8px; -fx-border-color: #dce5dc; }
+.student-pagination { -fx-background-color: #ffffff; -fx-padding: 7px 10px; -fx-border-color: #dce5dc; -fx-border-width: 1px 0 0 0; }
+.page-button { -fx-background-color: #ffffff; -fx-border-color: #cbd4cb; -fx-border-radius: 6px; -fx-background-radius: 6px; -fx-padding: 5px 12px; -fx-cursor: hand; }
+.page-button:hover { -fx-background-color: #eaf0ea; -fx-border-color: #587558; }
+.table-action-button { -fx-background-color: transparent; -fx-text-fill: #587558; -fx-font-weight: bold; -fx-cursor: hand; -fx-padding: 3px 7px; }
+.table-action-button:hover { -fx-background-color: #eaf0ea; -fx-background-radius: 5px; }
+.review-bucket-tabs { -fx-border-color: #dce5dc; -fx-border-width: 0 0 1px 0; }
+.review-bucket-tab { -fx-background-color: transparent; -fx-padding: 8px 20px; -fx-font-weight: bold; -fx-text-fill: #667066; -fx-cursor: hand; }
+.review-bucket-tab:selected { -fx-background-color: #eaf0ea; -fx-text-fill: #3f553f; -fx-border-color: #587558; -fx-border-width: 0 0 3px 0; }
+.teacher-tabs > .tab-header-area { -fx-max-height: 0; -fx-pref-height: 0; -fx-opacity: 0; }
 /* ================= 4. 校园商店 ================= */
 .shop-tabs {
     -fx-background-color: #f6f8f6;

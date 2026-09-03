@@ -19,7 +19,7 @@
 <?import javafx.scene.layout.StackPane?>
 <?import javafx.scene.layout.VBox?>
 
-<BorderPane fx:id="rootProfile" prefHeight="580.0" prefWidth="860.0" stylesheets="@../css/style.css" xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.ProfileController">
+<BorderPane fx:id="rootProfile" prefHeight="580.0" prefWidth="860.0" stylesheets="@../css/style.css" xmlns="http://javafx.com/javafx/25.0.4" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.ProfileController">
     <!-- 顶部返回栏 -->
     <top>
         <HBox alignment="CENTER_LEFT" prefHeight="50.0" styleClass="profile-topbar" BorderPane.alignment="CENTER">
