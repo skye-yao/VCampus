@@ -421,3 +421,305 @@
 .review-bucket-tab { -fx-background-color: transparent; -fx-padding: 8px 20px; -fx-font-weight: bold; -fx-text-fill: #667066; -fx-cursor: hand; }
 .review-bucket-tab:selected { -fx-background-color: #eaf0ea; -fx-text-fill: #3f553f; -fx-border-color: #587558; -fx-border-width: 0 0 3px 0; }
 .teacher-tabs > .tab-header-area { -fx-max-height: 0; -fx-pref-height: 0; -fx-opacity: 0; }
+/* ================= 4. 校园商店 ================= */
+.shop-tabs {
+    -fx-background-color: #f6f8f6;
+    -fx-tab-min-width: 120px;
+    -fx-tab-min-height: 38px;
+}
+
+.shop-tabs .tab-header-background {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #e2e8e2;
+    -fx-border-width: 0 0 1px 0;
+}
+
+.shop-tabs .tab {
+    -fx-background-color: transparent;
+    -fx-padding: 6px 18px;
+}
+
+.shop-tabs .tab:selected {
+    -fx-background-color: #eaf0ea;
+    -fx-border-color: #587558;
+    -fx-border-width: 0 0 3px 0;
+}
+
+.shop-tabs .tab-label {
+    -fx-text-fill: #4e5a4e;
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+}
+
+.shop-tabs .tab:selected .tab-label {
+    -fx-text-fill: #3f553f;
+}
+
+.shop-toolbar,
+.shop-actionbar {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #e2e8e2;
+}
+
+.shop-toolbar { -fx-border-width: 0 0 1px 0; }
+.shop-actionbar { -fx-border-width: 1px 0 0 0; }
+
+.shop-table {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #dbe3db;
+    -fx-border-radius: 8px;
+    -fx-background-radius: 8px;
+}
+
+.shop-table .column-header-background {
+    -fx-background-color: #eaf0ea;
+    -fx-background-radius: 8px 8px 0 0;
+}
+
+.shop-table .column-header,
+.shop-table .filler {
+    -fx-background-color: transparent;
+    -fx-size: 38px;
+}
+
+.shop-table .column-header .label {
+    -fx-text-fill: #3f553f;
+    -fx-font-weight: bold;
+}
+
+.shop-table .table-row-cell:selected {
+    -fx-background-color: #dce8dc;
+    -fx-text-background-color: #231815;
+}
+
+.shop-total {
+    -fx-font-size: 17px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #8a5e00;
+}
+
+.shop-admin-card {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #e2e8e2;
+    -fx-border-width: 0 0 0 1px;
+}
+
+.admin-subtabs { -fx-background-color: #f6f8f6; -fx-tab-min-width: 105px; }
+.shop-summary-bar { -fx-background-color: #ffffff; -fx-border-color: #e2e8e2; -fx-border-width: 0 0 1px 0; }
+.summary-chip {
+    -fx-background-color: #eaf0ea;
+    -fx-background-radius: 8px;
+    -fx-text-fill: #3f553f;
+    -fx-font-weight: bold;
+    -fx-padding: 8px 12px;
+}
+
+/* ================= 5. 校园银行 ================= */
+.bank-page { -fx-background-color: #f6f8f6; }
+
+.bank-balance-card {
+    -fx-background-color: linear-gradient(to right, #49644f, #344c3a);
+    -fx-background-radius: 14px;
+    -fx-border-color: #91a596;
+    -fx-border-radius: 14px;
+    -fx-effect: dropshadow(three-pass-box, rgba(47, 73, 53, 0.20), 12, 0, 0, 4);
+}
+
+.bank-card-caption { -fx-text-fill: rgba(255,255,255,0.82); -fx-font-size: 13px; }
+.bank-balance-value { -fx-text-fill: #f4e3a1; -fx-font-size: 32px; -fx-font-weight: bold; }
+.bank-card-info { -fx-text-fill: #ffffff; -fx-font-size: 12px; }
+
+.btn-bank-light {
+    -fx-background-color: rgba(255,255,255,0.14);
+    -fx-border-color: rgba(255,255,255,0.55);
+    -fx-border-radius: 6px;
+    -fx-background-radius: 6px;
+    -fx-text-fill: #ffffff;
+    -fx-cursor: hand;
+}
+
+.btn-bank-primary {
+    -fx-background-color: #587558;
+    -fx-background-radius: 7px;
+    -fx-text-fill: #ffffff;
+    -fx-font-weight: bold;
+    -fx-padding: 10px 18px;
+    -fx-cursor: hand;
+}
+
+.btn-bank-primary:hover { -fx-background-color: #49644f; }
+
+.bank-form-card {
+    -fx-background-color: #ffffff;
+    -fx-background-radius: 12px;
+    -fx-border-color: #dbe3db;
+    -fx-border-radius: 12px;
+    -fx-effect: dropshadow(three-pass-box, rgba(35,24,21,0.06), 10, 0, 0, 3);
+}
+
+/* ================= 6. 虚拟校园·AI 助手 ================= */
+
+/* 顶部导航（采用藏青主色） */
+.chat-topbar {
+    -fx-background-color: linear-gradient(to right, #587558, #3f553f);
+    -fx-padding: 0 24px;
+}
+
+.chat-topbar-title {
+    -fx-text-fill: #ffffff;
+    -fx-font-size: 18px;
+    -fx-font-weight: bold;
+}
+
+.chat-topbar-user {
+    -fx-text-fill: #eaf0ea;
+    -fx-font-size: 13px;
+}
+
+/* 左侧栏 & 会话列表 */
+.chat-sidebar {
+    -fx-background-color: #f7faf7;
+    -fx-border-color: #e2e8e2;
+    -fx-border-width: 0 1px 0 0;
+    -fx-padding: 16px;
+}
+
+.chat-section-subtitle {
+    -fx-text-fill: -fx-text-muted;
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+}
+
+.session-item {
+    -fx-padding: 10px 12px;
+    -fx-text-fill: -fx-seu-dark;
+    -fx-font-size: 14px;
+    -fx-cursor: hand;
+    -fx-background-radius: 6px;
+    -fx-border-radius: 6px;
+}
+
+.session-item:hover {
+    -fx-background-color: #ebf1eb;
+}
+
+.session-item-active {
+    -fx-background-color: -fx-seu-green-light;
+    -fx-border-color: #c4d0c4;
+    -fx-text-fill: -fx-seu-green-dark;
+    -fx-font-weight: bold;
+}
+
+/* 中间对话展示区 */
+.chat-content-pane {
+    -fx-background-color: #ffffff;
+}
+
+.chat-content-header {
+    -fx-border-color: #e2e8e2;
+    -fx-border-width: 0 0 1px 0;
+    -fx-padding: 0 24px;
+}
+
+.chat-message-list {
+    -fx-padding: 24px;
+    -fx-background-color: #ffffff;
+}
+
+/* 消息气泡 */
+.chat-bubble-user {
+    -fx-background-color: -fx-seu-green-light;
+    -fx-border-color: #c4d0c4;
+    -fx-background-radius: 8px 8px 0 8px;
+    -fx-border-radius: 8px 8px 0 8px;
+    -fx-padding: 14px 16px;
+    -fx-text-fill: -fx-seu-green-dark;
+    -fx-font-size: 14px;
+}
+
+.chat-bubble-ai {
+    -fx-background-color: #f8faf8;
+    -fx-border-color: #e2e8e2;
+    -fx-background-radius: 8px 8px 8px 0;
+    -fx-border-radius: 8px 8px 8px 0;
+    -fx-padding: 14px 16px;
+}
+
+.chat-bubble-ai-text {
+    -fx-text-fill: -fx-seu-dark;
+    -fx-font-size: 14px;
+}
+
+.feedback-btn {
+    -fx-cursor: hand;
+    -fx-text-fill: #a0aec0;
+    -fx-font-size: 12px;
+}
+
+.feedback-btn:hover {
+    -fx-text-fill: -fx-seu-green;
+}
+
+/* 输入区域 */
+.chat-input-area {
+    -fx-background-color: #f7faf7;
+    -fx-border-color: #e2e8e2;
+    -fx-border-width: 1px 0 0 0;
+    -fx-padding: 16px 24px;
+}
+
+.chat-input-container {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #c4d0c4;
+    -fx-border-radius: 8px;
+    -fx-background-radius: 8px;
+    -fx-padding: 12px;
+}
+
+.chat-textarea {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-focus-color: transparent;
+    -fx-faint-focus-color: transparent;
+    -fx-font-size: 14px;
+}
+
+.chat-status-label {
+    -fx-text-fill: -fx-seu-green;
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+}
+
+/* 右侧来源侧边栏 */
+.chat-source-sidebar {
+    -fx-background-color: #f7faf7;
+    -fx-border-color: #e2e8e2;
+    -fx-border-width: 0 0 0 1px;
+    -fx-padding: 20px 16px;
+}
+
+.source-card {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #e2e8e2;
+    -fx-border-radius: 8px;
+    -fx-background-radius: 8px;
+    -fx-padding: 12px;
+    -fx-cursor: hand;
+    -fx-effect: dropshadow(three-pass-box, rgba(35, 24, 21, 0.03), 4, 0, 0, 1);
+}
+
+.source-card:hover {
+    -fx-border-color: -fx-seu-green;
+    -fx-background-color: #fafcfa;
+}
+
+.source-card-title {
+    -fx-text-fill: -fx-seu-green-dark;
+    -fx-font-weight: bold;
+    -fx-font-size: 14px;
+}
+
+.source-warning {
+    -fx-text-fill: #c0392b;
+    -fx-font-size: 12px;
+}

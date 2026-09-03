@@ -110,16 +110,21 @@ public class SocketClient {
                 request.setToken(session.getToken());
             }
 
-            // 注册等待
-            dispatcher.registerPendingRequest(request.getUID(), future);
+            final Long requestUID = request.getUID();
+            dispatcher.registerPendingRequest(requestUID, future);
+            long timeoutSeconds = "ai".equalsIgnoreCase(request.getModule()) ? 60 : 20;
+            future.orTimeout(timeoutSeconds, TimeUnit.SECONDS)
+                    .whenComplete((response, error) -> dispatcher.removePendingRequest(requestUID));
 
             // 序列化并发送
             String json = gson.toJson(request);
-            writer.println(json);
+            synchronized (this) {
+                writer.println(json);
 
-            // PrintWriter 不会抛 IOException，需主动检查发送是否失败
-            if (writer.checkError()) {
-                throw new IOException("消息发送失败，连接已断开");
+                // PrintWriter 不会抛 IOException，需主动检查发送是否失败
+                if (writer.checkError()) {
+                    throw new IOException("消息发送失败，连接已断开");
+                }
             }
 
         } catch (Exception e) {

@@ -74,17 +74,17 @@ public class MainController {
 
     @FXML
     private void openStore(MouseEvent event) {
-        showSubsystemNotice("校园商店子系统");
+        ClientMain.switchScene("/resources/fxml/ShopView.fxml");
     }
 
     @FXML
     private void openBank(MouseEvent event) {
-        showSubsystemNotice("校园银行子系统");
+        ClientMain.switchScene("/resources/fxml/BankView.fxml");
     }
 
     @FXML
     private void openHospital(MouseEvent event) {
-        showSubsystemNotice("校医院挂号系统");
+        ClientMain.switchScene("/resources/fxml/AIview.fxml");
     }
 
     @FXML

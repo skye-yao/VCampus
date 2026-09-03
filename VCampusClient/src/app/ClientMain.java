@@ -41,7 +41,7 @@ public class ClientMain extends Application {
 
         // 初始加载登录界面
         switchScene("/resources/fxml/LoginView.fxml");
-        primaryStage.setResizable(false);
+        //primaryStage.setResizable(false);
         primaryStage.show();
 
         // 异步预连接服务端
@@ -62,9 +62,34 @@ public class ClientMain extends Application {
     public static void switchScene(String fxmlPath) {
         try {
             Parent root = FXMLUtil.load(fxmlPath);
-            Scene scene = new Scene(root, 860, 580);
-            primaryStage.setScene(scene);
-            primaryStage.centerOnScreen();
+            boolean isLogin = fxmlPath != null && fxmlPath.contains("LoginView");
+
+            if (primaryStage.getScene() == null) {
+                // 首次初始化：登录页使用紧凑的竖向小窗口 (440x620)
+                double initWidth = isLogin ? 440 : 1024;
+                double initHeight = isLogin ? 620 : 720;
+                Scene scene = new Scene(root, initWidth, initHeight);
+                primaryStage.setScene(scene);
+            } else {
+                primaryStage.getScene().setRoot(root);
+            }
+
+            if (isLogin) {
+                // 登录页：固定为中间竖向卡片大小，禁止用户手动放大拉伸
+                primaryStage.setResizable(false);
+                primaryStage.setWidth(440);
+                primaryStage.setHeight(620);
+                primaryStage.centerOnScreen();
+            } else {
+                // 登录成功进入主界面或其他系统：允许自由放大/最大化
+                primaryStage.setResizable(true);
+                // 若此前是登录小窗口，自动展开至标准宽屏尺寸
+                if (primaryStage.getWidth() < 600) {
+                    primaryStage.setWidth(1024);
+                    primaryStage.setHeight(720);
+                    primaryStage.centerOnScreen();
+                }
+            }
         } catch (Exception e) {
             e.printStackTrace();
             AlertUtil.showError("界面加载失败", "无法加载界面: " + fxmlPath + "\n错误详情: " + e.getMessage());

@@ -6,6 +6,9 @@ import protocol.MessageType;
 import handler.UserHandler;
 import handler.StudentHandler;
 import handler.TeacherHandler;
+import handler.ShopHandler;
+import handler.BankHandler;
+import service.BankService;
 
 /**
  * 服务端消息分发器
@@ -21,11 +24,18 @@ public class MessageDispatcher {
     private final UserHandler userHandler;
     private final StudentHandler studentHandler;
     private final TeacherHandler teacherHandler;
-
+    private final ShopHandler shopHandler;
+    private final BankHandler bankHandler;
+    private final handler.AiHandler aiHandler;
+  
     public MessageDispatcher() {
         this.userHandler = new UserHandler();
         this.studentHandler = new StudentHandler();
         this.teacherHandler = new TeacherHandler();
+        BankService bankService = new BankService();
+        this.shopHandler = new ShopHandler(bankService);
+        this.bankHandler = new BankHandler(bankService);
+        this.aiHandler = new handler.AiHandler(bankService);
     }
 
     /**
@@ -51,6 +61,12 @@ public class MessageDispatcher {
             return studentHandler.handle(request);
         } else if ("teacher".equalsIgnoreCase(module)) {
             return teacherHandler.handle(request);
+        } else if ("shop".equalsIgnoreCase(module)) {
+            return shopHandler.handle(request);
+        } else if ("bank".equalsIgnoreCase(module)) {
+            return bankHandler.handle(request);
+        } else if ("ai".equalsIgnoreCase(module)) {
+            return aiHandler.handle(request);
         } else {
             // 未知模块或未实现的模块
             Message response = new Message(MessageType.RESPONSE, module, request.getAction());

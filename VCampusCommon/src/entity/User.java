@@ -44,10 +44,10 @@ public class User implements Serializable {
     private  String avatar;
 
     /** 电子钱包余额 */
-    private int balance;
+    private BigDecimal balance;
 
     public User() {
-        this.balance = 0;
+        this.balance = BigDecimal.ZERO;
     }
 
     public User(String UID, String name, Role role) {
@@ -143,11 +143,11 @@ public class User implements Serializable {
         this.avatar = avatar;
     }
 
-    public int getBalance() {
+    public BigDecimal getBalance() {
         return balance;
     }
 
-    public void setBalance(int balance) {
+    public void setBalance(BigDecimal balance) {
         this.balance = balance;
     }
 

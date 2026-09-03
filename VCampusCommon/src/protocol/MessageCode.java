@@ -13,7 +13,7 @@ public enum MessageCode {
     UNAUTHORIZED(401, "未认证，请先登录"),
     FORBIDDEN(403, "无权限访问"),
     NOT_FOUND(404, "资源不存在"),
-    CONFLICT(409,"当前业务状态冲突");
+    CONFLICT(409,"当前业务状态冲突"),
     
     // ===== 业务状态码 (1000-1999: 用户模块) =====
     
@@ -31,8 +31,12 @@ public enum MessageCode {
     
     
     // ===== 业务状态码 (6000-6999: AI模块) =====
-    
-    
+    AI_SUCCESS(6000, "AI处理成功"),
+    AI_BALANCE_INSUFFICIENT(6001, "校园卡余额不足以支付AI问答Token费用，请先前往银行充值"),
+    AI_SERVICE_BUSY(6002, "AI服务繁忙，请稍后重试"),
+    AI_SENSITIVE_OPERATION_BLOCKED(6003, "敏感写操作已被安全策略拦截"),
+    AI_RATE_LIMIT(6004, "提问过于频繁，请稍后再试"),
+    AI_CONFIG_ERROR(6005, "AI服务未正确配置API密钥或端点");
     private final int code;//状态码数字，final一旦赋值就不能再改
     private final String message;//状态码描述
     

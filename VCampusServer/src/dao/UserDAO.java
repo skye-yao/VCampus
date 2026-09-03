@@ -48,7 +48,7 @@ public class UserDAO {
                 user.setPhone(rs.getString("phone"));
                 user.setEmail(rs.getString("email"));
                 user.setAvatar(rs.getString("avatar"));
-                user.setBalance(rs.getInt("balance"));
+                user.setBalance(rs.getBigDecimal("balance"));
                 return user;
             }
             return null;
