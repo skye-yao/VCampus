@@ -70,6 +70,16 @@ public class AiService {
         String apiKey = "";
         String modelName = "deepseek-chat";
 
+        // 1. 优先读取系统环境变量（如 AI_API_KEY 或 DEEPSEEK_API_KEY）
+        String envKey = System.getenv("AI_API_KEY");
+        if (envKey == null || envKey.isBlank()) {
+            envKey = System.getenv("DEEPSEEK_API_KEY");
+        }
+        if (envKey != null && !envKey.isBlank()) {
+            apiKey = envKey.trim();
+        }
+
+        // 2. 其次读取 server.properties 配置文件作为备选/默认配置
         try {
             InputStream is = getClass().getClassLoader().getResourceAsStream("resources/server.properties");
             if (is != null) {
@@ -80,8 +90,10 @@ public class AiService {
                 if (!url.isEmpty()) {
                     apiUrl = url.replace("/chat/completions", "");
                 }
-                String key = props.getProperty("ai.api.key", "").trim();
-                if (!key.isEmpty()) apiKey = key;
+                if (apiKey.isEmpty()) {
+                    String key = props.getProperty("ai.api.key", "").trim();
+                    if (!key.isEmpty()) apiKey = key;
+                }
                 String model = props.getProperty("ai.model", "").trim();
                 if (!model.isEmpty()) modelName = model;
             }
