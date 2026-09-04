@@ -35,7 +35,7 @@ public class ClientHandler implements Runnable {
     public ClientHandler(Socket socket) {
         this.socket = socket;
         this.dispatcher = new MessageDispatcher();
-        this.gson = new Gson();
+        this.gson = util.JsonUtil.createGson();
     }
 
     @Override
@@ -81,7 +81,17 @@ public class ClientHandler implements Runnable {
                 }
 
                 // 3. 响应消息写入发送队列
-                String jsonResponse = gson.toJson(response);
+                String jsonResponse;
+                try {
+                    jsonResponse = gson.toJson(response);
+                } catch (RuntimeException e) {
+                    e.printStackTrace();
+                    Message failure = new Message(MessageType.RESPONSE, response.getModule(), response.getAction());
+                    failure.setUID(response.getUID());
+                    failure.setCode(MessageCode.ERROR);
+                    failure.setMessage("响应数据转换失败，请联系管理员查看服务端日志");
+                    jsonResponse = gson.toJson(failure);
+                }
                 writer.println(jsonResponse);
                 System.out.println("发送响应: " + response);
             }
@@ -102,16 +112,13 @@ public class ClientHandler implements Runnable {
      */
     private Message processMessage(Message request) {
         // 检查消息类型
-        if (request.getType() == null || !request.getType().isClientRequest()) {
+        if (request.getType() != MessageType.REQUEST) {
             Message response = new Message();
-            response.setUID(request.getUID());
             response.setType(MessageType.RESPONSE);
             response.setModule(request.getModule());
             response.setAction(request.getAction());
             response.setCode(MessageCode.BAD_REQUEST);
-            response.setMessage(request.getType() == null
-                    ? "客户端与服务端版本不一致，请重新编译并重启服务端"
-                    : "不支持的消息类型: " + request.getType());
+            response.setMessage("不支持的消息类型: " + request.getType());
             return response;
         }
 

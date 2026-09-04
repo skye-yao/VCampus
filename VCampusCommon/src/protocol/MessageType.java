@@ -27,15 +27,12 @@ STUDENT_QUERY,              // 管理员查询指定学生完整信息
 
 STUDENT_CHANGE_SUBMIT,      // 学生提交一份信息修改申请
 STUDENT_CHANGE_LIST,        // 学生查询自己的历史修改申请
-STUDENT_CHANGE_CANCEL,      // 学生撤销自己的待审核申请
 
 STUDENT_REVIEW_LIST,        // 管理员查询待审核申请列表
 STUDENT_REVIEW_QUERY,       // 管理员查询某一申请详情
 STUDENT_REVIEW,             // 管理员审核通过/驳
 
 STUDENT_ADMIN_UPDATE,       // 管理员直接修改正式学籍
-STUDENT_EDIT_BEGIN,         // 学生或管理员进入学籍编辑状态
-STUDENT_EDIT_END,           // 学生或管理员退出学籍编辑状态
 STUDENT_AWARD_ADD,          // 新增奖励
 STUDENT_AWARD_UPDATE,       // 修改奖励
 STUDENT_AWARD_DELETE,       // 删除奖励
@@ -43,38 +40,29 @@ STUDENT_AWARD_DELETE,       // 删除奖励
 STUDENT_AID_ADD,            // 新增资助
 STUDENT_AID_UPDATE,         // 修改资助
 STUDENT_AID_DELETE,          // 删除资助
-STUDENT_EXPERIENCE_ADD,
-STUDENT_FAMILY_MEMBER_ADD,
-STUDENT_EXPERIENCE_UPDATE,
-STUDENT_EXPERIENCE_DELETE,
-STUDENT_FAMILY_MEMBER_UPDATE,
-STUDENT_FAMILY_MEMBER_DELETE,
-
-TEACHER_OVERVIEW_QUERY, TEACHER_DETAIL_QUERY, TEACHER_CHANGE_SUBMIT, TEACHER_CHANGE_LIST,
-TEACHER_LIST, TEACHER_QUERY, TEACHER_REVIEW_LIST, TEACHER_REVIEW_QUERY, TEACHER_REVIEW,
-TEACHER_ADMIN_UPDATE,
-TEACHER_WORK_EXPERIENCE_ADD, TEACHER_WORK_EXPERIENCE_UPDATE, TEACHER_WORK_EXPERIENCE_DELETE,
 
 //选课
 
-
 // 图书馆
-LIBRARY_BOOK_SEARCH,              //"图书检索"
-LIBRARY_BOOK_DETAIL_QUERY,        //"查询图书详情"
-LIBRARY_BOOK_RESERVE,             //"图书预约"
-LIBRARY_MY_LIBRARY_QUERY,         //"查询我的图书馆信息"
-LIBRARY_BORROW_HISTORY_QUERY,     //"查询借阅历史"
-LIBRARY_CURRENT_BORROW_QUERY,     //"查询当前借阅信息"
-LIBRARY_RESERVATION_QUERY,        //"查询预约信息"
-LIBRARY_BOOK_REVIEW_QUERY,        //"查询图书评价"
-LIBRARY_BOOK_REVIEW_ADD,          //"发表图书评价"
-LIBRARY_BOOK_LOSS_REPORT,         //"图书挂失"
-LIBRARY_BOOK_LOSS_CANCEL,         //"解除图书挂失"
-LIBRARY_FINE_QUERY,               //"查询违章罚金"
-LIBRARY_FINE_PAY,                 //"违章缴费"
-LIBRARY_BOOK_ADD,                 //"图书上架"
-LIBRARY_BOOK_REMOVE,              //"图书下架"
-LIBRARY_BOOK_STATUS_QUERY,         //"查询图书状态"
+LIBRARY_BOOK_SEARCH,              // 图书检索：书名/作者/ISBN
+LIBRARY_BOOK_DETAIL_QUERY,        // 查询图书详情
+LIBRARY_BOOK_RESERVE,             // 图书预约
+LIBRARY_MY_LIBRARY_QUERY,         // 查询我的图书馆信息
+LIBRARY_BORROW_HISTORY_QUERY,     // 查询借阅历史
+LIBRARY_CURRENT_BORROW_QUERY,     // 查询当前借阅信息
+LIBRARY_RESERVATION_QUERY,        // 查询预约信息
+LIBRARY_BOOK_REVIEW_QUERY,        // 查询图书评价
+LIBRARY_BOOK_REVIEW_ADD,          // 发表图书评价
+LIBRARY_BOOK_REVIEW_DELETE,       // 删除图书评价
+LIBRARY_BOOK_LOSS_REPORT,         // 图书挂失
+LIBRARY_BOOK_LOSS_CANCEL,         // 解除图书挂失
+LIBRARY_FINE_QUERY,               // 查询违章罚金
+LIBRARY_FINE_PAY,                 // 违章缴费
+LIBRARY_BOOK_ADD,                 // 图书上架
+LIBRARY_BOOK_UPDATE,              // 修改图书信息
+LIBRARY_BOOK_REMOVE,              // 图书下架
+LIBRARY_BOOK_STATUS_QUERY,        // 查询图书状态
+
 
 // 商店
 SHOP_PRODUCT_LIST,                  // 查询商品列表
@@ -97,6 +85,7 @@ SHOP_PRODUCT_UPDATE,                // 管理员修改商品信息
 SHOP_PRODUCT_STATUS_CHANGE,         // 管理员修改商品上下架状态
 SHOP_PRODUCT_STOCK_UPDATE,          // 管理员调整商品库存数量
 
+SHOP_ORDER_PROCESS,                 // 管理员处理已支付订单
 SHOP_REFUND_REVIEW,                 // 管理员审核退款申请
 SHOP_SALES_SUMMARY,                 // 管理员查询商店销售统计
 SHOP_OPERATION_LOG_QUERY,           // 管理员查询商店操作日志
@@ -154,15 +143,4 @@ AI_INDEX_BUILD,                     // 为新文档建立向量索引
 AI_INDEX_REBUILD,                   // 重新生成文档向量索引
 AI_INDEX_STATUS,                    // 查询向量索引构建状态
 AI_RETRIEVAL_TEST;                  // 测试知识库检索结果
-
-/**
- * 是否为允许客户端主动发送的请求类型。
- * REQUEST 用于尚未细分枚举的旧模块；具体业务应优先使用对应的业务枚举。
- */
-public boolean isClientRequest() {
-    return switch (this) {
-        case RESPONSE, PUSH, AI_CHAT_CHUNK, AI_CHAT_DONE -> false;
-        default -> true;
-    };
-}
 }

@@ -10,29 +10,29 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 客户端消息分发器。
  *
- * 根据服务器返回的 MessageType 以及 UID，
+ * 根据服务器返回的 MessageType 以及 uid，
  * 将响应消息通知给对应的异步等待者 CompletableFuture。
  */
 public class MessageDispatcher {
 
-    /** 请求 UID -> 对应的 CompletableFuture */
+    /** 请求 uid -> 对应的 CompletableFuture */
     private final Map<Long, CompletableFuture<Message>> pendingRequests = new ConcurrentHashMap<>();
 
     /**
      * 注册待接收响应的异步任务
      */
-    public void registerPendingRequest(Long UID, CompletableFuture<Message> future) {
-        if (UID != null && future != null) {
-            pendingRequests.put(UID, future);
+    public void registerPendingRequest(Long uid, CompletableFuture<Message> future) {
+        if (uid != null && future != null) {
+            pendingRequests.put(uid, future);
         }
     }
 
     /**
      * 移除超时的异步任务
      */
-    public void removePendingRequest(Long UID) {
-        if (UID != null) {
-            pendingRequests.remove(UID);
+    public void removePendingRequest(Long uid) {
+        if (uid != null) {
+            pendingRequests.remove(uid);
         }
     }
 
@@ -67,9 +67,9 @@ public class MessageDispatcher {
      * 处理普通响应。
      */
     private void handleResponse(Message message) {
-        Long UID = message.getUID();
-        if (UID != null) {
-            CompletableFuture<Message> future = pendingRequests.remove(UID);
+        Long uid = message.getUID();
+        if (uid != null) {
+            CompletableFuture<Message> future = pendingRequests.remove(uid);
             if (future != null) {
                 future.complete(message);
                 return;

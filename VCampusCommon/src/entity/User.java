@@ -40,14 +40,11 @@ public class User implements Serializable {
     /** 电子邮箱 */
     private String email;
 
-    /** 头像Base64编码*/
-    private  String avatar;
-
     /** 电子钱包余额 */
-    private BigDecimal balance;
+    private int balance;
 
     public User() {
-        this.balance = BigDecimal.ZERO;
+        this.balance = 0;
     }
 
     public User(String UID, String name, Role role) {
@@ -137,17 +134,11 @@ public class User implements Serializable {
         this.email = email;
     }
 
-    public String getAvatar() {return avatar;};
-
-    public void setAvatar(String avatar) {
-        this.avatar = avatar;
-    }
-
-    public BigDecimal getBalance() {
+    public int getBalance() {
         return balance;
     }
 
-    public void setBalance(BigDecimal balance) {
+    public void setBalance(int balance) {
         this.balance = balance;
     }
 

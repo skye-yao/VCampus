@@ -3,39 +3,34 @@ package network;
 import protocol.Message;
 import protocol.MessageCode;
 import protocol.MessageType;
+
 import handler.UserHandler;
-import handler.StudentHandler;
-import handler.TeacherHandler;
-import handler.ShopHandler;
-import handler.BankHandler;
-import service.BankService;
+import handler.LibraryHandler;
 
 /**
  * 服务端消息分发器
  *
- * <p>根据消息的 module 字段，将请求分发到对应的 Handler 处理。
+ * <p>根据消息的 module 字段，
+ * 将请求分发到对应的 Handler 处理。
  *
  * @author VirtualCampus 架构组
  * @version 1.0
  */
 public class MessageDispatcher {
 
-    // 各模块 Handler
+    // 用户模块 Handler
     private final UserHandler userHandler;
-    private final StudentHandler studentHandler;
-    private final TeacherHandler teacherHandler;
-    private final ShopHandler shopHandler;
-    private final BankHandler bankHandler;
-    private final handler.AiHandler aiHandler;
-  
+
+    // 图书馆模块 Handler
+    private final LibraryHandler libraryHandler;
+
     public MessageDispatcher() {
-        this.userHandler = new UserHandler();
-        this.studentHandler = new StudentHandler();
-        this.teacherHandler = new TeacherHandler();
-        BankService bankService = new BankService();
-        this.shopHandler = new ShopHandler(bankService);
-        this.bankHandler = new BankHandler(bankService);
-        this.aiHandler = new handler.AiHandler(bankService);
+
+        this.userHandler =
+                new UserHandler();
+
+        this.libraryHandler =
+                new LibraryHandler();
     }
 
     /**
@@ -45,34 +40,91 @@ public class MessageDispatcher {
      * @return 响应消息
      */
     public Message dispatch(Message request) {
+
         if (request == null) {
-            Message response = new Message(MessageType.RESPONSE, "system", "unknown");
-            response.setCode(MessageCode.BAD_REQUEST);
-            response.setMessage("请求不能为空");
+
+            Message response =
+                    new Message(
+                            MessageType.RESPONSE,
+                            "system",
+                            "unknown"
+                    );
+
+            response.setCode(
+                    MessageCode.BAD_REQUEST
+            );
+
+            response.setMessage(
+                    "请求不能为空"
+            );
+
             return response;
         }
 
-        String module = request.getModule();
+        String module =
+                request.getModule();
 
-        // 根据模块分发
+        if (module == null
+                || module.isBlank()) {
+
+            Message response =
+                    new Message(
+                            MessageType.RESPONSE,
+                            "system",
+                            request.getAction()
+                    );
+
+            response.setUID(
+                    request.getUID()
+            );
+
+            response.setCode(
+                    MessageCode.BAD_REQUEST
+            );
+
+            response.setMessage(
+                    "业务模块不能为空"
+            );
+
+            return response;
+        }
+
+        // =============================
+        // 根据 module 分发
+        // =============================
+
         if ("user".equalsIgnoreCase(module)) {
+
             return userHandler.handle(request);
-        } else if ("student".equalsIgnoreCase(module)) {
-            return studentHandler.handle(request);
-        } else if ("teacher".equalsIgnoreCase(module)) {
-            return teacherHandler.handle(request);
-        } else if ("shop".equalsIgnoreCase(module)) {
-            return shopHandler.handle(request);
-        } else if ("bank".equalsIgnoreCase(module)) {
-            return bankHandler.handle(request);
-        } else if ("ai".equalsIgnoreCase(module)) {
-            return aiHandler.handle(request);
+
+        } else if (
+                "library".equalsIgnoreCase(module)
+        ) {
+
+            return libraryHandler.handle(request);
+
         } else {
-            // 未知模块或未实现的模块
-            Message response = new Message(MessageType.RESPONSE, module, request.getAction());
-            response.setUID(request.getUID());
-            response.setCode(MessageCode.BAD_REQUEST);
-            response.setMessage("未知或尚未开放的业务模块: " + module);
+
+            Message response =
+                    new Message(
+                            MessageType.RESPONSE,
+                            module,
+                            request.getAction()
+                    );
+
+            response.setUID(
+                    request.getUID()
+            );
+
+            response.setCode(
+                    MessageCode.BAD_REQUEST
+            );
+
+            response.setMessage(
+                    "未知或尚未开放的业务模块: "
+                            + module
+            );
+
             return response;
         }
     }

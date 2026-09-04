@@ -1,0 +1,10 @@
+<component name="libraryTable">
+  <library name="lib (client)">
+    <CLASSES>
+      <root url="file://$PROJECT_DIR$/VCampusClient/lib" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+    <jarDirectory url="file://$PROJECT_DIR$/VCampusClient/lib" recursive="false" />
+  </library>
+</component>

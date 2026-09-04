@@ -1,0 +1,19 @@
+<component name="libraryTable">
+  <library name="lib2">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/VCampusClient/lib/jdk.jsobject.jar!/" />
+      <root url="jar://$PROJECT_DIR$/VCampusClient/lib/javafx.web.jar!/" />
+      <root url="jar://$PROJECT_DIR$/VCampusClient/lib/jfx.incubator.input.jar!/" />
+      <root url="jar://$PROJECT_DIR$/VCampusClient/lib/javafx.fxml.jar!/" />
+      <root url="jar://$PROJECT_DIR$/VCampusClient/lib/javafx.media.jar!/" />
+      <root url="jar://$PROJECT_DIR$/VCampusClient/lib/javafx.base.jar!/" />
+      <root url="jar://$PROJECT_DIR$/VCampusClient/lib/jfx.incubator.richtext.jar!/" />
+      <root url="jar://$PROJECT_DIR$/VCampusClient/lib/javafx-swt.jar!/" />
+      <root url="jar://$PROJECT_DIR$/VCampusClient/lib/javafx.swing.jar!/" />
+      <root url="jar://$PROJECT_DIR$/VCampusClient/lib/javafx.graphics.jar!/" />
+      <root url="jar://$PROJECT_DIR$/VCampusClient/lib/javafx.controls.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>

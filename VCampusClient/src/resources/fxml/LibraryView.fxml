@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<BorderPane prefHeight="580.0" prefWidth="860.0" styleClass="library-root"
+            stylesheets="@../css/style.css,@../css/library.css"
+            xmlns="http://javafx.com/javafx/17" xmlns:fx="http://javafx.com/fxml/1"
+            fx:controller="controller.LibraryController">
+    <top>
+        <HBox alignment="CENTER_LEFT" prefHeight="58.0" spacing="14.0" styleClass="library-header">
+            <padding><Insets left="20.0" right="20.0"/></padding>
+            <Button onAction="#handleBack" styleClass="btn-secondary" text="← 返回"/>
+            <VBox spacing="2.0">
+                <Label styleClass="library-title" text="校园图书馆"/>
+                <Label styleClass="library-subtitle" text="CAMPUS LIBRARY · 阅读与发现"/>
+            </VBox>
+            <Region HBox.hgrow="ALWAYS"/>
+            <Label styleClass="library-subtitle" text="检索 · 借阅 · 预约 · 服务"/>
+        </HBox>
+    </top>
+    <center>
+        <TabPane tabClosingPolicy="UNAVAILABLE" styleClass="library-tabs">
+            <tabs>
+                <Tab text="图书检索">
+                    <BorderPane>
+                        <top>
+                            <HBox alignment="CENTER_LEFT" spacing="10.0" styleClass="toolbar-row">
+                                <padding><Insets bottom="10.0" left="14.0" right="14.0" top="12.0"/></padding>
+                                <TextField fx:id="searchField" onAction="#handleSearch" promptText="输入书名、作者或 ISBN" HBox.hgrow="ALWAYS"/>
+                                <Button onAction="#handleSearch" styleClass="btn-primary" text="搜索"/>
+                                <Button onAction="#handleShowAll" styleClass="btn-secondary" text="显示全部"/>
+                                <Button onAction="#handleReserve" styleClass="btn-secondary" text="预约选中图书"/>
+                            </HBox>
+                        </top>
+                        <center>
+                            <SplitPane dividerPositions="0.59">
+                                <items>
+                                    <TableView fx:id="bookTable">
+                                        <columns>
+                                            <TableColumn fx:id="bookIdColumn" maxWidth="55.0" text="编号"/>
+                                            <TableColumn fx:id="bookNameColumn" prefWidth="150.0" text="书名"/>
+                                            <TableColumn fx:id="bookAuthorColumn" prefWidth="105.0" text="作者"/>
+                                            <TableColumn fx:id="bookIsbnColumn" prefWidth="120.0" text="ISBN"/>
+                                            <TableColumn fx:id="bookStatusColumn" maxWidth="65.0" text="状态"/>
+                                        </columns>
+                                    </TableView>
+                                    <VBox spacing="9.0" styleClass="detail-panel">
+                                        <padding><Insets bottom="12.0" left="12.0" right="12.0" top="12.0"/></padding>
+                                        <Label styleClass="panel-title" text="图书详情与评价"/>
+                                        <Label fx:id="detailLabel" minWidth="0.0" maxWidth="Infinity" minHeight="42.0" prefHeight="42.0" maxHeight="42.0" textOverrun="ELLIPSIS" styleClass="detail-text" text="请选择一本图书查看详情" wrapText="false"/>
+                                        <TextArea fx:id="expandedDetail" editable="false" wrapText="true" prefRowCount="6" minHeight="120.0" prefHeight="170.0" maxHeight="170.0" visible="false" managed="false"/>
+                                        <Hyperlink fx:id="detailToggle" text="展开详情" onAction="#handleToggleDetail" visible="false" managed="false"/>
+                                        <Separator/>
+                                        <ListView fx:id="reviewList" prefHeight="230.0" VBox.vgrow="ALWAYS"/>
+                                        <TextArea fx:id="reviewInput" prefRowCount="2" promptText="写下你的评价……" wrapText="true"/>
+                                        <HBox alignment="CENTER_RIGHT" spacing="8.0">
+                                            <Button onAction="#handleDeleteReview" styleClass="btn-danger-soft" text="删除选中评价"/>
+                                            <Button onAction="#handleAddReview" styleClass="btn-primary" text="发表评价"/>
+                                        </HBox>
+                                    </VBox>
+                                </items>
+                            </SplitPane>
+                        </center>
+                    </BorderPane>
+                </Tab>
+                <Tab text="我的图书馆">
+                    <VBox spacing="9.0" styleClass="content-pane">
+                        <padding><Insets bottom="12.0" left="14.0" right="14.0" top="12.0"/></padding>
+                        <HBox alignment="CENTER_LEFT" spacing="9.0">
+                            <Label styleClass="panel-title" text="当前借阅"/>
+                            <Region HBox.hgrow="ALWAYS"/>
+                            <Button onAction="#handleReportLoss" styleClass="btn-danger-soft" text="挂失选中图书"/>
+                            <Button onAction="#handleCancelLoss" styleClass="btn-secondary" text="解除挂失"/>
+                            <Button onAction="#refreshMyLibrary" styleClass="btn-secondary" text="刷新"/>
+                        </HBox>
+                        <SplitPane orientation="VERTICAL" dividerPositions="0.45" VBox.vgrow="ALWAYS">
+                        <items>
+                        <TableView fx:id="currentBorrowTable" minHeight="90.0" prefHeight="220.0">
+                            <columns>
+                                <TableColumn fx:id="currentBookColumn" text="图书编号"/>
+                                <TableColumn fx:id="currentBorrowTimeColumn" text="借阅时间"/>
+                                <TableColumn fx:id="currentDueTimeColumn" text="应还时间"/>
+                                <TableColumn fx:id="currentStatusColumn" text="状态"/>
+                            </columns>
+                        </TableView>
+                        <SplitPane dividerPositions="0.5" VBox.vgrow="ALWAYS">
+                            <items>
+                                <VBox spacing="6.0">
+                                    <Label styleClass="panel-title-small" text="借阅历史"/>
+                                    <TableView fx:id="historyTable" VBox.vgrow="ALWAYS">
+                                        <columns>
+                                            <TableColumn fx:id="historyBookColumn" text="图书"/>
+                                            <TableColumn fx:id="historyBorrowTimeColumn" text="借阅时间"/>
+                                            <TableColumn fx:id="historyReturnTimeColumn" text="归还时间"/>
+                                            <TableColumn fx:id="historyStatusColumn" text="状态"/>
+                                        </columns>
+                                    </TableView>
+                                </VBox>
+                                <VBox spacing="6.0">
+                                    <HBox alignment="CENTER_LEFT" spacing="8.0">
+                                        <Label styleClass="panel-title-small" text="预约记录"/>
+                                        <Region HBox.hgrow="ALWAYS"/>
+                                        <Button text="取消选中预约" onAction="#handleCancelReservation" styleClass="btn-secondary"/>
+                                    </HBox>
+                                    <TableView fx:id="reservationTable" VBox.vgrow="ALWAYS">
+                                        <columns>
+                                            <TableColumn fx:id="reservationBookColumn" text="图书"/>
+                                            <TableColumn fx:id="reservationTimeColumn" text="预约时间"/>
+                                            <TableColumn fx:id="reservationStatusColumn" text="状态"/>
+                                        </columns>
+                                    </TableView>
+                                </VBox>
+                            </items>
+                        </SplitPane>
+                        </items>
+                        </SplitPane>
+                    </VBox>
+                </Tab>
+                <Tab text="罚款缴费">
+                    <VBox spacing="10.0" styleClass="content-pane">
+                        <padding><Insets bottom="14.0" left="14.0" right="14.0" top="14.0"/></padding>
+                        <HBox alignment="CENTER_LEFT">
+                            <Label styleClass="panel-title" text="违章与罚款记录"/>
+                            <Region HBox.hgrow="ALWAYS"/>
+                            <Button onAction="#handlePayFine" styleClass="btn-primary" text="缴纳选中罚款"/>
+                        </HBox>
+                        <TableView fx:id="fineTable" VBox.vgrow="ALWAYS">
+                            <columns>
+                                <TableColumn fx:id="fineIdColumn" maxWidth="70.0" text="编号"/>
+                                <TableColumn fx:id="fineAmountColumn" prefWidth="100.0" text="金额"/>
+                                <TableColumn fx:id="fineReasonColumn" prefWidth="470.0" text="原因"/>
+                                <TableColumn fx:id="fineStatusColumn" prefWidth="100.0" text="状态"/>
+                            </columns>
+                        </TableView>
+                    </VBox>
+                </Tab>
+                <Tab text="公共挂失公告">
+                    <VBox spacing="12.0">
+                        <padding><Insets top="16.0" right="16.0" bottom="16.0" left="16.0"/></padding>
+                        <Label text="帮助找回遗失图书" styleClass="panel-title"/>
+                        <Label text="师生均可查看。发现图书请交至图书馆服务台；解除挂失后公告自动撤下。" wrapText="true"/>
+                        <Button text="刷新挂失公告" onAction="#refreshLossNotices" styleClass="btn-secondary"/>
+                        <ListView fx:id="lossNoticeList" VBox.vgrow="ALWAYS"/>
+                    </VBox>
+                </Tab>
+                <Tab fx:id="adminTab" text="图书管理">
+                    <fx:include source="LibraryAdminView.fxml"/>
+                </Tab>
+            </tabs>
+        </TabPane>
+    </center>
+</BorderPane>

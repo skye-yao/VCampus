@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ProjectModuleManager">
+    <modules>
+      <module fileurl="file://$PROJECT_DIR$/VCampusClient/VCampusClient.iml" filepath="$PROJECT_DIR$/VCampusClient/VCampusClient.iml" />
+      <module fileurl="file://$PROJECT_DIR$/VCampusCommon/VCampusCommon.iml" filepath="$PROJECT_DIR$/VCampusCommon/VCampusCommon.iml" />
+      <module fileurl="file://$PROJECT_DIR$/VCampusServer/VCampusServer.iml" filepath="$PROJECT_DIR$/VCampusServer/VCampusServer.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/virtualCampus0831_1405_framework+user.iml" filepath="$PROJECT_DIR$/.idea/virtualCampus0831_1405_framework+user.iml" />
+    </modules>
+  </component>
+</project>

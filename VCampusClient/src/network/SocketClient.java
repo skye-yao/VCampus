@@ -7,6 +7,7 @@ import java.io.PrintWriter;
 import java.net.Socket;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import com.google.gson.Gson;
 
@@ -22,6 +23,7 @@ import session.ClientSession;
 public class SocketClient {
 
     private static final SocketClient INSTANCE = new SocketClient();
+    private static final AtomicLong REQUEST_IDS = new AtomicLong(System.currentTimeMillis());
 
     /** 默认服务器地址 */
     private static final String DEFAULT_HOST = "127.0.0.1";
@@ -91,7 +93,7 @@ public class SocketClient {
     /**
      * 异步发送请求并返回 CompletableFuture
      */
-    public CompletableFuture<Message> sendAsync(Message request) {
+    public synchronized CompletableFuture<Message> sendAsync(Message request) {
         CompletableFuture<Message> future = new CompletableFuture<>();
 
         try {
@@ -99,9 +101,8 @@ public class SocketClient {
                 connect();
             }
 
-            if (request.getUID() == null) {
-                request.setUID(System.currentTimeMillis());
-            }
+            // 每次发送都分配唯一编号，覆盖 Message 构造器的毫秒时间戳。
+            request.setUID(REQUEST_IDS.incrementAndGet());
 
             // 附加 Session 认证信息
             ClientSession session = ClientSession.getInstance();
@@ -110,21 +111,19 @@ public class SocketClient {
                 request.setToken(session.getToken());
             }
 
-            final Long requestUID = request.getUID();
-            dispatcher.registerPendingRequest(requestUID, future);
-            long timeoutSeconds = "ai".equalsIgnoreCase(request.getModule()) ? 60 : 20;
-            future.orTimeout(timeoutSeconds, TimeUnit.SECONDS)
-                    .whenComplete((response, error) -> dispatcher.removePendingRequest(requestUID));
+            // 注册等待
+            dispatcher.registerPendingRequest(request.getUID(), future);
+            Long requestId = request.getUID();
+            future.orTimeout(15, TimeUnit.SECONDS)
+                    .whenComplete((response, error) -> dispatcher.removePendingRequest(requestId));
 
             // 序列化并发送
             String json = gson.toJson(request);
-            synchronized (this) {
-                writer.println(json);
+            writer.println(json);
 
-                // PrintWriter 不会抛 IOException，需主动检查发送是否失败
-                if (writer.checkError()) {
-                    throw new IOException("消息发送失败，连接已断开");
-                }
+            // PrintWriter 不会抛 IOException，需主动检查发送是否失败
+            if (writer.checkError()) {
+                throw new IOException("消息发送失败，连接已断开");
             }
 
         } catch (Exception e) {

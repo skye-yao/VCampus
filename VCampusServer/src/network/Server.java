@@ -3,10 +3,6 @@ package network;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
-import service.ShopService;
 
 /**
  * VCampus 服务端 Socket 服务器。
@@ -40,10 +36,6 @@ public class Server {
      */
     private final ServerThreadPool threadPool;
 
-    /** 定期关闭超时未支付订单，使用单独守护线程，不阻塞客户端请求。 */
-    private final ScheduledExecutorService maintenanceExecutor;
-    private final ShopService shopMaintenanceService;
-
     /**
      * 服务端是否正在运行。
      */
@@ -63,12 +55,6 @@ public class Server {
      */
     public Server(int port) {
         this.threadPool = ServerThreadPool.getInstance();
-        this.maintenanceExecutor = Executors.newSingleThreadScheduledExecutor(runnable -> {
-            Thread thread = new Thread(runnable, "shop-order-expiry");
-            thread.setDaemon(true);
-            return thread;
-        });
-        this.shopMaintenanceService = new ShopService();
 
         try {
             this.serverSocket = new ServerSocket(port);
@@ -90,15 +76,6 @@ public class Server {
         running = true;
 
         System.out.println("=================================");
-
-        maintenanceExecutor.scheduleWithFixedDelay(() -> {
-            try {
-                int count = shopMaintenanceService.expireUnpaidOrders();
-                if (count > 0) System.out.println("已自动关闭超时未支付订单：" + count + " 笔");
-            } catch (Throwable e) {
-                System.err.println("清理超时订单失败：" + e.getMessage());
-            }
-        }, 0, 1, TimeUnit.MINUTES);
         System.out.println("VCampus Server 启动成功");
         System.out.println("服务器端口：" + serverSocket.getLocalPort());
         System.out.println("等待客户端连接...");
@@ -156,7 +133,6 @@ public class Server {
         }
 
         threadPool.shutdown();
-        maintenanceExecutor.shutdownNow();
 
         System.out.println("VCampus Server 已停止。");
     }
