@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import java.lang.String?>
+<?import javafx.collections.FXCollections?>
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.ComboBox?>
+<?import javafx.scene.control.Hyperlink?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.PasswordField?>
+<?import javafx.scene.control.TextField?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.StackPane?>
+<?import javafx.scene.layout.VBox?>
+
+<StackPane fx:id="rootRegister" prefHeight="700.0" prefWidth="396.0" styleClass="login-background" stylesheets="@../css/style.css" xmlns="http://javafx.com/javafx/17" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.RegisterController">
+    <children>
+        <VBox alignment="TOP_CENTER" maxWidth="380.0" spacing="10.0" styleClass="login-card">
+            <padding>
+                <Insets bottom="20.0" left="28.0" right="28.0" top="20.0" />
+            </padding>
+            <children>
+                <!-- 头部标题 -->
+                <VBox alignment="CENTER" spacing="4.0">
+                    <children>
+                        <Label styleClass="login-title" text="新用户注册" />
+                        <Label styleClass="login-subtitle" text="东南大学 · 虚拟校园系统" />
+                    </children>
+                </VBox>
+
+                <!-- 身份选择 -->
+                <VBox spacing="4.0">
+                    <children>
+                        <Label styleClass="form-label" text="注册身份" />
+                        <ComboBox fx:id="roleComboBox" maxWidth="1.7976931348623157E308" prefHeight="36.0" styleClass="form-control">
+                            <items>
+                                <FXCollections fx:factory="observableArrayList">
+                                    <String fx:value="学生" />
+                                    <String fx:value="教师" />
+                                </FXCollections>
+                            </items>
+                        </ComboBox>
+                    </children>
+                </VBox>
+
+                <!-- 一卡通号 -->
+                <VBox spacing="4.0">
+                    <children>
+                        <Label styleClass="form-label" text="一卡通号 (UID)" />
+                        <TextField fx:id="uidField" prefHeight="36.0" promptText="请输入一卡通号（如 213242999）" styleClass="form-control" />
+                    </children>
+                </VBox>
+
+                <!-- 真实姓名 -->
+                <VBox spacing="4.0">
+                    <children>
+                        <Label styleClass="form-label" text="真实姓名" />
+                        <TextField fx:id="nameField" prefHeight="36.0" promptText="请输入真实姓名" styleClass="form-control" />
+                    </children>
+                </VBox>
+
+                <!-- 手机号码 -->
+                <VBox spacing="4.0">
+                    <children>
+                        <Label styleClass="form-label" text="手机号码" />
+                        <TextField fx:id="phoneField" prefHeight="36.0" promptText="请输入11位手机号码" styleClass="form-control" />
+                    </children>
+                </VBox>
+
+                <!-- 短信验证码 -->
+                <VBox spacing="4.0">
+                    <children>
+                        <Label styleClass="form-label" text="短信验证码" />
+                        <HBox spacing="8.0">
+                            <children>
+                                <TextField fx:id="codeField" prefHeight="36.0" promptText="请输入6位验证码" styleClass="form-control" HBox.hgrow="ALWAYS" />
+                                <Button fx:id="sendCodeBtn" onAction="#handleSendCode" prefHeight="36.0" prefWidth="110.0" styleClass="btn-secondary" text="获取验证码" />
+                            </children>
+                        </HBox>
+                    </children>
+                </VBox>
+
+                <!-- 密码 -->
+                <VBox spacing="4.0">
+                    <children>
+                        <Label styleClass="form-label" text="登录密码" />
+                        <PasswordField fx:id="passwordField" prefHeight="36.0" promptText="请输入密码（至少6位）" styleClass="form-control" />
+                    </children>
+                </VBox>
+
+                <!-- 确认密码 -->
+                <VBox spacing="4.0">
+                    <children>
+                        <Label styleClass="form-label" text="确认密码" />
+                        <PasswordField fx:id="confirmPasswordField" prefHeight="36.0" promptText="请再次输入密码" styleClass="form-control" />
+                    </children>
+                </VBox>
+
+                <!-- 注册按钮 -->
+                <Button fx:id="registerButton" maxWidth="1.7976931348623157E308" onAction="#handleRegister" prefHeight="40.0" styleClass="btn-primary" text="立即注册">
+                    <VBox.margin>
+                        <Insets top="4.0" />
+                    </VBox.margin>
+                </Button>
+
+                <!-- 快捷链接 -->
+                <HBox alignment="CENTER">
+                    <children>
+                        <Hyperlink onAction="#handleBackToLogin" styleClass="login-link" text="已有账号？返回登录" />
+                    </children>
+                </HBox>
+            </children>
+        </VBox>
+    </children>
+</StackPane>

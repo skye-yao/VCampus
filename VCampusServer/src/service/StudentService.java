@@ -126,6 +126,11 @@ public class StudentService {
                     if(!studentFields.isEmpty()&&!students.updateApprovedFields(connection, request.getStudentId(), studentFields)) {
                         throw new SQLException("正式学籍更新失败");
                     }
+                    // 学籍审批通过后，实时同步学院、专业、姓名、性别到 tbl_user
+                    Student stu = students.findByStudentId(request.getStudentId());
+                    if (stu != null && stu.getUID() != null) {
+                        new dao.UserDAO().syncUserInfo(connection, stu.getUID());
+                    }
                 }
                 if (!requests.review(connection, requestId, result, reviewer, remark)) {
                     throw new IllegalStateException("申请状态已变化");
@@ -144,6 +149,9 @@ public class StudentService {
         }
         assertMayMutate(student.getStudentId(),"ADMIN:"+adminId);
         if (!students.update(student)) throw new IllegalStateException("学生不存在或更新失败");
+        if (student.getUID() != null) {
+            new dao.UserDAO().syncUserInfo(student.getUID());
+        }
         releaseLease(student.getStudentId(),"ADMIN:"+adminId);
         return true;
     }
