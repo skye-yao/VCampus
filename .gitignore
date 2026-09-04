@@ -58,3 +58,4 @@ thoughts/
 
 # agent
 .agents/
+.worktrees/
