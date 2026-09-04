@@ -1,5 +1,6 @@
 package dao;
 import entity.StudentExperience; import util.DBUtil; import java.sql.*; import java.util.*;
+@SuppressWarnings({"SqlNoDataSourceInspection", "SqlResolve"})
 public class StudentExperienceDAO {
  public List<StudentExperience> findByStudentId(String id)throws SQLException{List<StudentExperience>o=new ArrayList<>();try(Connection c=DBUtil.getConnection();PreparedStatement p=c.prepareStatement("SELECT * FROM tblStudentExperience WHERE studentId=? ORDER BY startDate")){p.setString(1,id);try(ResultSet r=p.executeQuery()){while(r.next()){StudentExperience x=new StudentExperience();x.setExperienceId(r.getLong("experienceId"));x.setStudentId(id);x.setStartDate(r.getDate("startDate"));x.setEndDate(r.getDate("endDate"));x.setSchoolName(r.getString("schoolName"));x.setEducationLevel(r.getString("educationLevel"));x.setDescription(r.getString("description"));o.add(x);}}}return o;}
  public StudentExperience findById(String studentId,long id)throws SQLException{for(StudentExperience x:findByStudentId(studentId))if(x.getExperienceId()==id)return x;return null;}

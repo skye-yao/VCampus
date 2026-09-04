@@ -1,5 +1,6 @@
 package dao;
 import entity.TeacherWorkExperience;import util.DBUtil;import java.sql.*;import java.util.*;
+@SuppressWarnings({"SqlNoDataSourceInspection", "SqlResolve"})
 public class TeacherWorkExperienceDAO {
  public List<TeacherWorkExperience> findByTeacherId(String id)throws SQLException{List<TeacherWorkExperience> result=new ArrayList<>();try(Connection c=DBUtil.getConnection();PreparedStatement p=c.prepareStatement("SELECT * FROM tblTeacherWorkExperience WHERE teacherId=? ORDER BY startDate DESC")){p.setString(1,id);try(ResultSet r=p.executeQuery()){while(r.next()){TeacherWorkExperience x=new TeacherWorkExperience();x.setExperienceId(r.getLong("experienceId"));x.setTeacherId(id);x.setStartDate(r.getDate("startDate"));x.setEndDate(r.getDate("endDate"));x.setOrganization(r.getString("organization"));x.setDepartment(r.getString("department"));x.setPosition(r.getString("position"));x.setDescription(r.getString("description"));result.add(x);}}}return result;}
  public boolean insert(TeacherWorkExperience x)throws SQLException{try(Connection c=DBUtil.getConnection();PreparedStatement p=c.prepareStatement("INSERT INTO tblTeacherWorkExperience(teacherId,startDate,endDate,organization,department,position,description) VALUES(?,?,?,?,?,?,?)")){bind(p,x);return p.executeUpdate()==1;}}

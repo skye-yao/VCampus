@@ -1,5 +1,6 @@
 package dao;
 import entity.StudentFamilyMember; import util.DBUtil; import java.sql.*; import java.util.*;
+@SuppressWarnings({"SqlNoDataSourceInspection", "SqlResolve"})
 public class StudentFamilyMemberDAO {
  public List<StudentFamilyMember> findByStudentId(String id)throws SQLException{List<StudentFamilyMember>o=new ArrayList<>();try(Connection c=DBUtil.getConnection();PreparedStatement p=c.prepareStatement("SELECT * FROM tblStudentFamilyMember WHERE studentId=? ORDER BY memberId")){p.setString(1,id);try(ResultSet r=p.executeQuery()){while(r.next()){StudentFamilyMember x=new StudentFamilyMember();x.setMemberId(r.getLong("memberId"));x.setStudentId(id);x.setName(r.getString("name"));x.setRelationship(r.getString("relationship"));x.setBirthDate(r.getDate("birthDate"));x.setRegisteredResidence(r.getString("registeredResidence"));x.setWorkplace(r.getString("workplace"));x.setWorkplaceAddress(r.getString("workplaceAddress"));x.setHealthStatus(r.getString("healthStatus"));x.setPhone(r.getString("phone"));o.add(x);}}}return o;}
  public StudentFamilyMember findById(String studentId,long id)throws SQLException{for(StudentFamilyMember x:findByStudentId(studentId))if(x.getMemberId()==id)return x;return null;}
