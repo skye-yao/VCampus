@@ -43,6 +43,14 @@ import java.util.*;
             }
         }
     }
+    /** 详情页审核进度使用的最近一次申请摘要，只读取已有记录。 */
+    public StudentChangeRequest findLatestByStudentId(String id)throws SQLException {
+        try(Connection c=DBUtil.getConnection();PreparedStatement p=c.prepareStatement(
+                "SELECT * FROM tblStudentChangeRequest WHERE studentId=? ORDER BY submitTime DESC, requestId DESC LIMIT 1")) {
+            p.setString(1,id);
+            try(ResultSet r=p.executeQuery()) { return r.next()?map(r):null; }
+        }
+    }
     public List<StudentChangeRequest> findByStudentId(String id)throws SQLException {
         return list("SELECT * FROM tblStudentChangeRequest WHERE studentId=? ORDER BY submitTime DESC",id);
     }

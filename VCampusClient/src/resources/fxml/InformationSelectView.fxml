@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.geometry.Insets?><?import javafx.scene.control.*?><?import javafx.scene.layout.*?>
+<StackPane stylesheets="@../css/style.css" xmlns="http://javafx.com/javafx/25.0.4" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.InformationSelectController" styleClass="student-page">
+ <VBox alignment="CENTER" maxWidth="620" spacing="24" styleClass="student-panel"><padding><Insets bottom="42" left="54" right="54" top="42"/></padding>
+  <Label styleClass="student-name" text="▣"/><Label styleClass="student-page-title" text="基本信息"/><Label styleClass="student-meta" text="您可以管理以下信息，请选择："/>
+  <Button maxWidth="Infinity" minHeight="62" onAction="#openStudent" styleClass="btn-primary" text="学生信息"/>
+  <Button maxWidth="Infinity" minHeight="62" onAction="#openTeacher" styleClass="btn-primary" text="教师信息"/>
+  <Button onAction="#back" styleClass="btn-secondary" text="← 返回应用中心"/>
+ </VBox>
+</StackPane>

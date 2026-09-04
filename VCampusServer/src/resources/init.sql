@@ -257,10 +257,6 @@ INSERT INTO tblStudent(
 ON DUPLICATE KEY UPDATE
  name=VALUES(name),gender=VALUES(gender),grade=VALUES(grade),college=VALUES(college),
  major=VALUES(major),studentStatus=VALUES(studentStatus),inSchool=VALUES(inSchool);
-('213242789', '张三', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '计算机科学与工程学院', '计算机科学与技术', '13800138000', 'zhangsan@seu.edu.cn', 328.50),
-('admin', '系统管理员', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 0, '网络信息中心', '系统管理', '13900139000', 'admin@seu.edu.cn', 888.88),
-('teacher01', '李老师', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 1, '计算机科学与工程学院', '副教授', '13700137000', 'teacher@seu.edu.cn', 500.00)
-ON DUPLICATE KEY UPDATE `name`=VALUES(`name`);
 
 -- ==================== 商店模块 ====================
 CREATE TABLE IF NOT EXISTS `tbl_product` (

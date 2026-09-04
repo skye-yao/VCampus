@@ -58,6 +58,7 @@ public class StudentService {
         result.setExperiences(experiences.findByStudentId(student.getStudentId()));
         result.setFamilyMembers(familyMembers.findByStudentId(student.getStudentId()));
         result.setPendingRequest(requests.findPendingByStudentId(student.getStudentId()));
+        result.setLatestRequest(requests.findLatestByStudentId(student.getStudentId()));
         return result;
     }
     public List<Student> listStudents() throws SQLException {

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <?import javafx.geometry.Insets?>
+<?import util.control.InformationReviewStatusPane?>
 <?import javafx.scene.control.*?>
 <?import javafx.scene.layout.*?>
 <BorderPane xmlns="http://javafx.com/javafx/17" xmlns:fx="http://javafx.com/fxml/1" prefHeight="580" prefWidth="860" styleClass="main-window" stylesheets="@../css/style.css" fx:controller="controller.StudentController">
@@ -24,7 +25,7 @@
                 <Insets bottom="22" left="25" right="25" top="20"/>
               </padding>
               <HBox alignment="CENTER_LEFT" spacing="18" styleClass="student-hero">
-                <StackPane minHeight="82" minWidth="82" styleClass="student-avatar">
+                <StackPane minHeight="82" minWidth="82" prefHeight="82" prefWidth="82" maxHeight="82" maxWidth="82" styleClass="student-avatar">
                   <Label fx:id="avatarLabel" styleClass="avatar-text-xl" text="学"/>
                 </StackPane>
                 <VBox spacing="7" HBox.hgrow="ALWAYS">
@@ -84,7 +85,7 @@
                   <padding>
                     <Insets left="14" right="14" top="24"/>
                   </padding>
-                  <StackPane minHeight="70" minWidth="70" styleClass="student-avatar">
+                  <StackPane minHeight="70" minWidth="70" prefHeight="70" prefWidth="70" maxHeight="70" maxWidth="70" styleClass="student-avatar">
                     <Label fx:id="sidebarAvatarLabel" styleClass="avatar-text-lg" text="学"/>
                   </StackPane>
                   <Label fx:id="sidebarNameLabel" styleClass="student-side-name" text="学生姓名"/>
@@ -101,7 +102,7 @@
                   <padding>
                     <Insets left="14" right="14" top="24"/>
                   </padding>
-                  <StackPane minHeight="70" minWidth="70" styleClass="student-avatar">
+                  <StackPane minHeight="70" minWidth="70" prefHeight="70" prefWidth="70" maxHeight="70" maxWidth="70" styleClass="student-avatar">
                     <Label styleClass="avatar-text-lg" text="管"/>
                   </StackPane>
                   <Label styleClass="student-side-name" text="管理员"/>
@@ -111,6 +112,7 @@
                 </VBox>
               </StackPane>
             </left>
+            <right><InformationReviewStatusPane fx:id="reviewStatusPane" submitter="学生"/></right>
             <center>
               <ScrollPane fx:id="detailScrollPane" fitToHeight="false" fitToWidth="false" hbarPolicy="AS_NEEDED" pannable="true" styleClass="student-scroll" vbarPolicy="AS_NEEDED">
                 <VBox minWidth="1080" spacing="12">
@@ -226,7 +228,7 @@
                 <padding>
                   <Insets left="14" right="14" top="24"/>
                 </padding>
-                <StackPane minHeight="70" minWidth="70" styleClass="student-avatar">
+                <StackPane minHeight="70" minWidth="70" prefHeight="70" prefWidth="70" maxHeight="70" maxWidth="70" styleClass="student-avatar">
                   <Label styleClass="avatar-text-lg" text="管"/>
                 </StackPane>
                 <Label styleClass="student-side-name" text="管理员"/>
@@ -291,7 +293,7 @@
                 <padding>
                   <Insets left="14" right="14" top="24"/>
                 </padding>
-                <StackPane minHeight="70" minWidth="70" styleClass="student-avatar">
+                <StackPane minHeight="70" minWidth="70" prefHeight="70" prefWidth="70" maxHeight="70" maxWidth="70" styleClass="student-avatar">
                   <Label styleClass="avatar-text-lg" text="管"/>
                 </StackPane>
                 <Label styleClass="student-side-name" text="管理员"/>

@@ -32,6 +32,7 @@ public class StudentController {
     @FXML private Label titleLabel,statusBarLabel,avatarLabel,sidebarAvatarLabel,sidebarNameLabel,sidebarMajorLabel,nameLabel,studentMetaLabel,pendingHintLabel,categoryValue,statusValue,gradeValue,inSchoolValue;
     @FXML private TabPane studentTabs;
     @FXML private Tab overviewTab,detailTab,experienceTab,adminListTab,reviewTab;
+    @FXML private util.control.InformationReviewStatusPane reviewStatusPane;
     @FXML private ScrollPane detailScrollPane;
     @FXML private GridPane baseInfoGrid,studyInfoGrid,admissionInfoGrid,contactInfoGrid;
     @FXML private GridPane reviewStudentBaseGrid,reviewStudentStudyGrid;
@@ -88,6 +89,8 @@ public class StudentController {
     @FXML public void initialize() {
         setupTables();
         setupRole();
+        reviewStatusPane.setVisible(!isAdmin());
+        reviewStatusPane.setManaged(!isAdmin());
         refreshData();
     }
     private void refreshData() {
@@ -778,6 +781,8 @@ public class StudentController {
         ));
     }
     private void render(StudentOverviewVO v) {
+        StudentChangeRequest progress=v==null?null:(v.getPendingRequest()!=null?v.getPendingRequest():v.getLatestRequest());
+        reviewStatusPane.showRequest(progress==null?null:progress.getStatus(),progress==null?null:progress.getSubmitTime());
         Student s=v==null?null:v.getStudent();
         if(s==null) {
             nameLabel.setText("暂无学籍信息");

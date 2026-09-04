@@ -3,6 +3,10 @@ import java.io.Serializable;
 import java.util.*;
 import entity.*;
 public class StudentOverviewVO implements Serializable {
+    private StudentChangeRequest latestRequest;
+    public StudentChangeRequest getLatestRequest(){return latestRequest;}
+    public void setLatestRequest(StudentChangeRequest value){latestRequest=value;}
+
     private static final long serialVersionUID=1L;
     private Student student;
     private List<Object> grades=new ArrayList<>();
