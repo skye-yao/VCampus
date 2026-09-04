@@ -1,7 +1,6 @@
 package service;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -9,20 +8,13 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import model.course.CourseNoticeView;
 import model.course.CourseOfferingView;
-import model.course.GradeRecordView;
 import model.course.GradeSummaryView;
 import model.course.ScheduleEntryView;
 import model.course.SelectionStatus;
-import model.course.TrainingPlanCourseView;
 import model.course.TrainingPlanGroupView;
 
 public final class MockCourseService implements CourseService {
-    private static final String CURRENT_TERM = "2026-2027-1";
-
     private final Map<Long, CourseOfferingView> offerings = new LinkedHashMap<>();
-    private final List<ScheduleEntryView> schedule;
-    private final List<CourseNoticeView> notices;
-    private final List<TrainingPlanGroupView> trainingPlan;
 
     public MockCourseService() {
         addOffering(new CourseOfferingView(
@@ -55,24 +47,6 @@ public final class MockCourseService implements CourseService {
                 "刘老师", "周四 3-4节", "教四-305",
                 "网络体系结构与协议", "操作系统",
                 79, 100, SelectionStatus.ENROLLED));
-
-        schedule = immutableList(Arrays.asList(
-                new ScheduleEntryView(1005L, CURRENT_TERM, "MA202", "离散数学",
-                        "赵老师", "教三-202", 3, 1, 2, 1, 16),
-                new ScheduleEntryView(1006L, CURRENT_TERM, "CS305", "计算机网络",
-                        "刘老师", "教四-305", 4, 3, 2, 1, 16)));
-        notices = immutableList(Arrays.asList(
-                new CourseNoticeView(CURRENT_TERM, 1, "选课确认",
-                        "请在本周内确认培养方案内课程。"),
-                new CourseNoticeView(CURRENT_TERM, 2, "课程调整",
-                        "补退选开放至本周五。")));
-        trainingPlan = immutableList(Arrays.asList(
-                new TrainingPlanGroupView("专业基础课", 10.0, 7.0, Arrays.asList(
-                        new TrainingPlanCourseView("CS203", "数据结构", 4.0, "修读中"),
-                        new TrainingPlanCourseView("MA202", "离散数学", 3.0, "已完成"),
-                        new TrainingPlanCourseView("CS301", "操作系统", 3.0, "未完成"))),
-                new TrainingPlanGroupView("专业核心课", 3.5, 3.5, Arrays.asList(
-                        new TrainingPlanCourseView("CS305", "计算机网络", 3.5, "修读中")))));
     }
 
     @Override
@@ -143,40 +117,23 @@ public final class MockCourseService implements CourseService {
 
     @Override
     public CompletableFuture<List<ScheduleEntryView>> loadSchedule(String term, int week) {
-        List<ScheduleEntryView> result = new ArrayList<>();
-        for (ScheduleEntryView entry : schedule) {
-            if (entry.getTerm().equals(term) && entry.isActiveInWeek(week)) {
-                result.add(entry);
-            }
-        }
-        return CompletableFuture.completedFuture(immutableList(result));
+        return CompletableFuture.completedFuture(Collections.emptyList());
     }
 
     @Override
     public CompletableFuture<List<CourseNoticeView>> loadNotices(String term, int week) {
-        List<CourseNoticeView> result = new ArrayList<>();
-        for (CourseNoticeView notice : notices) {
-            if (notice.getTerm().equals(term) && notice.getWeek() == week) {
-                result.add(notice);
-            }
-        }
-        return CompletableFuture.completedFuture(immutableList(result));
+        return CompletableFuture.completedFuture(Collections.emptyList());
     }
 
     @Override
     public CompletableFuture<GradeSummaryView> loadGrades(String term) {
-        List<GradeRecordView> records = Arrays.asList(
-                new GradeRecordView(term, "CS101", "程序设计基础", 4.0,
-                        91.0, 4.0, 92.0, 88.0, 94.0, 90.0),
-                new GradeRecordView(term, "MA101", "高等数学", 5.0,
-                        86.0, 3.7, 88.0, 84.0, null, 86.0));
         return CompletableFuture.completedFuture(
-                new GradeSummaryView(term, 3.83, 88.22, 87.65, 3.76, records));
+                new GradeSummaryView(term, 0.0, 0.0, 0.0, 0.0, Collections.emptyList()));
     }
 
     @Override
     public CompletableFuture<List<TrainingPlanGroupView>> loadTrainingPlan() {
-        return CompletableFuture.completedFuture(trainingPlan);
+        return CompletableFuture.completedFuture(Collections.emptyList());
     }
 
     private void addOffering(CourseOfferingView offering) {
