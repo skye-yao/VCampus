@@ -2,7 +2,7 @@ package dao;
 import entity.Teacher; import util.DBUtil; import java.lang.reflect.*; import java.sql.*; import java.util.*;
 @SuppressWarnings({"SqlNoDataSourceInspection","SqlResolve"})
 public class TeacherDAO {
- public static final List<String> COLUMNS=List.of("teacherId","UID","name","politicalStatus","nationality","gender","idType","idNumber","idIssueDate","birthDate","nativePlace","householdType","birthPlace","sourcePlace","registeredResidence","partyMember","partyJoinDate","healthStatus","employed","employmentStatus","campus","college","department","title","position","telephone","mobile","email","qq","wechat","officeAddress","emergencyContact","emergencyPhone");
+ public static final List<String> COLUMNS=List.of("teacherId","UID","name","politicalStatus","nationality","gender","idType","idNumber","idIssueDate","birthDate","nativePlace","householdType","birthPlace","sourcePlace","registeredResidence","partyMember","partyJoinDate","healthStatus","employed","employmentStatus","campus","college","department","title","position","education","employmentStartDate","telephone","mobile","email","qq","wechat","officeAddress","emergencyContact","emergencyPhone");
  public Teacher findByUID(String v)throws SQLException{return one("SELECT * FROM tblTeacher WHERE UID=?",v);}
  public Teacher findByTeacherId(String v)throws SQLException{return one("SELECT * FROM tblTeacher WHERE teacherId=?",v);}
  private Teacher one(String sql,String v)throws SQLException{try(Connection c=DBUtil.getConnection();PreparedStatement p=c.prepareStatement(sql)){p.setString(1,v);try(ResultSet r=p.executeQuery()){return r.next()?map(r):null;}}}
