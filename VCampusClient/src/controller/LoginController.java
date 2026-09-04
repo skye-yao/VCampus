@@ -31,6 +31,17 @@ public class LoginController {
         if (roleComboBox != null && !roleComboBox.getItems().isEmpty()) {
             roleComboBox.getSelectionModel().select(0);
         }
+
+        // 回车键快捷触发登录
+        if (loginButton != null) {
+            loginButton.setDefaultButton(true);
+        }
+        if (usernameField != null) {
+            usernameField.setOnAction(this::handleLogin);
+        }
+        if (passwordField != null) {
+            passwordField.setOnAction(this::handleLogin);
+        }
     }
 
     @FXML
@@ -113,11 +124,11 @@ public class LoginController {
 
     @FXML
     private void handleOpenForgotPassword(ActionEvent event) {
-        AlertUtil.showInfo("找回密码", "请联系管理员或使用绑定的预留手机重置密码。");
+        ClientMain.switchScene("/resources/fxml/ForgotPasswordView.fxml");
     }
 
     @FXML
     private void handleOpenRegister(ActionEvent event) {
-        AlertUtil.showInfo("新用户注册", "请联系管理员开通一卡通账号。");
+        ClientMain.switchScene("/resources/fxml/RegisterView.fxml");
     }
 }

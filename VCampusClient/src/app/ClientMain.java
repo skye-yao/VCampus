@@ -63,27 +63,30 @@ public class ClientMain extends Application {
         try {
             Parent root = FXMLUtil.load(fxmlPath);
             boolean isLogin = fxmlPath != null && fxmlPath.contains("LoginView");
+            boolean isRegister = fxmlPath != null && fxmlPath.contains("RegisterView");
+            boolean isForgot = fxmlPath != null && fxmlPath.contains("ForgotPasswordView");
+            boolean isAuth = isLogin || isRegister || isForgot;
 
             if (primaryStage.getScene() == null) {
-                // 首次初始化：登录页使用紧凑的竖向小窗口 (440x620)
-                double initWidth = isLogin ? 440 : 1024;
-                double initHeight = isLogin ? 620 : 720;
+                // 首次初始化：登录/注册/找回密码页使用紧凑的竖向小窗口
+                double initWidth = isAuth ? 396 : 1024;
+                double initHeight = isRegister ? 720 : (isForgot ? 680 : (isLogin ? 620 : 720));
                 Scene scene = new Scene(root, initWidth, initHeight);
                 primaryStage.setScene(scene);
             } else {
                 primaryStage.getScene().setRoot(root);
             }
 
-            if (isLogin) {
-                // 登录页：固定为中间竖向卡片大小，禁止用户手动放大拉伸
+            if (isAuth) {
+                // 登录/注册/找回密码页：固定为中间竖向卡片大小，禁止手动放大拉伸
                 primaryStage.setResizable(false);
-                primaryStage.setWidth(440);
-                primaryStage.setHeight(620);
+                primaryStage.setWidth(396);
+                primaryStage.setHeight(isRegister ? 720 : (isForgot ? 680 : 620));
                 primaryStage.centerOnScreen();
             } else {
                 // 登录成功进入主界面或其他系统：允许自由放大/最大化
                 primaryStage.setResizable(true);
-                // 若此前是登录小窗口，自动展开至标准宽屏尺寸
+                // 若此前是小窗口，自动展开至标准宽屏尺寸
                 if (primaryStage.getWidth() < 600) {
                     primaryStage.setWidth(1024);
                     primaryStage.setHeight(720);

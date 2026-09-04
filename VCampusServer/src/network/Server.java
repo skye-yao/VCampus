@@ -89,7 +89,12 @@ public class Server {
 
         running = true;
 
-        System.out.println("=================================");
+        try {
+            new dao.UserDAO().syncAllUsers();
+            System.out.println("用户学籍与银行数据自动同步完成");
+        } catch (Exception e) {
+            System.err.println("用户数据同步警告: " + e.getMessage());
+        }
 
         maintenanceExecutor.scheduleWithFixedDelay(() -> {
             try {
