@@ -1,10 +1,30 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<?import javafx.geometry.Insets?><?import javafx.scene.control.*?><?import javafx.scene.layout.*?>
-<StackPane stylesheets="@../css/style.css" xmlns="http://javafx.com/javafx/25.0.4" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.InformationSelectController" styleClass="student-page">
- <VBox alignment="CENTER" maxWidth="620" spacing="24" styleClass="student-panel"><padding><Insets bottom="42" left="54" right="54" top="42"/></padding>
-  <Label styleClass="student-name" text="▣"/><Label styleClass="student-page-title" text="基本信息"/><Label styleClass="student-meta" text="您可以管理以下信息，请选择："/>
-  <Button maxWidth="Infinity" minHeight="62" onAction="#openStudent" styleClass="btn-primary" text="学生信息"/>
-  <Button maxWidth="Infinity" minHeight="62" onAction="#openTeacher" styleClass="btn-primary" text="教师信息"/>
-  <Button onAction="#back" styleClass="btn-secondary" text="← 返回应用中心"/>
- </VBox>
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<StackPane stylesheets="@../css/information-select.css" xmlns="http://javafx.com/javafx/25.0.4" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.InformationSelectController" styleClass="information-select-page">
+  <padding><Insets top="24" right="24" bottom="24" left="24"/></padding>
+  <VBox maxWidth="620" maxHeight="-Infinity" spacing="28" styleClass="information-select-card">
+    <VBox spacing="10">
+      <Label text="基本信息" styleClass="information-select-title"/>
+      <Label text="选择信息类型，进入管理与审核" styleClass="information-select-subtitle"/>
+    </VBox>
+    <VBox spacing="14">
+      <Button onAction="#openStudent" maxWidth="Infinity" alignment="CENTER_LEFT" styleClass="information-select-option" accessibleText="学生信息，进入学生信息管理">
+        <graphic><VBox spacing="7" mouseTransparent="true">
+          <Label text="学生信息" styleClass="information-select-option-title"/>
+          <Label text="学籍资料 · 信息维护 · 修改审核" styleClass="information-select-option-note"/>
+        </VBox></graphic>
+      </Button>
+      <Button onAction="#openTeacher" maxWidth="Infinity" alignment="CENTER_LEFT" styleClass="information-select-option" accessibleText="教师信息，进入教师信息管理">
+        <graphic><VBox spacing="7" mouseTransparent="true">
+          <Label text="教师信息" styleClass="information-select-option-title"/>
+          <Label text="教师档案 · 任职信息 · 修改审核" styleClass="information-select-option-note"/>
+        </VBox></graphic>
+      </Button>
+    </VBox>
+    <HBox alignment="CENTER_LEFT" styleClass="information-select-footer">
+      <Button text="← 返回应用中心" onAction="#back" styleClass="information-select-back"/>
+    </HBox>
+  </VBox>
 </StackPane>

@@ -4,6 +4,10 @@ import java.sql.Date;
 public class Teacher implements Serializable {
     private static final long serialVersionUID=1L;
     private String UID,teacherId,name,politicalStatus,nationality,gender,idType,idNumber,nativePlace,householdType,birthPlace,sourcePlace,registeredResidence,healthStatus,employmentStatus,campus,college,department,title,position,telephone,mobile,email,qq,wechat,officeAddress,emergencyContact,emergencyPhone;
+    private String education;
+    private Date employmentStartDate;
+    public String getEducation(){return education;} public void setEducation(String v){education=v;}
+    public Date getEmploymentStartDate(){return employmentStartDate;} public void setEmploymentStartDate(Date v){employmentStartDate=v;}
     private Date idIssueDate,birthDate,partyJoinDate; private boolean partyMember,employed;
     public String getUID(){return UID;} public void setUID(String v){UID=v;}
     public String getTeacherId(){return teacherId;} public void setTeacherId(String v){teacherId=v;}

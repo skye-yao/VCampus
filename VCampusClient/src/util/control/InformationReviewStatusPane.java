@@ -20,10 +20,11 @@ public class InformationReviewStatusPane extends VBox {
     private final Label secondStep = step("2");
 
     public InformationReviewStatusPane() {
-        setMinWidth(260);
-        setPrefWidth(260);
-        setMaxWidth(260);
-        setPadding(new Insets(66, 20, 20, 0));
+        setMinWidth(280);
+        setPrefWidth(280);
+        setMaxWidth(Double.MAX_VALUE);
+        setAlignment(Pos.TOP_CENTER);
+        setPadding(new Insets(66, 20, 20, 20));
         getStylesheets().add(getClass().getResource("/resources/css/information-review.css").toExternalForm());
         Label heading = new Label("审核状态");
         heading.getStyleClass().add("information-review-heading");
@@ -45,6 +46,9 @@ public class InformationReviewStatusPane extends VBox {
         VBox timeline = new VBox(10, first, line, second);
         VBox card = new VBox(24, heading, timeline);
         card.setMaxHeight(Region.USE_PREF_SIZE);
+        card.setMinWidth(240);
+        card.setPrefWidth(240);
+        card.setMaxWidth(240);
         card.getStyleClass().add("information-review-card");
         getChildren().add(card);
         showRequest(null, null);

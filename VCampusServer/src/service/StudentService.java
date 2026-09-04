@@ -173,18 +173,22 @@ public class StudentService {
         EDIT_LEASES.computeIfPresent(studentId,(id,current)->current.owner().equals(owner)?null:current);
     }
     public boolean addAward(StudentAward award) throws SQLException {
+        if(award==null||award.getAwardName()==null||award.getAwardName().isBlank()||award.getAwardType()==null||award.getAwardDate()==null)throw new IllegalArgumentException("奖励名称、类型和日期不能为空");
         return awards.insert(award);
     }
     public boolean updateAward(StudentAward award) throws SQLException {
+        if(award==null||award.getAwardName()==null||award.getAwardName().isBlank()||award.getAwardType()==null||award.getAwardDate()==null)throw new IllegalArgumentException("奖励名称、类型和日期不能为空");
         return awards.update(award);
     }
     public boolean deleteAward(long awardId) throws SQLException {
         return awards.delete(awardId);
     }
     public boolean addAid(StudentAid aid) throws SQLException {
+        if(aid==null||aid.getAidName()==null||aid.getAidName().isBlank()||aid.getAidType()==null||aid.getAidType().isBlank()||aid.getAidDate()==null)throw new IllegalArgumentException("资助名称、类型和日期不能为空");
         return aids.insert(aid);
     }
     public boolean updateAid(StudentAid aid) throws SQLException {
+        if(aid==null||aid.getAidName()==null||aid.getAidName().isBlank()||aid.getAidType()==null||aid.getAidType().isBlank()||aid.getAidDate()==null)throw new IllegalArgumentException("资助名称、类型和日期不能为空");
         return aids.update(aid);
     }
     public boolean deleteAid(long aidId) throws SQLException {

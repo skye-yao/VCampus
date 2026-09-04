@@ -444,7 +444,7 @@ public final class StudentPdfExport {
             drawTextFit(content, latinFont, cjkFont, row.dateRange(),
                     formatMonth(experience.getStartDate()) + " 至 " + end);
             drawTextFit(content, latinFont, cjkFont, row.placeAndUnit(), value(experience.getSchoolName()));
-            drawTextFit(content, latinFont, cjkFont, row.duty(), value(experience.getEducationLevel()));
+            drawTextFit(content, latinFont, cjkFont, row.duty(), "学生");
         }
         if (student.getAdmissionDate() != null && count < EXPERIENCE_ROWS.size()) {
             StudentPdfLayout.ExperienceRow row = EXPERIENCE_ROWS.get(count);
@@ -482,7 +482,7 @@ public final class StudentPdfExport {
      * 如果内容过长，则自动缩小字号，
      * 防止文字超出当前单元格。
      */
-    private static void drawTextFit(
+    static void drawTextFit(
             PDPageContentStream content,
             PDType0Font latinFont,
             PDType0Font cjkFont,
