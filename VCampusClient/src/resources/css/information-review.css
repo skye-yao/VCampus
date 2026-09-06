@@ -1,0 +1,21 @@
+.information-review-card {
+    -fx-background-color: white;
+    -fx-background-radius: 12;
+    -fx-border-color: #dce5dc;
+    -fx-border-radius: 12;
+    -fx-padding: 20 16;
+}
+.information-review-heading { -fx-font-size: 18px; -fx-font-weight: bold; -fx-text-fill: #263d2c; }
+.information-review-title { -fx-font-size: 14px; -fx-font-weight: bold; -fx-text-fill: #344f3b; }
+.information-review-note { -fx-font-size: 12px; -fx-text-fill: #78877c; }
+.information-review-step {
+    -fx-background-color: white;
+    -fx-background-radius: 50%;
+    -fx-border-color: #d5dfd7;
+    -fx-border-radius: 50%;
+    -fx-text-fill: #8b9b8f;
+    -fx-font-size: 13px;
+}
+.information-review-done { -fx-background-color: #496e50; -fx-border-color: #496e50; -fx-text-fill: white; }
+.information-review-pending { -fx-background-color: #fff4d9; -fx-border-color: #d8ad4b; -fx-text-fill: #967019; }
+.information-review-line { -fx-background-color: #dce5dc; }

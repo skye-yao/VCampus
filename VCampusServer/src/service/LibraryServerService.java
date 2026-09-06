@@ -165,7 +165,7 @@ public class LibraryServerService {
 
         List<BorrowRecord> records = borrowRecordDAO.findActiveByUserId(userId);
         java.util.Set<Integer> lostBooks = new java.util.HashSet<>();
-        for (entity.LossRecord loss : lossRecordDAO.findByUserId(userId)) {
+        for (LossRecord loss : lossRecordDAO.findByUserId(userId)) {
             if (loss.getStatus() == 0) lostBooks.add(loss.getBookId());
         }
         for (BorrowRecord record : records) record.setLossReported(lostBooks.contains(record.getBookId()));

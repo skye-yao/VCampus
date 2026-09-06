@@ -85,12 +85,15 @@ public class ClientHandler implements Runnable {
                 try {
                     jsonResponse = gson.toJson(response);
                 } catch (RuntimeException e) {
-                    e.printStackTrace();
-                    Message failure = new Message(MessageType.RESPONSE, response.getModule(), response.getAction());
-                    failure.setUID(response.getUID());
-                    failure.setCode(MessageCode.ERROR);
-                    failure.setMessage("响应数据转换失败，请联系管理员查看服务端日志");
-                    jsonResponse = gson.toJson(failure);
+                    System.out.println("响应序列化失败: " + e);
+                    Message error = new Message(MessageType.RESPONSE,
+                            request == null ? "system" : request.getModule(),
+                            request == null ? "parse" : request.getAction());
+                    if (request != null) error.setUID(request.getUID());
+                    error.setCode(MessageCode.ERROR);
+                    error.setMessage("服务端响应数据转换失败，请查看服务端日志");
+                    jsonResponse = gson.toJson(error);
+                    response = error;
                 }
                 writer.println(jsonResponse);
                 System.out.println("发送响应: " + response);
@@ -112,13 +115,16 @@ public class ClientHandler implements Runnable {
      */
     private Message processMessage(Message request) {
         // 检查消息类型
-        if (request.getType() != MessageType.REQUEST) {
+        if (request.getType() == null || !request.getType().isClientRequest()) {
             Message response = new Message();
+            response.setUID(request.getUID());
             response.setType(MessageType.RESPONSE);
             response.setModule(request.getModule());
             response.setAction(request.getAction());
             response.setCode(MessageCode.BAD_REQUEST);
-            response.setMessage("不支持的消息类型: " + request.getType());
+            response.setMessage(request.getType() == null
+                    ? "客户端与服务端版本不一致，请重新编译并重启服务端"
+                    : "不支持的消息类型: " + request.getType());
             return response;
         }
 

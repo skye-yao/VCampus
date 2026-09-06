@@ -82,8 +82,16 @@ public class LoginController {
                             user = gson.fromJson(userJson, User.class);
                         }
 
-                        // 保存客户端会话
-                        ClientSession.getInstance().login(username.trim(), role, token, user);
+                        // 公共登录信息必须采用服务端认证结果，不能信任登录表单中选择的身份。
+                        String authenticatedUsername = response.getData("username");
+                        String authenticatedRole = response.getData("role");
+                        if (authenticatedUsername == null || authenticatedUsername.isBlank()) {
+                            authenticatedUsername = user != null && user.getUID() != null ? user.getUID() : username.trim();
+                        }
+                        if (authenticatedRole == null || authenticatedRole.isBlank()) {
+                            authenticatedRole = user != null && user.getRole() != null ? user.getRole().name() : "";
+                        }
+                        ClientSession.getInstance().login(authenticatedUsername, authenticatedRole, token, user);
 
                         // 跳转到主控制台
                         ClientMain.switchScene("/resources/fxml/MainView.fxml");

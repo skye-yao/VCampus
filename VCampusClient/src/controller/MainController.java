@@ -1,8 +1,8 @@
 package controller;
 
+import javafx.application.Platform;
 import app.ClientMain;
 import entity.User;
-import javafx.application.Platform;
 import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
 import javafx.scene.control.MenuButton;
@@ -13,9 +13,12 @@ import protocol.MessageType;
 import session.ClientSession;
 import util.AlertUtil;
 
+
+
 public class MainController {
 
     @FXML private MenuButton userMenuButton;
+    @FXML private javafx.scene.control.Label informationCardTitle;
 
     @FXML
     public void initialize() {
@@ -26,6 +29,11 @@ public class MainController {
             if (displayName != null) {
                 userMenuButton.setText("你好，" + displayName);
             }
+        }
+        if(informationCardTitle!=null){
+            String role=session.getRole();
+            informationCardTitle.setText(("TEACHER".equalsIgnoreCase(role)||"教师".equals(role))?"个人信息":
+                    (("ADMIN".equalsIgnoreCase(role)||"管理员".equals(role))?"基本信息":"学籍信息"));
         }
     }
 
@@ -49,7 +57,12 @@ public class MainController {
 
     @FXML
     private void openStudentAffairs(MouseEvent event) {
-        showSubsystemNotice("学籍管理子系统");
+        String role=ClientSession.getInstance().getRole();
+        if("TEACHER".equalsIgnoreCase(role)||"教师".equals(role)) {
+            ClientMain.switchScene("/resources/fxml/TeacherView.fxml");
+        } else if("ADMIN".equalsIgnoreCase(role)||"管理员".equals(role)) {
+            ClientMain.switchScene("/resources/fxml/InformationSelectView.fxml");
+        } else ClientMain.switchScene("/resources/fxml/StudentView.fxml");
     }
 
     @FXML
@@ -64,17 +77,17 @@ public class MainController {
 
     @FXML
     private void openStore(MouseEvent event) {
-        showSubsystemNotice("校园商店子系统");
+        ClientMain.switchScene("/resources/fxml/ShopView.fxml");
     }
 
     @FXML
     private void openBank(MouseEvent event) {
-        showSubsystemNotice("校园银行子系统");
+        ClientMain.switchScene("/resources/fxml/BankView.fxml");
     }
 
     @FXML
     private void openHospital(MouseEvent event) {
-        showSubsystemNotice("校医院挂号系统");
+        ClientMain.switchScene("/resources/fxml/AIview.fxml");
     }
 
     @FXML

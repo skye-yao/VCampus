@@ -1,4 +1,4 @@
-package Service;
+package service;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -55,6 +55,15 @@ public class LibraryClientService {
     public CompletableFuture<Book> getBookDetail(int bookId) {
         return simpleRequest("getbookdetail", "bookId", bookId)
                 .thenApply(r -> object(r, "book", Book.class));
+    }
+
+    public CompletableFuture<byte[]> getBookFile(int bookId) {
+        return simpleRequest("getbookfile", "bookId", bookId).thenApplyAsync(r -> {
+            String content = r.getData("content");
+            if (content == null || content.length() > 14 * 1024 * 1024)
+                throw new LibraryClientException("电子书响应无效或过大");
+            return java.util.Base64.getDecoder().decode(content);
+        });
     }
 
     public CompletableFuture<Void> reserveBook(int bookId) { return bookAction("reservebook", bookId); }

@@ -5,7 +5,7 @@
       <module fileurl="file://$PROJECT_DIR$/VCampusClient/VCampusClient.iml" filepath="$PROJECT_DIR$/VCampusClient/VCampusClient.iml" />
       <module fileurl="file://$PROJECT_DIR$/VCampusCommon/VCampusCommon.iml" filepath="$PROJECT_DIR$/VCampusCommon/VCampusCommon.iml" />
       <module fileurl="file://$PROJECT_DIR$/VCampusServer/VCampusServer.iml" filepath="$PROJECT_DIR$/VCampusServer/VCampusServer.iml" />
-      <module fileurl="file://$PROJECT_DIR$/.idea/virtualCampus0831_1405_framework+user.iml" filepath="$PROJECT_DIR$/.idea/virtualCampus0831_1405_framework+user.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/VCampus_20260904_1412.iml" filepath="$PROJECT_DIR$/.idea/VCampus_20260904_1412.iml" />
     </modules>
   </component>
 </project>

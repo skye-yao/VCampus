@@ -53,6 +53,11 @@
                                         <TextArea fx:id="expandedDetail" editable="false" wrapText="true" prefRowCount="6" minHeight="120.0" prefHeight="170.0" maxHeight="170.0" visible="false" managed="false"/>
                                         <Hyperlink fx:id="detailToggle" text="展开详情" onAction="#handleToggleDetail" visible="false" managed="false"/>
                                         <Separator/>
+                                        <HBox spacing="8.0">
+                                            <Button fx:id="previewButton" text="在线预览" onAction="#handlePreviewBook" styleClass="btn-primary" disable="true"/>
+                                            <Button fx:id="downloadButton" text="下载图书" onAction="#handleDownloadBook" styleClass="btn-secondary" disable="true"/>
+                                        </HBox>
+                                        <Label fx:id="ebookStatus" text="电子书支持 PDF 格式" wrapText="true"/>
                                         <ListView fx:id="reviewList" prefHeight="230.0" VBox.vgrow="ALWAYS"/>
                                         <TextArea fx:id="reviewInput" prefRowCount="2" promptText="写下你的评价……" wrapText="true"/>
                                         <HBox alignment="CENTER_RIGHT" spacing="8.0">

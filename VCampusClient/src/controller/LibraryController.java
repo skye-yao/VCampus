@@ -1,6 +1,6 @@
 package controller;
 
-import Service.LibraryClientService;
+import service.LibraryClientService;
 import app.ClientMain;
 import entity.Book;
 import entity.BookReview;
@@ -30,6 +30,63 @@ public class LibraryController {
     private Book selectedBook;
     private final java.util.Map<Integer,String> bookNames = new java.util.HashMap<>();
     private long searchVersion;
+    @FXML private Button previewButton;
+    @FXML private Button downloadButton;
+    @FXML private Label ebookStatus;
+    private boolean ebookBusy;
+
+    private void updateEbookButtons() {
+        previewButton.setDisable(ebookBusy || selectedBook == null);
+        downloadButton.setDisable(ebookBusy || selectedBook == null);
+    }
+
+    @FXML private void handlePreviewBook() { loadEbook(true); }
+    @FXML private void handleDownloadBook() { loadEbook(false); }
+
+    private void loadEbook(boolean preview) {
+        if (ebookBusy || !requireSelectedBook()) return;
+        Book book = selectedBook;
+        java.io.File destination;
+        if (!preview) {
+            javafx.stage.FileChooser chooser = new javafx.stage.FileChooser();
+            chooser.setTitle("保存电子书");
+            chooser.setInitialFileName("book-" + book.getId() + ".pdf");
+            chooser.getExtensionFilters().add(new javafx.stage.FileChooser.ExtensionFilter("PDF 电子书", "*.pdf"));
+            destination = chooser.showSaveDialog(bookTable.getScene().getWindow());
+            if (destination == null) return;
+        } else destination = null;
+        ebookBusy = true;
+        updateEbookButtons();
+        ebookStatus.setText("正在获取《" + book.getName() + "》…");
+        service.getBookFile(book.getId()).thenApplyAsync(bytes -> {
+            if (destination != null) {
+                java.nio.file.Path temporary = null;
+                try {
+                    var target = destination.toPath().toAbsolutePath();
+                    temporary = java.nio.file.Files.createTempFile(target.getParent(), ".ebook-", ".part");
+                    java.nio.file.Files.write(temporary, bytes);
+                    java.nio.file.Files.move(temporary, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                } catch (java.io.IOException e) { throw new CompletionException(e); }
+                finally {
+                    if (temporary != null) try { java.nio.file.Files.deleteIfExists(temporary); } catch (java.io.IOException ignored) { }
+                }
+            }
+            return bytes;
+        }).whenComplete((bytes, error) -> Platform.runLater(() -> {
+            ebookBusy = false;
+            updateEbookButtons();
+            if (error != null) {
+                ebookStatus.setText("电子书获取失败");
+                showError(preview ? "预览失败" : "下载失败", error);
+            } else if (preview) {
+                ebookStatus.setText("已打开《" + book.getName() + "》");
+                util.pdf.BookPreview.show(bookTable.getScene().getWindow(), book.getName(), bytes);
+            } else {
+                ebookStatus.setText("下载完成");
+                AlertUtil.showInfo("下载完成", "已保存至：" + destination.getAbsolutePath());
+            }
+        }));
+    }
 
     @FXML private void handleShowAll() {
         searchField.clear();
@@ -113,6 +170,7 @@ public class LibraryController {
 
     @FXML
     public void initialize() {
+        updateEbookButtons();
         configureTables();
         lossNoticeList.setPlaceholder(new Label("暂无挂失公告，点击刷新获取最新信息"));
         lossNoticeList.setCellFactory(view -> new ListCell<>() {
@@ -192,6 +250,8 @@ public class LibraryController {
 
     private void showBook(Book book) {
         selectedBook = book;
+        updateEbookButtons();
+        if (!ebookBusy) ebookStatus.setText("电子书支持 PDF 格式");
         setDetailExpanded(false);
         detailToggle.setVisible(book != null);
         detailToggle.setManaged(book != null);

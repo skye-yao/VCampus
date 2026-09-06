@@ -1,0 +1,57 @@
+package dao;
+import entity.StudentAid;
+import enums.StudentAidStatus;
+import util.DBUtil;
+import java.sql.*;
+import java.util.*;
+@SuppressWarnings({"SqlNoDataSourceInspection", "SqlResolve"})
+public class StudentAidDAO {
+    public List<StudentAid> findByStudentId(String id)throws SQLException {
+        List<StudentAid>o=new ArrayList<>();
+        try(Connection c=DBUtil.getConnection();PreparedStatement p=c.prepareStatement("SELECT * FROM tblStudentAid WHERE studentId=? ORDER BY aidDate DESC")) {
+            p.setString(1,id);
+            try(ResultSet r=p.executeQuery()) {
+                while(r.next()) {
+                    StudentAid a=new StudentAid();
+                    a.setAidId(r.getLong("aidId"));
+                    a.setStudentId(id);
+                    a.setAidName(r.getString("aidName"));
+                    a.setAidType(r.getString("aidType"));
+                    a.setAmount(r.getBigDecimal("amount"));
+                    a.setAidDate(r.getDate("aidDate"));
+                    a.setProvider(r.getString("provider"));
+                    a.setStatus(StudentAidStatus.valueOf(r.getString("status")));
+                    a.setDescription(r.getString("description"));
+                    o.add(a);
+                }
+            }
+        }
+        return o;
+    }
+    public boolean insert(StudentAid a)throws SQLException {
+        return change("INSERT INTO tblStudentAid(studentId,aidName,aidType,amount,aidDate,provider,status,description)VALUES(?,?,?,?,?,?,?,?)",a,false);
+    }
+    public boolean update(StudentAid a)throws SQLException {
+        return change("UPDATE tblStudentAid SET studentId=?,aidName=?,aidType=?,amount=?,aidDate=?,provider=?,status=?,description=? WHERE aidId=?",a,true);
+    }
+    private boolean change(String q,StudentAid a,boolean id)throws SQLException {
+        try(Connection c=DBUtil.getConnection();PreparedStatement p=c.prepareStatement(q)) {
+            p.setString(1,a.getStudentId());
+            p.setString(2,a.getAidName());
+            p.setString(3,a.getAidType());
+            p.setBigDecimal(4,a.getAmount());
+            p.setDate(5,a.getAidDate());
+            p.setString(6,a.getProvider());
+            p.setString(7,a.getStatus().name());
+            p.setString(8,a.getDescription());
+            if(id)p.setLong(9,a.getAidId());
+            return p.executeUpdate()==1;
+        }
+    }
+    public boolean delete(long id)throws SQLException {
+        try(Connection c=DBUtil.getConnection();PreparedStatement p=c.prepareStatement("DELETE FROM tblStudentAid WHERE aidId=?")) {
+            p.setLong(1,id);
+            return p.executeUpdate()==1;
+        }
+    }
+}

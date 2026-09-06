@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<BorderPane prefHeight="650.0" prefWidth="1040.0" styleClass="main-window"
+            stylesheets="@../css/style.css" xmlns="http://javafx.com/javafx/26"
+            xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.BankController">
+    <top>
+        <HBox alignment="CENTER_LEFT" spacing="14" styleClass="app-topbar">
+            <padding><Insets bottom="12" left="24" right="24" top="12"/></padding>
+            <Button onAction="#handleBack" styleClass="btn-back" text="← 返回应用中心"/>
+            <Region HBox.hgrow="ALWAYS"/>
+            <Label styleClass="brand-title" text="校园银行"/>
+            <Label styleClass="brand-divider" text="|"/>
+            <Label styleClass="brand-subtitle" text="账户 · 流水 · 校园支付"/>
+        </HBox>
+    </top>
+    <center>
+        <VBox spacing="16" styleClass="bank-page">
+            <padding><Insets bottom="20" left="24" right="24" top="20"/></padding>
+            <HBox alignment="CENTER_LEFT" spacing="22" styleClass="bank-balance-card">
+                <padding><Insets bottom="20" left="24" right="24" top="20"/></padding>
+                <VBox spacing="6">
+                    <Label fx:id="balanceCaptionLabel" styleClass="bank-card-caption" text="当前登录用户的校园银行余额"/>
+                    <Label fx:id="balanceLabel" styleClass="bank-balance-value" text="¥ 0.00"/>
+                </VBox>
+                <Region HBox.hgrow="ALWAYS"/>
+                <VBox alignment="CENTER_RIGHT" spacing="6">
+                    <Label fx:id="accountStatusLabel" styleClass="bank-card-info" text="账户状态：读取中"/>
+                    <Label fx:id="passwordStatusLabel" styleClass="bank-card-info" text="支付密码：读取中"/>
+                    <Button onAction="#handleRefresh" styleClass="btn-bank-light" text="刷新账户"/>
+                </VBox>
+            </HBox>
+            <TabPane tabClosingPolicy="UNAVAILABLE" VBox.vgrow="ALWAYS" styleClass="shop-tabs">
+                <tabs>
+                    <Tab text="我的交易流水">
+                        <TableView fx:id="transactionTable" styleClass="shop-table">
+                            <columns>
+                                <TableColumn fx:id="txNoColumn" prefWidth="220" text="交易流水号"/>
+                                <TableColumn fx:id="txTypeColumn" prefWidth="120" text="交易类型"/>
+                                <TableColumn fx:id="txAmountColumn" prefWidth="120" text="发生金额"/>
+                                <TableColumn fx:id="txBalanceColumn" prefWidth="120" text="交易后余额"/>
+                                <TableColumn fx:id="txCounterpartyColumn" prefWidth="140" text="对方用户编号"/>
+                                <TableColumn fx:id="txTimeColumn" prefWidth="190" text="交易时间"/>
+                            </columns>
+                        </TableView>
+                    </Tab>
+                    <Tab fx:id="billTab" text="校园缴费">
+                        <BorderPane>
+                            <center>
+                                <TableView fx:id="billTable" styleClass="shop-table">
+                                    <columns>
+                                        <TableColumn fx:id="billUserColumn" prefWidth="140" text="缴费用户" visible="false"/>
+                                        <TableColumn fx:id="billTitleColumn" prefWidth="260" text="账单名称"/>
+                                        <TableColumn fx:id="billTypeColumn" prefWidth="130" text="账单类型"/>
+                                        <TableColumn fx:id="billAmountColumn" prefWidth="140" text="金额（元）"/>
+                                        <TableColumn fx:id="billStatusColumn" prefWidth="130" text="状态"/>
+                                        <TableColumn fx:id="billDueColumn" prefWidth="180" text="缴费截止日期"/>
+                                    </columns>
+                                </TableView>
+                            </center>
+                            <bottom>
+                                <HBox fx:id="payBillBox" alignment="CENTER_RIGHT" spacing="10" styleClass="shop-actionbar">
+                                    <padding><Insets bottom="14" left="18" right="18" top="12"/></padding>
+                                    <Label styleClass="hint-text" text="账单金额由服务器读取，客户端不能修改。"/>
+                                    <Region HBox.hgrow="ALWAYS"/>
+                                    <Button minWidth="120" onAction="#handlePayBill" styleClass="btn-bank-primary" text="缴纳选中账单"/>
+                                </HBox>
+                            </bottom>
+                        </BorderPane>
+                    </Tab>
+                    <Tab text="报销管理">
+                        <SplitPane fx:id="reimbursementSplitPane" dividerPositions="0.63">
+                            <items>
+                                <BorderPane>
+                                    <center>
+                                        <TableView fx:id="reimbursementTable" styleClass="shop-table">
+                                            <columns>
+                                                <TableColumn fx:id="reimbursementTitleColumn" prefWidth="200" text="报销事项"/>
+                                                <TableColumn fx:id="reimbursementAmountColumn" prefWidth="110" text="金额"/>
+                                                <TableColumn fx:id="reimbursementStatusColumn" prefWidth="110" text="状态"/>
+                                                <TableColumn fx:id="reimbursementApplicantColumn" prefWidth="140" text="申请人"/>
+                                                <TableColumn fx:id="reimbursementTransactionColumn" prefWidth="210" text="入账流水号"/>
+                                            </columns>
+                                        </TableView>
+                                    </center>
+                                    <bottom>
+                                        <HBox fx:id="adminReviewBox" alignment="CENTER_RIGHT" spacing="8" styleClass="shop-actionbar">
+                                            <padding><Insets bottom="10" left="12" right="12" top="10"/></padding>
+                                            <Button onAction="#handleRejectReimbursement" styleClass="btn-secondary" text="驳回"/>
+                                            <Button onAction="#handleApproveReimbursement" styleClass="btn-bank-primary" text="审核通过并入账"/>
+                                        </HBox>
+                                    </bottom>
+                                </BorderPane>
+                                <VBox fx:id="reimbursementApplyPanel" spacing="10" styleClass="shop-admin-card">
+                                    <padding><Insets bottom="20" left="20" right="20" top="20"/></padding>
+                                    <Label styleClass="subpanel-title" text="提交报销申请"/>
+                                    <Label styleClass="form-label" text="报销事项"/>
+                                    <TextField fx:id="reimbursementTitleField" promptText="例如：课程竞赛材料费" styleClass="form-control"/>
+                                    <Label styleClass="form-label" text="报销金额（元）"/>
+                                    <TextField fx:id="reimbursementAmountField" promptText="例如：120.00" styleClass="form-control"/>
+                                    <Label styleClass="form-label" text="报销说明"/>
+                                    <TextArea fx:id="reimbursementReasonArea" prefRowCount="5" promptText="填写用途和说明" wrapText="true"/>
+                                    <Button maxWidth="Infinity" onAction="#handleApplyReimbursement" styleClass="btn-bank-primary" text="提交申请"/>
+                                </VBox>
+                            </items>
+                        </SplitPane>
+                    </Tab>
+                    <Tab text="校园转账">
+                        <StackPane>
+                        <VBox maxHeight="390" maxWidth="520" spacing="12" styleClass="bank-form-card">
+                            <padding><Insets bottom="24" left="28" right="28" top="24"/></padding>
+                            <Label styleClass="subpanel-title" text="师生账户转账"/>
+                            <Label styleClass="hint-text" text="款项仅在虚拟校园账户之间流转，不连接真实银行卡。"/>
+                            <Label styleClass="form-label" text="收款人用户编号"/>
+                            <TextField fx:id="targetUserField" promptText="例如：teacher01" styleClass="form-control"/>
+                            <Label styleClass="form-label" text="转账金额（元）"/>
+                            <TextField fx:id="transferAmountField" promptText="例如：10.00" styleClass="form-control"/>
+                            <Label styleClass="form-label" text="支付密码"/>
+                            <PasswordField fx:id="transferPasswordField" promptText="6位数字支付密码" styleClass="form-control"/>
+                            <Button maxWidth="Infinity" onAction="#handleTransfer" styleClass="btn-bank-primary" text="确认转账"/>
+                        </VBox>
+                        </StackPane>
+                    </Tab>
+                    <Tab text="支付安全">
+                        <StackPane>
+                        <VBox maxHeight="430" maxWidth="520" spacing="12" styleClass="bank-form-card">
+                            <padding><Insets bottom="24" left="28" right="28" top="24"/></padding>
+                            <Label styleClass="subpanel-title" text="设置或修改支付密码"/>
+                            <Label styleClass="hint-text" text="支付密码必须为6位数字。演示账户初始支付密码为123456。" wrapText="true"/>
+                            <Label styleClass="form-label" text="原支付密码"/>
+                            <PasswordField fx:id="oldPasswordField" promptText="首次设置时无需填写" styleClass="form-control"/>
+                            <Label styleClass="form-label" text="新支付密码"/>
+                            <PasswordField fx:id="newPasswordField" promptText="请输入6位数字" styleClass="form-control"/>
+                            <Label styleClass="form-label" text="确认新支付密码"/>
+                            <PasswordField fx:id="confirmPasswordField" promptText="再次输入新密码" styleClass="form-control"/>
+                            <Button maxWidth="Infinity" onAction="#handleSavePassword" styleClass="btn-bank-primary" text="保存支付密码"/>
+                        </VBox>
+                        </StackPane>
+                    </Tab>
+                </tabs>
+            </TabPane>
+        </VBox>
+    </center>
+</BorderPane>

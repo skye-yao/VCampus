@@ -67,6 +67,25 @@ public class LibraryHandler {
         try {
 
             switch (action.toLowerCase()) {
+                case "getbookfile":
+                    Integer fileBookId = getIntegerData(request, "bookId");
+                    if (fileBookId == null || fileBookId <= 0) {
+                        response.setCode(MessageCode.BAD_REQUEST);
+                        response.setMessage("图书编号无效");
+                    } else if (libraryService.getBookDetail(fileBookId) == null) {
+                        response.setCode(MessageCode.NOT_FOUND);
+                        response.setMessage("图书不存在");
+                    } else {
+                        try {
+                            byte[] pdf = new service.BookFileService().readPdf(fileBookId);
+                            response.putData("content", java.util.Base64.getEncoder().encodeToString(pdf));
+                            response.setCode(MessageCode.SUCCESS);
+                        } catch (java.io.IOException e) {
+                            response.setCode(MessageCode.NOT_FOUND);
+                            response.setMessage(e.getMessage());
+                        }
+                    }
+                    return response;
                 case "getadminrecords":
                     if (!isAdmin(role)) return forbidden(response);
                     String kind = request.getData("kind");
