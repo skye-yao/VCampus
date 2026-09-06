@@ -15,6 +15,8 @@ import model.course.TrainingPlanGroupView;
 
 public final class MockCourseService implements CourseService {
     private final Map<Long, CourseOfferingView> offerings = new LinkedHashMap<>();
+    private final Map<Long, ScheduleEntryView> scheduleTemplates = new LinkedHashMap<>();
+    private final List<CourseNoticeView> notices = new ArrayList<>();
 
     public MockCourseService() {
         addOffering(new CourseOfferingView(
@@ -47,6 +49,31 @@ public final class MockCourseService implements CourseService {
                 "刘老师", "周四 3-4节", "教四-305",
                 "网络体系结构与协议", "操作系统",
                 79, 100, SelectionStatus.ENROLLED));
+
+        String term = "2026-2027 秋学期";
+        addScheduleTemplate(new ScheduleEntryView(
+                1001L, term, "CS203", "数据结构", "张老师", "教四-201",
+                2, 3, 2, 1, 16));
+        addScheduleTemplate(new ScheduleEntryView(
+                1002L, term, "CS301", "操作系统", "李老师", "教二-305",
+                1, 5, 2, 1, 16));
+        addScheduleTemplate(new ScheduleEntryView(
+                1003L, term, "CS352", "人机交互", "王老师", "教一-408",
+                4, 7, 2, 1, 16));
+        addScheduleTemplate(new ScheduleEntryView(
+                1004L, term, "AR101", "音乐鉴赏", "陈老师", "艺术楼-101",
+                5, 9, 2, 1, 16));
+        addScheduleTemplate(new ScheduleEntryView(
+                1005L, term, "MA202", "离散数学", "赵老师", "教三-202",
+                3, 1, 2, 1, 16));
+        addScheduleTemplate(new ScheduleEntryView(
+                1006L, term, "CS305", "计算机网络", "刘老师", "教四-305",
+                4, 3, 2, 1, 16));
+
+        notices.add(new CourseNoticeView(
+                term, 8, "计算机网络停课通知", "第 8 周周四课程暂停一次，补课时间另行通知。"));
+        notices.add(new CourseNoticeView(
+                term, 13, "数据结构调课通知", "第 13 周课程调整至周五 3-4 节，地点为教四-201。"));
     }
 
     @Override
@@ -116,13 +143,31 @@ public final class MockCourseService implements CourseService {
     }
 
     @Override
-    public CompletableFuture<List<ScheduleEntryView>> loadSchedule(String term, int week) {
-        return CompletableFuture.completedFuture(Collections.emptyList());
+    public synchronized CompletableFuture<List<ScheduleEntryView>> loadSchedule(
+            String term, int week) {
+        List<ScheduleEntryView> entries = new ArrayList<>();
+        for (Map.Entry<Long, ScheduleEntryView> template : scheduleTemplates.entrySet()) {
+            CourseOfferingView offering = offerings.get(template.getKey());
+            ScheduleEntryView scheduleEntry = template.getValue();
+            if (offering != null
+                    && offering.getSelectionStatus() == SelectionStatus.ENROLLED
+                    && scheduleEntry.getTerm().equals(term)
+                    && scheduleEntry.isActiveInWeek(week)) {
+                entries.add(scheduleEntry);
+            }
+        }
+        return CompletableFuture.completedFuture(immutableList(entries));
     }
 
     @Override
     public CompletableFuture<List<CourseNoticeView>> loadNotices(String term, int week) {
-        return CompletableFuture.completedFuture(Collections.emptyList());
+        List<CourseNoticeView> matchingNotices = new ArrayList<>();
+        for (CourseNoticeView notice : notices) {
+            if (notice.getTerm().equals(term) && notice.getWeek() == week) {
+                matchingNotices.add(notice);
+            }
+        }
+        return CompletableFuture.completedFuture(immutableList(matchingNotices));
     }
 
     @Override
@@ -138,6 +183,10 @@ public final class MockCourseService implements CourseService {
 
     private void addOffering(CourseOfferingView offering) {
         offerings.put(offering.getOfferingId(), offering);
+    }
+
+    private void addScheduleTemplate(ScheduleEntryView scheduleEntry) {
+        scheduleTemplates.put(scheduleEntry.getOfferingId(), scheduleEntry);
     }
 
     private CompletableFuture<CourseOfferingView> transition(long offeringId,

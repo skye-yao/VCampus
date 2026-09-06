@@ -620,3 +620,69 @@
     -fx-text-fill: #587558;
     -fx-padding: 36px 16px;
 }
+
+.course-schedule-grid {
+    -fx-background-color: #dce4dc, #ffffff;
+    -fx-background-insets: 0, 1;
+    -fx-border-color: #dce4dc;
+    -fx-border-radius: 6px;
+    -fx-background-radius: 6px;
+}
+
+.course-schedule-header {
+    -fx-background-color: #eef3ee;
+    -fx-text-fill: #151E49;
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-alignment: center;
+    -fx-padding: 6px;
+}
+
+.course-period-label {
+    -fx-text-fill: #587558;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-alignment: center;
+}
+
+.course-class-block {
+    -fx-background-color: #eaf2ea;
+    -fx-background-radius: 4px;
+    -fx-border-color: #587558;
+    -fx-border-radius: 4px;
+    -fx-border-width: 1px 1px 1px 3px;
+    -fx-padding: 5px 7px;
+    -fx-alignment: center-left;
+    -fx-cursor: hand;
+}
+
+.course-class-block:hover {
+    -fx-background-color: #fef9df;
+    -fx-border-color: #fdd000;
+}
+
+.course-class-title {
+    -fx-text-fill: #151E49;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+}
+
+.course-class-meta {
+    -fx-text-fill: #4f5b52;
+    -fx-font-size: 10px;
+}
+
+.course-notice-rail {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #dce4dc;
+    -fx-border-radius: 6px;
+    -fx-background-radius: 6px;
+    -fx-padding: 10px;
+}
+
+.course-notice-item {
+    -fx-background-color: #f8faf8;
+    -fx-border-color: transparent transparent transparent #fdd000;
+    -fx-border-width: 0 0 0 3px;
+    -fx-padding: 8px;
+}
