@@ -2,8 +2,10 @@ package controller;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.function.Supplier;
@@ -28,8 +30,11 @@ import util.AlertUtil;
 
 public final class CourseSelectionController {
     private final CourseService service = CourseServices.current();
+    private final Set<Long> pendingOfferingIds = new HashSet<>();
     private List<CourseOfferingView> offerings = Collections.emptyList();
     private SelectionStatus selectedStatus;
+    private boolean planConfirmationPending;
+    private long loadGeneration;
 
     @FXML private TextField searchField;
     @FXML private ComboBox<String> typeFilter;
@@ -76,6 +81,42 @@ public final class CourseSelectionController {
         return filtered;
     }
 
+    boolean tryBeginOfferingOperation(long offeringId) {
+        return pendingOfferingIds.add(offeringId);
+    }
+
+    void finishOfferingOperation(long offeringId) {
+        pendingOfferingIds.remove(offeringId);
+    }
+
+    boolean isOfferingOperationPending(long offeringId) {
+        return pendingOfferingIds.contains(offeringId);
+    }
+
+    boolean tryBeginPlanConfirmation() {
+        if (planConfirmationPending) {
+            return false;
+        }
+        planConfirmationPending = true;
+        return true;
+    }
+
+    void finishPlanConfirmation() {
+        planConfirmationPending = false;
+    }
+
+    boolean isPlanConfirmationPending() {
+        return planConfirmationPending;
+    }
+
+    long nextLoadGeneration() {
+        return ++loadGeneration;
+    }
+
+    boolean isCurrentLoadGeneration(long generation) {
+        return generation == loadGeneration;
+    }
+
     @FXML
     private void showAllCourses() {
         selectTab(null);
@@ -98,14 +139,25 @@ public final class CourseSelectionController {
 
     @FXML
     private void confirmPlan() {
-        if (AlertUtil.showConfirm("确认选课", "确认提交计划中的全部课程？") != ButtonType.OK) {
+        if (!tryBeginPlanConfirmation()) {
+            confirmPlanButton.setDisable(true);
             return;
         }
-        executeTransition(confirmPlanButton, service::confirmPlan);
+        confirmPlanButton.setDisable(true);
+        if (AlertUtil.showConfirm("确认选课", "确认提交计划中的全部课程？") != ButtonType.OK) {
+            finishPlanConfirmation();
+            updateConfirmPlanButton();
+            return;
+        }
+        executePlanConfirmation(service::confirmPlan);
     }
 
     private void loadOfferings() {
+        long generation = nextLoadGeneration();
         service.loadOfferings().whenComplete((loaded, error) -> runOnFxThread(() -> {
+            if (!isCurrentLoadGeneration(generation)) {
+                return;
+            }
             if (error != null) {
                 AlertUtil.showError("加载失败", errorMessage(error));
                 return;
@@ -218,54 +270,100 @@ public final class CourseSelectionController {
         if (status == SelectionStatus.AVAILABLE) {
             if (course.getEnrolledCount() >= course.getCapacity()) {
                 actionButton.setText("加入候补");
-                actionButton.setOnAction(event -> executeTransition(actionButton,
+                actionButton.setOnAction(event -> executeTransition(course.getOfferingId(),
+                        actionButton,
                         () -> service.joinWaitlist(course.getOfferingId())));
             } else {
                 actionButton.setText("加入计划");
-                actionButton.setOnAction(event -> executeTransition(actionButton,
+                actionButton.setOnAction(event -> executeTransition(course.getOfferingId(),
+                        actionButton,
                         () -> service.addToPlan(course.getOfferingId())));
             }
         } else if (status == SelectionStatus.PLANNED) {
             actionButton.setText("移出计划");
-            actionButton.setOnAction(event -> executeTransition(actionButton,
+            actionButton.setOnAction(event -> executeTransition(course.getOfferingId(),
+                    actionButton,
                     () -> service.removeFromPlan(course.getOfferingId())));
         } else if (status == SelectionStatus.WAITLISTED) {
             actionButton.setText("退出候补");
             actionButton.setOnAction(event -> confirmAndExecute(
-                    "退出候补", "确认退出“" + course.getCourseName() + "”的候补？",
-                    actionButton, () -> service.leaveWaitlist(course.getOfferingId())));
+                    course.getOfferingId(), "退出候补",
+                    "确认退出“" + course.getCourseName() + "”的候补？", actionButton,
+                    () -> service.leaveWaitlist(course.getOfferingId())));
         } else {
             actionButton.setText("退选课程");
             actionButton.setOnAction(event -> confirmAndExecute(
-                    "退选课程", "确认退选“" + course.getCourseName() + "”？",
-                    actionButton, () -> service.dropCourse(course.getOfferingId())));
+                    course.getOfferingId(), "退选课程",
+                    "确认退选“" + course.getCourseName() + "”？", actionButton,
+                    () -> service.dropCourse(course.getOfferingId())));
         }
+        actionButton.setDisable(isOfferingOperationPending(course.getOfferingId()));
         return actionButton;
     }
 
-    private void confirmAndExecute(String title, String message, Button actionButton,
-            Supplier<CompletableFuture<?>> transition) {
-        if (AlertUtil.showConfirm(title, message) == ButtonType.OK) {
-            executeTransition(actionButton, transition);
+    private void confirmAndExecute(long offeringId, String title, String message,
+            Button actionButton, Supplier<CompletableFuture<?>> transition) {
+        if (!tryBeginOfferingOperation(offeringId)) {
+            actionButton.setDisable(true);
+            return;
         }
+        actionButton.setDisable(true);
+        if (AlertUtil.showConfirm(title, message) != ButtonType.OK) {
+            finishOfferingOperation(offeringId);
+            actionButton.setDisable(false);
+            return;
+        }
+        executePendingOfferingTransition(offeringId, actionButton, transition);
     }
 
-    private void executeTransition(Button actionButton,
+    private void executeTransition(long offeringId, Button actionButton,
             Supplier<CompletableFuture<?>> transition) {
+        if (!tryBeginOfferingOperation(offeringId)) {
+            actionButton.setDisable(true);
+            return;
+        }
         actionButton.setDisable(true);
+        executePendingOfferingTransition(offeringId, actionButton, transition);
+    }
+
+    private void executePendingOfferingTransition(long offeringId, Button actionButton,
+            Supplier<CompletableFuture<?>> transition) {
         CompletableFuture<?> future;
         try {
             future = transition.get();
         } catch (RuntimeException error) {
+            finishOfferingOperation(offeringId);
             actionButton.setDisable(false);
             AlertUtil.showError("操作失败", errorMessage(error));
             return;
         }
         future.whenComplete((ignored, error) -> runOnFxThread(() -> {
+            finishOfferingOperation(offeringId);
             actionButton.setDisable(false);
             if (error != null) {
                 AlertUtil.showError("操作失败", errorMessage(error));
             }
+            renderCourses();
+            refresh();
+        }));
+    }
+
+    private void executePlanConfirmation(Supplier<CompletableFuture<?>> transition) {
+        CompletableFuture<?> future;
+        try {
+            future = transition.get();
+        } catch (RuntimeException error) {
+            finishPlanConfirmation();
+            updateConfirmPlanButton();
+            AlertUtil.showError("操作失败", errorMessage(error));
+            return;
+        }
+        future.whenComplete((ignored, error) -> runOnFxThread(() -> {
+            finishPlanConfirmation();
+            if (error != null) {
+                AlertUtil.showError("操作失败", errorMessage(error));
+            }
+            renderCourses();
             refresh();
         }));
     }
@@ -286,7 +384,7 @@ public final class CourseSelectionController {
     private void updateConfirmPlanButton() {
         boolean hasPlannedCourse = offerings.stream()
                 .anyMatch(course -> course.getSelectionStatus() == SelectionStatus.PLANNED);
-        confirmPlanButton.setDisable(!hasPlannedCourse);
+        confirmPlanButton.setDisable(!hasPlannedCourse || isPlanConfirmationPending());
     }
 
     private String emptyStateText() {
