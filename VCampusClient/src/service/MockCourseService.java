@@ -12,6 +12,7 @@ import model.course.GradeRecordView;
 import model.course.GradeSummaryView;
 import model.course.ScheduleEntryView;
 import model.course.SelectionStatus;
+import model.course.TrainingPlanCourseView;
 import model.course.TrainingPlanGroupView;
 
 public final class MockCourseService implements CourseService {
@@ -192,7 +193,38 @@ public final class MockCourseService implements CourseService {
 
     @Override
     public CompletableFuture<List<TrainingPlanGroupView>> loadTrainingPlan() {
-        return CompletableFuture.completedFuture(Collections.emptyList());
+        List<TrainingPlanGroupView> groups = List.of(
+                new TrainingPlanGroupView("必修课程", 80.0, 9.0, List.of(
+                        new TrainingPlanCourseView(
+                                "CS101", "程序设计基础", 4.0, "已修"),
+                        new TrainingPlanCourseView(
+                                "MA101", "高等数学", 5.0, "已修"),
+                        new TrainingPlanCourseView(
+                                "CS203", "数据结构", 4.0, "在修"),
+                        new TrainingPlanCourseView(
+                                "CS301", "操作系统", 3.5, "未修"))),
+                new TrainingPlanGroupView("限选课程", 20.0, 3.5, List.of(
+                        new TrainingPlanCourseView(
+                                "CS250", "数据库原理", 3.5, "已修"),
+                        new TrainingPlanCourseView(
+                                "CS305", "计算机网络", 3.5, "在修"),
+                        new TrainingPlanCourseView(
+                                "CS330", "编译原理", 2.5, "未修"))),
+                new TrainingPlanGroupView("选修课程", 12.0, 2.0, List.of(
+                        new TrainingPlanCourseView(
+                                "CS410", "人工智能导论", 2.0, "已修"),
+                        new TrainingPlanCourseView(
+                                "CS352", "人机交互", 2.0, "在修"),
+                        new TrainingPlanCourseView(
+                                "CS430", "云计算基础", 2.0, "未修"))),
+                new TrainingPlanGroupView("通选课程", 10.0, 2.0, List.of(
+                        new TrainingPlanCourseView(
+                                "GE101", "大学生心理健康", 2.0, "已修"),
+                        new TrainingPlanCourseView(
+                                "AR101", "音乐鉴赏", 2.0, "在修"),
+                        new TrainingPlanCourseView(
+                                "PE103", "羽毛球", 1.0, "未修"))));
+        return CompletableFuture.completedFuture(immutableList(groups));
     }
 
     private void addOffering(CourseOfferingView offering) {

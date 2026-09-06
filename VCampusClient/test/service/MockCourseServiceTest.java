@@ -14,7 +14,7 @@ public final class MockCourseServiceTest {
         testReturnedListIsUnmodifiable();
         testJoinWaitlistRequiresFullAvailableOffering();
         testEnrollmentAndWaitlistTransitionsUpdateCounts();
-        testAncillaryDataIsEmptyBeforeFeatureTasks();
+        testUnknownTermAncillaryDataIsEmpty();
     }
 
     private static void testInitialStates() throws Exception {
@@ -87,7 +87,7 @@ public final class MockCourseServiceTest {
         require(available.getEnrolledCount() == 100, "leaving waitlist must not change enrollment count");
     }
 
-    private static void testAncillaryDataIsEmptyBeforeFeatureTasks() throws Exception {
+    private static void testUnknownTermAncillaryDataIsEmpty() throws Exception {
         MockCourseService service = new MockCourseService();
         String term = "2024-2025-2";
 
@@ -104,10 +104,7 @@ public final class MockCourseServiceTest {
                 "cumulative average must be zero before grade fixtures exist");
         require(grades.getCumulativeGpa() == 0.0,
                 "cumulative GPA must be zero before grade fixtures exist");
-        require(grades.getRecords().isEmpty(), "grade records belong to a later task");
-
-        require(service.loadTrainingPlan().get().isEmpty(),
-                "training plan fixtures belong to a later task");
+        require(grades.getRecords().isEmpty(), "unknown term grade records must be empty");
     }
 
     private static SelectionStatus statusOf(List<CourseOfferingView> courses, long id) {

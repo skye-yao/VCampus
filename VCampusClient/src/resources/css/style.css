@@ -742,3 +742,100 @@
     -fx-font-weight: bold;
     -fx-text-fill: #151E49;
 }
+
+.course-plan-page {
+    -fx-background-color: transparent;
+}
+
+.course-plan-summary {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #dce4dc #dce4dc #dce4dc #fdd000;
+    -fx-border-width: 1px 1px 1px 3px;
+    -fx-border-radius: 6px;
+    -fx-background-radius: 6px;
+    -fx-padding: 9px 12px;
+}
+
+.course-plan-total {
+    -fx-font-size: 20px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #587558;
+}
+
+.course-plan-total-divider,
+.course-plan-total-required {
+    -fx-font-size: 15px;
+    -fx-text-fill: #151E49;
+}
+
+.course-progress-bar {
+    -fx-accent: #587558;
+}
+
+.course-progress-bar > .track {
+    -fx-background-color: #e7ece7;
+    -fx-background-radius: 4px;
+}
+
+.course-progress-bar > .bar {
+    -fx-background-color: #587558;
+    -fx-background-insets: 0;
+    -fx-background-radius: 4px;
+}
+
+.course-plan-scroll {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+}
+
+.course-plan-scroll > .viewport {
+    -fx-background-color: transparent;
+}
+
+.course-plan-group {
+    -fx-background-color: #ffffff;
+    -fx-border-color: transparent transparent #dce4dc transparent;
+    -fx-border-width: 0 0 1px 0;
+    -fx-padding: 10px 12px;
+}
+
+.course-plan-group-title {
+    -fx-font-size: 15px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #151E49;
+}
+
+.course-plan-group-credits {
+    -fx-font-size: 12px;
+    -fx-text-fill: #587558;
+}
+
+.course-plan-row {
+    -fx-border-color: transparent transparent #eef2ee transparent;
+    -fx-border-width: 0 0 1px 0;
+    -fx-padding: 5px 2px;
+}
+
+.course-plan-row > .label {
+    -fx-font-size: 12px;
+    -fx-text-fill: #39433b;
+}
+
+.course-plan-row-header > .label {
+    -fx-font-weight: bold;
+    -fx-text-fill: #657067;
+}
+
+.course-plan-row > .course-plan-complete {
+    -fx-font-weight: bold;
+    -fx-text-fill: #587558;
+}
+
+.course-plan-row > .course-plan-current {
+    -fx-font-weight: bold;
+    -fx-text-fill: #151E49;
+}
+
+.course-plan-row > .course-plan-pending {
+    -fx-text-fill: #7d857e;
+}

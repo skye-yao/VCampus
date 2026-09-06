@@ -1,10 +1,42 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
+<?import javafx.geometry.Insets?>
 <?import javafx.scene.control.Label?>
-<?import javafx.scene.layout.StackPane?>
+<?import javafx.scene.control.ProgressBar?>
+<?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.layout.VBox?>
 
-<StackPane xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.TrainingPlanController">
+<VBox spacing="10.0" styleClass="course-plan-page" xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.TrainingPlanController">
     <children>
-        <Label text="培养方案页面" />
+        <HBox alignment="CENTER_LEFT" spacing="14.0" styleClass="course-plan-summary">
+            <children>
+                <VBox minWidth="154.0" spacing="2.0">
+                    <children>
+                        <Label styleClass="course-summary-label" text="总学分完成进度" />
+                        <HBox alignment="BASELINE_LEFT" spacing="4.0">
+                            <children>
+                                <Label fx:id="overallEarnedLabel" styleClass="course-plan-total" text="--" />
+                                <Label styleClass="course-plan-total-divider" text="/" />
+                                <Label fx:id="overallRequiredLabel" styleClass="course-plan-total-required" text="--" />
+                                <Label styleClass="course-summary-label" text="学分" />
+                            </children>
+                        </HBox>
+                    </children>
+                </VBox>
+                <Region minWidth="1.0" prefWidth="1.0" />
+                <ProgressBar fx:id="overallProgressBar" maxWidth="1.7976931348623157E308" prefHeight="12.0" progress="0.0" styleClass="course-progress-bar" HBox.hgrow="ALWAYS" />
+            </children>
+        </HBox>
+        <ScrollPane fitToWidth="true" hbarPolicy="NEVER" pannable="true" styleClass="course-plan-scroll" VBox.vgrow="ALWAYS">
+            <content>
+                <VBox fx:id="planGroupList" fillWidth="true" spacing="10.0">
+                    <padding>
+                        <Insets right="2.0" />
+                    </padding>
+                </VBox>
+            </content>
+        </ScrollPane>
     </children>
-</StackPane>
+</VBox>
