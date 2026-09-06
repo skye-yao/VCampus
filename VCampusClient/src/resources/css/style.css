@@ -631,6 +631,8 @@
 
 .course-schedule-header {
     -fx-background-color: #eef3ee;
+    -fx-border-color: transparent #dce4dc #dce4dc transparent;
+    -fx-border-width: 0 1px 1px 0;
     -fx-text-fill: #151E49;
     -fx-font-size: 12px;
     -fx-font-weight: bold;
@@ -639,10 +641,24 @@
 }
 
 .course-period-label {
+    -fx-background-color: #ffffff;
+    -fx-border-color: transparent #dce4dc #dce4dc transparent;
+    -fx-border-width: 0 1px 1px 0;
     -fx-text-fill: #587558;
     -fx-font-size: 11px;
     -fx-font-weight: bold;
     -fx-alignment: center;
+}
+
+.course-schedule-cell {
+    -fx-background-color: #ffffff;
+    -fx-border-color: transparent #dce4dc #dce4dc transparent;
+    -fx-border-width: 0 1px 1px 0;
+}
+
+.course-schedule-overlap-grid {
+    -fx-background-color: transparent;
+    -fx-padding: 2px;
 }
 
 .course-class-block {

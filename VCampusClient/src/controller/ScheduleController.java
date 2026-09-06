@@ -15,8 +15,10 @@ import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.Spinner;
 import javafx.scene.control.SpinnerValueFactory;
+import javafx.scene.layout.ColumnConstraints;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.RowConstraints;
 import javafx.scene.layout.VBox;
 import model.course.CourseNoticeView;
@@ -81,6 +83,8 @@ public final class ScheduleController {
         }
 
         long generation = ++loadGeneration;
+        renderSchedule(Collections.emptyList());
+        renderNotices(Collections.emptyList(), "正在加载课表...");
         CompletableFuture<List<ScheduleEntryView>> scheduleFuture =
                 service.loadSchedule(term, selectedWeek);
         CompletableFuture<List<CourseNoticeView>> noticeFuture =
@@ -92,6 +96,8 @@ public final class ScheduleController {
                         return;
                     }
                     if (error != null) {
+                        renderSchedule(Collections.emptyList());
+                        renderNotices(Collections.emptyList(), "加载失败，请刷新重试");
                         errorReporter.accept("加载失败", errorMessage(error));
                         return;
                     }
@@ -119,22 +125,64 @@ public final class ScheduleController {
         }
         for (int period = FIRST_PERIOD; period <= LAST_PERIOD; period++) {
             addGridLabel("第 " + period + " 节", 0, period, "course-period-label");
+            for (int day = 1; day <= 5; day++) {
+                addGridCell(day, period);
+            }
         }
 
-        for (ScheduleEntryView entry : entries) {
-            if (entry.getDayOfWeek() < 1 || entry.getDayOfWeek() > 5
-                    || entry.getStartPeriod() < FIRST_PERIOD
-                    || entry.getStartPeriod() > LAST_PERIOD) {
-                continue;
+        for (int day = 1; day <= 5; day++) {
+            for (ScheduleLayout.Component component : ScheduleLayout.layoutDay(
+                    entries, day, FIRST_PERIOD, LAST_PERIOD)) {
+                GridPane componentGrid = createComponentGrid(component);
+                scheduleGrid.add(componentGrid, day, component.getStartPeriod());
+                GridPane.setRowSpan(componentGrid,
+                        component.getEndPeriod() - component.getStartPeriod() + 1);
+                GridPane.setHgrow(componentGrid, Priority.ALWAYS);
+                GridPane.setVgrow(componentGrid, Priority.ALWAYS);
             }
-            Button courseBlock = createCourseBlock(entry);
-            int visiblePeriods = Math.min(entry.getPeriodCount(),
-                    LAST_PERIOD - entry.getStartPeriod() + 1);
-            scheduleGrid.add(courseBlock, entry.getDayOfWeek(), entry.getStartPeriod());
-            GridPane.setRowSpan(courseBlock, Math.max(1, visiblePeriods));
+        }
+    }
+
+    private void addGridCell(int column, int row) {
+        Region cell = new Region();
+        cell.getStyleClass().add("course-schedule-cell");
+        cell.setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);
+        GridPane.setHgrow(cell, Priority.ALWAYS);
+        GridPane.setVgrow(cell, Priority.ALWAYS);
+        scheduleGrid.add(cell, column, row);
+    }
+
+    private GridPane createComponentGrid(ScheduleLayout.Component component) {
+        GridPane componentGrid = new GridPane();
+        componentGrid.getStyleClass().add("course-schedule-overlap-grid");
+        componentGrid.setHgap(2.0);
+        componentGrid.setVgap(1.0);
+        componentGrid.setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);
+
+        int periodCount = component.getEndPeriod() - component.getStartPeriod() + 1;
+        for (int row = 0; row < periodCount; row++) {
+            RowConstraints rowConstraints = new RowConstraints();
+            rowConstraints.setPercentHeight(100.0 / periodCount);
+            rowConstraints.setVgrow(Priority.ALWAYS);
+            componentGrid.getRowConstraints().add(rowConstraints);
+        }
+        for (int lane = 0; lane < component.getLaneCount(); lane++) {
+            ColumnConstraints columnConstraints = new ColumnConstraints();
+            columnConstraints.setPercentWidth(100.0 / component.getLaneCount());
+            columnConstraints.setHgrow(Priority.ALWAYS);
+            componentGrid.getColumnConstraints().add(columnConstraints);
+        }
+
+        for (ScheduleLayout.PlacedEntry placed : component.getEntries()) {
+            Button courseBlock = createCourseBlock(placed.getEntry());
+            int row = placed.getStartPeriod() - component.getStartPeriod();
+            componentGrid.add(courseBlock, placed.getLane(), row);
+            GridPane.setRowSpan(courseBlock,
+                    placed.getEndPeriod() - placed.getStartPeriod() + 1);
             GridPane.setHgrow(courseBlock, Priority.ALWAYS);
             GridPane.setVgrow(courseBlock, Priority.ALWAYS);
         }
+        return componentGrid;
     }
 
     private void addGridLabel(String text, int column, int row, String styleClass) {
@@ -152,23 +200,31 @@ public final class ScheduleController {
         Label title = new Label(entry.getCourseName());
         title.getStyleClass().add("course-class-title");
         title.setWrapText(true);
+        title.setMinWidth(0.0);
 
         Label meta = new Label(entry.getLocation() + "\n" + entry.getTeacher());
         meta.getStyleClass().add("course-class-meta");
         meta.setWrapText(true);
+        meta.setMinWidth(0.0);
 
         VBox content = new VBox(2.0, title, meta);
         content.setAlignment(Pos.CENTER_LEFT);
+        content.setMinWidth(0.0);
 
         Button block = new Button();
         block.getStyleClass().add("course-class-block");
         block.setGraphic(content);
+        block.setMinSize(0.0, 0.0);
         block.setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);
         block.setOnAction(event -> infoReporter.accept("课程详情", detailText(entry)));
         return block;
     }
 
     private void renderNotices(List<CourseNoticeView> notices) {
+        renderNotices(notices, "本周暂无调课通知");
+    }
+
+    private void renderNotices(List<CourseNoticeView> notices, String emptyMessage) {
         noticeList.getChildren().clear();
         Label heading = new Label("调课通知");
         heading.getStyleClass().add("course-schedule-header");
@@ -176,7 +232,7 @@ public final class ScheduleController {
         noticeList.getChildren().add(heading);
 
         if (notices.isEmpty()) {
-            Label empty = new Label("本周暂无调课通知");
+            Label empty = new Label(emptyMessage);
             empty.getStyleClass().add("course-class-meta");
             empty.setWrapText(true);
             noticeList.getChildren().add(empty);

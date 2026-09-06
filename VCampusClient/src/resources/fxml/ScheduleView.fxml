@@ -30,7 +30,7 @@
         </HBox>
     </top>
     <center>
-        <GridPane fx:id="scheduleGrid" gridLinesVisible="true" maxHeight="1.7976931348623157E308" maxWidth="1.7976931348623157E308" styleClass="course-schedule-grid" BorderPane.alignment="CENTER">
+        <GridPane fx:id="scheduleGrid" maxHeight="1.7976931348623157E308" maxWidth="1.7976931348623157E308" styleClass="course-schedule-grid" BorderPane.alignment="CENTER">
             <columnConstraints>
                 <ColumnConstraints halignment="CENTER" maxWidth="50.0" minWidth="50.0" prefWidth="50.0" />
                 <ColumnConstraints hgrow="ALWAYS" minWidth="72.0" prefWidth="96.0" />
