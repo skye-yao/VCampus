@@ -1,5 +1,6 @@
 package ui;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import javax.imageio.ImageIO;
@@ -15,52 +16,72 @@ import javafx.scene.image.WritableImage;
 import javafx.stage.Stage;
 import javafx.util.Duration;
 
-public final class CourseUiSmokeTest extends Application {
+public final class CourseUiSmokeTest {
     private static final String[] FILES = {
             "selection.png", "schedule.png", "grades.png", "training-plan.png"
     };
     private static final String[] NAV_IDS = {
             null, "#scheduleNavButton", "#gradeNavButton", "#planNavButton"
     };
-    private Parent root;
-    private int pageIndex;
+    private static final Path OUTPUT =
+            Path.of(".codex-tmp", "course-ui-snapshots");
 
-    @Override
-    public void start(Stage stage) throws Exception {
-        root = FXMLLoader.load(getClass().getResource(
-                "/resources/fxml/CourseManagementView.fxml"));
-        stage.setScene(new Scene(root, 860, 580));
-        stage.setResizable(false);
-        stage.show();
-        captureAfterPulse();
+    static void prepareOutputDirectory() throws IOException {
+        Files.createDirectories(OUTPUT);
+        for (String file : FILES) {
+            Files.deleteIfExists(OUTPUT.resolve(file));
+        }
     }
 
-    private void captureAfterPulse() {
-        PauseTransition pause = new PauseTransition(Duration.millis(180));
-        pause.setOnFinished(event -> {
-            try {
-                Path output = Path.of(".codex-tmp", "course-ui-snapshots");
-                Files.createDirectories(output);
-                WritableImage image = root.snapshot(null, null);
-                ImageIO.write(SwingFXUtils.fromFXImage(image, null), "png",
-                        output.resolve(FILES[pageIndex]).toFile());
-                pageIndex++;
-                if (pageIndex == FILES.length) {
+    static void requireImageWritten(boolean written, Path target) throws IOException {
+        if (!written) {
+            throw new IOException("No PNG writer available for " + target);
+        }
+    }
+
+    public static void main(String[] args) throws Exception {
+        prepareOutputDirectory();
+        Application.launch(SnapshotApplication.class, args);
+    }
+
+    public static final class SnapshotApplication extends Application {
+        private Parent root;
+        private int pageIndex;
+
+        @Override
+        public void start(Stage stage) throws Exception {
+            root = FXMLLoader.load(getClass().getResource(
+                    "/resources/fxml/CourseManagementView.fxml"));
+            stage.setScene(new Scene(root, 860, 580));
+            stage.setResizable(false);
+            stage.show();
+            captureAfterPulse();
+        }
+
+        private void captureAfterPulse() {
+            PauseTransition pause = new PauseTransition(Duration.millis(180));
+            pause.setOnFinished(event -> {
+                try {
+                    Path target = OUTPUT.resolve(FILES[pageIndex]);
+                    WritableImage image = root.snapshot(null, null);
+                    boolean written = ImageIO.write(
+                            SwingFXUtils.fromFXImage(image, null), "png",
+                            target.toFile());
+                    requireImageWritten(written, target);
+                    pageIndex++;
+                    if (pageIndex == FILES.length) {
+                        Platform.exit();
+                        return;
+                    }
+                    ((ButtonBase) root.lookup(NAV_IDS[pageIndex])).fire();
+                    captureAfterPulse();
+                } catch (Exception exception) {
+                    exception.printStackTrace();
                     Platform.exit();
-                    return;
+                    System.exit(1);
                 }
-                ((ButtonBase) root.lookup(NAV_IDS[pageIndex])).fire();
-                captureAfterPulse();
-            } catch (Exception exception) {
-                exception.printStackTrace();
-                Platform.exit();
-                System.exit(1);
-            }
-        });
-        pause.play();
-    }
-
-    public static void main(String[] args) {
-        launch(args);
+            });
+            pause.play();
+        }
     }
 }
