@@ -25,6 +25,7 @@ public final class TrainingPlanController {
     private final CourseService service;
     private final BiConsumer<String, String> errorReporter;
     private final Consumer<Runnable> fxExecutor;
+    private final PlanDisplay display;
     private long loadGeneration;
 
     @FXML private Label overallEarnedLabel;
@@ -34,20 +35,26 @@ public final class TrainingPlanController {
 
     public TrainingPlanController() {
         this(CourseServices.current(), AlertUtil::showError,
-                TrainingPlanController::runOnFxThread);
+                TrainingPlanController::runOnFxThread, null);
     }
 
     TrainingPlanController(CourseService service,
             BiConsumer<String, String> errorReporter, Consumer<Runnable> fxExecutor) {
+        this(service, errorReporter, fxExecutor, null);
+    }
+
+    TrainingPlanController(CourseService service,
+            BiConsumer<String, String> errorReporter, Consumer<Runnable> fxExecutor,
+            PlanDisplay display) {
         this.service = service;
         this.errorReporter = errorReporter;
         this.fxExecutor = fxExecutor;
+        this.display = display == null ? this::applyToControls : display;
     }
 
     @FXML
     public void initialize() {
-        clearPlan();
-        showState("暂无培养方案");
+        display.apply(PlanPresentation.state("暂无培养方案"));
     }
 
     @FXML
@@ -93,27 +100,37 @@ public final class TrainingPlanController {
     }
 
     private void loadTrainingPlan() {
-        clearPlan();
-        showState("正在加载培养方案...");
+        display.apply(PlanPresentation.state("正在加载培养方案..."));
         requestTrainingPlan(this::renderPlan, error -> {
-            clearPlan();
-            showState("培养方案加载失败，请刷新重试");
+            display.apply(PlanPresentation.state("培养方案加载失败，请刷新重试"));
             errorReporter.accept("培养方案加载失败", errorMessage(error));
         });
     }
 
     private void renderPlan(List<TrainingPlanGroupView> groups) {
-        clearPlan();
         if (groups.isEmpty()) {
-            showState("暂无培养方案");
+            display.apply(PlanPresentation.state("暂无培养方案"));
+            return;
+        }
+        display.apply(PlanPresentation.plan(groups));
+    }
+
+    private void applyToControls(PlanPresentation presentation) {
+        overallEarnedLabel.setText(presentation.getEarnedCredits());
+        overallRequiredLabel.setText(presentation.getRequiredCredits());
+        overallProgressBar.setProgress(presentation.getProgress());
+        planGroupList.getChildren().clear();
+
+        if (presentation.getStateText() != null) {
+            Label state = new Label(presentation.getStateText());
+            state.getStyleClass().add("course-empty-state");
+            state.setMaxWidth(Double.MAX_VALUE);
+            state.setWrapText(true);
+            planGroupList.getChildren().add(state);
             return;
         }
 
-        PlanTotals totals = aggregate(groups);
-        overallEarnedLabel.setText(formatCredits(totals.getEarnedCredits()));
-        overallRequiredLabel.setText(formatCredits(totals.getRequiredCredits()));
-        overallProgressBar.setProgress(totals.getProgress());
-        for (TrainingPlanGroupView group : groups) {
+        for (TrainingPlanGroupView group : presentation.getGroups()) {
             planGroupList.getChildren().add(createGroupSection(group));
         }
     }
@@ -185,21 +202,6 @@ public final class TrainingPlanController {
         return row;
     }
 
-    private void clearPlan() {
-        overallEarnedLabel.setText("--");
-        overallRequiredLabel.setText("--");
-        overallProgressBar.setProgress(0.0);
-        planGroupList.getChildren().clear();
-    }
-
-    private void showState(String message) {
-        Label state = new Label(message);
-        state.getStyleClass().add("course-empty-state");
-        state.setMaxWidth(Double.MAX_VALUE);
-        state.setWrapText(true);
-        planGroupList.getChildren().setAll(state);
-    }
-
     private void deliverFailure(long generation, Throwable error,
             Consumer<Throwable> onError) {
         if (generation == loadGeneration) {
@@ -267,6 +269,59 @@ public final class TrainingPlanController {
 
         double getProgress() {
             return progress(earnedCredits, requiredCredits);
+        }
+    }
+
+    interface PlanDisplay {
+        void apply(PlanPresentation presentation);
+    }
+
+    static final class PlanPresentation {
+        private final String earnedCredits;
+        private final String requiredCredits;
+        private final double progress;
+        private final List<TrainingPlanGroupView> groups;
+        private final String stateText;
+
+        private PlanPresentation(String earnedCredits, String requiredCredits,
+                double progress, List<TrainingPlanGroupView> groups, String stateText) {
+            this.earnedCredits = earnedCredits;
+            this.requiredCredits = requiredCredits;
+            this.progress = progress;
+            this.groups = List.copyOf(groups);
+            this.stateText = stateText;
+        }
+
+        private static PlanPresentation state(String stateText) {
+            return new PlanPresentation("--", "--", 0.0, List.of(), stateText);
+        }
+
+        private static PlanPresentation plan(List<TrainingPlanGroupView> groups) {
+            PlanTotals totals = aggregate(groups);
+            return new PlanPresentation(
+                    formatCredits(totals.getEarnedCredits()),
+                    formatCredits(totals.getRequiredCredits()),
+                    totals.getProgress(), groups, null);
+        }
+
+        String getEarnedCredits() {
+            return earnedCredits;
+        }
+
+        String getRequiredCredits() {
+            return requiredCredits;
+        }
+
+        double getProgress() {
+            return progress;
+        }
+
+        List<TrainingPlanGroupView> getGroups() {
+            return groups;
+        }
+
+        String getStateText() {
+            return stateText;
         }
     }
 }

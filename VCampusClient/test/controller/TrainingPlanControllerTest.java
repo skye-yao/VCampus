@@ -19,6 +19,7 @@ public final class TrainingPlanControllerTest {
         aggregatesCreditsAndHandlesZeroRequiredCredits();
         completionsReturnThroughFxExecutor();
         staleCompletionsAreIgnored();
+        currentFailureClearsVisibleStateThroughRefresh();
         System.out.println("TrainingPlanControllerTest: PASS");
     }
 
@@ -99,20 +100,47 @@ public final class TrainingPlanControllerTest {
         require(errors.get() == 0, "stale failure must not report an error");
         require("Newer".equals(renderedName.get()),
                 "stale failure must preserve the latest plan");
+    }
 
+    private static void currentFailureClearsVisibleStateThroughRefresh() {
+        ControlledCourseService service = new ControlledCourseService();
         CompletableFuture<List<TrainingPlanGroupView>> currentFailure =
                 new CompletableFuture<>();
         service.planResults.addLast(currentFailure);
-        controller.requestTrainingPlan(
-                groups -> renderedName.set(groups.get(0).getName()),
-                error -> {
-                    renderedName.set(null);
+
+        RecordingPlanDisplay display = new RecordingPlanDisplay();
+        display.earnedCredits = "18";
+        display.requiredCredits = "20";
+        display.progress = 0.9;
+        display.groups = List.of(group("Stale", 20.0, 18.0));
+        display.stateText = "旧状态";
+        AtomicInteger errors = new AtomicInteger();
+        AtomicReference<String> errorTitle = new AtomicReference<>();
+        TrainingPlanController controller = new TrainingPlanController(
+                service,
+                (title, message) -> {
+                    errorTitle.set(title);
                     errors.incrementAndGet();
-                });
+                },
+                Runnable::run,
+                display);
+
+        controller.refresh();
         currentFailure.completeExceptionally(new IllegalStateException("current failure"));
+
+        require("--".equals(display.earnedCredits),
+                "current failure must clear earned-credit text");
+        require("--".equals(display.requiredCredits),
+                "current failure must clear required-credit text");
+        require(display.progress == 0.0,
+                "current failure must reset overall progress");
+        require(display.groups.isEmpty(),
+                "current failure must clear rendered group rows");
+        require("培养方案加载失败，请刷新重试".equals(display.stateText),
+                "current failure must replace stale state text with the error state");
         require(errors.get() == 1, "current failure must report exactly one error");
-        require(renderedName.get() == null,
-                "current failure callback must be able to clear stale plan content");
+        require("培养方案加载失败".equals(errorTitle.get()),
+                "current failure must use the training-plan error title");
     }
 
     private static TrainingPlanGroupView group(String name,
@@ -182,6 +210,24 @@ public final class TrainingPlanControllerTest {
         @Override
         public CompletableFuture<List<TrainingPlanGroupView>> loadTrainingPlan() {
             return planResults.removeFirst();
+        }
+    }
+
+    private static final class RecordingPlanDisplay
+            implements TrainingPlanController.PlanDisplay {
+        private String earnedCredits;
+        private String requiredCredits;
+        private double progress;
+        private List<TrainingPlanGroupView> groups = Collections.emptyList();
+        private String stateText;
+
+        @Override
+        public void apply(TrainingPlanController.PlanPresentation presentation) {
+            earnedCredits = presentation.getEarnedCredits();
+            requiredCredits = presentation.getRequiredCredits();
+            progress = presentation.getProgress();
+            groups = presentation.getGroups();
+            stateText = presentation.getStateText();
         }
     }
 }

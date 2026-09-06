@@ -31,8 +31,10 @@ public final class MockTrainingPlanTest {
                 "every course must provide valid deterministic display data");
 
         expectUnsupported(groups::clear, "training plan list must be immutable");
-        expectUnsupported(() -> groups.get(0).getCourses().clear(),
-                "training plan group courses must be immutable");
+        for (TrainingPlanGroupView group : groups) {
+            expectUnsupported(() -> group.getCourses().clear(),
+                    group.getName() + " courses must be immutable");
+        }
         System.out.println("MockTrainingPlanTest: PASS");
     }
 
