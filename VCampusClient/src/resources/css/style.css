@@ -367,3 +367,43 @@
 .content-scroll-pane > .viewport {
     -fx-background-color: transparent;
 }
+
+/* ================= 4. 选课管理模块 ================= */
+.course-shell {
+    -fx-background-color: #f6f8f6;
+}
+
+.course-topbar {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #dce4dc;
+    -fx-border-width: 0 0 1px 0;
+}
+
+.course-title {
+    -fx-font-size: 20px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #587558;
+}
+
+.course-nav-button {
+    -fx-background-color: transparent;
+    -fx-background-radius: 0;
+    -fx-border-color: transparent;
+    -fx-border-width: 0 0 3px 0;
+    -fx-border-radius: 0;
+    -fx-text-fill: #151E49;
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+    -fx-padding: 8px 14px 5px 14px;
+    -fx-cursor: hand;
+}
+
+.course-nav-button:selected {
+    -fx-background-color: #fef9df;
+    -fx-border-color: transparent transparent #fdd000 transparent;
+}
+
+.course-content {
+    -fx-background-color: #f6f8f6;
+    -fx-padding: 24px;
+}

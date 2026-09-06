@@ -58,7 +58,7 @@ public class MainController {
 
     @FXML
     private void openCourseSelection(MouseEvent event) {
-        showSubsystemNotice("选课子系统");
+        ClientMain.switchScene("/resources/fxml/CourseManagementView.fxml");
     }
 
     @FXML
