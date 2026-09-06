@@ -8,6 +8,9 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.function.BiConsumer;
+import java.util.function.BiFunction;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import javafx.application.Platform;
 import javafx.fxml.FXML;
@@ -29,7 +32,10 @@ import service.CourseServices;
 import util.AlertUtil;
 
 public final class CourseSelectionController {
-    private final CourseService service = CourseServices.current();
+    private final CourseService service;
+    private final BiFunction<String, String, ButtonType> confirmation;
+    private final BiConsumer<String, String> errorReporter;
+    private final Consumer<Runnable> fxExecutor;
     private final Set<Long> pendingOfferingIds = new HashSet<>();
     private List<CourseOfferingView> offerings = Collections.emptyList();
     private SelectionStatus selectedStatus;
@@ -48,6 +54,21 @@ public final class CourseSelectionController {
     @FXML private Label electiveCountLabel;
     @FXML private Label generalCountLabel;
 
+    public CourseSelectionController() {
+        this(CourseServices.current(), AlertUtil::showConfirm, AlertUtil::showError,
+                CourseSelectionController::runOnFxThread);
+    }
+
+    CourseSelectionController(CourseService service,
+            BiFunction<String, String, ButtonType> confirmation,
+            BiConsumer<String, String> errorReporter,
+            Consumer<Runnable> fxExecutor) {
+        this.service = service;
+        this.confirmation = confirmation;
+        this.errorReporter = errorReporter;
+        this.fxExecutor = fxExecutor;
+    }
+
     @FXML
     public void initialize() {
         typeFilter.getItems().addAll("全部", "必修", "专业选修", "通识选修");
@@ -58,7 +79,7 @@ public final class CourseSelectionController {
     }
 
     public void refresh() {
-        runOnFxThread(this::loadOfferings);
+        fxExecutor.accept(this::loadOfferings);
     }
 
     List<CourseOfferingView> filterCourses(List<CourseOfferingView> source,
@@ -117,6 +138,15 @@ public final class CourseSelectionController {
         return generation == loadGeneration;
     }
 
+    void applyOfferingOperationState(long offeringId, Consumer<Boolean> setDisabled) {
+        setDisabled.accept(isOfferingOperationPending(offeringId));
+    }
+
+    void applyPlanConfirmationState(boolean hasPlannedCourse,
+            Consumer<Boolean> setDisabled) {
+        setDisabled.accept(!hasPlannedCourse || isPlanConfirmationPending());
+    }
+
     @FXML
     private void showAllCourses() {
         selectTab(null);
@@ -144,7 +174,7 @@ public final class CourseSelectionController {
             return;
         }
         confirmPlanButton.setDisable(true);
-        if (AlertUtil.showConfirm("确认选课", "确认提交计划中的全部课程？") != ButtonType.OK) {
+        if (confirmation.apply("确认选课", "确认提交计划中的全部课程？") != ButtonType.OK) {
             finishPlanConfirmation();
             updateConfirmPlanButton();
             return;
@@ -153,18 +183,25 @@ public final class CourseSelectionController {
     }
 
     private void loadOfferings() {
+        requestOfferings(loaded -> {
+            offerings = new ArrayList<>(loaded);
+            updateSummary();
+            renderCourses();
+        }, error -> errorReporter.accept("加载失败", errorMessage(error)));
+    }
+
+    void requestOfferings(Consumer<List<CourseOfferingView>> onLoaded,
+            Consumer<Throwable> onError) {
         long generation = nextLoadGeneration();
-        service.loadOfferings().whenComplete((loaded, error) -> runOnFxThread(() -> {
+        service.loadOfferings().whenComplete((loaded, error) -> fxExecutor.accept(() -> {
             if (!isCurrentLoadGeneration(generation)) {
                 return;
             }
             if (error != null) {
-                AlertUtil.showError("加载失败", errorMessage(error));
+                onError.accept(error);
                 return;
             }
-            offerings = new ArrayList<>(loaded);
-            updateSummary();
-            renderCourses();
+            onLoaded.accept(loaded);
         }));
     }
 
@@ -297,53 +334,68 @@ public final class CourseSelectionController {
                     "确认退选“" + course.getCourseName() + "”？", actionButton,
                     () -> service.dropCourse(course.getOfferingId())));
         }
-        actionButton.setDisable(isOfferingOperationPending(course.getOfferingId()));
+        applyOfferingOperationState(course.getOfferingId(), actionButton::setDisable);
         return actionButton;
     }
 
     private void confirmAndExecute(long offeringId, String title, String message,
             Button actionButton, Supplier<CompletableFuture<?>> transition) {
+        confirmAndExecute(offeringId, title, message, actionButton::setDisable,
+                this::renderCourses, transition);
+    }
+
+    void confirmAndExecute(long offeringId, String title, String message,
+            Consumer<Boolean> setDisabled, Runnable rerender,
+            Supplier<CompletableFuture<?>> transition) {
         if (!tryBeginOfferingOperation(offeringId)) {
-            actionButton.setDisable(true);
+            setDisabled.accept(true);
             return;
         }
-        actionButton.setDisable(true);
-        if (AlertUtil.showConfirm(title, message) != ButtonType.OK) {
+        setDisabled.accept(true);
+        if (confirmation.apply(title, message) != ButtonType.OK) {
             finishOfferingOperation(offeringId);
-            actionButton.setDisable(false);
+            setDisabled.accept(false);
+            rerender.run();
             return;
         }
-        executePendingOfferingTransition(offeringId, actionButton, transition);
+        executePendingOfferingTransition(offeringId, setDisabled, rerender, transition);
     }
 
     private void executeTransition(long offeringId, Button actionButton,
             Supplier<CompletableFuture<?>> transition) {
-        if (!tryBeginOfferingOperation(offeringId)) {
-            actionButton.setDisable(true);
-            return;
-        }
-        actionButton.setDisable(true);
-        executePendingOfferingTransition(offeringId, actionButton, transition);
+        executeTransition(offeringId, actionButton::setDisable, this::renderCourses, transition);
     }
 
-    private void executePendingOfferingTransition(long offeringId, Button actionButton,
+    void executeTransition(long offeringId, Consumer<Boolean> setDisabled,
+            Runnable rerender, Supplier<CompletableFuture<?>> transition) {
+        if (!tryBeginOfferingOperation(offeringId)) {
+            setDisabled.accept(true);
+            return;
+        }
+        setDisabled.accept(true);
+        executePendingOfferingTransition(offeringId, setDisabled, rerender, transition);
+    }
+
+    private void executePendingOfferingTransition(long offeringId,
+            Consumer<Boolean> setDisabled, Runnable rerender,
             Supplier<CompletableFuture<?>> transition) {
         CompletableFuture<?> future;
         try {
             future = transition.get();
         } catch (RuntimeException error) {
             finishOfferingOperation(offeringId);
-            actionButton.setDisable(false);
-            AlertUtil.showError("操作失败", errorMessage(error));
+            setDisabled.accept(false);
+            rerender.run();
+            errorReporter.accept("操作失败", errorMessage(error));
             return;
         }
-        future.whenComplete((ignored, error) -> runOnFxThread(() -> {
+        future.whenComplete((ignored, error) -> fxExecutor.accept(() -> {
             finishOfferingOperation(offeringId);
-            actionButton.setDisable(false);
+            setDisabled.accept(false);
             if (error != null) {
-                AlertUtil.showError("操作失败", errorMessage(error));
+                errorReporter.accept("操作失败", errorMessage(error));
             }
-            renderCourses();
+            rerender.run();
             refresh();
         }));
     }
@@ -355,13 +407,13 @@ public final class CourseSelectionController {
         } catch (RuntimeException error) {
             finishPlanConfirmation();
             updateConfirmPlanButton();
-            AlertUtil.showError("操作失败", errorMessage(error));
+            errorReporter.accept("操作失败", errorMessage(error));
             return;
         }
-        future.whenComplete((ignored, error) -> runOnFxThread(() -> {
+        future.whenComplete((ignored, error) -> fxExecutor.accept(() -> {
             finishPlanConfirmation();
             if (error != null) {
-                AlertUtil.showError("操作失败", errorMessage(error));
+                errorReporter.accept("操作失败", errorMessage(error));
             }
             renderCourses();
             refresh();
@@ -384,7 +436,7 @@ public final class CourseSelectionController {
     private void updateConfirmPlanButton() {
         boolean hasPlannedCourse = offerings.stream()
                 .anyMatch(course -> course.getSelectionStatus() == SelectionStatus.PLANNED);
-        confirmPlanButton.setDisable(!hasPlannedCourse || isPlanConfirmationPending());
+        applyPlanConfirmationState(hasPlannedCourse, confirmPlanButton::setDisable);
     }
 
     private String emptyStateText() {
