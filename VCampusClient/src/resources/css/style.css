@@ -407,3 +407,216 @@
     -fx-background-color: #f6f8f6;
     -fx-padding: 24px;
 }
+
+.course-selection-page {
+    -fx-background-color: transparent;
+}
+
+.course-toolbar {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #dce4dc;
+    -fx-border-radius: 6px;
+    -fx-background-radius: 6px;
+    -fx-padding: 8px 10px;
+}
+
+.course-search-field,
+.course-type-filter {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #cbd5cb;
+    -fx-border-radius: 4px;
+    -fx-background-radius: 4px;
+}
+
+.course-search-field:focused,
+.course-type-filter:focused {
+    -fx-border-color: #587558;
+}
+
+.course-refresh-button,
+.course-plan-action,
+.course-row-action {
+    -fx-background-color: #587558;
+    -fx-background-radius: 4px;
+    -fx-text-fill: #ffffff;
+    -fx-font-weight: bold;
+    -fx-cursor: hand;
+}
+
+.course-refresh-button:hover,
+.course-plan-action:hover,
+.course-row-action:hover {
+    -fx-background-color: #151E49;
+}
+
+.course-plan-action:disabled,
+.course-row-action:disabled {
+    -fx-opacity: 0.55;
+}
+
+.course-subnav {
+    -fx-border-color: transparent transparent #dce4dc transparent;
+    -fx-border-width: 0 0 1px 0;
+}
+
+.course-subnav-button {
+    -fx-background-color: transparent;
+    -fx-background-radius: 4px 4px 0 0;
+    -fx-border-color: transparent;
+    -fx-border-width: 0 0 3px 0;
+    -fx-text-fill: #151E49;
+    -fx-font-weight: bold;
+    -fx-padding: 7px 14px 5px 14px;
+    -fx-cursor: hand;
+}
+
+.course-subnav-button:selected {
+    -fx-background-color: #fef9df;
+    -fx-border-color: transparent transparent #fdd000 transparent;
+}
+
+.course-list-scroll {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+}
+
+.course-list-scroll > .viewport,
+.course-list {
+    -fx-background-color: transparent;
+}
+
+.course-list {
+    -fx-padding: 0 3px 0 0;
+}
+
+.course-row {
+    -fx-background-color: #ffffff;
+    -fx-background-radius: 6px;
+    -fx-border-color: #dce4dc;
+    -fx-border-radius: 6px;
+}
+
+.course-row-header {
+    -fx-padding: 10px 12px;
+}
+
+.course-expand-button {
+    -fx-min-width: 26px;
+    -fx-pref-width: 26px;
+    -fx-min-height: 26px;
+    -fx-pref-height: 26px;
+    -fx-background-color: #eef3ee;
+    -fx-background-radius: 4px;
+    -fx-text-fill: #587558;
+    -fx-font-weight: bold;
+    -fx-padding: 0;
+    -fx-cursor: hand;
+}
+
+.course-row-title-block {
+    -fx-min-width: 104px;
+}
+
+.course-row-title {
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #151E49;
+}
+
+.course-row-code {
+    -fx-font-size: 11px;
+    -fx-text-fill: #587558;
+}
+
+.course-row-meta {
+    -fx-font-size: 11px;
+    -fx-text-fill: #4f5b52;
+}
+
+.course-row-details {
+    -fx-background-color: #f8faf8;
+    -fx-border-color: #e4eae4 transparent transparent transparent;
+    -fx-border-width: 1px 0 0 0;
+    -fx-padding: 10px 14px 12px 50px;
+}
+
+.course-detail-text {
+    -fx-font-size: 12px;
+    -fx-text-fill: #39433b;
+}
+
+.course-row-action,
+.course-plan-action {
+    -fx-padding: 6px 12px;
+}
+
+.course-status-available,
+.course-status-planned,
+.course-status-waitlisted,
+.course-status-enrolled {
+    -fx-background-radius: 4px;
+    -fx-padding: 4px 7px;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+}
+
+.course-status-available {
+    -fx-background-color: #eaf2ea;
+    -fx-text-fill: #587558;
+}
+
+.course-status-planned {
+    -fx-background-color: #fef9df;
+    -fx-text-fill: #151E49;
+}
+
+.course-status-waitlisted {
+    -fx-background-color: #fff3bd;
+    -fx-text-fill: #151E49;
+}
+
+.course-status-enrolled {
+    -fx-background-color: #e8ebf4;
+    -fx-text-fill: #151E49;
+}
+
+.course-summary-rail {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #dce4dc;
+    -fx-border-radius: 6px;
+    -fx-background-radius: 6px;
+    -fx-padding: 14px;
+}
+
+.course-summary-title {
+    -fx-font-size: 15px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #151E49;
+}
+
+.course-summary-item {
+    -fx-border-color: transparent transparent #e4eae4 transparent;
+    -fx-border-width: 0 0 1px 0;
+    -fx-padding: 0 0 10px 0;
+}
+
+.course-summary-label {
+    -fx-font-size: 12px;
+    -fx-text-fill: #657067;
+}
+
+.course-summary-value {
+    -fx-font-size: 20px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #587558;
+}
+
+.course-empty-state {
+    -fx-alignment: center;
+    -fx-background-color: #ffffff;
+    -fx-background-radius: 6px;
+    -fx-border-color: #dce4dc;
+    -fx-border-radius: 6px;
+    -fx-text-fill: #587558;
+    -fx-padding: 36px 16px;
+}
