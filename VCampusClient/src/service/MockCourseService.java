@@ -8,12 +8,15 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import model.course.CourseNoticeView;
 import model.course.CourseOfferingView;
+import model.course.GradeRecordView;
 import model.course.GradeSummaryView;
 import model.course.ScheduleEntryView;
 import model.course.SelectionStatus;
 import model.course.TrainingPlanGroupView;
 
 public final class MockCourseService implements CourseService {
+    private static final String DEFAULT_TERM = "2026-2027 秋学期";
+
     private final Map<Long, CourseOfferingView> offerings = new LinkedHashMap<>();
     private final Map<Long, ScheduleEntryView> scheduleTemplates = new LinkedHashMap<>();
     private final List<CourseNoticeView> notices = new ArrayList<>();
@@ -50,7 +53,7 @@ public final class MockCourseService implements CourseService {
                 "网络体系结构与协议", "操作系统",
                 79, 100, SelectionStatus.ENROLLED));
 
-        String term = "2026-2027 秋学期";
+        String term = DEFAULT_TERM;
         addScheduleTemplate(new ScheduleEntryView(
                 1001L, term, "CS203", "数据结构", "张老师", "教四-201",
                 2, 3, 2, 1, 16));
@@ -172,6 +175,17 @@ public final class MockCourseService implements CourseService {
 
     @Override
     public CompletableFuture<GradeSummaryView> loadGrades(String term) {
+        if (DEFAULT_TERM.equals(term)) {
+            List<GradeRecordView> records = List.of(
+                    new GradeRecordView(
+                            term, "CS101", "程序设计基础", 4.0, 94.0, 4.0,
+                            95.0, 92.0, null, 95.0),
+                    new GradeRecordView(
+                            term, "MA101", "高等数学", 5.0, 89.0, 3.7,
+                            90.0, 88.0, 87.0, 90.0));
+            return CompletableFuture.completedFuture(
+                    new GradeSummaryView(term, 3.85, 91.5, 90.8, 3.78, records));
+        }
         return CompletableFuture.completedFuture(
                 new GradeSummaryView(term, 0.0, 0.0, 0.0, 0.0, Collections.emptyList()));
     }

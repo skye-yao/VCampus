@@ -702,3 +702,43 @@
     -fx-border-width: 0 0 0 3px;
     -fx-padding: 8px;
 }
+
+.course-metrics {
+    -fx-alignment: center-left;
+}
+
+.course-metric {
+    -fx-background-color: #ffffff;
+    -fx-background-radius: 6px;
+    -fx-border-color: #dce4dc;
+    -fx-border-radius: 6px;
+    -fx-padding: 8px 10px;
+}
+
+.course-metric-value {
+    -fx-font-size: 18px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #587558;
+}
+
+.course-grade-table {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #dce4dc;
+    -fx-border-radius: 6px;
+    -fx-background-radius: 6px;
+    -fx-table-cell-border-color: #eef2ee;
+}
+
+.course-grade-detail {
+    -fx-background-color: #ffffff;
+    -fx-background-radius: 6px;
+    -fx-border-color: #dce4dc;
+    -fx-border-radius: 6px;
+    -fx-padding: 14px;
+}
+
+.course-score-value {
+    -fx-font-size: 16px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #151E49;
+}
