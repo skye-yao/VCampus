@@ -3,6 +3,7 @@ package service;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import model.course.CourseOfferingView;
+import model.course.GradeSummaryView;
 import model.course.SelectionStatus;
 
 public final class MockCourseServiceTest {
@@ -13,6 +14,7 @@ public final class MockCourseServiceTest {
         testReturnedListIsUnmodifiable();
         testJoinWaitlistRequiresFullAvailableOffering();
         testEnrollmentAndWaitlistTransitionsUpdateCounts();
+        testAncillaryDataIsEmptyBeforeFeatureTasks();
     }
 
     private static void testInitialStates() throws Exception {
@@ -83,6 +85,29 @@ public final class MockCourseServiceTest {
         require(fullWaitlisted.getEnrolledCount() == 100, "waitlisting full plan must not change enrollment count");
         CourseOfferingView available = service.leaveWaitlist(1002L).get();
         require(available.getEnrolledCount() == 100, "leaving waitlist must not change enrollment count");
+    }
+
+    private static void testAncillaryDataIsEmptyBeforeFeatureTasks() throws Exception {
+        MockCourseService service = new MockCourseService();
+        String term = "2024-2025-2";
+
+        require(service.loadSchedule(term, 5).get().isEmpty(),
+                "schedule fixtures belong to a later task");
+        require(service.loadNotices(term, 5).get().isEmpty(),
+                "notice fixtures belong to a later task");
+
+        GradeSummaryView grades = service.loadGrades(term).get();
+        require(grades.getTermGpa() == 0.0, "term GPA must be zero before grade fixtures exist");
+        require(grades.getTermAverage() == 0.0,
+                "term average must be zero before grade fixtures exist");
+        require(grades.getCumulativeAverage() == 0.0,
+                "cumulative average must be zero before grade fixtures exist");
+        require(grades.getCumulativeGpa() == 0.0,
+                "cumulative GPA must be zero before grade fixtures exist");
+        require(grades.getRecords().isEmpty(), "grade records belong to a later task");
+
+        require(service.loadTrainingPlan().get().isEmpty(),
+                "training plan fixtures belong to a later task");
     }
 
     private static SelectionStatus statusOf(List<CourseOfferingView> courses, long id) {
