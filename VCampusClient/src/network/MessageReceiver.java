@@ -26,12 +26,14 @@ public class MessageReceiver implements Runnable {
 
     /** 是否继续运行 */
     private volatile boolean running = true;
+    private final Runnable onDisconnect;
 
     public MessageReceiver(
             BufferedReader reader,
             Gson gson,
-            MessageDispatcher dispatcher) {
+            MessageDispatcher dispatcher, Runnable onDisconnect) {
 
+        this.onDisconnect = onDisconnect;
         this.reader = reader;
         this.gson = gson;
         this.dispatcher = dispatcher;
@@ -81,7 +83,7 @@ public class MessageReceiver implements Runnable {
 
             // 连接断开后，未收到响应的请求全部以异常结束，
             // 避免界面永远停留在“正在登录...”等无响应状态
-            dispatcher.failAllPending(new IOException("与服务器的连接已断开"));
+            onDisconnect.run();
 
             System.out.println("消息接收线程已结束");
         }

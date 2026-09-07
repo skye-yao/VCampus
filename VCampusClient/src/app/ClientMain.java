@@ -17,6 +17,9 @@ import java.io.InputStream;
 public class ClientMain extends Application {
 
     private static Stage primaryStage;
+    private static Runnable pageCleanup=()->{};
+    public static void setPageCleanup(Runnable cleanup){pageCleanup=cleanup;}
+    private static void cleanupPage(){Runnable old=pageCleanup;pageCleanup=()->{};old.run();}
 
     @Override
     public void start(Stage stage) {
@@ -36,7 +39,10 @@ public class ClientMain extends Application {
         // 监听窗口关闭事件，释放网络资源
         primaryStage.setOnCloseRequest(event -> {
             System.out.println("VCampus 客户端正在退出...");
-            SocketClient.getInstance().disconnect();
+            cleanupPage();
+            service.LeaseClient.shutdown();
+            util.BackgroundTasks.shutdown();
+            SocketClient.getInstance().shutdown();
         });
 
         // 初始加载登录界面
@@ -45,13 +51,7 @@ public class ClientMain extends Application {
         primaryStage.show();
 
         // 异步预连接服务端
-        new Thread(() -> {
-            try {
-                SocketClient.getInstance().connect();
-            } catch (Exception e) {
-                System.out.println("提示: 服务端暂未启动，将在发起请求时重试连接。");
-            }
-        }).start();
+        SocketClient.getInstance().connectAsync();
     }
 
     /**
@@ -61,7 +61,12 @@ public class ClientMain extends Application {
      */
     public static void switchScene(String fxmlPath) {
         try {
-            Parent root = FXMLUtil.load(fxmlPath);
+            Runnable previousCleanup=pageCleanup;
+            pageCleanup=()->{};
+            Parent root;
+            try {root=FXMLUtil.load(fxmlPath);}
+            catch(Exception error){cleanupPage();pageCleanup=previousCleanup;throw error;}
+            previousCleanup.run();
             boolean isLogin = fxmlPath != null && fxmlPath.contains("LoginView");
             boolean isRegister = fxmlPath != null && fxmlPath.contains("RegisterView");
             boolean isForgot = fxmlPath != null && fxmlPath.contains("ForgotPasswordView");

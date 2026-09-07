@@ -46,9 +46,9 @@ public class ClientHandler implements Runnable {
 
         try (
             BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(socket.getInputStream()))
+                    new InputStreamReader(socket.getInputStream(), java.nio.charset.StandardCharsets.UTF_8))
         ) {
-            writer = new PrintWriter(socket.getOutputStream(), true);
+            writer = new PrintWriter(new java.io.OutputStreamWriter(socket.getOutputStream(), java.nio.charset.StandardCharsets.UTF_8), true);
 
             String line;
             while ((line = reader.readLine()) != null) {
@@ -80,6 +80,7 @@ public class ClientHandler implements Runnable {
                     }
                 }
 
+                if (request != null) response.setRequestId(request.getRequestId());
                 // 3. 响应消息写入发送队列
                 String jsonResponse;
                 try {
@@ -96,6 +97,7 @@ public class ClientHandler implements Runnable {
                     response = error;
                 }
                 writer.println(jsonResponse);
+                if (writer.checkError()) throw new java.io.IOException("响应发送失败");
                 System.out.println("发送响应: " + response);
             }
         } catch (Throwable e) {
@@ -128,10 +130,9 @@ public class ClientHandler implements Runnable {
             return response;
         }
 
-        // 保存当前用户
-        if (request.getSender() != null) {
-            this.currentUser = request.getSender();
-        }
+        // 身份来自服务端认证会话，不采用客户端 sender。
+        session.UserSession authenticated=session.SessionManager.getInstance().getSession(request.getToken());
+        this.currentUser=authenticated==null?null:authenticated.getUsername();
 
         // 分发到对应的 Handler
         return dispatcher.dispatch(request);

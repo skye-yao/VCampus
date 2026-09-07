@@ -19,6 +19,12 @@ public class Message implements Serializable {
     private static final AtomicLong UID_SEQUENCE = new AtomicLong(System.currentTimeMillis());
     
     // ===== 消息头 =====
+    private String requestId;
+    private LockRequest lock;
+    public String getRequestId() { return requestId; }
+    public void setRequestId(String id) { requestId=id; }
+    public LockRequest getLock() { return lock; }
+    public void setLock(LockRequest value) { lock=value; }
     private Long UID;                // 消息标识符（唯一）
     private String name;             // 消息名称（便于识别）
     private MessageType type;        // 消息类型（对应MessageType枚举）

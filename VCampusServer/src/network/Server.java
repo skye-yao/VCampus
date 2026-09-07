@@ -24,6 +24,7 @@ import service.ShopService;
  * @version 1.0
  */
 public class Server {
+    private final java.util.Set<Socket> clientSockets=java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     /**
      * 默认服务器端口。
@@ -98,6 +99,7 @@ public class Server {
 
         maintenanceExecutor.scheduleWithFixedDelay(() -> {
             try {
+                lock.ResourceLockManager.getInstance().removeExpired();
                 int count = shopMaintenanceService.expireUnpaidOrders();
                 if (count > 0) System.out.println("已自动关闭超时未支付订单：" + count + " 笔");
             } catch (Throwable e) {
@@ -115,6 +117,8 @@ public class Server {
 
                 // 等待客户端连接
                 Socket clientSocket = serverSocket.accept();
+                clientSockets.add(clientSocket);
+                if(!running){clientSockets.remove(clientSocket);clientSocket.close();break;}
 
                 System.out.println(
                         "收到客户端连接："
@@ -126,7 +130,8 @@ public class Server {
                         new ClientHandler(clientSocket);
 
                 // 交给服务端线程池处理
-                threadPool.execute(clientHandler);
+                try { threadPool.execute(()->{try{clientHandler.run();}finally{clientSockets.remove(clientSocket);}}); }
+                catch(java.util.concurrent.RejectedExecutionException busy) { clientSockets.remove(clientSocket);clientSocket.close(); }
             }
 
         } catch (IOException e) {
@@ -160,6 +165,8 @@ public class Server {
             }
         }
 
+        for(Socket client:clientSockets){try{client.close();}catch(IOException ignored){}}
+        clientSockets.clear();
         threadPool.shutdown();
         maintenanceExecutor.shutdownNow();
 

@@ -7,6 +7,16 @@
 }
 .information-review-heading { -fx-font-size: 18px; -fx-font-weight: bold; -fx-text-fill: #263d2c; }
 .information-review-title { -fx-font-size: 14px; -fx-font-weight: bold; -fx-text-fill: #344f3b; }
+.information-review-cancel {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-padding: 1 0 0 0;
+    -fx-font-size: 11px;
+    -fx-text-fill: #4b7653;
+    -fx-cursor: hand;
+}
+.information-review-cancel:hover { -fx-text-fill: #2f5d39; }
+.information-review-cancel:disabled { -fx-opacity: 0.55; }
 .information-review-note { -fx-font-size: 12px; -fx-text-fill: #78877c; }
 .information-review-step {
     -fx-background-color: white;

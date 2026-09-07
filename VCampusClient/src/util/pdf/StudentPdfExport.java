@@ -367,7 +367,7 @@ public final class StudentPdfExport {
             StudentAward award =
                     awards.get(i);
 
-            AwardRow row =
+            StudentPdfLayout.AwardRow row =
                     AWARD_ROWS.get(i);
 
             /*
@@ -439,7 +439,7 @@ public final class StudentPdfExport {
         int count = Math.min(experiences.size(), maintainedLimit);
         for (int i = 0; i < count; i++) {
             StudentExperience experience = experiences.get(i);
-            ExperienceRow row = EXPERIENCE_ROWS.get(i);
+            StudentPdfLayout.ExperienceRow row = EXPERIENCE_ROWS.get(i);
             String end = experience.getEndDate() == null ? "至今" : formatMonth(experience.getEndDate());
             drawTextFit(content, latinFont, cjkFont, row.dateRange(),
                     formatMonth(experience.getStartDate()) + " 至 " + end);
@@ -447,7 +447,7 @@ public final class StudentPdfExport {
             drawTextFit(content, latinFont, cjkFont, row.duty(), "学生");
         }
         if (student.getAdmissionDate() != null && count < EXPERIENCE_ROWS.size()) {
-            ExperienceRow row = EXPERIENCE_ROWS.get(count);
+            StudentPdfLayout.ExperienceRow row = EXPERIENCE_ROWS.get(count);
             drawTextFit(content, latinFont, cjkFont, row.dateRange(),
                     formatMonth(student.getAdmissionDate()) + " 至今");
             drawTextFit(content, latinFont, cjkFont, row.placeAndUnit(),
@@ -463,7 +463,7 @@ public final class StudentPdfExport {
         int count = Math.min(members.size(), SOCIAL_RELATION_ROWS.size());
         for (int i = 0; i < count; i++) {
             StudentFamilyMember member = members.get(i);
-            SocialRelationRow row = SOCIAL_RELATION_ROWS.get(i);
+            StudentPdfLayout.SocialRelationRow row = SOCIAL_RELATION_ROWS.get(i);
             drawTextFit(content, latinFont, cjkFont, row.name(), value(member.getName()));
             drawTextFit(content, latinFont, cjkFont, row.relation(), value(member.getRelationship()));
             drawTextFit(content, latinFont, cjkFont, row.workUnit(), value(member.getWorkplace()));
@@ -486,7 +486,7 @@ public final class StudentPdfExport {
             PDPageContentStream content,
             PDType0Font latinFont,
             PDType0Font cjkFont,
-            TextSlot slot,
+            StudentPdfLayout.TextSlot slot,
             String text) throws IOException {
 
         String safeText =

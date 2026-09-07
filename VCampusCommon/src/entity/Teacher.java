@@ -3,12 +3,8 @@ import java.io.Serializable;
 import java.sql.Date;
 public class Teacher implements Serializable {
     private static final long serialVersionUID=1L;
-    private String UID,teacherId,name,politicalStatus,nationality,gender,idType,idNumber,nativePlace,householdType,birthPlace,sourcePlace,registeredResidence,healthStatus,employmentStatus,campus,college,department,title,position,telephone,mobile,email,qq,wechat,officeAddress,emergencyContact,emergencyPhone;
-    private String education;
-    private Date employmentStartDate;
-    public String getEducation(){return education;} public void setEducation(String v){education=v;}
-    public Date getEmploymentStartDate(){return employmentStartDate;} public void setEmploymentStartDate(Date v){employmentStartDate=v;}
-    private Date idIssueDate,birthDate,partyJoinDate; private boolean partyMember,employed;
+    private String UID,teacherId,name,politicalStatus,nationality,gender,idType,idNumber,nativePlace,householdType,birthPlace,sourcePlace,registeredResidence,healthStatus,employmentStatus,campus,college,department,title,position,education,telephone,mobile,email,qq,wechat,officeAddress,emergencyContact,emergencyPhone;
+    private Date idIssueDate,birthDate,partyJoinDate,employmentStartDate; private boolean partyMember,employed;
     public String getUID(){return UID;} public void setUID(String v){UID=v;}
     public String getTeacherId(){return teacherId;} public void setTeacherId(String v){teacherId=v;}
     public String getName(){return name;} public void setName(String v){name=v;}
@@ -34,6 +30,8 @@ public class Teacher implements Serializable {
     public String getDepartment(){return department;} public void setDepartment(String v){department=v;}
     public String getTitle(){return title;} public void setTitle(String v){title=v;}
     public String getPosition(){return position;} public void setPosition(String v){position=v;}
+    public String getEducation(){return education;} public void setEducation(String v){education=v;}
+    public Date getEmploymentStartDate(){return employmentStartDate;} public void setEmploymentStartDate(Date v){employmentStartDate=v;}
     public String getTelephone(){return telephone;} public void setTelephone(String v){telephone=v;}
     public String getMobile(){return mobile;} public void setMobile(String v){mobile=v;}
     public String getEmail(){return email;} public void setEmail(String v){email=v;}

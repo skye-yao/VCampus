@@ -392,7 +392,7 @@
 .student-export-action:hover { -fx-background-color: #eef6f0; -fx-border-color: #73917a; }
 .student-export-action:disabled { -fx-opacity: 0.55; }
 .student-field-key { -fx-background-color: #f0f4f0; -fx-padding: 7px 9px; -fx-font-weight: bold; -fx-text-fill: #4b584b; -fx-min-width: 92px; }
-.student-field-value { -fx-padding: 7px 9px; -fx-text-fill: #231815; -fx-min-width: 175px; }
+.student-field-value { -fx-padding: 7px 9px; -fx-text-fill: #231815; -fx-min-width: 0; -fx-pref-width: 175px; }
 .student-statusbar { -fx-background-color: #ffffff; -fx-border-color: #dce5dc; -fx-border-width: 1px 0 0 0; }
 .student-edit-link { -fx-background-color: transparent; -fx-text-fill: #587558; -fx-font-size: 13px; -fx-font-weight: bold; -fx-padding: 4px 10px; -fx-cursor: hand; }
 .student-edit-link:hover { -fx-background-color: #eaf0ea; -fx-background-radius: 6px; }
@@ -412,6 +412,23 @@
 .record-date { -fx-font-size: 12px; -fx-text-fill: #a4a9ad; }
 .record-empty { -fx-font-size: 13px; -fx-text-fill: #9aa19c; -fx-padding: 12px 4px; }
 .student-search-bar { -fx-background-color: #ffffff; -fx-padding: 10px 12px; -fx-background-radius: 8px; -fx-border-radius: 8px; -fx-border-color: #dce5dc; }
+.search-clear-button { -fx-min-width: 28px; -fx-pref-width: 28px; -fx-max-width: 28px; -fx-min-height: 28px; -fx-pref-height: 28px; -fx-max-height: 28px; -fx-padding: 0; -fx-background-color: #ffffff; -fx-background-radius: 50%; -fx-border-color: #cbd7cd; -fx-border-radius: 50%; -fx-text-fill: #526257; -fx-font-size: 12px; -fx-cursor: hand; }
+.search-clear-button:hover { -fx-background-color: #edf3ee; -fx-border-color: #527257; }
+.admin-switch-button { -fx-background-color: #ffffff; -fx-background-radius: 8px; -fx-border-color: #527257; -fx-border-radius: 8px; -fx-text-fill: #3f6047; -fx-font-weight: bold; -fx-padding: 10px 12px; -fx-cursor: hand; }
+.admin-switch-button:hover { -fx-background-color: #e9f0ea; }
+.information-select-page { -fx-background-color: linear-gradient(to bottom right, #f4f7f4, #edf3ee); -fx-padding: 54px; }
+.information-select-panel { -fx-background-color: white; -fx-background-radius: 18px; -fx-border-color: #d7e2d8; -fx-border-radius: 18px; -fx-effect: dropshadow(gaussian, rgba(47,74,53,0.15), 24, 0.15, 0, 8); }
+.information-select-title { -fx-font-size: 30px; -fx-font-weight: bold; -fx-text-fill: #1f3023; }
+.information-select-subtitle { -fx-font-size: 15px; -fx-text-fill: #728077; }
+.information-choice-card { -fx-background-color: #f6f9f6; -fx-background-radius: 12px; -fx-border-color: #d9e4da; -fx-border-width: 1.5px; -fx-border-radius: 12px; -fx-padding: 22px 26px; -fx-cursor: hand; }
+.information-choice-card-primary { -fx-background-color: #f1f6f2; -fx-border-color: #527257; -fx-border-width: 2.5px; }
+.information-choice-card:hover { -fx-background-color: #eaf1eb; -fx-border-color: #527257; -fx-effect: dropshadow(gaussian, rgba(45,68,49,0.12), 10, 0.08, 0, 3); }
+.information-choice-title { -fx-font-size: 21px; -fx-font-weight: bold; -fx-text-fill: #31563a; }
+.information-choice-description { -fx-font-size: 15px; -fx-text-fill: #66786b; }
+.information-select-back { -fx-background-color: transparent; -fx-padding: 6px 10px; -fx-text-fill: #527257; -fx-font-size: 15px; -fx-cursor: hand; }
+.information-select-back:hover { -fx-background-color: #edf3ee; -fx-background-radius: 7px; -fx-underline: true; }
+.admin-information-title { -fx-font-size: 24px; -fx-font-weight: bold; }
+.admin-information-title-in-icon { -fx-font-size: 22px; -fx-font-weight: bold; -fx-text-fill: white; }
 .student-pagination { -fx-background-color: #ffffff; -fx-padding: 7px 10px; -fx-border-color: #dce5dc; -fx-border-width: 1px 0 0 0; }
 .page-button { -fx-background-color: #ffffff; -fx-border-color: #cbd4cb; -fx-border-radius: 6px; -fx-background-radius: 6px; -fx-padding: 5px 12px; -fx-cursor: hand; }
 .page-button:hover { -fx-background-color: #eaf0ea; -fx-border-color: #587558; }
@@ -722,4 +739,11 @@
 .source-warning {
     -fx-text-fill: #c0392b;
     -fx-font-size: 12px;
+}
+.student-review-changed-value {
+    -fx-background-color: #fff4cf;
+    -fx-background-radius: 5;
+    -fx-padding: 5 8;
+    -fx-font-weight: bold;
+    -fx-text-fill: #355d3b;
 }
