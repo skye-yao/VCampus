@@ -44,6 +44,7 @@ nbdist/
 # Logs and temporary files
 *.log
 logs/
+backups/library/
 *.tmp
 *.swp
 *.swo

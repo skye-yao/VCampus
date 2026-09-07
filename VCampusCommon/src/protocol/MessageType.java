@@ -19,63 +19,65 @@ USER_INFO_QUERY,//"查询用户信息",
 USER_INFO_UPDATE,//"修改用户信息",
 USER_PASSWORD_CHANGE,//"修改密码",
 USER_PASSWORD_RESET,// "重置密码"
-	
-//学生学籍管理
-STUDENT_OVERVIEW_QUERY,     // 学生查询本人学籍概览
-STUDENT_LIST,               // 管理员查询学生列表
-STUDENT_QUERY,              // 管理员查询指定学生完整信息   
 
-STUDENT_CHANGE_SUBMIT,      // 学生提交一份信息修改申请
-STUDENT_CHANGE_LIST,        // 学生查询自己的历史修改申请
-STUDENT_CHANGE_CANCEL,      // 学生撤销自己的待审核申请
+    //学生学籍管理
+    STUDENT_OVERVIEW_QUERY,     // 学生查询本人学籍概览
+    STUDENT_LIST,               // 管理员查询学生列表
+    STUDENT_QUERY,              // 管理员查询指定学生完整信息
 
-STUDENT_REVIEW_LIST,        // 管理员查询待审核申请列表
-STUDENT_REVIEW_QUERY,       // 管理员查询某一申请详情
-STUDENT_REVIEW,             // 管理员审核通过/驳
+    STUDENT_CHANGE_SUBMIT,      // 学生提交一份信息修改申请
+    STUDENT_CHANGE_LIST,        // 学生查询自己的历史修改申请
+    STUDENT_CHANGE_CANCEL,      // 学生撤销自己的待审核申请
 
-STUDENT_ADMIN_UPDATE,       // 管理员直接修改正式学籍
-STUDENT_EDIT_BEGIN,         // 学生或管理员进入学籍编辑状态
-STUDENT_EDIT_END,           // 学生或管理员退出学籍编辑状态
-STUDENT_AWARD_ADD,          // 新增奖励
-STUDENT_AWARD_UPDATE,       // 修改奖励
-STUDENT_AWARD_DELETE,       // 删除奖励
+    STUDENT_REVIEW_LIST,        // 管理员查询待审核申请列表
+    STUDENT_REVIEW_QUERY,       // 管理员查询某一申请详情
+    STUDENT_REVIEW,             // 管理员审核通过/驳
 
-STUDENT_AID_ADD,            // 新增资助
-STUDENT_AID_UPDATE,         // 修改资助
-STUDENT_AID_DELETE,          // 删除资助
-STUDENT_EXPERIENCE_ADD,
-STUDENT_FAMILY_MEMBER_ADD,
-STUDENT_EXPERIENCE_UPDATE,
-STUDENT_EXPERIENCE_DELETE,
-STUDENT_FAMILY_MEMBER_UPDATE,
-STUDENT_FAMILY_MEMBER_DELETE,
+    STUDENT_ADMIN_UPDATE,       // 管理员直接修改正式学籍
+    STUDENT_EDIT_BEGIN,         // 学生或管理员进入学籍编辑状态
+    STUDENT_EDIT_END,           // 学生或管理员退出学籍编辑状态
+    STUDENT_AWARD_ADD,          // 新增奖励
+    STUDENT_AWARD_UPDATE,       // 修改奖励
+    STUDENT_AWARD_DELETE,       // 删除奖励
 
-TEACHER_OVERVIEW_QUERY, TEACHER_DETAIL_QUERY, TEACHER_CHANGE_SUBMIT, TEACHER_CHANGE_LIST,
-TEACHER_LIST, TEACHER_QUERY, TEACHER_REVIEW_LIST, TEACHER_REVIEW_QUERY, TEACHER_REVIEW,
-TEACHER_ADMIN_UPDATE,
-TEACHER_FAMILY_MEMBER_ADD, TEACHER_FAMILY_MEMBER_UPDATE, TEACHER_FAMILY_MEMBER_DELETE,
-TEACHER_WORK_EXPERIENCE_ADD, TEACHER_WORK_EXPERIENCE_UPDATE, TEACHER_WORK_EXPERIENCE_DELETE,
+    STUDENT_AID_ADD,            // 新增资助
+    STUDENT_AID_UPDATE,         // 修改资助
+    STUDENT_AID_DELETE,          // 删除资助
+    STUDENT_EXPERIENCE_ADD,
+    STUDENT_FAMILY_MEMBER_ADD,
+    STUDENT_EXPERIENCE_UPDATE,
+    STUDENT_EXPERIENCE_DELETE,
+    STUDENT_FAMILY_MEMBER_UPDATE,
+    STUDENT_FAMILY_MEMBER_DELETE,
 
+    TEACHER_OVERVIEW_QUERY, TEACHER_DETAIL_QUERY, TEACHER_CHANGE_SUBMIT, TEACHER_CHANGE_LIST,
+    TEACHER_LIST, TEACHER_QUERY, TEACHER_REVIEW_LIST, TEACHER_REVIEW_QUERY, TEACHER_REVIEW,
+    TEACHER_ADMIN_UPDATE,
+    TEACHER_FAMILY_MEMBER_ADD, TEACHER_FAMILY_MEMBER_UPDATE, TEACHER_FAMILY_MEMBER_DELETE,
+    TEACHER_WORK_EXPERIENCE_ADD, TEACHER_WORK_EXPERIENCE_UPDATE, TEACHER_WORK_EXPERIENCE_DELETE,
 //选课
 
 
 // 图书馆
-LIBRARY_BOOK_SEARCH,              //"图书检索"
-LIBRARY_BOOK_DETAIL_QUERY,        //"查询图书详情"
-LIBRARY_BOOK_RESERVE,             //"图书预约"
-LIBRARY_MY_LIBRARY_QUERY,         //"查询我的图书馆信息"
-LIBRARY_BORROW_HISTORY_QUERY,     //"查询借阅历史"
-LIBRARY_CURRENT_BORROW_QUERY,     //"查询当前借阅信息"
-LIBRARY_RESERVATION_QUERY,        //"查询预约信息"
-LIBRARY_BOOK_REVIEW_QUERY,        //"查询图书评价"
-LIBRARY_BOOK_REVIEW_ADD,          //"发表图书评价"
-LIBRARY_BOOK_LOSS_REPORT,         //"图书挂失"
-LIBRARY_BOOK_LOSS_CANCEL,         //"解除图书挂失"
-LIBRARY_FINE_QUERY,               //"查询违章罚金"
-LIBRARY_FINE_PAY,                 //"违章缴费"
-LIBRARY_BOOK_ADD,                 //"图书上架"
-LIBRARY_BOOK_REMOVE,              //"图书下架"
-LIBRARY_BOOK_STATUS_QUERY,         //"查询图书状态"
+LIBRARY_BOOK_SEARCH,              // 图书检索：书名/作者/ISBN
+LIBRARY_BOOK_DETAIL_QUERY,        // 查询图书详情
+LIBRARY_BOOK_RESERVE,             // 图书预约
+LIBRARY_MY_LIBRARY_QUERY,         // 查询我的图书馆信息
+LIBRARY_BORROW_HISTORY_QUERY,     // 查询借阅历史
+LIBRARY_CURRENT_BORROW_QUERY,     // 查询当前借阅信息
+LIBRARY_RESERVATION_QUERY,        // 查询预约信息
+LIBRARY_BOOK_REVIEW_QUERY,        // 查询图书评价
+LIBRARY_BOOK_REVIEW_ADD,          // 发表图书评价
+LIBRARY_BOOK_REVIEW_DELETE,       // 删除图书评价
+LIBRARY_BOOK_LOSS_REPORT,         // 图书挂失
+LIBRARY_BOOK_LOSS_CANCEL,         // 解除图书挂失
+LIBRARY_FINE_QUERY,               // 查询违章罚金
+LIBRARY_FINE_PAY,                 // 违章缴费
+LIBRARY_BOOK_ADD,                 // 图书上架
+LIBRARY_BOOK_UPDATE,              // 修改图书信息
+LIBRARY_BOOK_REMOVE,              // 图书下架
+LIBRARY_BOOK_STATUS_QUERY,        // 查询图书状态
+
 
 // 商店
 SHOP_PRODUCT_LIST,                  // 查询商品列表

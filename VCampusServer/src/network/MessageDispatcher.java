@@ -9,6 +9,7 @@ import handler.TeacherHandler;
 import handler.ShopHandler;
 import handler.BankHandler;
 import service.BankService;
+import handler.LibraryHandler;
 
 /**
  * 服务端消息分发器
@@ -27,6 +28,7 @@ public class MessageDispatcher {
     private final ShopHandler shopHandler;
     private final BankHandler bankHandler;
     private final handler.AiHandler aiHandler;
+    private final LibraryHandler libraryHandler;
   
     public MessageDispatcher() {
         this.userHandler = new UserHandler();
@@ -36,6 +38,7 @@ public class MessageDispatcher {
         this.shopHandler = new ShopHandler(bankService);
         this.bankHandler = new BankHandler(bankService);
         this.aiHandler = new handler.AiHandler(bankService);
+        this.libraryHandler = new LibraryHandler();
     }
 
     /**
@@ -57,6 +60,8 @@ public class MessageDispatcher {
         // 根据模块分发
         if ("user".equalsIgnoreCase(module)) {
             return userHandler.handle(request);
+        }else if ("library".equalsIgnoreCase(module)) {
+                return libraryHandler.handle(request);
         } else if ("student".equalsIgnoreCase(module)) {
             return studentHandler.handle(request);
         } else if ("teacher".equalsIgnoreCase(module)) {

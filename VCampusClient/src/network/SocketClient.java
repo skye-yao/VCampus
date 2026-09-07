@@ -8,6 +8,7 @@ import java.net.Socket;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
+
 import com.google.gson.Gson;
 
 import protocol.Message;
@@ -22,6 +23,7 @@ import session.ClientSession;
 public class SocketClient {
 
     private static final SocketClient INSTANCE = new SocketClient();
+
 
     /** 默认服务器地址 */
     private static final String DEFAULT_HOST = "127.0.0.1";

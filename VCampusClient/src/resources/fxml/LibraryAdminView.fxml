@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<SplitPane dividerPositions="0.58" xmlns="http://javafx.com/javafx/17" xmlns:fx="http://javafx.com/fxml/1"
+           fx:controller="controller.LibraryAdminController">
+    <items>
+        <VBox spacing="9.0" styleClass="content-pane">
+            <padding><Insets bottom="12.0" left="12.0" right="8.0" top="12.0"/></padding>
+            <HBox spacing="8.0">
+                <TextField fx:id="adminSearchField" onAction="#handleAdminSearch" promptText="搜索馆藏" HBox.hgrow="ALWAYS"/>
+                <Button onAction="#handleAdminSearch" styleClass="btn-primary" text="搜索"/>
+                <Button onAction="#handleAdminRecords" styleClass="btn-secondary" text="业务名单"/>
+            </HBox>
+            <TableView fx:id="adminBookTable" VBox.vgrow="ALWAYS">
+                <columns>
+                    <TableColumn fx:id="adminIdColumn" maxWidth="55.0" text="编号"/>
+                    <TableColumn fx:id="adminNameColumn" text="书名"/>
+                    <TableColumn fx:id="adminAuthorColumn" text="作者"/>
+                    <TableColumn fx:id="adminIsbnColumn" text="ISBN"/>
+                    <TableColumn fx:id="adminStatusColumn" maxWidth="65.0" text="状态"/>
+                </columns>
+            </TableView>
+        </VBox>
+        <ScrollPane fitToWidth="true" hbarPolicy="NEVER">
+        <content>
+        <VBox spacing="7.0" styleClass="admin-form">
+            <padding><Insets bottom="18.0" left="18.0" right="18.0" top="18.0"/></padding>
+            <Label styleClass="panel-title" text="图书信息"/>
+            <Label text="图书编号（数据库生成，允许跳号）"/><TextField fx:id="idField" editable="false" promptText="新增时自动生成，不按图书数量编号"/>
+            <Label text="ISBN *"/><TextField fx:id="isbnField"/>
+            <Label text="书名 *"/><TextField fx:id="nameField"/>
+            <Label text="作者 *"/><TextField fx:id="authorField"/>
+            <Label text="出版社"/><TextField fx:id="publisherField"/>
+            <Label text="状态"/><ComboBox fx:id="statusCombo" maxWidth="Infinity"/>
+            <Region VBox.vgrow="ALWAYS"/>
+            <GridPane hgap="8.0" vgap="8.0">
+                <columnConstraints><ColumnConstraints percentWidth="50.0"/><ColumnConstraints percentWidth="50.0"/></columnConstraints>
+                <Button maxWidth="Infinity" onAction="#handleAddBook" styleClass="btn-primary" text="新增上架" GridPane.columnIndex="0" GridPane.rowIndex="0"/>
+                <Button maxWidth="Infinity" onAction="#handleUpdateBook" styleClass="btn-secondary" text="保存修改" GridPane.columnIndex="1" GridPane.rowIndex="0"/>
+                <Button maxWidth="Infinity" onAction="#handleQueryStatus" styleClass="btn-secondary" text="查询状态" GridPane.columnIndex="0" GridPane.rowIndex="1"/>
+                <Button maxWidth="Infinity" onAction="#handleRemoveBook" styleClass="btn-danger-soft" text="下架图书" GridPane.columnIndex="1" GridPane.rowIndex="1"/>
+            </GridPane>
+            <Button maxWidth="Infinity" onAction="#handleClearForm" text="清空表单"/>
+        </VBox>
+        </content>
+        </ScrollPane>
+    </items>
+</SplitPane>
