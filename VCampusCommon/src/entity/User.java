@@ -43,7 +43,7 @@ public class User implements Serializable {
     /** 头像Base64编码*/
     private  String avatar;
 
-    /** 电子钱包余额 */
+    /** 校园账户余额镜像；主数据存放于校园银行账户表。 */
     private BigDecimal balance;
 
     public User() {

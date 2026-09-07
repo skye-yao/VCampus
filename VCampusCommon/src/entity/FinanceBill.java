@@ -8,6 +8,7 @@ public class FinanceBill implements Serializable {
     private static final long serialVersionUID = 1L;
     private Long billId;
     private String userId;
+    private String userName;
     private String billType;
     private String title;
     private BigDecimal amount;
@@ -20,6 +21,8 @@ public class FinanceBill implements Serializable {
     public void setBillId(Long billId) { this.billId = billId; }
     public String getUserId() { return userId; }
     public void setUserId(String userId) { this.userId = userId; }
+    public String getUserName() { return userName; }
+    public void setUserName(String userName) { this.userName = userName; }
     public String getBillType() { return billType; }
     public void setBillType(String billType) { this.billType = billType; }
     public String getTitle() { return title; }

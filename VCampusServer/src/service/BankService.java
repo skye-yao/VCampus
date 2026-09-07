@@ -68,10 +68,25 @@ public class BankService implements IBankPaymentService {
         validateNewPassword(newPassword);
         try (Connection conn = DBUtil.getConnection()) {
             BankAccount account = requireAccount(conn, userId, true);
+            requireActive(account);
             verifyPaymentPassword(conn, account, oldPassword);
             savePassword(conn, account.getAccountId(), newPassword);
         } catch (SQLException e) {
             throw new DatabaseException("修改支付密码失败", e);
+        }
+    }
+
+    /** 管理员清除锁定状态和旧密码，用户下次进入支付安全页后自行设置新密码。 */
+    public void resetPaymentPassword(boolean admin, String targetUserId) {
+        if (!admin) throw new BusinessException("仅管理员可以重置支付密码");
+        if (targetUserId == null || targetUserId.isBlank()) throw new BusinessException("请输入要重置的用户编号");
+        try (Connection conn = DBUtil.getConnection()) {
+            BankAccount account = requireAccount(conn, targetUserId.trim(), true);
+            if (!accountDAO.requirePasswordReset(conn, account.getAccountId())) {
+                throw new BusinessException("重置支付密码失败");
+            }
+        } catch (SQLException e) {
+            throw new DatabaseException("重置支付密码失败", e);
         }
     }
 
@@ -106,8 +121,12 @@ public class BankService implements IBankPaymentService {
             verifyPaymentPassword(conn, source, paymentPassword);
             if (source.getBalance().compareTo(amount) < 0) throw new BusinessException("账户余额不足");
 
-            accountDAO.changeBalance(conn, source.getAccountId(), amount.negate());
-            accountDAO.changeBalance(conn, target.getAccountId(), amount);
+            if (!accountDAO.changeBalance(conn, source.getAccountId(), amount.negate())) {
+                throw new BusinessException("转出账户扣款失败，请刷新后重试");
+            }
+            if (!accountDAO.changeBalance(conn, target.getAccountId(), amount)) {
+                throw new BusinessException("收款账户入账失败，请刷新后重试");
+            }
             String txNo = newTransactionNo();
             insertTransaction(conn, txNo, source, target.getUserId(), BankTransactionType.TRANSFER_OUT,
                     amount.negate(), source.getBalance().subtract(amount), null, requestId,
@@ -125,32 +144,65 @@ public class BankService implements IBankPaymentService {
     }
 
     public List<FinanceBill> listBills(String userId, boolean admin) {
+        return listBills(userId, admin, null, null, null);
+    }
+
+    public List<FinanceBill> listBills(String userId, boolean admin, String keyword,
+                                       String billType, String status) {
         try (Connection conn = DBUtil.getConnection()) {
-            return financeDAO.findBills(conn, userId, admin);
+            return financeDAO.findBills(conn, userId, admin, keyword, billType, status);
         } catch (SQLException e) { throw new DatabaseException("查询校园账单失败", e); }
     }
 
+    public Map<String, Object> billStatistics(boolean admin) {
+        if (!admin) throw new BusinessException("仅管理员可以查看缴费统计");
+        try (Connection conn = DBUtil.getConnection()) { return financeDAO.billStatistics(conn); }
+        catch (SQLException e) { throw new DatabaseException("查询缴费统计失败", e); }
+    }
+
     public String payBill(String userId, long billId, String paymentPassword, String requestId) {
+        requireRequestId(requestId);
+        if (FINANCE_ACCOUNT_USER_ID.equals(userId)) {
+            throw new BusinessException("校园财务账户不能向自身缴费");
+        }
         Connection conn = null;
         try {
             conn = DBUtil.getConnection(); conn.setAutoCommit(false);
             FinanceBill bill = financeDAO.findBillForUpdate(conn, billId);
             if (bill == null || !userId.equals(bill.getUserId())) throw new BusinessException("账单不存在或无权支付");
-            BankAccount account = requireAccount(conn, userId, true); requireActive(account);
+            BankAccount userPreview = requireAccount(conn, userId, false);
+            BankAccount financePreview = requireAccount(conn, FINANCE_ACCOUNT_USER_ID, false);
             BankTransaction duplicate = transactionDAO.findByRequestId(conn, requestId);
             if (duplicate != null) {
-                validateDuplicate(duplicate, account.getAccountId(), BankTransactionType.TUITION_PAYMENT,
+                validateDuplicate(duplicate, userPreview.getAccountId(), BankTransactionType.TUITION_PAYMENT,
                         bill.getAmount().negate(), null);
                 conn.commit(); return duplicate.getTransactionNo();
             }
             if (!"UNPAID".equals(bill.getStatus())) throw new BusinessException("该账单不是待缴费状态");
+
+            String firstUser = userPreview.getAccountId() < financePreview.getAccountId()
+                    ? userId : FINANCE_ACCOUNT_USER_ID;
+            String secondUser = firstUser.equals(userId) ? FINANCE_ACCOUNT_USER_ID : userId;
+            BankAccount firstLocked = requireAccount(conn, firstUser, true);
+            BankAccount secondLocked = requireAccount(conn, secondUser, true);
+            BankAccount account = firstUser.equals(userId) ? firstLocked : secondLocked;
+            BankAccount financeAccount = firstUser.equals(userId) ? secondLocked : firstLocked;
+            requireActive(account);
+            requireActive(financeAccount);
             verifyPaymentPassword(conn, account, paymentPassword);
             BigDecimal amount = normalizeAmount(bill.getAmount());
-            if (account.getBalance().compareTo(amount) < 0) throw new BusinessException("校园银行账户余额不足");
+            if (account.getBalance().compareTo(amount) < 0) throw new BusinessException("校园账户余额不足");
             if (!accountDAO.changeBalance(conn, account.getAccountId(), amount.negate())) throw new BusinessException("账单扣款失败");
+            if (!accountDAO.changeBalance(conn, financeAccount.getAccountId(), amount)) {
+                throw new BusinessException("校园缴费收入记入财务账户失败");
+            }
             String txNo = newTransactionNo();
             insertTransaction(conn, txNo, account, null, BankTransactionType.TUITION_PAYMENT,
                     amount.negate(), account.getBalance().subtract(amount), null, requestId, bill.getTitle());
+            insertTransaction(conn, newTransactionNo(), financeAccount, account.getUserId(),
+                    BankTransactionType.CAMPUS_FEE_INCOME, amount,
+                    financeAccount.getBalance().add(amount), null, null,
+                    "收到 " + account.getUserId() + " 缴纳：" + bill.getTitle());
             if (!financeDAO.markBillPaid(conn, billId, txNo)) throw new BusinessException("账单状态已经变化");
             conn.commit(); return txNo;
         } catch (BusinessException e) { rollback(conn); throw e;
@@ -176,7 +228,7 @@ public class BankService implements IBankPaymentService {
     }
 
     public Map<String, Object> reviewReimbursement(String reviewerId, boolean admin, long id,
-                                                    boolean approved, String comment) {
+                                                     boolean approved, String comment, String paymentPassword) {
         if (!admin) throw new BusinessException("仅管理员可以审核报销");
         Connection conn = null;
         try {
@@ -202,6 +254,7 @@ public class BankService implements IBankPaymentService {
                 BankAccount financeAccount = firstUser.equals(reviewerId) ? firstLocked : secondLocked;
                 BankAccount applicantAccount = firstUser.equals(reviewerId) ? secondLocked : firstLocked;
                 requireActive(financeAccount); requireActive(applicantAccount);
+                verifyPaymentPassword(conn, financeAccount, paymentPassword);
                 if (financeAccount.getBalance().compareTo(item.getAmount()) < 0) {
                     throw new BusinessException("校园财务账户余额不足，无法支付报销款");
                 }
@@ -354,7 +407,7 @@ public class BankService implements IBankPaymentService {
             requireActive(financeAccount);
 
             if (account.getBalance().compareTo(amount) < 0) {
-                throw new BusinessException("校园银行账户余额不足以支付AI问答Token费用");
+                throw new BusinessException("校园账户余额不足以支付AI问答Token费用");
             }
 
             if (!accountDAO.changeBalance(conn, account.getAccountId(), amount.negate())) {

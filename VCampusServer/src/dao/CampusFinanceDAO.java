@@ -5,18 +5,56 @@ import entity.Reimbursement;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.LinkedHashMap;
 
 /** 学费账单与报销申请数据访问。 */
 public class CampusFinanceDAO {
     public List<FinanceBill> findBills(Connection conn, String userId, boolean admin) throws SQLException {
-        String sql = "SELECT * FROM tbl_finance_bill" + (admin ? "" : " WHERE user_id=?") + " ORDER BY bill_id DESC";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            if (!admin) stmt.setString(1, userId);
+        return findBills(conn, userId, admin, null, null, null);
+    }
+
+    public List<FinanceBill> findBills(Connection conn, String userId, boolean admin,
+                                       String keyword, String billType, String status) throws SQLException {
+        StringBuilder sql = new StringBuilder(
+                "SELECT b.*,u.name AS user_name FROM tbl_finance_bill b JOIN tbl_user u ON u.UID=b.user_id WHERE 1=1");
+        List<Object> params = new ArrayList<>();
+        if (!admin) { sql.append(" AND b.user_id=?"); params.add(userId); }
+        if (admin && keyword != null && !keyword.isBlank()) {
+            sql.append(" AND (b.user_id LIKE ? OR u.name LIKE ? OR b.title LIKE ?)");
+            String value = "%" + keyword.trim() + "%";
+            params.add(value); params.add(value); params.add(value);
+        }
+        if (billType != null && !billType.isBlank()) { sql.append(" AND b.bill_type=?"); params.add(billType); }
+        if (status != null && !status.isBlank()) { sql.append(" AND b.status=?"); params.add(status); }
+        sql.append(" ORDER BY b.bill_id DESC");
+        try (PreparedStatement stmt = conn.prepareStatement(sql.toString())) {
+            for (int i = 0; i < params.size(); i++) stmt.setObject(i + 1, params.get(i));
             try (ResultSet rs = stmt.executeQuery()) {
                 List<FinanceBill> result = new ArrayList<>();
                 while (rs.next()) result.add(mapBill(rs));
                 return result;
             }
+        }
+    }
+
+    /** 统计有账单用户中已全部缴清的人数，并同时返回账单数量。 */
+    public Map<String, Object> billStatistics(Connection conn) throws SQLException {
+        String sql = "SELECT COUNT(*) total_people," +
+                "COALESCE(SUM(unpaid_count=0),0) fully_paid_people," +
+                "COALESCE(SUM(total_bills),0) total_bills," +
+                "COALESCE(SUM(paid_bills),0) paid_bills FROM (" +
+                "SELECT user_id,SUM(status='UNPAID') unpaid_count,COUNT(*) total_bills," +
+                "SUM(status='PAID') paid_bills FROM tbl_finance_bill " +
+                "WHERE status<>'CANCELLED' GROUP BY user_id) x";
+        try (PreparedStatement stmt = conn.prepareStatement(sql); ResultSet rs = stmt.executeQuery()) {
+            rs.next();
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("totalPeople", rs.getLong("total_people"));
+            result.put("fullyPaidPeople", rs.getLong("fully_paid_people"));
+            result.put("totalBills", rs.getLong("total_bills"));
+            result.put("paidBills", rs.getLong("paid_bills"));
+            return result;
         }
     }
 
@@ -80,6 +118,7 @@ public class CampusFinanceDAO {
     private FinanceBill mapBill(ResultSet rs) throws SQLException {
         FinanceBill bill = new FinanceBill();
         bill.setBillId(rs.getLong("bill_id")); bill.setUserId(rs.getString("user_id"));
+        try { bill.setUserName(rs.getString("user_name")); } catch (SQLException ignored) { }
         bill.setBillType(rs.getString("bill_type")); bill.setTitle(rs.getString("title"));
         bill.setAmount(rs.getBigDecimal("amount")); bill.setStatus(rs.getString("status"));
         bill.setDueDate(String.valueOf(rs.getDate("due_date")));

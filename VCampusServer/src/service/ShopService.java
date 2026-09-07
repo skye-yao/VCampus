@@ -5,6 +5,7 @@ import dao.OrderItemDAO;
 import dao.ProductDAO;
 import dao.ShopOrderDAO;
 import dao.ShopRefundDAO;
+import dao.ShopOperationLogDAO;
 import entity.CartItem;
 import entity.OrderItem;
 import entity.Product;
@@ -36,6 +37,7 @@ public class ShopService {
     private final ShopOrderDAO shopOrderDAO = new ShopOrderDAO();
     private final OrderItemDAO orderItemDAO = new OrderItemDAO();
     private final ShopRefundDAO shopRefundDAO = new ShopRefundDAO();
+    private final ShopOperationLogDAO operationLogDAO = new ShopOperationLogDAO();
     private final IBankPaymentService bankPaymentService;
 
     public ShopService() {
@@ -298,7 +300,7 @@ public class ShopService {
         } finally { resetAndClose(conn); }
     }
 
-    public Map<String, Object> createProduct(Product product, boolean admin) {
+    public Map<String, Object> createProduct(String operatorId, Product product, boolean admin) {
         requireAdmin(admin);
         validateProduct(product, false);
         Connection conn = null;
@@ -310,7 +312,10 @@ public class ShopService {
                 throw new BusinessException("商品名称已存在，请修改原商品或使用其他名称");
             }
             Map<String,Object> result = new LinkedHashMap<>();
-            result.put("productId", productDAO.insert(conn, product));
+            long productId = productDAO.insert(conn, product);
+            result.put("productId", productId);
+            operationLogDAO.insert(conn, operatorId, "PRODUCT_CREATE", "PRODUCT", productId,
+                    null, productSnapshot(product), "新增商品并默认上架");
             conn.commit(); return result;
         } catch (BusinessException e) {
             rollback(conn); throw e;
@@ -368,52 +373,90 @@ public class ShopService {
                     || !shopRefundDAO.review(conn, refundId, targetRefund, reviewerId, comment, refundTx)) {
                 throw new BusinessException("退款状态已经变化，请刷新后重试");
             }
+            operationLogDAO.insert(conn, reviewerId, approved ? "REFUND_APPROVE" : "REFUND_REJECT",
+                    "REFUND", refundId, "status=APPLIED,orderStatus=REFUNDING",
+                    "status=" + targetRefund.getCode() + ",orderStatus=" + targetOrder.getCode(), comment);
             conn.commit();
         } catch (BusinessException e) { rollback(conn); throw e;
         } catch (SQLException e) { rollback(conn); throw new DatabaseException("审核退款失败", e);
         } finally { resetAndClose(conn); }
     }
 
-    public void updateProduct(Product product, boolean admin) {
+    public void updateProduct(String operatorId, Product product, boolean admin) {
         requireAdmin(admin);
         validateProduct(product, true);
+        Connection conn = null;
         try {
-            try (Connection conn = DBUtil.getConnection()) {
-                if (productDAO.findByName(conn, product.getProductName(), product.getProductId()) != null) {
-                    throw new BusinessException("商品名称已存在，不能修改为重名商品");
-                }
+            conn = DBUtil.getConnection(); conn.setAutoCommit(false);
+            Product before = productDAO.findById(conn, product.getProductId(), true);
+            if (before == null) throw new BusinessException("商品不存在");
+            if (productDAO.findByName(conn, product.getProductName(), product.getProductId()) != null) {
+                throw new BusinessException("商品名称已存在，不能修改为重名商品");
             }
-            if (!productDAO.update(product)) throw new BusinessException("商品已被其他管理员修改，请刷新后重试");
+            if (!productDAO.update(conn, product)) throw new BusinessException("商品已被其他管理员修改，请刷新后重试");
+            operationLogDAO.insert(conn, operatorId, "PRODUCT_UPDATE", "PRODUCT", product.getProductId(),
+                    productSnapshot(before), productSnapshot(product), "修改商品基本信息");
+            conn.commit();
+        } catch (BusinessException e) {
+            rollback(conn); throw e;
         } catch (SQLException e) {
+            rollback(conn);
             if ("23000".equals(e.getSQLState())) {
                 throw new BusinessException("商品名称已存在，不能保存重名商品");
             }
             throw new DatabaseException("修改商品失败", e);
-        }
+        } finally { resetAndClose(conn); }
     }
 
-    public void changeProductStatus(long productId, ProductStatus status, int expectedVersion, boolean admin) {
+    public void changeProductStatus(String operatorId, long productId, ProductStatus status, int expectedVersion, boolean admin) {
         requireAdmin(admin);
         if (status == null) throw new BusinessException("商品状态不正确");
+        Connection conn = null;
         try {
-            if (!productDAO.changeStatus(productId, status, expectedVersion)) {
+            conn = DBUtil.getConnection(); conn.setAutoCommit(false);
+            Product before = productDAO.findById(conn, productId, true);
+            if (before == null) throw new BusinessException("商品不存在");
+            if (!productDAO.changeStatus(conn, productId, status, expectedVersion)) {
                 throw new BusinessException("商品已被其他管理员修改，请刷新后重试");
             }
+            operationLogDAO.insert(conn, operatorId, "PRODUCT_STATUS_CHANGE", "PRODUCT", productId,
+                    "status=" + before.getStatus().getCode(), "status=" + status.getCode(),
+                    status == ProductStatus.ON_SALE ? "上架商品" : "下架商品");
+            conn.commit();
+        } catch (BusinessException e) {
+            rollback(conn); throw e;
         } catch (SQLException e) {
+            rollback(conn);
             throw new DatabaseException("修改商品状态失败", e);
-        }
+        } finally { resetAndClose(conn); }
     }
 
-    public void updateProductStock(long productId, int stock, int expectedVersion, boolean admin) {
+    public void updateProductStock(String operatorId, long productId, int stock, int expectedVersion, boolean admin) {
         requireAdmin(admin);
         if (stock < 0) throw new BusinessException("库存不能小于0");
+        Connection conn = null;
         try {
-            if (!productDAO.updateStock(productId, stock, expectedVersion)) {
+            conn = DBUtil.getConnection(); conn.setAutoCommit(false);
+            Product before = productDAO.findById(conn, productId, true);
+            if (before == null) throw new BusinessException("商品不存在");
+            if (!productDAO.updateStock(conn, productId, stock, expectedVersion)) {
                 throw new BusinessException("库存已被其他操作修改，请刷新后重试");
             }
+            operationLogDAO.insert(conn, operatorId, "PRODUCT_STOCK_UPDATE", "PRODUCT", productId,
+                    "stock=" + before.getStock(), "stock=" + stock, "调整商品库存");
+            conn.commit();
+        } catch (BusinessException e) {
+            rollback(conn); throw e;
         } catch (SQLException e) {
+            rollback(conn);
             throw new DatabaseException("调整库存失败", e);
-        }
+        } finally { resetAndClose(conn); }
+    }
+
+    public List<entity.ShopOperationLog> listOperationLogs(int limit, boolean admin) {
+        requireAdmin(admin);
+        try { return operationLogDAO.findLatest(limit); }
+        catch (SQLException e) { throw new DatabaseException("查询商店操作日志失败", e); }
     }
 
     /**
@@ -458,6 +501,14 @@ public class ShopService {
         }
         if (product.getStock() == null || product.getStock() < 0) throw new BusinessException("库存不能小于0");
         if (requireId && product.getVersion() == null) throw new BusinessException("商品版本不能为空");
+    }
+
+    private String productSnapshot(Product product) {
+        if (product == null) return null;
+        return "name=" + product.getProductName() + ",category=" + product.getCategory()
+                + ",price=" + product.getPrice() + ",stock=" + product.getStock()
+                + ",status=" + (product.getStatus() == null ? null : product.getStatus().getCode())
+                + ",version=" + product.getVersion();
     }
 
     private void checkOrderOwner(ShopOrder order, String userId, boolean admin) {

@@ -11,6 +11,7 @@ public enum BankTransactionType {
     SHOP_REFUND("商店退款"),
     SHOP_REFUND_PAYOUT("商店退款支出"),
     TUITION_PAYMENT("学费缴纳"),
+    CAMPUS_FEE_INCOME("校园缴费收入"),
     REIMBURSEMENT_PAYOUT("报销支出"),
     REIMBURSEMENT("报销入账"),
     GRANT("补助发放"),

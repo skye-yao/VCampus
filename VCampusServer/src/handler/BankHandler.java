@@ -34,6 +34,8 @@ public class BankHandler {
                 case "BANK_PASSWORD_SET" -> bankService.setPaymentPassword(session.getUsername(), string(request, "newPassword"));
                 case "BANK_PASSWORD_CHANGE" -> bankService.changePaymentPassword(session.getUsername(),
                         string(request, "oldPassword"), string(request, "newPassword"));
+                case "BANK_PASSWORD_RESET" -> bankService.resetPaymentPassword(admin,
+                        string(request, "targetUserId"));
                 case "BANK_TRANSACTION_LIST" -> response.putData("transactions",
                         bankService.listTransactions(session.getUsername(), integer(request, "limit", 100)));
                 case "BANK_TRANSFER" -> response.putData("transactionNo", bankService.transfer(
@@ -41,7 +43,9 @@ public class BankHandler {
                         new BigDecimal(string(request, "amount")), string(request, "paymentPassword"),
                         string(request, "requestId")));
                 case "FINANCE_BILL_MY_LIST", "FINANCE_BILL_ALL_LIST" -> response.putData("bills",
-                        bankService.listBills(session.getUsername(), admin && "FINANCE_BILL_ALL_LIST".equals(action)));
+                        bankService.listBills(session.getUsername(), admin && "FINANCE_BILL_ALL_LIST".equals(action),
+                                string(request, "keyword"), string(request, "billType"), string(request, "status")));
+                case "FINANCE_REPORT_QUERY" -> response.setData(bankService.billStatistics(admin));
                 case "FINANCE_BILL_PAY" -> response.putData("transactionNo", bankService.payBill(
                         session.getUsername(), number(request, "billId"), string(request, "paymentPassword"),
                         string(request, "requestId")));
@@ -52,7 +56,8 @@ public class BankHandler {
                         response.putData("reimbursements", bankService.listReimbursements(session.getUsername(), admin));
                 case "FINANCE_REIMBURSEMENT_REVIEW" -> response.setData(bankService.reviewReimbursement(
                         session.getUsername(), admin, number(request, "reimbursementId"),
-                        Boolean.parseBoolean(string(request, "approved")), string(request, "comment")));
+                        Boolean.parseBoolean(string(request, "approved")), string(request, "comment"),
+                        string(request, "paymentPassword")));
                 default -> throw new BusinessException("暂不支持的银行操作：" + request.getAction());
             }
             response.setCode(MessageCode.SUCCESS);

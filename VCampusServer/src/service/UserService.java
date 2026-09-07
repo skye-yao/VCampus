@@ -59,7 +59,7 @@ public class UserService {
             throw new BusinessException("密码错误，请重新输入");
         }
 
-        // 登录成功时，将学籍系统（学院、专业、姓名、性别）及银行余额数据同步到 tbl_user
+        // 登录成功时，将学籍资料和校园账户余额镜像同步到 tbl_user
         userDAO.syncUserInfo(user.getUID());
 
         // 登录成功，创建 Session
@@ -68,7 +68,7 @@ public class UserService {
     }
 
     /**
-     * 获取用户信息 (脱敏，去除密码和盐值，获取前先同步最新学籍与银行数据)
+     * 获取用户信息（脱敏，去除密码和盐值；获取前同步学籍和校园账户余额镜像）
      */
     public User getUserInfo(String UID) throws BusinessException, DatabaseException {
         try {
@@ -257,7 +257,7 @@ public class UserService {
         user.setMajor("");
         user.setPhone(phone);
         user.setEmail("");
-        user.setBalance(new java.math.BigDecimal("1000.00"));
+        user.setBalance(new java.math.BigDecimal("1500.00"));
 
         try {
             userDAO.register(user);

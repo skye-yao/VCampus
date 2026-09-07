@@ -29,7 +29,7 @@
  *     private String name;     // 姓名
  *     private String role;     // 角色
  *     // 没有 password（敏感信息不发给客户端）
- *     // 没有 balance（余额由银行模块单独返回）
+ *     // 没有 balance（校园账户余额由银行模块统一返回）
  * }
  * </pre>
  *

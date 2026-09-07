@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS `tbl_user` (
     `phone` VARCHAR(20) DEFAULT '' COMMENT '电话',
     `email` VARCHAR(100) DEFAULT '' COMMENT '邮箱',
     `avatar` LONGTEXT DEFAULT NULL COMMENT '头像图片Base64编码',
-    `balance` DECIMAL(10,2) DEFAULT 0.00 COMMENT '一卡通余额',
+    `balance` DECIMAL(12,2) DEFAULT 1500.00 COMMENT '校园账户余额镜像，主余额见tbl_bank_account',
     `create_time` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     PRIMARY KEY (`UID`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户基本信息表';
@@ -32,22 +32,26 @@ PREPARE avatar_stmt FROM @avatar_ddl;
 EXECUTE avatar_stmt;
 DEALLOCATE PREPARE avatar_stmt;
 
+-- 普通用户的校园账户统一采用1500元开户余额，并让镜像字段与银行主余额精度一致。
+ALTER TABLE `tbl_user` MODIFY COLUMN `balance` DECIMAL(12,2) DEFAULT 1500.00
+    COMMENT '校园账户余额镜像，主余额见tbl_bank_account';
+
 -- 插入默认测试数据（明文密码统一为 123456）
 -- salt: 'dGVzdHNhbHQxMjM0NTY='
 -- hash: PasswordUtil.hashPassword("123456", "dGVzdHNhbHQxMjM0NTY=")
 INSERT INTO `tbl_user` (`UID`, `name`, `gender`, `password`, `salt`, `role`, `college`, `major`, `phone`, `email`, `balance`)
 VALUES 
-('213242789', '张三', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '计算机科学与工程学院', '计算机科学与技术', '13800138000', 'zhangsan@seu.edu.cn', 32850),
-('213242790', '李雨桐', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '电子科学与工程学院', '信息工程', '13800138001', 'liyutong@seu.edu.cn', 1200),
-('213242791', '王浩然', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '机械工程学院', '机器人工程', '13800138002', 'wanghaoran@seu.edu.cn', 860),
-('213242792', '陈思远', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '建筑学院', '城乡规划', '13800138003', 'chensiyuan@seu.edu.cn', 2300),
-('213242793', '周可欣', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '经济管理学院', '金融学', '13800138004', 'zhouke@seu.edu.cn', 500),
-('213242794', '赵子墨', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '交通学院', '交通运输', '13800138005', 'zhaozimo@seu.edu.cn', 1100),
-('223242801', '孙婉清', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '外国语学院', '英语', '13800138006', 'sunwanqing@seu.edu.cn', 760),
-('223242802', '吴承宇', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '计算机科学与工程学院', '人工智能', '13800138007', 'wuchengyu@seu.edu.cn', 980),
+('213242789', '张三', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '计算机科学与工程学院', '计算机科学与技术', '13800138000', 'zhangsan@seu.edu.cn', 1500.00),
+('213242790', '李雨桐', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '电子科学与工程学院', '信息工程', '13800138001', 'liyutong@seu.edu.cn', 1500.00),
+('213242791', '王浩然', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '机械工程学院', '机器人工程', '13800138002', 'wanghaoran@seu.edu.cn', 1500.00),
+('213242792', '陈思远', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '建筑学院', '城乡规划', '13800138003', 'chensiyuan@seu.edu.cn', 1500.00),
+('213242793', '周可欣', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '经济管理学院', '金融学', '13800138004', 'zhouke@seu.edu.cn', 1500.00),
+('213242794', '赵子墨', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '交通学院', '交通运输', '13800138005', 'zhaozimo@seu.edu.cn', 1500.00),
+('223242801', '孙婉清', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '外国语学院', '英语', '13800138006', 'sunwanqing@seu.edu.cn', 1500.00),
+('223242802', '吴承宇', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '计算机科学与工程学院', '人工智能', '13800138007', 'wuchengyu@seu.edu.cn', 1500.00),
 ('233242815', '郑晓彤', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '医学院', '临床医学', '13800138008', 'zhengxiaotong@seu.edu.cn', 1500),
-('admin', '系统管理员', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 0, '网络信息中心', '系统管理', '13900139000', 'admin@seu.edu.cn', 88888),
-('teacher01', '李老师', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 1, '计算机科学与工程学院', '副教授', '13700137000', 'teacher@seu.edu.cn', 50000)
+('admin', '系统管理员', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 0, '网络信息中心', '系统管理', '13900139000', 'admin@seu.edu.cn', 1500.00),
+('teacher01', '李老师', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 1, '计算机科学与工程学院', '副教授', '13700137000', 'teacher@seu.edu.cn', 1500.00)
 ON DUPLICATE KEY UPDATE `name`=VALUES(`name`);
 
 -- 学籍管理
@@ -192,11 +196,21 @@ CREATE TABLE IF NOT EXISTS tblStudentAid (
 ALTER TABLE tblStudentChangeItem MODIFY oldValue TEXT NULL, MODIFY newValue TEXT NOT NULL;
 
 CREATE TABLE IF NOT EXISTS tblStudentExperience (
- experienceId BIGINT PRIMARY KEY AUTO_INCREMENT, studentId VARCHAR(20) NOT NULL,
- startDate DATE NOT NULL, endDate DATE, schoolName VARCHAR(150) NOT NULL,
- educationLevel VARCHAR(50), description VARCHAR(255),
- FOREIGN KEY(studentId) REFERENCES tblStudent(studentId) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    experienceId BIGINT PRIMARY KEY AUTO_INCREMENT,
+    studentId VARCHAR(20)
+        CHARACTER SET utf8mb4
+        COLLATE utf8mb4_0900_ai_ci NOT NULL,
+    startDate DATE NOT NULL,
+    endDate DATE,
+    schoolName VARCHAR(150) NOT NULL,
+    educationLevel VARCHAR(50),
+    description VARCHAR(255),
+    FOREIGN KEY(studentId)
+        REFERENCES tblStudent(studentId)
+        ON DELETE CASCADE
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_0900_ai_ci;
 CREATE TABLE IF NOT EXISTS tblTeacherWorkExperience (
  experienceId BIGINT PRIMARY KEY AUTO_INCREMENT, teacherId VARCHAR(20) COLLATE utf8mb4_0900_ai_ci NOT NULL,
  startDate DATE NOT NULL, endDate DATE, organization VARCHAR(150) NOT NULL,
@@ -211,12 +225,24 @@ CREATE TABLE IF NOT EXISTS tblTeacherFamilyMember (
  FOREIGN KEY(teacherId) REFERENCES tblTeacher(teacherId) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 CREATE TABLE IF NOT EXISTS tblStudentFamilyMember (
- memberId BIGINT PRIMARY KEY AUTO_INCREMENT, studentId VARCHAR(20) NOT NULL,
- name VARCHAR(50) NOT NULL, relationship VARCHAR(30) NOT NULL, birthDate DATE,
- registeredResidence VARCHAR(150), workplace VARCHAR(150), workplaceAddress VARCHAR(200),
- healthStatus VARCHAR(50), phone VARCHAR(30),
- FOREIGN KEY(studentId) REFERENCES tblStudent(studentId) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    memberId BIGINT PRIMARY KEY AUTO_INCREMENT,
+    studentId VARCHAR(20)
+        CHARACTER SET utf8mb4
+        COLLATE utf8mb4_0900_ai_ci NOT NULL,
+    name VARCHAR(50) NOT NULL,
+    relationship VARCHAR(30) NOT NULL,
+    birthDate DATE,
+    registeredResidence VARCHAR(150),
+    workplace VARCHAR(150),
+    workplaceAddress VARCHAR(200),
+    healthStatus VARCHAR(50),
+    phone VARCHAR(30),
+    FOREIGN KEY(studentId)
+        REFERENCES tblStudent(studentId)
+        ON DELETE CASCADE
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_0900_ai_ci;
 -- 兼容已创建的旧版家庭成员表，按需补充新增字段。
 SET @ddl=IF((SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tblStudentFamilyMember' AND COLUMN_NAME='birthDate')=0,'ALTER TABLE tblStudentFamilyMember ADD birthDate DATE','SELECT 1');PREPARE s FROM @ddl;EXECUTE s;DEALLOCATE PREPARE s;
 SET @ddl=IF((SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tblStudentFamilyMember' AND COLUMN_NAME='registeredResidence')=0,'ALTER TABLE tblStudentFamilyMember ADD registeredResidence VARCHAR(150)','SELECT 1');PREPARE s FROM @ddl;EXECUTE s;DEALLOCATE PREPARE s;
@@ -429,7 +455,7 @@ ON DUPLICATE KEY UPDATE `product_name`=VALUES(`product_name`);
 CREATE TABLE IF NOT EXISTS `tbl_bank_account` (
     `account_id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '虚拟账户主键',
     `user_id` VARCHAR(32) NOT NULL COMMENT '所属用户一卡通号',
-    `balance` DECIMAL(12,2) NOT NULL DEFAULT 0.00 COMMENT '账户余额',
+    `balance` DECIMAL(12,2) NOT NULL DEFAULT 1500.00 COMMENT '校园账户主余额',
     `payment_password_hash` VARCHAR(128) DEFAULT NULL COMMENT '支付密码摘要',
     `payment_password_salt` VARCHAR(64) DEFAULT NULL COMMENT '支付密码盐值',
     `status` VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' COMMENT 'ACTIVE/LOCKED/RESET_REQUIRED',
@@ -443,6 +469,9 @@ CREATE TABLE IF NOT EXISTS `tbl_bank_account` (
     CONSTRAINT `chk_bank_balance` CHECK (`balance` >= 0),
     CONSTRAINT `chk_bank_status` CHECK (`status` IN ('ACTIVE','LOCKED','RESET_REQUIRED'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='校园银行虚拟账户表';
+
+-- CREATE TABLE IF NOT EXISTS 不会修改旧表默认值，显式同步为1500元。
+ALTER TABLE `tbl_bank_account` ALTER COLUMN `balance` SET DEFAULT 1500.00;
 
 CREATE TABLE IF NOT EXISTS `tbl_bank_transaction` (
     `transaction_id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '流水主键',
@@ -507,20 +536,34 @@ CREATE TABLE IF NOT EXISTS `tbl_finance_reimbursement` (
     CONSTRAINT `chk_reimbursement_status` CHECK (`status` IN ('APPLIED','APPROVED','REJECTED'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='校园财务报销申请表';
 
--- 演示账户默认支付密码均为123456；仅供课程演示，正式环境必须由用户首次设置。
+-- 所有演示用户都会开通校园账户，默认支付密码为123456。
+-- 普通用户开户余额统一为1500元；admin作为校园财务账户保留50000元初始资金。
 INSERT INTO `tbl_bank_account`
 (`user_id`,`balance`,`payment_password_hash`,`payment_password_salt`,`status`)
-VALUES
-('213242789',10000.00,'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=','dGVzdHNhbHQxMjM0NTY=','ACTIVE'),
-('teacher01',8000.00,'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=','dGVzdHNhbHQxMjM0NTY=','ACTIVE'),
-('admin',50000.00,'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=','dGVzdHNhbHQxMjM0NTY=','ACTIVE')
+SELECT `UID`,IF(`UID`='admin',50000.00,1500.00),
+       'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=',
+       'dGVzdHNhbHQxMjM0NTY=','ACTIVE'
+FROM `tbl_user`
+ON DUPLICATE KEY UPDATE `user_id`=VALUES(`user_id`);
+
+-- 银行表是余额主数据，用户表余额仅供用户资料等旧接口展示。
+UPDATE `tbl_user` u
+JOIN `tbl_bank_account` b ON b.`user_id`=u.`UID`
+SET u.`balance`=b.`balance`
+WHERE u.`UID`<>'';
+
+INSERT INTO `tbl_finance_bill` (`user_id`,`bill_type`,`title`,`amount`,`status`,`due_date`)
+SELECT `UID`,'TUITION','2026学年学费',5200.00,'UNPAID','2026-12-31'
+FROM `tbl_user` WHERE `role`=2
 ON DUPLICATE KEY UPDATE `user_id`=VALUES(`user_id`);
 
 INSERT INTO `tbl_finance_bill` (`user_id`,`bill_type`,`title`,`amount`,`status`,`due_date`)
-VALUES
-('213242789','TUITION','2026学年学费',5200.00,'UNPAID','2026-12-31'),
-('213242789','ACCOMMODATION','2026学年住宿费',1200.00,'UNPAID','2026-12-31'),
-('teacher01','OTHER','校园停车服务费',200.00,'UNPAID','2026-12-31')
+SELECT `UID`,'ACCOMMODATION','2026学年住宿费',1200.00,'UNPAID','2026-12-31'
+FROM `tbl_user` WHERE `role`=2
+ON DUPLICATE KEY UPDATE `user_id`=VALUES(`user_id`);
+
+INSERT INTO `tbl_finance_bill` (`user_id`,`bill_type`,`title`,`amount`,`status`,`due_date`)
+VALUES ('teacher01','OTHER','校园停车服务费',200.00,'UNPAID','2026-12-31')
 ON DUPLICATE KEY UPDATE `user_id`=VALUES(`user_id`);
 
 -- 初始余额也形成正式流水，便于演示“余额有来源”。
@@ -610,7 +653,7 @@ CREATE TABLE IF NOT EXISTS `tbl_ai_citation` (
 INSERT INTO `tbl_knowledge_document` (`doc_id`, `title`, `category`, `content`, `status`)
 VALUES
 (1, '校园银行与费用缴纳操作规程', '银行财务',
-'【校园银行与缴费指南】\n1. 校园银行提供虚拟货币资金管理、转账、账单缴费和财务报销服务。\n2. 缴费流程：师生登录虚拟校园系统后，在主页点击“银行”进入校园银行模块；在“我的账单”中可查看未缴费用（包含学年学费、住宿费等）；勾选账单并核对金额后，输入6位数字支付密码即可完成缴费扣款。\n3. 账户安全：支付密码连续输错3次将锁定支付功能，需联系管理员重置；转账时需输入收款人一卡通号，确认转账金额后完成实时转账。\n4. 财务报销：教职工可在“财务报销”提交报销申请，填写事项、金额及事由，由管理员审核通过后资金将自动发放至申请人一卡通账户。',
+'【校园银行与缴费指南】\n1. 一卡通余额与校园银行余额统一为同一个校园账户余额，可用于转账、账单缴费和校园消费。\n2. 缴费流程：师生登录虚拟校园系统后，在主页点击“银行”进入校园银行模块；在“我的账单”中可查看未缴费用（包含学年学费、住宿费等）；勾选账单并核对金额后，输入6位数字支付密码即可完成缴费扣款。\n3. 账户安全：用户忘记支付密码时可联系管理员重置；转账时需输入收款人一卡通号，确认转账金额后完成实时转账。\n4. 财务报销：教职工可在“财务报销”提交报销申请，填写事项、金额及事由，由管理员审核通过后资金将自动发放至申请人校园账户。',
 'ACTIVE'),
 
 (2, '学生学籍管理与信息变更细则', '学籍管理',
@@ -634,7 +677,7 @@ ON DUPLICATE KEY UPDATE `title`=VALUES(`title`);
 INSERT INTO `tbl_knowledge_chunk` (`chunk_id`, `doc_id`, `chunk_index`, `content`, `token_count`)
 VALUES
 (1, 1, 0, '【校园银行与缴费指南】校园银行提供虚拟货币资金管理、转账、账单缴费和财务报销服务。缴费流程：师生登录虚拟校园系统后，在主页点击“银行”进入校园银行模块；在“我的账单”中可查看未缴费用（包含学年学费、住宿费等）；勾选账单并核对金额后，输入6位数字支付密码即可完成缴费扣款。', 160),
-(2, 1, 1, '【校园银行安全与转账】账户安全：支付密码连续输错3次将锁定支付功能，需联系管理员重置；转账时需输入收款人一卡通号，确认转账金额后完成实时转账。财务报销：教职工可在“财务报销”提交报销申请，填写事项、金额及事由，由管理员审核通过后资金将自动发放至申请人一卡通账户。', 155),
+(2, 1, 1, '【校园银行安全与转账】一卡通余额与校园银行余额统一为校园账户余额。忘记支付密码时可联系管理员重置；转账时需输入收款人一卡通号，确认金额后完成实时转账。教职工可提交报销申请，管理员审核通过后资金自动发放至申请人校园账户。', 155),
 (3, 2, 0, '【学籍管理规程】学籍查询：学生可在“学籍”模块查看本人基本信息、院系、专业、学号、学籍状态以及所获荣誉奖励与资助记录。信息修改申请：若个人姓名、政治面貌或联系方式等发生变更，需在系统中提交修改申请并上传佐证材料，由院系管理员或校教务处管理员审核通过后方可生效。', 150),
 (4, 2, 1, '【转专业与休学】转专业申请通常在每学年春季学期第10-12周开放，学生在学籍系统中提交意向申请；因病休学或复学需提交医院证明并由教务处统一审批。对学籍处理决定有异议的，可在收到通知起5个工作日内向学生申诉处理委员会提起书面申诉。', 130),
 (5, 3, 0, '【图书馆借阅规范】借阅权限：学生用户最多可同时借阅10本图书，借期为30天；教师用户最多可借阅20本图书，借期为60天。续借规则：在图书未超期且无他人预约的情况下，可在线续借1次，续借期限为30天。超期未还图书将按每天每本0.10元收取超期违约金，逾期未缴费将暂停借阅与预约权限。', 160),
@@ -642,4 +685,3 @@ VALUES
 (7, 4, 0, '【选课流程与制度】选课轮次：每学期选课分为三轮。第一轮为预选（抽签制，不分先后）；第二轮为正选（先到先得，即选即中）；第三轮为退补选（开学前两周开放）。学分限制：学生每学期选修课程总学分原则上不低于15学分，最高不超过32学分。退选截止时间为开学第二周周日24:00。', 155),
 (8, 5, 0, '【校园商店操作指引】选购与下单：在商店首页浏览商品加入购物车结算，待支付订单有效期为30分钟，超时未支付订单将自动取消并释放库存。商店支持使用校园银行虚拟账户结账。针对已支付订单可提交退款申请，经管理员审核后资金原路退回校园银行账户。', 150)
 ON DUPLICATE KEY UPDATE `content`=VALUES(`content`);
-

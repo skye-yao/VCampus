@@ -32,7 +32,6 @@ public class ShopOrderDAO {
                 "ORDER BY created_at DESC";
         try (Connection conn = DBUtil.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
-            normalizeLegacyProcessing(conn);
             if (!admin) stmt.setString(1, userId);
             try (ResultSet rs = stmt.executeQuery()) {
                 List<ShopOrder> orders = new ArrayList<>();
@@ -44,7 +43,6 @@ public class ShopOrderDAO {
 
     public List<ShopOrder> findAll() throws SQLException {
         try (Connection conn = DBUtil.getConnection()) {
-            normalizeLegacyProcessing(conn);
             try (PreparedStatement stmt = conn.prepareStatement(
                     "SELECT * FROM tbl_shop_order ORDER BY created_at DESC");
                  ResultSet rs = stmt.executeQuery()) {
@@ -61,7 +59,6 @@ public class ShopOrderDAO {
                 "COALESCE(SUM(CASE WHEN status IN ('PAID','REFUNDING') THEN total_amount ELSE 0 END),0) sales_amount," +
                 "SUM(status='REFUNDED') refunded_orders FROM tbl_shop_order";
         try (Connection conn = DBUtil.getConnection()) {
-            normalizeLegacyProcessing(conn);
             try (PreparedStatement stmt = conn.prepareStatement(sql); ResultSet rs = stmt.executeQuery()) {
                 rs.next(); java.util.Map<String,Object> result = new java.util.LinkedHashMap<>();
                 result.put("totalOrders", rs.getLong("total_orders"));
@@ -73,7 +70,6 @@ public class ShopOrderDAO {
     }
 
     public ShopOrder findById(Connection conn, long orderId, boolean forUpdate) throws SQLException {
-        normalizeLegacyProcessing(conn, orderId);
         String sql = "SELECT * FROM tbl_shop_order WHERE order_id=?" + (forUpdate ? " FOR UPDATE" : "");
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setLong(1, orderId);
@@ -146,20 +142,4 @@ public class ShopOrderDAO {
         return value == null ? null : value.toLocalDateTime().toString().replace('T', ' ');
     }
 
-    private void normalizeLegacyProcessing(Connection conn) throws SQLException {
-        try (PreparedStatement stmt = conn.prepareStatement(
-                "UPDATE tbl_shop_order SET status='PAID',version=version+1,updated_at=CURRENT_TIMESTAMP " +
-                        "WHERE status IN ('PROCESSING','COMPLETED')")) {
-            stmt.executeUpdate();
-        }
-    }
-
-    private void normalizeLegacyProcessing(Connection conn, long orderId) throws SQLException {
-        try (PreparedStatement stmt = conn.prepareStatement(
-                "UPDATE tbl_shop_order SET status='PAID',version=version+1,updated_at=CURRENT_TIMESTAMP " +
-                        "WHERE order_id=? AND status IN ('PROCESSING','COMPLETED')")) {
-            stmt.setLong(1, orderId);
-            stmt.executeUpdate();
-        }
-    }
 }

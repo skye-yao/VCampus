@@ -221,6 +221,26 @@
                                     </TableView></center>
                                 </BorderPane>
                             </Tab>
+                            <Tab fx:id="operationLogTab" onSelectionChanged="#handleOperationLogTabChanged" text="操作日志">
+                                <BorderPane>
+                                    <top><HBox alignment="CENTER_RIGHT" spacing="10" styleClass="shop-actionbar">
+                                        <padding><Insets bottom="12" left="16" right="16" top="12"/></padding>
+                                        <Label styleClass="hint-text" text="记录管理员对商品、库存和退款的关键操作"/>
+                                        <Region HBox.hgrow="ALWAYS"/>
+                                        <Button onAction="#handleRefreshOperationLogs" styleClass="btn-secondary" text="刷新日志"/>
+                                    </HBox></top>
+                                    <center><TableView fx:id="operationLogTable" styleClass="shop-table">
+                                        <columns>
+                                            <TableColumn fx:id="logOperatorColumn" prefWidth="130" text="操作人"/>
+                                            <TableColumn fx:id="logActionColumn" prefWidth="180" text="操作类型"/>
+                                            <TableColumn fx:id="logTargetColumn" prefWidth="100" text="对象"/>
+                                            <TableColumn fx:id="logTargetIdColumn" prefWidth="100" text="对象编号"/>
+                                            <TableColumn fx:id="logReasonColumn" prefWidth="280" text="说明"/>
+                                            <TableColumn fx:id="logTimeColumn" prefWidth="190" text="操作时间"/>
+                                        </columns>
+                                    </TableView></center>
+                                </BorderPane>
+                            </Tab>
                         </tabs>
                     </TabPane>
                 </Tab>
