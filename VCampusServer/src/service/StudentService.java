@@ -12,7 +12,22 @@ import java.util.ArrayList;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import protocol.LockRequest;
+import session.UserSession;
 public class StudentService {
+    public void authorizeLock(UserSession user, LockRequest proof) throws SQLException {
+        boolean admin = "ADMIN".equalsIgnoreCase(user.getRole()) || "管理员".equals(user.getRole());
+        if ("STUDENT_CHANGE_REQUEST".equals(proof.resourceType())) {
+            if (!admin) throw new SecurityException("仅管理员可审核");
+            StudentChangeRequest request = queryRequest(Long.parseLong(proof.resourceId()));
+            if (request.getStatus() != StudentChangeStatus.PENDING) throw new IllegalStateException("申请已处理，请刷新");
+            return;
+        }
+        Student target = admin ? students.findByStudentId(proof.resourceId()) : students.findByUID(user.getUsername());
+        if (target == null) throw new IllegalArgumentException("学生档案不存在");
+        if (!target.getStudentId().equals(proof.resourceId())) throw new SecurityException("无权编辑其他人的档案");
+        if (requests.findPendingByStudentId(target.getStudentId()) != null) throw new IllegalStateException("存在待审核申请，请先审核");
+    }
     private static final String EXPERIENCE_ADD="experience.add", EXPERIENCE_UPDATE="experience.update", EXPERIENCE_DELETE="experience.delete";
     private static final String FAMILY_ADD="family.add", FAMILY_UPDATE="family.update", FAMILY_DELETE="family.delete";
     private static final Set<String> STUDENT_EDITABLE_FIELDS = Set.of(
@@ -165,22 +180,38 @@ public class StudentService {
         EDIT_LEASES.computeIfPresent(studentId,(id,current)->current.owner().equals(owner)?null:current);
     }
     public boolean addAward(StudentAward award) throws SQLException {
+        validateAward(award);
         return awards.insert(award);
     }
     public boolean updateAward(StudentAward award) throws SQLException {
+        validateAward(award);
         return awards.update(award);
     }
     public boolean deleteAward(long awardId) throws SQLException {
         return awards.delete(awardId);
     }
     public boolean addAid(StudentAid aid) throws SQLException {
+        validateAid(aid);
         return aids.insert(aid);
     }
     public boolean updateAid(StudentAid aid) throws SQLException {
+        validateAid(aid);
         return aids.update(aid);
     }
     public boolean deleteAid(long aidId) throws SQLException {
         return aids.delete(aidId);
+    }
+    private void validateAward(StudentAward award){
+        if(award==null)throw new IllegalArgumentException("奖励信息不能为空");
+        if(award.getAwardName()==null||award.getAwardName().isBlank())throw new IllegalArgumentException("奖励名称不能为空");
+        if(award.getAwardType()==null)throw new IllegalArgumentException("奖励类型不能为空");
+        if(award.getAwardDate()==null)throw new IllegalArgumentException("奖励日期不能为空");
+    }
+    private void validateAid(StudentAid aid){
+        if(aid==null)throw new IllegalArgumentException("资助信息不能为空");
+        if(aid.getAidName()==null||aid.getAidName().isBlank())throw new IllegalArgumentException("资助名称不能为空");
+        if(aid.getAidType()==null||aid.getAidType().isBlank())throw new IllegalArgumentException("资助类型不能为空");
+        if(aid.getAidDate()==null)throw new IllegalArgumentException("资助日期不能为空");
     }
     public boolean addExperience(String UID,StudentExperience value)throws SQLException{
         if(value==null)throw new IllegalArgumentException("学习经历不能为空");validateRelatedRecord(value);
@@ -259,7 +290,7 @@ public class StudentService {
             if(x.getStartDate()==null||x.getEndDate()==null||normalize(x.getSchoolName()).isBlank()||normalize(x.getEducationLevel()).isBlank())throw new IllegalArgumentException("开始日期、结束日期、学校名称和学习阶段不能为空");
             if(x.getEndDate().before(x.getStartDate()))throw new IllegalArgumentException("结束日期不能早于开始日期");
         } else if(value instanceof StudentFamilyMember x) {
-            if(normalize(x.getName()).isBlank()||normalize(x.getRelationship()).isBlank()||normalize(x.getRegisteredResidence()).isBlank()||normalize(x.getWorkplace()).isBlank()||normalize(x.getPhone()).isBlank())throw new IllegalArgumentException("家庭成员姓名、关系、户口所在地、工作单位和联系电话不能为空");
+            if(normalize(x.getName()).isBlank()||normalize(x.getRelationship()).isBlank()||x.getBirthDate()==null||normalize(x.getRegisteredResidence()).isBlank()||normalize(x.getWorkplace()).isBlank()||normalize(x.getPhone()).isBlank())throw new IllegalArgumentException("家庭成员姓名、关系、出生年月、户口所在地、工作单位和联系电话不能为空");
         }
     }
     private static String normalize(String value){return value==null?"":value.trim();}

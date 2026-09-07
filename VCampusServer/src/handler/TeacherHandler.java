@@ -11,6 +11,9 @@ public class TeacherHandler {private final TeacherService service=new TeacherSer
  case TEACHER_WORK_EXPERIENCE_ADD->r.putData("updated",service.addWorkExperience(s.getUsername(),value(q,"experience",TeacherWorkExperience.class)));
  case TEACHER_WORK_EXPERIENCE_UPDATE->r.putData("updated",service.updateWorkExperience(s.getUsername(),value(q,"experience",TeacherWorkExperience.class)));
  case TEACHER_WORK_EXPERIENCE_DELETE->r.putData("updated",service.deleteWorkExperience(s.getUsername(),number(q,"experienceId")));
+ case TEACHER_FAMILY_MEMBER_ADD->r.putData("updated",service.addFamilyMember(s.getUsername(),value(q,"member",TeacherFamilyMember.class)));
+ case TEACHER_FAMILY_MEMBER_UPDATE->r.putData("updated",service.updateFamilyMember(s.getUsername(),value(q,"member",TeacherFamilyMember.class)));
+ case TEACHER_FAMILY_MEMBER_DELETE->r.putData("updated",service.deleteFamilyMember(s.getUsername(),number(q,"memberId")));
  default->{return fail(r,MessageCode.BAD_REQUEST,"不支持的教师信息操作");}}
  r.setCode(MessageCode.SUCCESS);r.setMessage("操作成功");return r;}catch(SecurityException e){return fail(r,MessageCode.FORBIDDEN,e.getMessage());}catch(IllegalArgumentException e){return fail(r,MessageCode.BAD_REQUEST,e.getMessage());}catch(IllegalStateException e){return fail(r,MessageCode.CONFLICT,e.getMessage());}catch(Exception e){e.printStackTrace();return fail(r,MessageCode.ERROR,"教师信息服务异常: "+e.getMessage());}}
  private void needAdmin(boolean b){if(!b)throw new SecurityException("仅管理员可操作");} private String string(Message m,String k){Object v=m.getData().get(k);if(v==null)throw new IllegalArgumentException("缺少参数: "+k);return String.valueOf(v);} private long number(Message m,String k){return Long.parseLong(string(m,k));}

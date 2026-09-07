@@ -63,7 +63,7 @@
               <VBox spacing="14" styleClass="student-record-section">
                 <HBox alignment="CENTER_LEFT" spacing="10">
                   <Region minHeight="24" minWidth="5" prefHeight="24" prefWidth="5" styleClass="student-section-accent"/>
-                  <Label styleClass="student-section-title" text="奖惩记录"/>
+                  <Label styleClass="student-section-title" text="奖励记录"/>
                 </HBox>
                 <TilePane fx:id="awardTile" hgap="22" prefColumns="4" tileAlignment="CENTER_LEFT" vgap="16"/>
               </VBox>
@@ -112,7 +112,6 @@
                 </VBox>
               </StackPane>
             </left>
-            <right><InformationReviewStatusPane fx:id="reviewStatusPane" submitter="学生"/></right>
             <center>
               <ScrollPane fx:id="detailScrollPane" fitToHeight="false" fitToWidth="false" hbarPolicy="AS_NEEDED" pannable="true" styleClass="student-scroll" vbarPolicy="AS_NEEDED">
                 <VBox minWidth="1080" spacing="12">
@@ -120,6 +119,8 @@
                     <Insets bottom="20" left="20" right="22" top="18"/>
                   </padding>
                   <Button fx:id="detailReturnButton" alignment="CENTER_LEFT" onAction="#handleReturnFromDetails" styleClass="btn-secondary" text="← 返回学籍总览"/>
+                  <HBox alignment="TOP_CENTER" spacing="18">
+                   <VBox spacing="12" HBox.hgrow="ALWAYS">
                   <VBox spacing="10" styleClass="student-panel">
                     <HBox alignment="CENTER_LEFT">
                       <Label styleClass="student-section-title" text="个人基本信息"/>
@@ -203,6 +204,9 @@
                     <VBox spacing="10" styleClass="student-panel"><Label styleClass="student-section-title" text="本人经历"/><VBox fx:id="adminExperienceCardContainer" fillWidth="true" spacing="10"/></VBox>
                     <VBox spacing="10" styleClass="student-panel"><Label styleClass="student-section-title" text="主要社会关系"/><VBox fx:id="adminFamilyCardContainer" fillWidth="true" spacing="10"/></VBox>
                   </VBox>
+                   </VBox>
+                   <StackPane alignment="TOP_CENTER" minWidth="280" prefWidth="300"><InformationReviewStatusPane fx:id="reviewStatusPane" submitter="学生"/></StackPane>
+                  </HBox>
                 </VBox>
               </ScrollPane>
             </center>
@@ -235,6 +239,8 @@
                 <Button fx:id="managementNavButton" maxWidth="Infinity" onAction="#handleShowStudentManagement" styleClass="student-side-button-active" text="学生信息管理"/>
                 <Button fx:id="maintenanceNavButton" maxWidth="Infinity" onAction="#handleShowStudentMaintenance" styleClass="student-side-button" text="学生信息维护"/>
                 <Button maxWidth="Infinity" onAction="#handleShowReview" styleClass="student-side-button" text="审核信息"/>
+                <Separator/>
+                <Button maxWidth="Infinity" onAction="#handleOpenTeacherInformation" styleClass="admin-switch-button" text="切换至教师信息 →"/>
               </VBox>
             </left>
             <center>
@@ -250,10 +256,13 @@
                 <HBox alignment="CENTER_LEFT" spacing="8" styleClass="student-search-bar">
                   <Label text="学号"/>
                   <TextField fx:id="searchIdField" onAction="#handleSearchStudents" prefWidth="145" promptText="支持学号片段"/>
+                  <Button onAction="#handleClearStudentId" styleClass="search-clear-button" text="空"/>
                   <Label text="姓名"/>
                   <TextField fx:id="searchNameField" onAction="#handleSearchStudents" prefWidth="125" promptText="支持姓名片段"/>
+                  <Button onAction="#handleClearStudentName" styleClass="search-clear-button" text="空"/>
                   <Label text="关键词"/>
                   <TextField fx:id="searchCollegeField" onAction="#handleSearchStudents" prefWidth="180" promptText="学院/专业/年级/状态"/>
+                  <Button onAction="#handleClearStudentKeyword" styleClass="search-clear-button" text="空"/>
                   <Region HBox.hgrow="ALWAYS"/>
                   <Button onAction="#handleSearchStudents" styleClass="btn-primary" text="查询"/>
                   <Button onAction="#handleResetSearch" styleClass="btn-secondary" text="重置"/>
@@ -300,6 +309,8 @@
                 <Button maxWidth="Infinity" onAction="#handleShowStudentManagement" styleClass="student-side-button" text="学生信息管理"/>
                 <Button maxWidth="Infinity" onAction="#handleShowStudentMaintenance" styleClass="student-side-button" text="学生信息维护"/>
                 <Button maxWidth="Infinity" styleClass="student-side-button-active" text="审核信息"/>
+                <Separator/>
+                <Button maxWidth="Infinity" onAction="#handleOpenTeacherInformation" styleClass="admin-switch-button" text="切换至教师信息 →"/>
               </VBox>
             </left>
             <center>
@@ -316,10 +327,13 @@
                   <HBox alignment="CENTER_LEFT" spacing="8" styleClass="student-search-bar">
                     <Label text="姓名"/>
                     <TextField fx:id="reviewSearchIdField" onAction="#handleSearchReviews" prefWidth="145" promptText="支持姓名片段"/>
+                    <Button onAction="#handleClearReviewName" styleClass="search-clear-button" text="空"/>
                     <Label text="学号"/>
                     <TextField fx:id="reviewSearchStudentField" onAction="#handleSearchReviews" prefWidth="155" promptText="搜索学号"/>
+                    <Button onAction="#handleClearReviewStudent" styleClass="search-clear-button" text="空"/>
                     <Label text="状态"/>
                     <TextField fx:id="reviewSearchStatusField" onAction="#handleSearchReviews" prefWidth="145" promptText="待审核/已通过"/>
+                    <Button onAction="#handleClearReviewStatus" styleClass="search-clear-button" text="空"/>
                     <Region HBox.hgrow="ALWAYS"/>
                     <Button onAction="#handleSearchReviews" styleClass="btn-primary" text="查询"/>
                     <Button onAction="#handleResetReviewSearch" styleClass="btn-secondary" text="重置"/>
@@ -363,11 +377,9 @@
                     </ScrollPane>
                     <VBox prefWidth="260" spacing="12" styleClass="student-panel">
                       <Label styleClass="student-section-title" text="审核处理"/>
-                      <Label text="申请内容"/>
-                      <TextArea fx:id="reviewChangeSummaryArea" editable="false" prefRowCount="10" wrapText="true"/>
                       <HBox spacing="8"><Button fx:id="approveButton" disable="true" maxWidth="Infinity" onAction="#handleApprove" styleClass="btn-primary" text="通过" HBox.hgrow="ALWAYS"/><Button fx:id="rejectButton" disable="true" maxWidth="Infinity" onAction="#handleReject" styleClass="btn-secondary" text="不通过" HBox.hgrow="ALWAYS"/></HBox>
-                      <Label text="理由"/>
-                      <TextArea fx:id="reviewRemarkArea" prefRowCount="8" promptText="请输入审核意见或不通过理由" VBox.vgrow="ALWAYS"/>
+                      <Label text="不通过理由"/>
+                      <TextArea fx:id="reviewRemarkArea" prefRowCount="12" promptText="选择不通过时必须填写理由" VBox.vgrow="ALWAYS"/>
                     </VBox>
                   </HBox>
                 </VBox>

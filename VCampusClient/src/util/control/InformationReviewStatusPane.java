@@ -23,7 +23,7 @@ public class InformationReviewStatusPane extends VBox {
         setMinWidth(260);
         setPrefWidth(260);
         setMaxWidth(260);
-        setPadding(new Insets(66, 20, 20, 0));
+        setPadding(Insets.EMPTY);
         getStylesheets().add(getClass().getResource("/resources/css/information-review.css").toExternalForm());
         Label heading = new Label("审核状态");
         heading.getStyleClass().add("information-review-heading");

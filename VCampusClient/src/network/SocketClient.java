@@ -7,6 +7,9 @@ import java.io.PrintWriter;
 import java.net.Socket;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.UUID;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import com.google.gson.Gson;
 
@@ -49,6 +52,7 @@ public class SocketClient {
 
     /** 消息分发器 */
     private final MessageDispatcher dispatcher = new MessageDispatcher();
+    private final List<Runnable> disconnectListeners = new CopyOnWriteArrayList<>();
 
     private SocketClient() {
     }
@@ -80,7 +84,7 @@ public class SocketClient {
         writer = new PrintWriter(socket.getOutputStream(), true);
         reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
 
-        receiver = new MessageReceiver(reader, gson, dispatcher);
+        receiver = new MessageReceiver(reader, gson, dispatcher, this::handleDisconnect);
         Thread receiverThread = new Thread(receiver, "MessageReceiver");
         receiverThread.setDaemon(true);
         receiverThread.start();
@@ -110,7 +114,10 @@ public class SocketClient {
                 request.setToken(session.getToken());
             }
 
-            final Long requestUID = request.getUID();
+            if (request.getRequestId() == null || request.getRequestId().isBlank()) {
+                request.setRequestId(UUID.randomUUID().toString());
+            }
+            final String requestUID = request.getRequestId();
             dispatcher.registerPendingRequest(requestUID, future);
             long timeoutSeconds = "ai".equalsIgnoreCase(request.getModule()) ? 60 : 20;
             future.orTimeout(timeoutSeconds, TimeUnit.SECONDS)
@@ -152,6 +159,44 @@ public class SocketClient {
         closeSocketQuietly();
 
         System.out.println("已断开服务器连接");
+    }
+
+    /** 在后台尝试建立连接，不阻塞 JavaFX 启动线程。 */
+    public CompletableFuture<Void> connectAsync() {
+        return CompletableFuture.runAsync(() -> {
+            try { connect(); }
+            catch (IOException ignored) { /* 首次业务请求会再次尝试连接并返回具体错误。 */ }
+        });
+    }
+
+    /** 应用退出时释放长连接。 */
+    public void shutdown() { disconnect(); }
+
+    public void addDisconnectListener(Runnable listener) {
+        if (listener != null) disconnectListeners.add(listener);
+    }
+
+    public void removeDisconnectListener(Runnable listener) {
+        disconnectListeners.remove(listener);
+    }
+
+    private void handleDisconnect() {
+        dispatcher.failAllPending(new IOException("与服务端的连接已断开"));
+        disconnectListeners.forEach(listener -> {
+            try { listener.run(); } catch (RuntimeException ignored) {}
+        });
+    }
+
+    /** 写入阶段或连接异常时，服务端可能已经收到非查询请求。 */
+    public static boolean possiblySent(Throwable error) {
+        Throwable current = error;
+        while (current != null) {
+            if (current instanceof java.net.SocketException ||
+                    current instanceof java.net.SocketTimeoutException ||
+                    current instanceof java.util.concurrent.TimeoutException) return true;
+            current = current.getCause();
+        }
+        return false;
     }
 
     private void closeSocketQuietly() {

@@ -137,7 +137,8 @@ CREATE TABLE IF NOT EXISTS tblTeacher (
  sourcePlace VARCHAR(100), registeredResidence VARCHAR(150) NOT NULL, partyMember TINYINT(1) NOT NULL DEFAULT 0,
  partyJoinDate DATE, healthStatus VARCHAR(50) NOT NULL, employed TINYINT(1) NOT NULL DEFAULT 1,
  employmentStatus VARCHAR(20) NOT NULL DEFAULT 'ACTIVE', campus VARCHAR(50), college VARCHAR(100) NOT NULL,
- department VARCHAR(100), title VARCHAR(50), position VARCHAR(50), telephone VARCHAR(30), mobile VARCHAR(30),
+ department VARCHAR(100) NOT NULL, title VARCHAR(50), position VARCHAR(50), education VARCHAR(50) NOT NULL,
+ employmentStartDate DATE NOT NULL, telephone VARCHAR(30), mobile VARCHAR(30),
  email VARCHAR(100), qq VARCHAR(30), wechat VARCHAR(50), officeAddress VARCHAR(150), emergencyContact VARCHAR(50), emergencyPhone VARCHAR(30),
  CONSTRAINT fk_teacher_user FOREIGN KEY(UID) REFERENCES tbl_user(UID)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -150,8 +151,11 @@ CREATE TABLE IF NOT EXISTS tblTeacherChangeItem (
  itemId BIGINT PRIMARY KEY AUTO_INCREMENT, requestId BIGINT NOT NULL, fieldName VARCHAR(50) NOT NULL,
  oldValue VARCHAR(255), newValue VARCHAR(255), FOREIGN KEY(requestId) REFERENCES tblTeacherChangeRequest(requestId) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-INSERT INTO tblTeacher(teacherId,UID,name,politicalStatus,nationality,gender,idType,idNumber,idIssueDate,birthDate,nativePlace,householdType,birthPlace,sourcePlace,registeredResidence,partyMember,partyJoinDate,healthStatus,employed,employmentStatus,campus,college,department,title,position,telephone,mobile,email,officeAddress,emergencyContact,emergencyPhone)
-VALUES('T00001','teacher01','李老师','中共党员','汉族','女','居民身份证','320100198001010001','2015-01-01','1980-01-01','江苏南京','城镇户口','江苏南京','江苏南京','江苏省南京市',1,'2005-07-01','健康',1,'在职','九龙湖校区','计算机科学与工程学院','计算机科学系','副教授','教师','025-52090001','13700137000','teacher@seu.edu.cn','九龙湖校区计算机楼','李家属','13600136000')
+-- 兼容旧数据库，确保教师学历和入职日期字段存在。
+SET @ddl=IF((SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tblTeacher' AND COLUMN_NAME='education')=0,'ALTER TABLE tblTeacher ADD education VARCHAR(50)','SELECT 1');PREPARE s FROM @ddl;EXECUTE s;DEALLOCATE PREPARE s;
+SET @ddl=IF((SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tblTeacher' AND COLUMN_NAME='employmentStartDate')=0,'ALTER TABLE tblTeacher ADD employmentStartDate DATE','SELECT 1');PREPARE s FROM @ddl;EXECUTE s;DEALLOCATE PREPARE s;
+INSERT INTO tblTeacher(teacherId,UID,name,politicalStatus,nationality,gender,idType,idNumber,idIssueDate,birthDate,nativePlace,householdType,birthPlace,sourcePlace,registeredResidence,partyMember,partyJoinDate,healthStatus,employed,employmentStatus,campus,college,department,title,position,education,employmentStartDate,telephone,mobile,email,officeAddress,emergencyContact,emergencyPhone)
+VALUES('T00001','teacher01','李老师','中共党员','汉族','女','居民身份证','320100198001010001','2015-01-01','1980-01-01','江苏南京','城镇户口','江苏南京','江苏南京','江苏省南京市',1,'2005-07-01','健康',1,'在职','九龙湖校区','计算机科学与工程学院','计算机科学系','副教授','教师','博士研究生','2010-09-01','025-52090001','13700137000','teacher@seu.edu.cn','九龙湖校区计算机楼','李家属','13600136000')
 ON DUPLICATE KEY UPDATE name=VALUES(name);
 
 CREATE TABLE IF NOT EXISTS tblStudentChangeItem (
@@ -197,6 +201,13 @@ CREATE TABLE IF NOT EXISTS tblTeacherWorkExperience (
  experienceId BIGINT PRIMARY KEY AUTO_INCREMENT, teacherId VARCHAR(20) COLLATE utf8mb4_0900_ai_ci NOT NULL,
  startDate DATE NOT NULL, endDate DATE, organization VARCHAR(150) NOT NULL,
  department VARCHAR(100), position VARCHAR(100) NOT NULL, description VARCHAR(255),
+ FOREIGN KEY(teacherId) REFERENCES tblTeacher(teacherId) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+CREATE TABLE IF NOT EXISTS tblTeacherFamilyMember (
+ memberId BIGINT PRIMARY KEY AUTO_INCREMENT, teacherId VARCHAR(20) COLLATE utf8mb4_0900_ai_ci NOT NULL,
+ name VARCHAR(50) NOT NULL, relationship VARCHAR(30) NOT NULL, birthDate DATE,
+ registeredResidence VARCHAR(150), workplace VARCHAR(150), workplaceAddress VARCHAR(200),
+ healthStatus VARCHAR(50), phone VARCHAR(30),
  FOREIGN KEY(teacherId) REFERENCES tblTeacher(teacherId) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 CREATE TABLE IF NOT EXISTS tblStudentFamilyMember (

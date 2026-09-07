@@ -24,39 +24,39 @@
                 <Insets left="24.0" right="24.0" />
             </padding>
             <children>
-            <ImageView fitHeight="40.0" fitWidth="62.0" pickOnBounds="true" preserveRatio="true">
-               <image>
-                  <Image url="@../image/icon.png" />
-               </image>
-            </ImageView>
+                <ImageView fitHeight="40.0" fitWidth="62.0" pickOnBounds="true" preserveRatio="true">
+                    <image>
+                        <Image url="@../image/icon.png" />
+                    </image>
+                </ImageView>
                 <Label styleClass="brand-title" text="东南大学" />
                 <Label styleClass="brand-divider" text="|" />
                 <Label styleClass="brand-subtitle" text="vCampus虚拟校园" />
-            <Label styleClass="brand-divider" text="|" />
-            <Label styleClass="brand-subtitle" text="v0.1 开发中" />
+                <Label styleClass="brand-divider" text="|" />
+                <Label styleClass="brand-subtitle" text="v0.1 开发中" />
                 <Region HBox.hgrow="ALWAYS" />
 
                 <!-- 用户信息下拉菜单 -->
                 <MenuButton fx:id="userMenuButton" styleClass="user-menu-btn" text="张三" textAlignment="CENTER">
                     <items>
                         <MenuItem onAction="#handleNavigateProfile" styleClass="menu-item-blue">
-                     <graphic>
-                        <HBox alignment="CENTER_LEFT" prefHeight="50.0" prefWidth="100.0" spacing="4.0">
-                           <children>
-                              <Label maxWidth="24.0" minWidth="24.0" styleClass="menu-icon" text="👤" textAlignment="CENTER" />
-                              <Label text=" 帐号管理" />
-                           </children>
-                        </HBox>
-                     </graphic></MenuItem>
+                            <graphic>
+                                <HBox alignment="CENTER_LEFT" prefHeight="50.0" prefWidth="100.0" spacing="4.0">
+                                    <children>
+                                        <Label maxWidth="24.0" minWidth="24.0" styleClass="menu-icon" text="👤" textAlignment="CENTER" />
+                                        <Label text=" 帐号管理" />
+                                    </children>
+                                </HBox>
+                            </graphic></MenuItem>
                         <MenuItem onAction="#handleLogout" styleClass="menu-item-exit">
-                     <graphic>
-                        <HBox alignment="CENTER_LEFT" prefHeight="50.0" prefWidth="100.0" spacing="8.0">
-                           <children>
-                              <Label styleClass="menu-icon" text="🚪" />
-                              <Label text="安全退出" />
-                           </children>
-                        </HBox>
-                     </graphic></MenuItem>
+                            <graphic>
+                                <HBox alignment="CENTER_LEFT" prefHeight="50.0" prefWidth="100.0" spacing="8.0">
+                                    <children>
+                                        <Label styleClass="menu-icon" text="🚪" />
+                                        <Label text="安全退出" />
+                                    </children>
+                                </HBox>
+                            </graphic></MenuItem>
                     </items>
                 </MenuButton>
             </children>
