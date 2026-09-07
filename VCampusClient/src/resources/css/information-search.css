@@ -1,0 +1,16 @@
+.information-search-clear {
+    -fx-background-color: white;
+    -fx-background-radius: 50%;
+    -fx-border-color: #cbd4cb;
+    -fx-border-radius: 50%;
+    -fx-padding: 0;
+    -fx-font-size: 13px;
+    -fx-font-weight: normal;
+    -fx-text-fill: #667066;
+    -fx-cursor: hand;
+}
+.information-search-clear:hover, .information-search-clear:focused {
+    -fx-background-color: #eaf0ea;
+    -fx-border-color: #587558;
+    -fx-text-fill: #3f553f;
+}

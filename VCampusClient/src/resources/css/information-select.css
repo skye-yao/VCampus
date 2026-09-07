@@ -1,0 +1,33 @@
+.information-select-page {
+    -fx-background-color: #f3f7f4;
+    -fx-font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+    -fx-font-size: 14px;
+}
+.information-select-card {
+    -fx-background-color: white;
+    -fx-background-radius: 18;
+    -fx-border-color: #dde7df;
+    -fx-border-radius: 18;
+    -fx-padding: 36 40 24 40;
+    -fx-effect: dropshadow(gaussian, rgba(42, 68, 48, 0.06), 24, 0, 0, 6);
+}
+.information-select-title { -fx-font-size: 28px; -fx-font-weight: bold; -fx-text-fill: #294731; }
+.information-select-subtitle { -fx-font-size: 14px; -fx-text-fill: #7b8a7f; }
+.information-select-option {
+    -fx-background-color: #f5f8f5;
+    -fx-background-radius: 12;
+    -fx-border-color: #dce6de;
+    -fx-border-radius: 12;
+    -fx-padding: 20 24;
+    -fx-cursor: hand;
+}
+.information-select-option:hover, .information-select-option:focused {
+    -fx-background-color: #eaf2eb;
+    -fx-border-color: #6d8c73;
+}
+.information-select-option:pressed { -fx-background-color: #dfece2; }
+.information-select-option-title { -fx-font-size: 18px; -fx-font-weight: bold; -fx-text-fill: #36573e; }
+.information-select-option-note { -fx-font-size: 13px; -fx-text-fill: #7a8a7e; }
+.information-select-footer { -fx-padding: 16 0 0 0; -fx-border-color: #edf1ee; -fx-border-width: 1 0 0 0; }
+.information-select-back { -fx-background-color: transparent; -fx-text-fill: #647c6a; -fx-padding: 4 0; -fx-cursor: hand; }
+.information-select-back:hover, .information-select-back:focused { -fx-text-fill: #294731; -fx-underline: true; }

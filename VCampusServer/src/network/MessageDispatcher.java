@@ -52,6 +52,7 @@ public class MessageDispatcher {
             return response;
         }
 
+        if (request.getType()==MessageType.LOCK_ACQUIRE || request.getType()==MessageType.LOCK_RENEW || request.getType()==MessageType.LOCK_RELEASE) return new handler.LockHandler().handle(request);
         String module = request.getModule();
 
         // 根据模块分发

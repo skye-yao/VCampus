@@ -5,8 +5,16 @@ import entity.*;
 import protocol.*;
 import vo.StudentReviewVO;
 public class StudentClientService implements IStudentClientService {
-    public void beginEdit(String studentId,Consumer<Message> callback){send("beginEdit","studentId",studentId==null?"":studentId,callback);}
-    public void endEdit(String studentId,Consumer<Message> callback){send("endEdit","studentId",studentId==null?"":studentId,callback);}
+    public final LeaseClient editLease=new LeaseClient(), reviewLease=new LeaseClient();
+    public boolean recordInFlight;
+    public Runnable onUnconfirmed=()->{};
+    private boolean disposed;
+    private final java.util.Map<String,Long> queryVersions=new java.util.HashMap<>();
+    public void dispose(){disposed=true;queryVersions.replaceAll((k,v)->v+1);editLease.close();reviewLease.close();}
+
+    public void beginEdit(String id,Consumer<Message> callback){editLease.acquire("STUDENT",id,()->callback.accept(reply(true,"已取得占用")),error->callback.accept(reply(false,error)));}
+    public void endEdit(String id,Consumer<Message> callback){editLease.close();callback.accept(reply(true,"已释放占用"));}
+    private Message reply(boolean success,String text){Message m=new Message(MessageType.RESPONSE,"student","lock");m.setCode(success?MessageCode.SUCCESS:MessageCode.CONFLICT);m.setMessage(text);return m;}
     private final SocketClient socket;
     public StudentClientService(SocketClient s) {
         socket=s;
@@ -14,12 +22,7 @@ public class StudentClientService implements IStudentClientService {
     private void send(String action,String key,Object value,Consumer<Message> c) {
         Message m=new Message(typeOf(action),"student",action);
         if(key!=null)m.putData(key,value);
-        socket.sendAsync(m).whenComplete((r,e)-> {
-            if(e==null)c.accept(r);else {
-                Message f=new Message(MessageType.RESPONSE,"student",action);f.setCode(MessageCode.ERROR);f.setMessage("连接学籍服务失败: "+e.getMessage());c.accept(f);
-            }
-        }
-        );
+        dispatch(m,c);
     }
     private MessageType typeOf(String action) {
         return switch(action) {
@@ -104,4 +107,32 @@ public class StudentClientService implements IStudentClientService {
     public void deleteExperience(long id,Consumer<Message> c){send("deleteExperience","experienceId",id,c);}
     public void updateFamilyMember(StudentFamilyMember x,Consumer<Message> c){send("updateFamilyMember","member",x,c);}
     public void deleteFamilyMember(long id,Consumer<Message> c){send("deleteFamilyMember","memberId",id,c);}
+
+    private void dispatch(Message m,Consumer<Message> callback) {
+        String type=m.getType().name();
+        boolean record=type.contains("_EXPERIENCE_")||type.contains("_FAMILY_MEMBER_")||type.contains("_AWARD_")||type.contains("_AID_");
+        if(record)recordInFlight=true;
+        boolean query=type.endsWith("QUERY")||type.endsWith("LIST");
+        String channel=type.contains("OVERVIEW")||type.equals("STUDENT_QUERY")||type.equals("STUDENT_DETAIL_QUERY")?"overview":type;
+        long version=query?queryVersions.merge(channel,1L,Long::sum):0;
+        LeaseClient lease=type.equals("STUDENT_REVIEW")||type.equals("STUDENT_REVIEW_QUERY")?reviewLease:editLease;
+        if(type.equals("STUDENT_ADMIN_UPDATE")||type.equals("STUDENT_CHANGE_SUBMIT")||type.equals("STUDENT_REVIEW")||type.equals("STUDENT_REVIEW_QUERY"))m.setLock(lease.proof());
+        if(record)m.setLock(editLease.proof());
+        socket.sendAsync(m).whenComplete((response,error)->util.Fx.run(()->{
+            boolean relevant=m.getLock()==null || !lease.busy() || lease.owns(m.getLock());
+            if(record){recordInFlight=false;editLease.closeIfOwned(m.getLock());}
+            if(disposed)return;
+            if(query && !java.util.Objects.equals(queryVersions.get(channel),version))return;
+            Message result=response;
+            if(error!=null){
+                result=new Message(MessageType.RESPONSE,"student",m.getAction());result.setCode(MessageCode.ERROR);
+                boolean uncertain=!query && SocketClient.possiblySent(error);
+                result.putData("resultUnconfirmed",uncertain);
+                result.setMessage(uncertain?"操作结果未确认，请刷新查看最新状态后再决定是否重试。":"网络请求未完成，请稍后重新操作。");
+                if(!query)lease.invalidateIfOwned(m.getLock());
+            }else if((result.getCode()==MessageCode.CONFLICT || result.getCode()==MessageCode.UNAUTHORIZED || result.getCode()==MessageCode.FORBIDDEN) && m.getLock()!=null)lease.invalidateIfOwned(m.getLock());
+            callback.accept(result);
+            if(relevant && Boolean.TRUE.equals(result.getData().get("resultUnconfirmed")))onUnconfirmed.run();
+        }));
+    }
 }

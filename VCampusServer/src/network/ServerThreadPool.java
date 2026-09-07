@@ -31,18 +31,19 @@ public class ServerThreadPool {
     /** 线程池 */
     private ExecutorService executorService;
 
-    /** 最大线程数（从配置文件读取，默认100） */
-    private int maxThreads = 100;
+    /** 最大线程数（从配置文件读取，默认32） */
+    public static final int DEFAULT_MAX_CLIENTS = 32;
+    private int maxThreads = DEFAULT_MAX_CLIENTS;
 
     /**
      * 私有构造方法（单例模式）
      */
     private ServerThreadPool() {
         loadConfig();
-        this.executorService = Executors.newFixedThreadPool(
-                maxThreads,
-                new ServerThreadFactory()
-        );
+        this.executorService = new java.util.concurrent.ThreadPoolExecutor(
+                maxThreads,maxThreads,0L,java.util.concurrent.TimeUnit.MILLISECONDS,
+                new java.util.concurrent.SynchronousQueue<>(),new ServerThreadFactory(),
+                new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
     }
 
     /**
@@ -69,7 +70,7 @@ public class ServerThreadPool {
      */
     public void shutdown() {
         if (executorService != null && !executorService.isShutdown()) {
-            executorService.shutdown();
+            executorService.shutdownNow();
         }
     }
 
@@ -84,7 +85,7 @@ public class ServerThreadPool {
                 props.load(is);
                 String maxThreadsStr = props.getProperty("server.maxThreads");
                 if (maxThreadsStr != null && !maxThreadsStr.trim().isEmpty()) {
-                    maxThreads = Integer.parseInt(maxThreadsStr.trim());
+                    maxThreads = Math.max(1,Math.min(128,Integer.parseInt(maxThreadsStr.trim())));
                 }
             }
         } catch (Exception e) {

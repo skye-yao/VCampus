@@ -100,7 +100,10 @@ import java.util.*;
         }
     }
     public boolean cancel(long id,String sid)throws SQLException {
-        try(Connection c=DBUtil.getConnection();PreparedStatement p=c.prepareStatement("UPDATE tblTeacherChangeRequest SET status='CANCELLED' WHERE requestId=? AND teacherId=? AND status='PENDING'")) {
+        try(Connection c=DBUtil.getConnection()){return cancel(c,id,sid);}
+    }
+    public boolean cancel(Connection c,long id,String sid)throws SQLException {
+        try(PreparedStatement p=c.prepareStatement("UPDATE tblTeacherChangeRequest SET status='CANCELLED' WHERE requestId=? AND teacherId=? AND status='PENDING'")) {
             p.setLong(1,id);
             p.setString(2,sid);
             return p.executeUpdate()==1;

@@ -137,7 +137,7 @@ CREATE TABLE IF NOT EXISTS tblTeacher (
  sourcePlace VARCHAR(100), registeredResidence VARCHAR(150) NOT NULL, partyMember TINYINT(1) NOT NULL DEFAULT 0,
  partyJoinDate DATE, healthStatus VARCHAR(50) NOT NULL, employed TINYINT(1) NOT NULL DEFAULT 1,
  employmentStatus VARCHAR(20) NOT NULL DEFAULT 'ACTIVE', campus VARCHAR(50), college VARCHAR(100) NOT NULL,
- department VARCHAR(100), title VARCHAR(50), position VARCHAR(50), telephone VARCHAR(30), mobile VARCHAR(30),
+ department VARCHAR(100) NOT NULL, title VARCHAR(50), position VARCHAR(50), education VARCHAR(50) NOT NULL, employmentStartDate DATE NOT NULL, telephone VARCHAR(30), mobile VARCHAR(30),
  email VARCHAR(100), qq VARCHAR(30), wechat VARCHAR(50), officeAddress VARCHAR(150), emergencyContact VARCHAR(50), emergencyPhone VARCHAR(30),
  CONSTRAINT fk_teacher_user FOREIGN KEY(UID) REFERENCES tbl_user(UID)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -150,8 +150,8 @@ CREATE TABLE IF NOT EXISTS tblTeacherChangeItem (
  itemId BIGINT PRIMARY KEY AUTO_INCREMENT, requestId BIGINT NOT NULL, fieldName VARCHAR(50) NOT NULL,
  oldValue VARCHAR(255), newValue VARCHAR(255), FOREIGN KEY(requestId) REFERENCES tblTeacherChangeRequest(requestId) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-INSERT INTO tblTeacher(teacherId,UID,name,politicalStatus,nationality,gender,idType,idNumber,idIssueDate,birthDate,nativePlace,householdType,birthPlace,sourcePlace,registeredResidence,partyMember,partyJoinDate,healthStatus,employed,employmentStatus,campus,college,department,title,position,telephone,mobile,email,officeAddress,emergencyContact,emergencyPhone)
-VALUES('T00001','teacher01','李老师','中共党员','汉族','女','居民身份证','320100198001010001','2015-01-01','1980-01-01','江苏南京','城镇户口','江苏南京','江苏南京','江苏省南京市',1,'2005-07-01','健康',1,'在职','九龙湖校区','计算机科学与工程学院','计算机科学系','副教授','教师','025-52090001','13700137000','teacher@seu.edu.cn','九龙湖校区计算机楼','李家属','13600136000')
+INSERT INTO tblTeacher(teacherId,UID,name,politicalStatus,nationality,gender,idType,idNumber,idIssueDate,birthDate,nativePlace,householdType,birthPlace,sourcePlace,registeredResidence,partyMember,partyJoinDate,healthStatus,employed,employmentStatus,campus,college,department,title,position,education,employmentStartDate,telephone,mobile,email,officeAddress,emergencyContact,emergencyPhone)
+VALUES('T00001','teacher01','李老师','中共党员','汉族','女','居民身份证','320100198001010001','2015-01-01','1980-01-01','江苏南京','城镇户口','江苏南京','江苏南京','江苏省南京市',1,'2005-07-01','健康',1,'在职','九龙湖校区','计算机科学与工程学院','计算机科学系','副教授','教师','博士研究生','2010-09-01','025-52090001','13700137000','teacher@seu.edu.cn','九龙湖校区计算机楼','李家属','13600136000')
 ON DUPLICATE KEY UPDATE name=VALUES(name);
 
 CREATE TABLE IF NOT EXISTS tblStudentChangeItem (
@@ -632,3 +632,11 @@ VALUES
 (8, 5, 0, '【校园商店操作指引】选购与下单：在商店首页浏览商品加入购物车结算，待支付订单有效期为30分钟，超时未支付订单将自动取消并释放库存。商店支持使用校园银行虚拟账户结账。针对已支付订单可提交退款申请，经管理员审核后资金原路退回校园银行账户。', 150)
 ON DUPLICATE KEY UPDATE `content`=VALUES(`content`);
 
+CREATE TABLE IF NOT EXISTS tblTeacherFamilyMember (
+ memberId BIGINT PRIMARY KEY AUTO_INCREMENT,
+ teacherId VARCHAR(20) NOT NULL,
+ name VARCHAR(50), relationship VARCHAR(30), birthDate DATE,
+ registeredResidence VARCHAR(255), workplace VARCHAR(255), workplaceAddress VARCHAR(255),
+ healthStatus VARCHAR(50), phone VARCHAR(30),
+ INDEX idx_teacher_family_teacher (teacherId)
+) DEFAULT CHARSET=utf8mb4;

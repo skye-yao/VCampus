@@ -26,7 +26,7 @@ public class ClientSession {
     /**
      * 保存登录信息。
      */
-    public void login(String username, String role, String token, User user) {
+    public synchronized void login(String username, String role, String token, User user) {
         this.username = username;
         this.role = role;
         this.token = token;
@@ -36,34 +36,34 @@ public class ClientSession {
     /**
      * 清除当前登录会话。
      */
-    public void logout() {
+    public synchronized void logout() {
         this.username = null;
         this.role = null;
         this.token = null;
         this.currentUser = null;
     }
 
-    public String getUsername() {
+    public synchronized String getUsername() {
         return username;
     }
 
-    public String getRole() {
+    public synchronized String getRole() {
         return role;
     }
 
-    public String getToken() {
+    public synchronized String getToken() {
         return token;
     }
 
-    public User getCurrentUser() {
+    public synchronized User getCurrentUser() {
         return currentUser;
     }
 
-    public void setCurrentUser(User currentUser) {
+    public synchronized void setCurrentUser(User currentUser) {
         this.currentUser = currentUser;
     }
 
-    public boolean isLoggedIn() {
+    public synchronized boolean isLoggedIn() {
         return token != null && !token.isEmpty();
     }
 }

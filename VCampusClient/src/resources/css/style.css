@@ -392,7 +392,7 @@
 .student-export-action:hover { -fx-background-color: #eef6f0; -fx-border-color: #73917a; }
 .student-export-action:disabled { -fx-opacity: 0.55; }
 .student-field-key { -fx-background-color: #f0f4f0; -fx-padding: 7px 9px; -fx-font-weight: bold; -fx-text-fill: #4b584b; -fx-min-width: 92px; }
-.student-field-value { -fx-padding: 7px 9px; -fx-text-fill: #231815; -fx-min-width: 175px; }
+.student-field-value { -fx-padding: 7px 9px; -fx-text-fill: #231815; -fx-min-width: 0; -fx-pref-width: 175px; }
 .student-statusbar { -fx-background-color: #ffffff; -fx-border-color: #dce5dc; -fx-border-width: 1px 0 0 0; }
 .student-edit-link { -fx-background-color: transparent; -fx-text-fill: #587558; -fx-font-size: 13px; -fx-font-weight: bold; -fx-padding: 4px 10px; -fx-cursor: hand; }
 .student-edit-link:hover { -fx-background-color: #eaf0ea; -fx-background-radius: 6px; }

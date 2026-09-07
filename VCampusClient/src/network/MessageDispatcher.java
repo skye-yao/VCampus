@@ -10,18 +10,18 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 客户端消息分发器。
  *
- * 根据服务器返回的 MessageType 以及 UID，
+ * 根据服务器返回的 MessageType 以及 requestId，
  * 将响应消息通知给对应的异步等待者 CompletableFuture。
  */
 public class MessageDispatcher {
 
-    /** 请求 UID -> 对应的 CompletableFuture */
-    private final Map<Long, CompletableFuture<Message>> pendingRequests = new ConcurrentHashMap<>();
+    /** 请求 requestId -> 对应的 CompletableFuture */
+    private final Map<String, CompletableFuture<Message>> pendingRequests = new ConcurrentHashMap<>();
 
     /**
      * 注册待接收响应的异步任务
      */
-    public void registerPendingRequest(Long UID, CompletableFuture<Message> future) {
+    public void registerPendingRequest(String UID, CompletableFuture<Message> future) {
         if (UID != null && future != null) {
             pendingRequests.put(UID, future);
         }
@@ -30,7 +30,7 @@ public class MessageDispatcher {
     /**
      * 移除超时的异步任务
      */
-    public void removePendingRequest(Long UID) {
+    public void removePendingRequest(String UID) {
         if (UID != null) {
             pendingRequests.remove(UID);
         }
@@ -40,8 +40,7 @@ public class MessageDispatcher {
      * 连接断开时，让所有等待中的请求以异常结束
      */
     public void failAllPending(Throwable cause) {
-        pendingRequests.values().forEach(future -> future.completeExceptionally(cause));
-        pendingRequests.clear();
+        pendingRequests.forEach((id,future) -> { if(pendingRequests.remove(id,future)) future.completeExceptionally(cause); });
     }
 
     /**
@@ -67,7 +66,7 @@ public class MessageDispatcher {
      * 处理普通响应。
      */
     private void handleResponse(Message message) {
-        Long UID = message.getUID();
+        String UID = message.getRequestId();
         if (UID != null) {
             CompletableFuture<Message> future = pendingRequests.remove(UID);
             if (future != null) {
