@@ -40,17 +40,27 @@ public class BankAccountDAO {
                 "WHERE account_id=? AND status='ACTIVE' AND balance+?>=0";
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setBigDecimal(1, delta); stmt.setLong(2, accountId); stmt.setBigDecimal(3, delta);
-            boolean ok = stmt.executeUpdate() == 1;
-            if (ok) {
-                // 实时同步更新 tbl_user.balance
-                String syncSql = "UPDATE tbl_user u JOIN tbl_bank_account b ON u.UID = b.user_id " +
-                        "SET u.balance = b.balance WHERE b.account_id = ?";
-                try (PreparedStatement syncStmt = conn.prepareStatement(syncSql)) {
-                    syncStmt.setLong(1, accountId);
-                    syncStmt.executeUpdate();
-                }
+            if (stmt.executeUpdate() != 1) return false;
+        }
+        // tbl_bank_account.balance 是唯一可信余额；tbl_user.balance 仅作为用户资料页的镜像。
+        String mirrorSql = "UPDATE tbl_user u JOIN tbl_bank_account b ON u.UID=b.user_id " +
+                "SET u.balance=b.balance WHERE b.account_id=?";
+        try (PreparedStatement stmt = conn.prepareStatement(mirrorSql)) {
+            stmt.setLong(1, accountId);
+            if (stmt.executeUpdate() != 1) {
+                throw new SQLException("校园账户余额镜像更新失败，accountId=" + accountId);
             }
-            return ok;
+            return true;
+        }
+    }
+
+    /** 管理员重置后不设置默认密码，用户必须自行设置新的6位支付密码。 */
+    public boolean requirePasswordReset(Connection conn, long accountId) throws SQLException {
+        String sql = "UPDATE tbl_bank_account SET payment_password_hash=NULL,payment_password_salt=NULL," +
+                "failed_attempts=0,status='RESET_REQUIRED',version=version+1 WHERE account_id=?";
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setLong(1, accountId);
+            return stmt.executeUpdate() == 1;
         }
     }
 

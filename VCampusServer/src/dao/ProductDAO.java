@@ -97,10 +97,15 @@ public class ProductDAO {
     }
 
     public boolean update(Product product) throws SQLException {
+        try (Connection conn = DBUtil.getConnection()) {
+            return update(conn, product);
+        }
+    }
+
+    public boolean update(Connection conn, Product product) throws SQLException {
         String sql = "UPDATE tbl_product SET product_name=?, description=?, category=?, price=?, " +
                 "version=version+1 WHERE product_id=? AND version=?";
-        try (Connection conn = DBUtil.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, product.getProductName());
             stmt.setString(2, product.getDescription());
             stmt.setString(3, product.getCategory());
@@ -112,9 +117,14 @@ public class ProductDAO {
     }
 
     public boolean changeStatus(long productId, ProductStatus status, int expectedVersion) throws SQLException {
+        try (Connection conn = DBUtil.getConnection()) {
+            return changeStatus(conn, productId, status, expectedVersion);
+        }
+    }
+
+    public boolean changeStatus(Connection conn, long productId, ProductStatus status, int expectedVersion) throws SQLException {
         String sql = "UPDATE tbl_product SET status=?, version=version+1 WHERE product_id=? AND version=?";
-        try (Connection conn = DBUtil.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, status.getCode());
             stmt.setLong(2, productId);
             stmt.setInt(3, expectedVersion);
@@ -123,9 +133,14 @@ public class ProductDAO {
     }
 
     public boolean updateStock(long productId, int stock, int expectedVersion) throws SQLException {
+        try (Connection conn = DBUtil.getConnection()) {
+            return updateStock(conn, productId, stock, expectedVersion);
+        }
+    }
+
+    public boolean updateStock(Connection conn, long productId, int stock, int expectedVersion) throws SQLException {
         String sql = "UPDATE tbl_product SET stock=?, version=version+1 WHERE product_id=? AND version=?";
-        try (Connection conn = DBUtil.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, stock);
             stmt.setLong(2, productId);
             stmt.setInt(3, expectedVersion);

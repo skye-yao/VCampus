@@ -29,6 +29,8 @@ public class UserDAO {
         try {
             conn = DBUtil.getConnection();
             conn.setAutoCommit(false);
+            BigDecimal openingBalance = user.getBalance() != null
+                    ? user.getBalance() : new BigDecimal("1500.00");
 
             // 1. 写入用户基本表（未填字段全部置空）
             try (PreparedStatement stmt = conn.prepareStatement(sqlUser)) {
@@ -42,17 +44,16 @@ public class UserDAO {
                 stmt.setString(8, user.getMajor() != null ? user.getMajor() : "");
                 stmt.setString(9, user.getPhone() != null ? user.getPhone() : "");
                 stmt.setString(10, user.getEmail() != null ? user.getEmail() : "");
-                BigDecimal bonus = user.getBalance() != null ? user.getBalance() : new BigDecimal("1000.00");
-                stmt.setBigDecimal(11, bonus);
+                stmt.setBigDecimal(11, openingBalance);
                 stmt.executeUpdate();
             }
 
-            // 2. 初始化银行账户（发放 1000.00 新用户福利）
-            BigDecimal bonus = user.getBalance() != null ? user.getBalance() : new BigDecimal("1000.00");
+            // 2. 银行表保存唯一可信余额，用户表中的 balance 是同一校园账户余额的镜像。
+            BigDecimal bankOpeningBalance = openingBalance;
             long accountId = 0;
             try (PreparedStatement stmt = conn.prepareStatement(sqlBank, Statement.RETURN_GENERATED_KEYS)) {
                 stmt.setString(1, user.getUID());
-                stmt.setBigDecimal(2, bonus);
+                stmt.setBigDecimal(2, bankOpeningBalance);
                 stmt.executeUpdate();
                 try (ResultSet rs = stmt.getGeneratedKeys()) {
                     if (rs.next()) accountId = rs.getLong(1);
@@ -74,8 +75,8 @@ public class UserDAO {
                 try (PreparedStatement stmt = conn.prepareStatement(sqlTx)) {
                     stmt.setString(1, "TX-BONUS-" + System.currentTimeMillis() + "-" + user.getUID());
                     stmt.setLong(2, accountId);
-                    stmt.setBigDecimal(3, bonus);
-                    stmt.setBigDecimal(4, bonus);
+                    stmt.setBigDecimal(3, bankOpeningBalance);
+                    stmt.setBigDecimal(4, bankOpeningBalance);
                     stmt.executeUpdate();
                 }
             }
@@ -131,8 +132,9 @@ public class UserDAO {
      * @throws SQLException 数据库异常
      */
     public User findByUID(String UID) throws SQLException {
-        String sql = "SELECT UID, name, gender, password, salt, role, college, major, phone, email, avatar ,balance " +
-                     "FROM tbl_user WHERE UID = ?";
+        String sql = "SELECT u.UID,u.name,u.gender,u.password,u.salt,u.role,u.college,u.major," +
+                "u.phone,u.email,u.avatar,COALESCE(b.balance,u.balance) AS balance " +
+                "FROM tbl_user u LEFT JOIN tbl_bank_account b ON b.user_id=u.UID WHERE u.UID=?";
         
         Connection conn = null;
         PreparedStatement stmt = null;
@@ -254,15 +256,14 @@ public class UserDAO {
                 stmt.executeUpdate();
             }
 
-            // 3. 同步银行账户余额
-            String sqlBank = "UPDATE tbl_user u " +
-                    "JOIN tbl_bank_account b ON u.UID = b.user_id " +
-                    "SET u.balance = b.balance " +
-                    "WHERE u.UID = ?";
-            try (PreparedStatement stmt = conn.prepareStatement(sqlBank)) {
+            // 3. 将银行主余额同步到用户资料页使用的余额镜像。
+            String sqlBalance = "UPDATE tbl_user u JOIN tbl_bank_account b ON u.UID=b.user_id " +
+                    "SET u.balance=b.balance WHERE u.UID=?";
+            try (PreparedStatement stmt = conn.prepareStatement(sqlBalance)) {
                 stmt.setString(1, uid);
                 stmt.executeUpdate();
             }
+
         } catch (SQLException e) {
             System.err.println("[UserDAO] syncUserInfo error: " + e.getMessage());
         }
@@ -278,7 +279,7 @@ public class UserDAO {
     }
 
     /**
-     * 全量同步所有用户的学籍与银行数据到 tbl_user
+     * 全量同步学生、教师基本资料，以及校园账户余额镜像到 tbl_user。
      */
     public void syncAllUsers() {
         try (Connection conn = DBUtil.getConnection();
@@ -291,7 +292,7 @@ public class UserDAO {
             stmt.executeUpdate("UPDATE tbl_user u " +
                     "JOIN tblTeacher t ON u.UID = t.UID " +
                     "SET u.name = t.name, u.gender = t.gender, u.college = t.college, u.major = t.title");
-            // 3. 同步银行余额
+            // 3. 银行账户余额是主数据，用户资料页余额与其保持一致。
             stmt.executeUpdate("UPDATE tbl_user u " +
                     "JOIN tbl_bank_account b ON u.UID = b.user_id " +
                     "SET u.balance = b.balance");

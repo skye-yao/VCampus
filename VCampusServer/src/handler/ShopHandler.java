@@ -74,15 +74,17 @@ public class ShopHandler {
                         string(request, "requestId")));
                 case "SHOP_REFUND_APPLY" -> response.putData("refundId", shopService.applyRefund(
                         userId, number(request, "orderId"), string(request, "reason")));
-                case "SHOP_PRODUCT_CREATE" -> response.setData(shopService.createProduct(product(request), admin));
-                case "SHOP_PRODUCT_UPDATE" -> shopService.updateProduct(product(request), admin);
+                case "SHOP_PRODUCT_CREATE" -> response.setData(shopService.createProduct(userId, product(request), admin));
+                case "SHOP_PRODUCT_UPDATE" -> shopService.updateProduct(userId, product(request), admin);
                 case "SHOP_PRODUCT_STATUS_CHANGE" -> shopService.changeProductStatus(
-                        number(request, "productId"), ProductStatus.fromCode(string(request, "status")),
+                        userId, number(request, "productId"), ProductStatus.fromCode(string(request, "status")),
                         integer(request, "version"), admin);
                 case "SHOP_PRODUCT_STOCK_UPDATE" -> shopService.updateProductStock(
-                        number(request, "productId"), integer(request, "stock"),
+                        userId, number(request, "productId"), integer(request, "stock"),
                         integer(request, "version"), admin);
                 case "SHOP_SALES_SUMMARY" -> response.setData(shopService.adminDashboard(admin));
+                case "SHOP_OPERATION_LOG_QUERY" -> response.putData("logs",
+                        shopService.listOperationLogs(integer(request, "limit"), admin));
                 case "SHOP_REFUND_REVIEW" -> shopService.reviewRefund(userId,
                         number(request, "refundId"), Boolean.parseBoolean(string(request, "approved")),
                         string(request, "comment"), string(request, "requestId"), admin);

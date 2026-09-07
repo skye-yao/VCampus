@@ -23,14 +23,14 @@
             <HBox alignment="CENTER_LEFT" spacing="22" styleClass="bank-balance-card">
                 <padding><Insets bottom="20" left="24" right="24" top="20"/></padding>
                 <VBox spacing="6">
-                    <Label fx:id="balanceCaptionLabel" styleClass="bank-card-caption" text="当前登录用户的校园银行余额"/>
+                    <Label fx:id="balanceCaptionLabel" styleClass="bank-card-caption" text="当前登录用户的校园账户余额"/>
                     <Label fx:id="balanceLabel" styleClass="bank-balance-value" text="¥ 0.00"/>
                 </VBox>
                 <Region HBox.hgrow="ALWAYS"/>
                 <VBox alignment="CENTER_RIGHT" spacing="6">
                     <Label fx:id="accountStatusLabel" styleClass="bank-card-info" text="账户状态：读取中"/>
                     <Label fx:id="passwordStatusLabel" styleClass="bank-card-info" text="支付密码：读取中"/>
-                    <Button onAction="#handleRefresh" styleClass="btn-bank-light" text="刷新账户"/>
+                    <Button onAction="#handleRefresh" styleClass="btn-bank-light" text="刷新全部数据"/>
                 </VBox>
             </HBox>
             <TabPane tabClosingPolicy="UNAVAILABLE" VBox.vgrow="ALWAYS" styleClass="shop-tabs">
@@ -49,10 +49,28 @@
                     </Tab>
                     <Tab fx:id="billTab" text="校园缴费">
                         <BorderPane>
+                            <top>
+                                <VBox fx:id="billAdminPanel" managed="false" spacing="10" styleClass="shop-actionbar" visible="false">
+                                    <padding><Insets bottom="12" left="18" right="18" top="12"/></padding>
+                                    <HBox alignment="CENTER_LEFT" spacing="10">
+                                        <TextField fx:id="billKeywordField" onAction="#handleSearchBills" prefWidth="230" promptText="用户编号、姓名或账单名称" styleClass="form-control"/>
+                                        <ComboBox fx:id="billTypeFilter" prefWidth="140" styleClass="form-control"/>
+                                        <ComboBox fx:id="billStatusFilter" prefWidth="140" styleClass="form-control"/>
+                                        <Button onAction="#handleSearchBills" styleClass="btn-bank-primary" text="查询"/>
+                                        <Button onAction="#handleResetBillFilters" styleClass="btn-secondary" text="重置"/>
+                                    </HBox>
+                                    <HBox spacing="12">
+                                        <Label fx:id="billPeopleSummaryLabel" styleClass="summary-chip" text="已全部缴清：0 / 应缴人数：0"/>
+                                        <Label fx:id="billCountSummaryLabel" styleClass="summary-chip" text="已缴账单：0 / 全部账单：0"/>
+                                        <Label styleClass="hint-text" text="管理员查看的是全校账单，不是管理员个人欠费。"/>
+                                    </HBox>
+                                </VBox>
+                            </top>
                             <center>
                                 <TableView fx:id="billTable" styleClass="shop-table">
                                     <columns>
                                         <TableColumn fx:id="billUserColumn" prefWidth="140" text="缴费用户" visible="false"/>
+                                        <TableColumn fx:id="billUserNameColumn" prefWidth="120" text="姓名" visible="false"/>
                                         <TableColumn fx:id="billTitleColumn" prefWidth="260" text="账单名称"/>
                                         <TableColumn fx:id="billTypeColumn" prefWidth="130" text="账单类型"/>
                                         <TableColumn fx:id="billAmountColumn" prefWidth="140" text="金额（元）"/>
@@ -137,6 +155,10 @@
                             <Label styleClass="form-label" text="确认新支付密码"/>
                             <PasswordField fx:id="confirmPasswordField" promptText="再次输入新密码" styleClass="form-control"/>
                             <Button maxWidth="Infinity" onAction="#handleSavePassword" styleClass="btn-bank-primary" text="保存支付密码"/>
+                            <HBox fx:id="adminPasswordResetBox" managed="false" spacing="8" visible="false">
+                                <TextField fx:id="resetPasswordUserField" HBox.hgrow="ALWAYS" promptText="输入需要重置支付密码的用户编号" styleClass="form-control"/>
+                                <Button onAction="#handleResetPaymentPassword" styleClass="btn-secondary" text="重置用户支付密码"/>
+                            </HBox>
                         </VBox>
                         </StackPane>
                     </Tab>

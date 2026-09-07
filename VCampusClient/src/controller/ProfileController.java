@@ -73,7 +73,7 @@ public class ProfileController {
         if (profEmailField != null) profEmailField.setEditable(false);
         if (profPhoneField != null) profPhoneField.setEditable(true);
 
-        // 异步向服务端拉取最新用户信息（确保学籍、银行余额同步最新）
+        // 异步向服务端拉取最新用户信息（确保学籍、校园账户余额同步最新）
         fetchLatestUserInfo();
     }
 

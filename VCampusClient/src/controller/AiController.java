@@ -179,7 +179,7 @@ public class AiController {
                     }
                 } else if (response.getCode() == MessageCode.AI_BALANCE_INSUFFICIENT) {
                     appendSystemNoticeBubble("⚠️ " + response.getMessage());
-                    if (statusLabel != null) statusLabel.setText("提问终止：一卡通账户余额不足");
+                    if (statusLabel != null) statusLabel.setText("提问终止：校园账户余额不足");
                     AlertUtil.showWarning("余额不足", response.getMessage());
                 } else {
                     appendSystemNoticeBubble("❌ 出错啦：" + response.getMessage());

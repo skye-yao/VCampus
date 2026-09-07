@@ -193,17 +193,16 @@
                 <VBox fx:id="panelWallet" spacing="18.0" visible="false">
                     <padding><Insets bottom="24.0" left="32.0" right="32.0" top="24.0" /></padding>
                     <children>
-                        <Label styleClass="subpanel-title" text="银行账户预览" />
+                        <Label styleClass="subpanel-title" text="校园账户预览" />
                         <!-- 钱包卡片 -->
                         <VBox maxWidth="400.0" spacing="8.0" styleClass="wallet-card">
                             <padding><Insets bottom="22.0" left="22.0" right="22.0" top="22.0" /></padding>
                             <children>
-                                <Label styleClass="wallet-subtitle" text="当前银行余额 (CNY)" />
+                                <Label styleClass="wallet-subtitle" text="校园账户余额 (CNY)" />
                                 <Label fx:id="walletBalanceLabel" styleClass="wallet-balance" text="正在读取" />
-                                <Label fx:id="walletAccountLabel" styleClass="wallet-footer-info" text="正在读取银行余额信息" />
+                                <Label fx:id="walletAccountLabel" styleClass="wallet-footer-info" text="正在读取校园账户信息" />
                             </children>
                         </VBox>
-                        <Label maxWidth="400.0" styleClass="hint-text" text="提示：新版本中银行账户管理已移至银行模块" wrapText="true" />
                     </children>
                 </VBox>
             </children>

@@ -7,6 +7,7 @@ import entity.OrderItem;
 import entity.Product;
 import entity.ShopOrder;
 import entity.ShopRefund;
+import entity.ShopOperationLog;
 import enums.OrderStatus;
 import enums.ProductStatus;
 import enums.RefundStatus;
@@ -103,6 +104,14 @@ public class ShopController {
     @FXML private Label salesPaidOrdersLabel;
     @FXML private Label salesAmountLabel;
     @FXML private Label salesRefundedLabel;
+    @FXML private TableView<ShopOperationLog> operationLogTable;
+    @FXML private Tab operationLogTab;
+    @FXML private TableColumn<ShopOperationLog, String> logOperatorColumn;
+    @FXML private TableColumn<ShopOperationLog, String> logActionColumn;
+    @FXML private TableColumn<ShopOperationLog, String> logTargetColumn;
+    @FXML private TableColumn<ShopOperationLog, Long> logTargetIdColumn;
+    @FXML private TableColumn<ShopOperationLog, String> logReasonColumn;
+    @FXML private TableColumn<ShopOperationLog, String> logTimeColumn;
 
     private final Gson gson = new Gson();
     private final Set<Long> selectedCartItemIds = new LinkedHashSet<>();
@@ -213,6 +222,36 @@ public class ShopController {
         salesStatusColumn.setCellValueFactory(new PropertyValueFactory<>("status"));
         salesStatusColumn.setCellFactory(column -> orderStatusCell());
         salesTimeColumn.setCellValueFactory(new PropertyValueFactory<>("createdAt"));
+        logOperatorColumn.setCellValueFactory(new PropertyValueFactory<>("operatorId"));
+        logActionColumn.setCellValueFactory(new PropertyValueFactory<>("action"));
+        logActionColumn.setCellFactory(column -> new TableCell<>() {
+            @Override protected void updateItem(String action, boolean empty) {
+                super.updateItem(action, empty);
+                setText(empty || action == null ? null : switch (action) {
+                    case "PRODUCT_CREATE" -> "新增商品";
+                    case "PRODUCT_UPDATE" -> "修改商品";
+                    case "PRODUCT_STATUS_CHANGE" -> "上架/下架";
+                    case "PRODUCT_STOCK_UPDATE" -> "调整库存";
+                    case "REFUND_APPROVE" -> "同意退款";
+                    case "REFUND_REJECT" -> "拒绝退款";
+                    default -> action;
+                });
+            }
+        });
+        logTargetColumn.setCellValueFactory(new PropertyValueFactory<>("targetType"));
+        logTargetColumn.setCellFactory(column -> new TableCell<>() {
+            @Override protected void updateItem(String target, boolean empty) {
+                super.updateItem(target, empty);
+                setText(empty || target == null ? null : switch (target) {
+                    case "PRODUCT" -> "商品";
+                    case "REFUND" -> "退款单";
+                    default -> target;
+                });
+            }
+        });
+        logTargetIdColumn.setCellValueFactory(new PropertyValueFactory<>("targetId"));
+        logReasonColumn.setCellValueFactory(new PropertyValueFactory<>("reason"));
+        logTimeColumn.setCellValueFactory(new PropertyValueFactory<>("createdAt"));
     }
 
     private TableCell<Product, ProductStatus> statusCell() {
@@ -484,6 +523,7 @@ public class ShopController {
         send(request, response -> {
             AlertUtil.showInfo("商品管理", "商品新增成功，已默认上架");
             refreshProducts();
+            refreshOperationLogs();
         });
     }
 
@@ -505,6 +545,7 @@ public class ShopController {
         send(request, response -> {
             AlertUtil.showInfo("商品管理", "商品信息已更新");
             refreshProducts();
+            refreshOperationLogs();
         });
     }
 
@@ -521,7 +562,10 @@ public class ShopController {
         request.putData("productId", selected.getProductId());
         request.putData("status", target.getCode());
         request.putData("version", selected.getVersion());
-        send(request, response -> refreshProducts());
+        send(request, response -> {
+            refreshProducts();
+            refreshOperationLogs();
+        });
     }
 
     @FXML
@@ -541,6 +585,7 @@ public class ShopController {
             send(request, response -> {
                 AlertUtil.showInfo("库存管理", "库存调整成功");
                 refreshProducts();
+                refreshOperationLogs();
             });
         } catch (NumberFormatException e) {
             AlertUtil.showWarning("库存管理", "库存必须是非负整数");
@@ -601,6 +646,10 @@ public class ShopController {
     private void reviewRefund(boolean approved) {
         ShopRefund refund = adminRefundTable.getSelectionModel().getSelectedItem();
         if (refund == null) { AlertUtil.showWarning("退款审核", "请先选择退款申请"); return; }
+        if (refund.getStatus() != RefundStatus.APPLIED) {
+            AlertUtil.showWarning("退款审核", "该退款申请已处理，不能重复审核");
+            return;
+        }
         TextInputDialog dialog = new TextInputDialog();
         dialog.setTitle("退款审核"); dialog.setHeaderText((approved ? "同意退款" : "拒绝退款") + "：" + refund.getRefundNo());
         dialog.setContentText("审核意见："); Optional<String> comment = dialog.showAndWait();
@@ -616,6 +665,12 @@ public class ShopController {
 
     @FXML private void handleRefreshAdminDashboard() { refreshAdminDashboard(); }
 
+    @FXML private void handleRefreshOperationLogs() { refreshOperationLogs(); }
+
+    @FXML private void handleOperationLogTabChanged() {
+        if (operationLogTab != null && operationLogTab.isSelected()) refreshOperationLogs();
+    }
+
     private void refreshAdminDashboard() {
         send(request(MessageType.SHOP_SALES_SUMMARY), response -> {
             ShopOrder[] orders = gson.fromJson(gson.toJson((Object) response.getData("orders")), ShopOrder[].class);
@@ -629,6 +684,18 @@ public class ShopController {
             salesPaidOrdersLabel.setText("有效销售：" + whole(summary.get("paidOrders")));
             salesAmountLabel.setText("销售金额：¥" + money(summary.get("salesAmount")));
             salesRefundedLabel.setText("已退款：" + whole(summary.get("refundedOrders")));
+        });
+        refreshOperationLogs();
+    }
+
+    private void refreshOperationLogs() {
+        if (!isAdmin() || operationLogTable == null) return;
+        Message request = request(MessageType.SHOP_OPERATION_LOG_QUERY);
+        request.putData("limit", 200);
+        send(request, response -> {
+            ShopOperationLog[] logs = gson.fromJson(
+                    gson.toJson((Object) response.getData("logs")), ShopOperationLog[].class);
+            operationLogTable.setItems(FXCollections.observableArrayList(logs));
         });
     }
 

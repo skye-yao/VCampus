@@ -47,12 +47,19 @@ public class BankController {
     @FXML private TableView<FinanceBill> billTable;
     @FXML private Tab billTab;
     @FXML private TableColumn<FinanceBill, String> billUserColumn;
+    @FXML private TableColumn<FinanceBill, String> billUserNameColumn;
     @FXML private TableColumn<FinanceBill, String> billTitleColumn;
     @FXML private TableColumn<FinanceBill, String> billTypeColumn;
     @FXML private TableColumn<FinanceBill, BigDecimal> billAmountColumn;
     @FXML private TableColumn<FinanceBill, String> billStatusColumn;
     @FXML private TableColumn<FinanceBill, String> billDueColumn;
     @FXML private HBox payBillBox;
+    @FXML private VBox billAdminPanel;
+    @FXML private TextField billKeywordField;
+    @FXML private ComboBox<String> billTypeFilter;
+    @FXML private ComboBox<String> billStatusFilter;
+    @FXML private Label billPeopleSummaryLabel;
+    @FXML private Label billCountSummaryLabel;
     @FXML private TableView<Reimbursement> reimbursementTable;
     @FXML private TableColumn<Reimbursement, String> reimbursementTitleColumn;
     @FXML private TableColumn<Reimbursement, BigDecimal> reimbursementAmountColumn;
@@ -65,6 +72,8 @@ public class BankController {
     @FXML private HBox adminReviewBox;
     @FXML private SplitPane reimbursementSplitPane;
     @FXML private VBox reimbursementApplyPanel;
+    @FXML private HBox adminPasswordResetBox;
+    @FXML private TextField resetPasswordUserField;
 
     private final Gson gson = new Gson();
     private BankAccount currentAccount;
@@ -78,6 +87,7 @@ public class BankController {
         txCounterpartyColumn.setCellValueFactory(new javafx.scene.control.cell.PropertyValueFactory<>("counterpartyUserId"));
         txTimeColumn.setCellValueFactory(new javafx.scene.control.cell.PropertyValueFactory<>("createdAt"));
         billUserColumn.setCellValueFactory(new javafx.scene.control.cell.PropertyValueFactory<>("userId"));
+        billUserNameColumn.setCellValueFactory(new javafx.scene.control.cell.PropertyValueFactory<>("userName"));
         billTitleColumn.setCellValueFactory(new javafx.scene.control.cell.PropertyValueFactory<>("title"));
         billTypeColumn.setCellValueFactory(new javafx.scene.control.cell.PropertyValueFactory<>("billType"));
         billAmountColumn.setCellValueFactory(new javafx.scene.control.cell.PropertyValueFactory<>("amount"));
@@ -138,17 +148,33 @@ public class BankController {
             }
         });
         boolean admin = isAdmin();
-        balanceCaptionLabel.setText(admin ? "校园财务账户可用余额（管理员操作）" : "当前校园银行账户余额");
+        billTypeFilter.setItems(FXCollections.observableArrayList("全部类型", "学费", "住宿费", "其他费用"));
+        billStatusFilter.setItems(FXCollections.observableArrayList("全部状态", "待缴费", "已缴费", "已取消"));
+        billTypeFilter.getSelectionModel().selectFirst();
+        billStatusFilter.getSelectionModel().selectFirst();
+        balanceCaptionLabel.setText(admin ? "校园财务账户可用余额（管理员操作）" : "当前校园账户余额");
         adminReviewBox.setVisible(admin); adminReviewBox.setManaged(admin);
         billUserColumn.setVisible(admin);
+        billUserNameColumn.setVisible(admin);
+        billAdminPanel.setVisible(admin); billAdminPanel.setManaged(admin);
         billTab.setText(admin ? "缴费账单管理" : "校园缴费");
         payBillBox.setVisible(!admin); payBillBox.setManaged(!admin);
+        adminPasswordResetBox.setVisible(admin); adminPasswordResetBox.setManaged(admin);
         if (admin) reimbursementSplitPane.getItems().remove(reimbursementApplyPanel);
         refreshAll();
     }
 
     @FXML private void handleBack() { ClientMain.switchScene("/resources/fxml/MainView.fxml"); }
     @FXML private void handleRefresh() { refreshAll(); }
+
+    @FXML private void handleSearchBills() { refreshBills(); }
+
+    @FXML private void handleResetBillFilters() {
+        billKeywordField.clear();
+        billTypeFilter.getSelectionModel().selectFirst();
+        billStatusFilter.getSelectionModel().selectFirst();
+        refreshBills();
+    }
 
     @FXML
     private void handleTransfer() {
@@ -196,6 +222,26 @@ public class BankController {
     }
 
     @FXML
+    private void handleResetPaymentPassword() {
+        String targetUserId = resetPasswordUserField.getText().trim();
+        if (targetUserId.isEmpty()) {
+            AlertUtil.showWarning("重置支付密码", "请输入用户编号");
+            return;
+        }
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
+                "将清除用户 " + targetUserId + " 的原支付密码，并要求用户重新设置。是否继续？",
+                ButtonType.OK, ButtonType.CANCEL);
+        confirm.setTitle("重置支付密码");
+        if (confirm.showAndWait().orElse(ButtonType.CANCEL) != ButtonType.OK) return;
+        Message request = request(MessageType.BANK_PASSWORD_RESET);
+        request.putData("targetUserId", targetUserId);
+        send(request, response -> {
+            AlertUtil.showInfo("重置支付密码", "已重置，用户下次需设置新的6位支付密码");
+            resetPasswordUserField.clear();
+        });
+    }
+
+    @FXML
     private void handlePayBill() {
         FinanceBill bill = billTable.getSelectionModel().getSelectedItem();
         if (bill == null) { AlertUtil.showWarning("校园缴费", "请先选择一条待缴费账单"); return; }
@@ -235,24 +281,19 @@ public class BankController {
         dialog.setTitle("报销审核"); dialog.setHeaderText((approved ? "通过：" : "驳回：") + item.getTitle());
         dialog.setContentText("审核意见：");
         Optional<String> comment = dialog.showAndWait(); if (comment.isEmpty()) return;
+        String paymentPassword = "";
+        if (approved) {
+            Optional<String> password = showPaymentPassword(
+                    "确认从校园财务账户支付报销款 ¥" + item.getAmount());
+            if (password.isEmpty()) return;
+            paymentPassword = password.get();
+        }
         Message request = request(MessageType.FINANCE_REIMBURSEMENT_REVIEW);
         request.putData("reimbursementId", item.getReimbursementId());
         request.putData("approved", approved); request.putData("comment", comment.get());
+        request.putData("paymentPassword", paymentPassword);
         send(request, response -> {
-            if (approved) {
-                String applicant = String.valueOf((Object) response.getData("applicantId"));
-                String amount = String.valueOf((Object) response.getData("amount"));
-                String transactionNo = String.valueOf((Object) response.getData("transactionNo"));
-                String balanceAfter = String.valueOf((Object) response.getData("balanceAfter"));
-                String financeTransactionNo = String.valueOf((Object) response.getData("financeTransactionNo"));
-                String financeBalanceAfter = String.valueOf((Object) response.getData("financeBalanceAfter"));
-                AlertUtil.showInfo("报销审核", "已向 " + applicant + " 的校园银行账户入账 ¥" + amount
-                        + "\n申请人入账后余额：¥" + balanceAfter + "\n申请人流水号：" + transactionNo
-                        + "\n校园财务扣款后余额：¥" + financeBalanceAfter
-                        + "\n校园财务流水号：" + financeTransactionNo);
-            } else {
-                AlertUtil.showInfo("报销审核", "报销申请已驳回，未发生资金变动");
-            }
+            AlertUtil.showInfo("报销审核", approved ? "报销审核通过并已入账" : "报销申请已驳回");
             refreshAll();
         });
     }
@@ -282,10 +323,39 @@ public class BankController {
 
     private void refreshBills() {
         Message request = request(isAdmin() ? MessageType.FINANCE_BILL_ALL_LIST : MessageType.FINANCE_BILL_MY_LIST);
+        if (isAdmin()) {
+            request.putData("keyword", billKeywordField.getText().trim());
+            request.putData("billType", switch (billTypeFilter.getValue()) {
+                case "学费" -> "TUITION";
+                case "住宿费" -> "ACCOMMODATION";
+                case "其他费用" -> "OTHER";
+                default -> "";
+            });
+            request.putData("status", switch (billStatusFilter.getValue()) {
+                case "待缴费" -> "UNPAID";
+                case "已缴费" -> "PAID";
+                case "已取消" -> "CANCELLED";
+                default -> "";
+            });
+        }
         send(request, response -> {
             FinanceBill[] bills = gson.fromJson(gson.toJson((Object) response.getData("bills")), FinanceBill[].class);
             billTable.setItems(FXCollections.observableArrayList(bills));
         });
+        if (isAdmin()) refreshBillStatistics();
+    }
+
+    private void refreshBillStatistics() {
+        send(request(MessageType.FINANCE_REPORT_QUERY), response -> {
+            billPeopleSummaryLabel.setText("已全部缴清：" + whole(response.getData("fullyPaidPeople"))
+                    + " / 应缴人数：" + whole(response.getData("totalPeople")));
+            billCountSummaryLabel.setText("已缴账单：" + whole(response.getData("paidBills"))
+                    + " / 全部账单：" + whole(response.getData("totalBills")));
+        });
+    }
+
+    private String whole(Object value) {
+        return value instanceof Number number ? String.valueOf(number.longValue()) : String.valueOf(value);
     }
 
     private void refreshReimbursements() {
@@ -313,7 +383,7 @@ public class BankController {
 
     private Optional<String> showPaymentPassword(String summary) {
         Dialog<String> dialog = new Dialog<>();
-        dialog.setTitle("校园缴费"); dialog.setHeaderText(summary);
+        dialog.setTitle("支付密码验证"); dialog.setHeaderText(summary);
         ButtonType confirm = new ButtonType("确认支付", ButtonBar.ButtonData.OK_DONE);
         dialog.getDialogPane().getButtonTypes().addAll(confirm, ButtonType.CANCEL);
         PasswordField field = new PasswordField(); field.setPromptText("请输入6位支付密码");

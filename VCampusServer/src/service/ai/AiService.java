@@ -227,7 +227,7 @@ public class AiService {
         // 1. 银行余额前置校验
         BankAccount bankAccount = bankService.getAccount(userId);
         if (bankAccount.getBalance().compareTo(new BigDecimal("0.01")) < 0) {
-            throw new BusinessException("校园卡余额不足（当前 ￥" + bankAccount.getBalance()
+            throw new BusinessException("校园账户余额不足（当前 ￥" + bankAccount.getBalance()
                     + "），请先前往校园银行充值！");
         }
 
