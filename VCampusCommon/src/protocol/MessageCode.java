@@ -19,7 +19,24 @@ public enum MessageCode {
     
     
     // ===== 业务状态码 (2000-2999: 图书模块) =====
-    
+    LIBRARY_BOOK_NOT_FOUND(2000, "图书不存在"),
+    LIBRARY_BOOK_NOT_AVAILABLE(2001, "图书当前不可借阅或预约"),
+    LIBRARY_ALREADY_RESERVED(2002, "该图书已预约"),
+    LIBRARY_RESERVATION_NOT_FOUND(2003, "预约记录不存在"),
+
+    LIBRARY_BORROW_RECORD_NOT_FOUND(2010, "借阅记录不存在"),
+
+    LIBRARY_REVIEW_NOT_FOUND(2020, "书评不存在"),
+
+    LIBRARY_LOSS_RECORD_NOT_FOUND(2030, "挂失记录不存在"),
+    LIBRARY_BOOK_ALREADY_LOST(2031, "图书已挂失"),
+    LIBRARY_BOOK_NOT_LOST(2032, "图书当前未挂失"),
+
+    LIBRARY_FINE_NOT_FOUND(2040, "罚款记录不存在"),
+    LIBRARY_FINE_ALREADY_PAID(2041, "该罚款已缴纳"),
+
+    LIBRARY_BOOK_ALREADY_EXISTS(2050, "图书已存在"),
+    LIBRARY_BOOK_REMOVE_FAILED(2051, "图书下架失败"),
     
     // ===== 业务状态码 (3000-3999: 银行模块) =====
    

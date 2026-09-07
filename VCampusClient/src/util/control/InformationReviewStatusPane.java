@@ -4,7 +4,6 @@ import enums.StudentChangeStatus;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Label;
-import javafx.scene.control.Button;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
@@ -19,28 +18,22 @@ public class InformationReviewStatusPane extends VBox {
     private final Label noteLabel = new Label("暂无提交记录");
     private final Label firstStep = step("1");
     private final Label secondStep = step("2");
-    private final Button cancelButton = new Button("撤回申请");
 
     public InformationReviewStatusPane() {
         setMinWidth(260);
         setPrefWidth(260);
         setMaxWidth(260);
-        setPadding(Insets.EMPTY);
+        setPadding(new Insets(66, 20, 20, 0));
         getStylesheets().add(getClass().getResource("/resources/css/information-review.css").toExternalForm());
         Label heading = new Label("审核状态");
         heading.getStyleClass().add("information-review-heading");
         submitLabel.getStyleClass().add("information-review-title");
-        cancelButton.getStyleClass().add("information-review-cancel");
-        cancelButton.setVisible(false);
-        cancelButton.setManaged(false);
         reviewLabel.getStyleClass().add("information-review-title");
         submitTimeLabel.getStyleClass().add("information-review-note");
         noteLabel.getStyleClass().add("information-review-note");
         submitTimeLabel.setWrapText(true);
         noteLabel.setWrapText(true);
-        HBox submitTitle = new HBox(8, submitLabel, cancelButton);
-        submitTitle.setAlignment(Pos.CENTER_LEFT);
-        VBox submitted = new VBox(8, submitTitle, submitTimeLabel);
+        VBox submitted = new VBox(8, submitLabel, submitTimeLabel);
         HBox first = new HBox(12, firstStep, submitted);
         Region line = new Region();
         line.setMinSize(2, 34);
@@ -73,20 +66,6 @@ public class InformationReviewStatusPane extends VBox {
 
     public String getSubmitter() {
         return submitLabel.getText().replace("提交", "");
-    }
-
-    public void setCancelAction(Runnable action) {
-        cancelButton.setOnAction(event -> action.run());
-    }
-
-    public void showCancel(boolean visible) {
-        cancelButton.setVisible(visible);
-        cancelButton.setManaged(visible);
-        if (visible) cancelButton.setDisable(false);
-    }
-
-    public void setCancelDisabled(boolean disabled) {
-        cancelButton.setDisable(disabled);
     }
 
     public void showRequest(StudentChangeStatus status, Timestamp submitTime) {

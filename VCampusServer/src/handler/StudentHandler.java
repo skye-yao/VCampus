@@ -18,10 +18,11 @@ public class StudentHandler {
             if(q.getType()==null)return fail(r,MessageCode.BAD_REQUEST,"缺少消息类型");
             switch(q.getType()) {
                 case STUDENT_OVERVIEW_QUERY->r.putData("overview",service.queryByUID(s.getUsername()));
-                case STUDENT_CHANGE_SUBMIT->r.putData("requestId",service.submit(s,value(q,"request",StudentChangeRequest.class),q.getLock()));
+                case STUDENT_CHANGE_SUBMIT->r.putData("requestId",service.submit(s.getUsername(),value(q,"request",StudentChangeRequest.class)));
                 case STUDENT_CHANGE_LIST->r.putData("requests",service.listMyRequests(s.getUsername()));
                 case STUDENT_CHANGE_CANCEL->service.cancel(s.getUsername(),number(q,"requestId"));
-                case STUDENT_EDIT_BEGIN, STUDENT_EDIT_END -> throw new IllegalStateException("请更新客户端，使用公共占用协议");
+                case STUDENT_EDIT_BEGIN->r.putData("studentId",service.beginEdit(s.getUsername(),admin,admin?string(q,"studentId"):null));
+                case STUDENT_EDIT_END->service.endEdit(s.getUsername(),admin,admin?string(q,"studentId"):null);
                 case STUDENT_LIST-> {
                     needAdmin(admin);
                     r.putData("students",service.listStudents());
@@ -36,47 +37,47 @@ public class StudentHandler {
                 }
                 case STUDENT_REVIEW_QUERY-> {
                     needAdmin(admin);
-                    r.putData("request",service.queryRequest(s,number(q,"requestId"),q.getLock()));
+                    r.putData("request",service.queryRequest(number(q,"requestId")));
                 }
                 case STUDENT_REVIEW-> {
                     needAdmin(admin);
                     StudentReviewVO v=value(q,"review",StudentReviewVO.class);
-                    service.review(s,v.getRequestId(),v.getReviewResult(),v.getReviewRemark(),q.getLock());
+                    service.review(v.getRequestId(),v.getReviewResult(),s.getUsername(),v.getReviewRemark());
                 }
                 case STUDENT_ADMIN_UPDATE-> {
                     needAdmin(admin);
-                    r.putData("updated",service.updateByAdmin(s,value(q,"student",Student.class),q.getLock()));
+                    r.putData("updated",service.updateByAdmin(s.getUsername(),value(q,"student",Student.class)));
                 }
                 case STUDENT_AWARD_ADD-> {
                     needAdmin(admin);
-                    r.putData("updated",service.addAward(s,value(q,"award",StudentAward.class),q.getLock()));
+                    r.putData("updated",service.addAward(value(q,"award",StudentAward.class)));
                 }
                 case STUDENT_AWARD_UPDATE-> {
                     needAdmin(admin);
-                    r.putData("updated",service.updateAward(s,value(q,"award",StudentAward.class),q.getLock()));
+                    r.putData("updated",service.updateAward(value(q,"award",StudentAward.class)));
                 }
                 case STUDENT_AWARD_DELETE-> {
                     needAdmin(admin);
-                    r.putData("updated",service.deleteAward(s,number(q,"awardId"),q.getLock()));
+                    r.putData("updated",service.deleteAward(number(q,"awardId")));
                 }
                 case STUDENT_AID_ADD-> {
                     needAdmin(admin);
-                    r.putData("updated",service.addAid(s,value(q,"aid",StudentAid.class),q.getLock()));
+                    r.putData("updated",service.addAid(value(q,"aid",StudentAid.class)));
                 }
                 case STUDENT_AID_UPDATE-> {
                     needAdmin(admin);
-                    r.putData("updated",service.updateAid(s,value(q,"aid",StudentAid.class),q.getLock()));
+                    r.putData("updated",service.updateAid(value(q,"aid",StudentAid.class)));
                 }
                 case STUDENT_AID_DELETE-> {
                     needAdmin(admin);
-                    r.putData("updated",service.deleteAid(s,number(q,"aidId"),q.getLock()));
+                    r.putData("updated",service.deleteAid(number(q,"aidId")));
                 }
-                case STUDENT_EXPERIENCE_ADD->r.putData("updated",service.addExperience(s,value(q,"experience",StudentExperience.class),q.getLock()));
-                case STUDENT_FAMILY_MEMBER_ADD->r.putData("updated",service.addFamilyMember(s,value(q,"member",StudentFamilyMember.class),q.getLock()));
-                case STUDENT_EXPERIENCE_UPDATE->r.putData("updated",service.updateExperience(s,value(q,"experience",StudentExperience.class),q.getLock()));
-                case STUDENT_EXPERIENCE_DELETE->r.putData("updated",service.deleteExperience(s,number(q,"experienceId"),q.getLock()));
-                case STUDENT_FAMILY_MEMBER_UPDATE->r.putData("updated",service.updateFamilyMember(s,value(q,"member",StudentFamilyMember.class),q.getLock()));
-                case STUDENT_FAMILY_MEMBER_DELETE->r.putData("updated",service.deleteFamilyMember(s,number(q,"memberId"),q.getLock()));
+                case STUDENT_EXPERIENCE_ADD->r.putData("updated",service.addExperience(s.getUsername(),value(q,"experience",StudentExperience.class)));
+                case STUDENT_FAMILY_MEMBER_ADD->r.putData("updated",service.addFamilyMember(s.getUsername(),value(q,"member",StudentFamilyMember.class)));
+                case STUDENT_EXPERIENCE_UPDATE->r.putData("updated",service.updateExperience(s.getUsername(),value(q,"experience",StudentExperience.class)));
+                case STUDENT_EXPERIENCE_DELETE->r.putData("updated",service.deleteExperience(s.getUsername(),number(q,"experienceId")));
+                case STUDENT_FAMILY_MEMBER_UPDATE->r.putData("updated",service.updateFamilyMember(s.getUsername(),value(q,"member",StudentFamilyMember.class)));
+                case STUDENT_FAMILY_MEMBER_DELETE->r.putData("updated",service.deleteFamilyMember(s.getUsername(),number(q,"memberId")));
                 default-> {
                     return fail(r,MessageCode.BAD_REQUEST,"不支持的学籍操作");
                 }

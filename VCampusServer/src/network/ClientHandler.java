@@ -35,7 +35,7 @@ public class ClientHandler implements Runnable {
     public ClientHandler(Socket socket) {
         this.socket = socket;
         this.dispatcher = new MessageDispatcher();
-        this.gson = new Gson();
+        this.gson = util.JsonUtil.createGson();
     }
 
     @Override
@@ -82,7 +82,20 @@ public class ClientHandler implements Runnable {
 
                 if (request != null) response.setRequestId(request.getRequestId());
                 // 3. 响应消息写入发送队列
-                String jsonResponse = gson.toJson(response);
+                String jsonResponse;
+                try {
+                    jsonResponse = gson.toJson(response);
+                } catch (RuntimeException e) {
+                    System.out.println("响应序列化失败: " + e);
+                    Message error = new Message(MessageType.RESPONSE,
+                            request == null ? "system" : request.getModule(),
+                            request == null ? "parse" : request.getAction());
+                    if (request != null) error.setUID(request.getUID());
+                    error.setCode(MessageCode.ERROR);
+                    error.setMessage("服务端响应数据转换失败，请查看服务端日志");
+                    jsonResponse = gson.toJson(error);
+                    response = error;
+                }
                 writer.println(jsonResponse);
                 if (writer.checkError()) throw new java.io.IOException("响应发送失败");
                 System.out.println("发送响应: " + response);

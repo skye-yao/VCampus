@@ -19,7 +19,7 @@
  *   <li>异常统一抛出 DatabaseException</li>
  * </ul>
  *
- * <p><b>参考示例：</b>{@link dao.UserDAO}
+ * <p><b>参考示例：</b>{@link UserDAO}
  *
  * @author VirtualCampus 架构组
  * @version 1.0

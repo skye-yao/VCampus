@@ -63,6 +63,36 @@ public class ProfileController {
     public void initialize() {
         // 加载当前登录用户数据
         loadUserData();
+
+        // 锁定只读：除手机号和头像之外的所有控件均为只读
+        if (profUIDField != null) profUIDField.setEditable(false);
+        if (profNameField != null) profNameField.setEditable(false);
+        if (profSexCombo != null) profSexCombo.setDisable(true);
+        if (profCollegeField != null) profCollegeField.setEditable(false);
+        if (profMajorField != null) profMajorField.setEditable(false);
+        if (profEmailField != null) profEmailField.setEditable(false);
+        if (profPhoneField != null) profPhoneField.setEditable(true);
+
+        // 异步向服务端拉取最新用户信息（确保学籍、银行余额同步最新）
+        fetchLatestUserInfo();
+    }
+
+    private void fetchLatestUserInfo() {
+        Message request = new Message(MessageType.REQUEST, "user", "getuserinfo");
+        request.putData("cardNo", ClientSession.getInstance().getUsername());
+        SocketClient.getInstance().sendAsync(request).thenAccept(response -> {
+            if (response.getCode() == MessageCode.SUCCESS) {
+                Object userObj = response.getData("user");
+                if (userObj != null) {
+                    com.google.gson.Gson gson = new com.google.gson.Gson();
+                    User latestUser = gson.fromJson(gson.toJson(userObj), User.class);
+                    if (latestUser != null) {
+                        ClientSession.getInstance().setCurrentUser(latestUser);
+                        Platform.runLater(this::loadUserData);
+                    }
+                }
+            }
+        });
     }
 
     private void loadUserData() {
@@ -178,12 +208,18 @@ public class ProfileController {
 
     @FXML
     private void handleSaveProfile(ActionEvent event) {
-        String name = profNameField != null ? profNameField.getText() : "";
-        String gender = profSexCombo != null ? profSexCombo.getValue() : "男";
-        String college = profCollegeField != null ? profCollegeField.getText() : "";
-        String major = profMajorField != null ? profMajorField.getText() : "";
-        String phone = profPhoneField != null ? profPhoneField.getText() : "";
-        String email = profEmailField != null ? profEmailField.getText() : "";
+        String phone = profPhoneField != null ? profPhoneField.getText().trim() : "";
+        if (phone.isEmpty()) {
+            AlertUtil.showWarning("提示", "手机号码不能为空！");
+            return;
+        }
+
+        User currentUser = ClientSession.getInstance().getCurrentUser();
+        String name = currentUser != null ? currentUser.getName() : (profNameField != null ? profNameField.getText() : "");
+        String gender = currentUser != null ? currentUser.getGender() : "男";
+        String college = currentUser != null ? currentUser.getCollege() : "";
+        String major = currentUser != null ? currentUser.getMajor() : "";
+        String email = currentUser != null ? currentUser.getEmail() : "";
 
         Message request = new Message(MessageType.REQUEST, "user", "updateprofile");
         request.putData("name", name);
@@ -196,17 +232,10 @@ public class ProfileController {
         SocketClient.getInstance().sendAsync(request)
                 .thenAccept(response -> Platform.runLater(() -> {
                     if (response.getCode() == MessageCode.SUCCESS) {
-                        User currentUser = ClientSession.getInstance().getCurrentUser();
                         if (currentUser != null) {
-                            currentUser.setName(name);
-                            currentUser.setGender(gender);
-                            currentUser.setCollege(college);
-                            currentUser.setMajor(major);
                             currentUser.setPhone(phone);
-                            currentUser.setEmail(email);
                         }
-                        if (headerNameLabel != null) headerNameLabel.setText(name);
-                        AlertUtil.showInfo("操作提示", "个人信息修改已保存成功！");
+                        AlertUtil.showInfo("操作提示", "手机号修改已保存成功！");
                     } else {
                         AlertUtil.showError("保存失败", response.getMessage());
                     }

@@ -1,7 +1,6 @@
 package vo;
 import entity.*; import java.io.Serializable;
 public class TeacherOverviewVO implements Serializable {
- private java.util.List<TeacherFamilyMember> familyMembers=new java.util.ArrayList<>();public java.util.List<TeacherFamilyMember> getFamilyMembers(){return familyMembers;}public void setFamilyMembers(java.util.List<TeacherFamilyMember> value){familyMembers=value;}
     private TeacherChangeRequest latestRequest;
     public TeacherChangeRequest getLatestRequest(){return latestRequest;}
     public void setLatestRequest(TeacherChangeRequest value){latestRequest=value;}

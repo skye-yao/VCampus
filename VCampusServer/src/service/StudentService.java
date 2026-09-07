@@ -12,13 +12,7 @@ import java.util.ArrayList;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import lock.ResourceLockManager;
-import protocol.LockRequest;
-import session.UserSession;
 public class StudentService {
-    private final ResourceLockManager locks=ResourceLockManager.getInstance();
-    private boolean admin(UserSession s) {return "ADMIN".equalsIgnoreCase(s.getRole()) || "管理员".equals(s.getRole());}
-
     private static final String EXPERIENCE_ADD="experience.add", EXPERIENCE_UPDATE="experience.update", EXPERIENCE_DELETE="experience.delete";
     private static final String FAMILY_ADD="family.add", FAMILY_UPDATE="family.update", FAMILY_DELETE="family.delete";
     private static final Set<String> STUDENT_EDITABLE_FIELDS = Set.of(
@@ -38,6 +32,9 @@ public class StudentService {
     );
     private static final Set<String> ID_TYPES = Set.of("居民身份证", "港澳台居民居住证", "护照", "其他");
     private static final Set<String> HOUSEHOLD_TYPES = Set.of("城镇户口", "农村居民户口", "集体户口");
+    private static final long EDIT_LEASE_MILLIS = 15 * 60 * 1000L;
+    private static final Map<String, EditLease> EDIT_LEASES = new ConcurrentHashMap<>();
+    private record EditLease(String owner,long expiresAt) {}
     private final StudentDAO students = new StudentDAO();
     private final StudentChangeRequestDAO requests = new StudentChangeRequestDAO();
     private final StudentAwardDAO awards = new StudentAwardDAO();
@@ -78,16 +75,12 @@ public class StudentService {
         if (request == null) throw new IllegalArgumentException("修改申请不存在");
         return request;
     }
-    public void cancel(String UID,long id)throws SQLException {
-        String owner=requireStudent(UID).getStudentId();
-        try(Connection c=DBUtil.getConnection()){c.setAutoCommit(false);try{
-            StudentChangeRequest request=requests.findByIdForUpdate(c,id);
-            if(request==null||!owner.equals(request.getStudentId()))throw new SecurityException("无权撤回该申请");
-            if(request.getStatus()!=StudentChangeStatus.PENDING||!requests.cancel(c,id,owner))throw new IllegalStateException("申请已处理，请刷新");
-            c.commit();
-        }catch(Exception e){c.rollback();throw e;}}
+    public void cancel(String UID, long requestId) throws SQLException {
+        if (!requests.cancel(requestId, requireStudent(UID).getStudentId())) {
+            throw new IllegalStateException("申请不存在或已处理");
+        }
     }
-    private long submit(String UID, StudentChangeRequest request) throws SQLException {
+    public long submit(String UID, StudentChangeRequest request) throws SQLException {
         if (request == null || request.getItems() == null || request.getItems().isEmpty()) {
             throw new IllegalArgumentException("修改项不能为空");
         }
@@ -96,7 +89,7 @@ public class StudentService {
             try {
                 Student student = students.lockByUID(connection, UID);
                 if (student == null) throw new IllegalArgumentException("当前用户没有学籍");
-
+                assertMayMutate(student.getStudentId(),"STUDENT:"+UID);
                 validateStudentRequest(student, request);
                 if (requests.findPendingByStudentId(connection, student.getStudentId()) != null) {
                     throw new IllegalStateException("已有待审核申请");
@@ -104,7 +97,7 @@ public class StudentService {
                 request.setStudentId(student.getStudentId());
                 long requestId = requests.insert(connection, request);
                 connection.commit();
-
+                releaseLease(student.getStudentId(),"STUDENT:"+UID);
                 return requestId;
             }
             catch (Exception exception) {
@@ -113,7 +106,7 @@ public class StudentService {
             }
         }
     }
-    private void review(long requestId, StudentChangeStatus result, String reviewer, String remark) throws SQLException {
+    public void review(long requestId, StudentChangeStatus result, String reviewer, String remark) throws SQLException {
         if (result != StudentChangeStatus.APPROVED && result != StudentChangeStatus.REJECTED) {
             throw new IllegalArgumentException("审核结果无效");
         }
@@ -145,55 +138,68 @@ public class StudentService {
             }
         }
     }
-    private boolean updateByAdmin(String adminId,Student student) throws SQLException {
+    public boolean updateByAdmin(String adminId,Student student) throws SQLException {
         if (student == null || student.getStudentId() == null || student.getStudentId().isBlank()) {
             throw new IllegalArgumentException("学生信息不能为空");
         }
-        if(requests.findPendingByStudentId(student.getStudentId())!=null)throw new IllegalStateException("存在待审核申请，请先审核");
+        assertMayMutate(student.getStudentId(),"ADMIN:"+adminId);
         if (!students.update(student)) throw new IllegalStateException("学生不存在或更新失败");
-
+        releaseLease(student.getStudentId(),"ADMIN:"+adminId);
         return true;
     }
-    private boolean addAward(StudentAward award) throws SQLException {
-        if(award==null||award.getAwardName()==null||award.getAwardType()==null||award.getAwardDate()==null||award.getAwardName().isBlank())throw new IllegalArgumentException("名称、类型和日期不能为空");
+    public String beginEdit(String UID, boolean admin, String requestedStudentId) throws SQLException {
+        Student student = admin ? students.findByStudentId(required(requestedStudentId,"缺少学生学号")) : requireStudent(UID);
+        if (student == null) throw new IllegalArgumentException("学生不存在");
+        String studentId=student.getStudentId(), owner=(admin?"ADMIN:":"STUDENT:")+UID;
+        long now=System.currentTimeMillis();
+        EDIT_LEASES.compute(studentId,(id,current)-> {
+            if(current==null||current.expiresAt()<now||current.owner().equals(owner))return new EditLease(owner,now+EDIT_LEASE_MILLIS);
+            throw new IllegalStateException("该学生信息正在被另一端编辑，请稍后再试");
+        });
+        return studentId;
+    }
+    public void endEdit(String UID, boolean admin, String requestedStudentId) throws SQLException {
+        Student student=admin?null:requireStudent(UID);
+        String studentId=admin?required(requestedStudentId,"缺少学生学号"):student.getStudentId();
+        String owner=(admin?"ADMIN:":"STUDENT:")+UID;
+        EDIT_LEASES.computeIfPresent(studentId,(id,current)->current.owner().equals(owner)?null:current);
+    }
+    public boolean addAward(StudentAward award) throws SQLException {
         return awards.insert(award);
     }
-    private boolean updateAward(StudentAward award) throws SQLException {
-        if(award==null||award.getAwardName()==null||award.getAwardType()==null||award.getAwardDate()==null||award.getAwardName().isBlank())throw new IllegalArgumentException("名称、类型和日期不能为空");
+    public boolean updateAward(StudentAward award) throws SQLException {
         return awards.update(award);
     }
-    private boolean deleteAward(long awardId) throws SQLException {
+    public boolean deleteAward(long awardId) throws SQLException {
         return awards.delete(awardId);
     }
-    private boolean addAid(StudentAid aid) throws SQLException {
-        if(aid==null||aid.getAidName()==null||aid.getAidType()==null||aid.getAidDate()==null||aid.getAidName().isBlank())throw new IllegalArgumentException("名称、类型和日期不能为空");
+    public boolean addAid(StudentAid aid) throws SQLException {
         return aids.insert(aid);
     }
-    private boolean updateAid(StudentAid aid) throws SQLException {
-        if(aid==null||aid.getAidName()==null||aid.getAidType()==null||aid.getAidDate()==null||aid.getAidName().isBlank())throw new IllegalArgumentException("名称、类型和日期不能为空");
+    public boolean updateAid(StudentAid aid) throws SQLException {
         return aids.update(aid);
     }
-    private boolean deleteAid(long aidId) throws SQLException {
+    public boolean deleteAid(long aidId) throws SQLException {
         return aids.delete(aidId);
     }
-    private boolean addExperience(String UID,StudentExperience value)throws SQLException{
+    public boolean addExperience(String UID,StudentExperience value)throws SQLException{
         if(value==null)throw new IllegalArgumentException("学习经历不能为空");validateRelatedRecord(value);
         value.setExperienceId(null);value.setStudentId(requireStudent(UID).getStudentId());return requireChanged(experiences.insert(value),"学习经历添加失败");
     }
-    private boolean addFamilyMember(String UID,StudentFamilyMember value)throws SQLException{
+    public boolean addFamilyMember(String UID,StudentFamilyMember value)throws SQLException{
         if(value==null)throw new IllegalArgumentException("家庭成员不能为空");validateRelatedRecord(value);
         value.setMemberId(null);value.setStudentId(requireStudent(UID).getStudentId());return requireChanged(familyMembers.insert(value),"家庭成员添加失败");
     }
-    private boolean updateExperience(String UID,StudentExperience value)throws SQLException{
+    public boolean updateExperience(String UID,StudentExperience value)throws SQLException{
         if(value==null)throw new IllegalArgumentException("学习经历不能为空");validateRelatedRecord(value);requiredId(value.getExperienceId(),"学习经历");
         return requireChanged(experiences.update(requireStudent(UID).getStudentId(),value),"学习经历不存在或更新失败");
     }
-    private boolean deleteExperience(String UID,long id)throws SQLException{return requireChanged(experiences.delete(requireStudent(UID).getStudentId(),id),"学习经历不存在或删除失败");}
-    private boolean updateFamilyMember(String UID,StudentFamilyMember value)throws SQLException{
+    public boolean deleteExperience(String UID,long id)throws SQLException{return requireChanged(experiences.delete(requireStudent(UID).getStudentId(),id),"学习经历不存在或删除失败");}
+    public boolean updateFamilyMember(String UID,StudentFamilyMember value)throws SQLException{
         if(value==null)throw new IllegalArgumentException("家庭成员不能为空");validateRelatedRecord(value);requiredId(value.getMemberId(),"家庭成员");
         return requireChanged(familyMembers.update(requireStudent(UID).getStudentId(),value),"家庭成员不存在或更新失败");
     }
-    private boolean deleteFamilyMember(String UID,long id)throws SQLException{return requireChanged(familyMembers.delete(requireStudent(UID).getStudentId(),id),"家庭成员不存在或删除失败");}
+    public boolean deleteFamilyMember(String UID,long id)throws SQLException{return requireChanged(familyMembers.delete(requireStudent(UID).getStudentId(),id),"家庭成员不存在或删除失败");}
     private long submitRelatedRecord(String UID,String operation,Object oldValue,Object newValue)throws SQLException {
         if(newValue==null)throw new IllegalArgumentException("提交内容不能为空");
         if(!operation.endsWith(".delete"))validateRelatedRecord(newValue);
@@ -253,124 +259,17 @@ public class StudentService {
             if(x.getStartDate()==null||x.getEndDate()==null||normalize(x.getSchoolName()).isBlank()||normalize(x.getEducationLevel()).isBlank())throw new IllegalArgumentException("开始日期、结束日期、学校名称和学习阶段不能为空");
             if(x.getEndDate().before(x.getStartDate()))throw new IllegalArgumentException("结束日期不能早于开始日期");
         } else if(value instanceof StudentFamilyMember x) {
-            if(normalize(x.getName()).isBlank()||normalize(x.getRelationship()).isBlank()||x.getBirthDate()==null||normalize(x.getRegisteredResidence()).isBlank()||normalize(x.getWorkplace()).isBlank()||normalize(x.getPhone()).isBlank())throw new IllegalArgumentException("家庭成员姓名、关系、出生年月、户口所在地、工作单位和联系电话不能为空");
+            if(normalize(x.getName()).isBlank()||normalize(x.getRelationship()).isBlank()||normalize(x.getRegisteredResidence()).isBlank()||normalize(x.getWorkplace()).isBlank()||normalize(x.getPhone()).isBlank())throw new IllegalArgumentException("家庭成员姓名、关系、户口所在地、工作单位和联系电话不能为空");
         }
     }
     private static String normalize(String value){return value==null?"":value.trim();}
     private static boolean truthy(String value){return Set.of("true","1","是","在籍","在校").contains(normalize(value));}
+    private static void assertMayMutate(String studentId,String owner) {
+        EditLease lease=EDIT_LEASES.get(studentId);long now=System.currentTimeMillis();
+        if(lease!=null&&lease.expiresAt()>=now&&!lease.owner().equals(owner))throw new IllegalStateException("该学生信息正在被另一端编辑，请稍后再试");
+    }
+    private static void releaseLease(String studentId,String owner) {
+        EDIT_LEASES.computeIfPresent(studentId,(id,current)->current.owner().equals(owner)?null:current);
+    }
     private static String required(String value,String message){if(value==null||value.isBlank())throw new IllegalArgumentException(message);return value;}
-
-    public void authorizeLock(UserSession user,LockRequest proof)throws SQLException {
-        if("STUDENT_CHANGE_REQUEST".equals(proof.resourceType())) {
-            if(!admin(user))throw new SecurityException("仅管理员可审核");
-            StudentChangeRequest request=queryRequest(Long.parseLong(proof.resourceId()));
-            if(request.getStatus()!=StudentChangeStatus.PENDING)throw new IllegalStateException("申请已处理，请刷新");
-        } else {
-            Student value=studentForLock(user,proof.resourceId());
-            if("STUDENT".equals(proof.resourceType())&&requests.findPendingByStudentId(value.getStudentId())!=null) {
-                throw new IllegalStateException(admin(user)
-                        ?"该学生档案存在待审核申请，请先完成审核后再编辑"
-                        :"当前已有修改申请正在等待审核，审核完成后才能再次编辑");
-            }
-        }
-    }
-    private Student studentForLock(UserSession user,String id)throws SQLException {
-        Student value=admin(user)?students.findByStudentId(id):requireStudent(user.getUsername());
-        if(value==null)throw new IllegalArgumentException("档案不存在");
-        if(!value.getStudentId().equals(id))throw new SecurityException("无权编辑其他人的档案");
-        return value;
-    }
-    public long submit(UserSession user,StudentChangeRequest request,LockRequest proof)throws SQLException {
-        Student value=requireStudent(user.getUsername());String key="STUDENT:"+value.getStudentId();
-        try(var guard=locks.guard(key)) {
-            locks.validate(user,proof,key);
-            long id=submit(user.getUsername(),request);
-            locks.release(user,proof);return id;
-        }
-    }
-    public boolean updateByAdmin(UserSession user,Student value,LockRequest proof)throws SQLException {
-        if(!admin(user))throw new SecurityException("仅管理员可操作");
-        if(value==null || value.getStudentId()==null)throw new IllegalArgumentException("缺少档案编号");
-        String key="STUDENT:"+value.getStudentId();
-        try(var guard=locks.guard(key)) {
-            locks.validate(user,proof,key);
-            boolean updated=updateByAdmin(user.getUsername(),value);
-            locks.release(user,proof);return updated;
-        }
-    }
-    public void review(UserSession user,long id,StudentChangeStatus result,String note,LockRequest proof)throws SQLException {
-        if(!admin(user))throw new SecurityException("仅管理员可操作");
-        String key="STUDENT_CHANGE_REQUEST:"+id;
-        try(var guard=locks.guard(key)) {
-            locks.validate(user,proof,key);
-            review(id,result,user.getUsername(),note);
-            locks.release(user,proof);
-        }
-    }
-    public StudentChangeRequest queryRequest(UserSession user,long id,LockRequest proof)throws SQLException {
-        if(!admin(user))throw new SecurityException("仅管理员可审核");
-        StudentChangeRequest result=queryRequest(id);
-        if(result.getStatus()==StudentChangeStatus.PENDING)locks.validate(user,proof,"STUDENT_CHANGE_REQUEST:"+id);
-        return result;
-    }
-    public boolean addExperience(UserSession user,StudentExperience value,LockRequest proof)throws SQLException {
-        String key="STUDENT_RECORDS:"+requireStudent(user.getUsername()).getStudentId();
-        try(var guard=locks.guard(key)){locks.validate(user,proof,key);authorizeLock(user,proof);boolean changed=addExperience(user.getUsername(),value);locks.release(user,proof);return changed;}
-    }
-    public boolean updateExperience(UserSession user,StudentExperience value,LockRequest proof)throws SQLException {
-        String key="STUDENT_RECORDS:"+requireStudent(user.getUsername()).getStudentId();
-        try(var guard=locks.guard(key)){locks.validate(user,proof,key);authorizeLock(user,proof);boolean changed=updateExperience(user.getUsername(),value);locks.release(user,proof);return changed;}
-    }
-    public boolean deleteExperience(UserSession user,long id,LockRequest proof)throws SQLException {
-        String key="STUDENT_RECORDS:"+requireStudent(user.getUsername()).getStudentId();
-        try(var guard=locks.guard(key)){locks.validate(user,proof,key);authorizeLock(user,proof);boolean changed=deleteExperience(user.getUsername(),id);locks.release(user,proof);return changed;}
-    }
-    public boolean addFamilyMember(UserSession user,StudentFamilyMember value,LockRequest proof)throws SQLException {
-        String key="STUDENT_RECORDS:"+requireStudent(user.getUsername()).getStudentId();
-        try(var guard=locks.guard(key)){locks.validate(user,proof,key);authorizeLock(user,proof);boolean changed=addFamilyMember(user.getUsername(),value);locks.release(user,proof);return changed;}
-    }
-    public boolean updateFamilyMember(UserSession user,StudentFamilyMember value,LockRequest proof)throws SQLException {
-        String key="STUDENT_RECORDS:"+requireStudent(user.getUsername()).getStudentId();
-        try(var guard=locks.guard(key)){locks.validate(user,proof,key);authorizeLock(user,proof);boolean changed=updateFamilyMember(user.getUsername(),value);locks.release(user,proof);return changed;}
-    }
-    public boolean deleteFamilyMember(UserSession user,long id,LockRequest proof)throws SQLException {
-        String key="STUDENT_RECORDS:"+requireStudent(user.getUsername()).getStudentId();
-        try(var guard=locks.guard(key)){locks.validate(user,proof,key);authorizeLock(user,proof);boolean changed=deleteFamilyMember(user.getUsername(),id);locks.release(user,proof);return changed;}
-    }
-    public boolean addAward(UserSession user,StudentAward value,LockRequest proof)throws SQLException {
-        if(!admin(user))throw new SecurityException("仅管理员可操作");
-        if(proof==null)throw new IllegalStateException(ResourceLockManager.LOST);
-        String id=proof.resourceId(),key="STUDENT_RECORDS:"+id;
-        try(var guard=locks.guard(key)){locks.validate(user,proof,key);authorizeLock(user,proof);if(value==null||!id.equals(value.getStudentId()))throw new SecurityException("档案编号不匹配");boolean changed=addAward(value);if(!changed)throw new IllegalStateException("记录已变化，请刷新");locks.release(user,proof);return true;}
-    }
-    public boolean updateAward(UserSession user,StudentAward value,LockRequest proof)throws SQLException {
-        if(!admin(user))throw new SecurityException("仅管理员可操作");
-        if(proof==null)throw new IllegalStateException(ResourceLockManager.LOST);
-        String id=proof.resourceId(),key="STUDENT_RECORDS:"+id;
-        try(var guard=locks.guard(key)){locks.validate(user,proof,key);authorizeLock(user,proof);if(value==null||!id.equals(value.getStudentId()))throw new SecurityException("档案编号不匹配");if(awards.findByStudentId(id).stream().noneMatch(x->java.util.Objects.equals(x.getAwardId(),value.getAwardId())))throw new SecurityException("记录不属于当前档案");boolean changed=updateAward(value);if(!changed)throw new IllegalStateException("记录已变化，请刷新");locks.release(user,proof);return true;}
-    }
-    public boolean deleteAward(UserSession user,long recordId,LockRequest proof)throws SQLException {
-        if(!admin(user))throw new SecurityException("仅管理员可操作");
-        if(proof==null)throw new IllegalStateException(ResourceLockManager.LOST);
-        String id=proof.resourceId(),key="STUDENT_RECORDS:"+id;
-        try(var guard=locks.guard(key)){locks.validate(user,proof,key);authorizeLock(user,proof);if(awards.findByStudentId(id).stream().noneMatch(x->java.util.Objects.equals(x.getAwardId(),recordId)))throw new SecurityException("记录不属于当前档案");boolean changed=deleteAward(recordId);if(!changed)throw new IllegalStateException("记录已变化，请刷新");locks.release(user,proof);return true;}
-    }
-    public boolean addAid(UserSession user,StudentAid value,LockRequest proof)throws SQLException {
-        if(!admin(user))throw new SecurityException("仅管理员可操作");
-        if(proof==null)throw new IllegalStateException(ResourceLockManager.LOST);
-        String id=proof.resourceId(),key="STUDENT_RECORDS:"+id;
-        try(var guard=locks.guard(key)){locks.validate(user,proof,key);authorizeLock(user,proof);if(value==null||!id.equals(value.getStudentId()))throw new SecurityException("档案编号不匹配");boolean changed=addAid(value);if(!changed)throw new IllegalStateException("记录已变化，请刷新");locks.release(user,proof);return true;}
-    }
-    public boolean updateAid(UserSession user,StudentAid value,LockRequest proof)throws SQLException {
-        if(!admin(user))throw new SecurityException("仅管理员可操作");
-        if(proof==null)throw new IllegalStateException(ResourceLockManager.LOST);
-        String id=proof.resourceId(),key="STUDENT_RECORDS:"+id;
-        try(var guard=locks.guard(key)){locks.validate(user,proof,key);authorizeLock(user,proof);if(value==null||!id.equals(value.getStudentId()))throw new SecurityException("档案编号不匹配");if(aids.findByStudentId(id).stream().noneMatch(x->java.util.Objects.equals(x.getAidId(),value.getAidId())))throw new SecurityException("记录不属于当前档案");boolean changed=updateAid(value);if(!changed)throw new IllegalStateException("记录已变化，请刷新");locks.release(user,proof);return true;}
-    }
-    public boolean deleteAid(UserSession user,long recordId,LockRequest proof)throws SQLException {
-        if(!admin(user))throw new SecurityException("仅管理员可操作");
-        if(proof==null)throw new IllegalStateException(ResourceLockManager.LOST);
-        String id=proof.resourceId(),key="STUDENT_RECORDS:"+id;
-        try(var guard=locks.guard(key)){locks.validate(user,proof,key);authorizeLock(user,proof);if(aids.findByStudentId(id).stream().noneMatch(x->java.util.Objects.equals(x.getAidId(),recordId)))throw new SecurityException("记录不属于当前档案");boolean changed=deleteAid(recordId);if(!changed)throw new IllegalStateException("记录已变化，请刷新");locks.release(user,proof);return true;}
-    }
 }

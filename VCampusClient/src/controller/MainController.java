@@ -1,5 +1,6 @@
 package controller;
 
+import javafx.application.Platform;
 import app.ClientMain;
 import entity.User;
 import javafx.event.ActionEvent;
@@ -11,6 +12,8 @@ import protocol.Message;
 import protocol.MessageType;
 import session.ClientSession;
 import util.AlertUtil;
+
+
 
 public class MainController {
 
@@ -64,7 +67,7 @@ public class MainController {
 
     @FXML
     private void openLibrary(MouseEvent event) {
-        showSubsystemNotice("图书馆子系统");
+        ClientMain.switchScene("/resources/fxml/LibraryView.fxml");
     }
 
     @FXML

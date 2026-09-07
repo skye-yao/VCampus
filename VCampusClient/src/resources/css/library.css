@@ -1,0 +1,82 @@
+/* 仅作用于图书馆页面，不改变登录页与其他模块。 */
+.library-root {
+    -fx-background-color: #f3f6f3;
+    -fx-font-family: "Microsoft YaHei", "Segoe UI";
+    -fx-font-size: 12px;
+    -fx-accent: #386b56;
+    -fx-focus-color: #62957d;
+    -fx-faint-focus-color: transparent;
+}
+.library-root .library-header {
+    -fx-background-color: linear-gradient(to right, #234d3e, #386b56);
+    -fx-padding: 12 20;
+}
+.library-root .library-title { -fx-font-size: 21px; -fx-font-weight: bold; -fx-text-fill: #ffffff; }
+.library-root .library-subtitle { -fx-text-fill: #d0e2d7; -fx-font-size: 11px; }
+.library-root .library-header .btn-secondary { -fx-background-color: #e3eee6; -fx-text-fill: #234d3e; }
+.library-root .library-tabs { -fx-tab-min-width: 100px; -fx-tab-min-height: 34px; }
+.library-root .library-tabs > .tab-header-area { -fx-padding: 10 14 4 14; }
+.library-root .library-tabs > .tab-header-area > .tab-header-background { -fx-background-color: #f3f6f3; }
+.library-root .tab { -fx-background-color: transparent; -fx-background-radius: 8; -fx-padding: 3 12; }
+.library-root .tab .tab-label { -fx-text-fill: #5e7267; -fx-font-weight: bold; }
+.library-root .tab:selected { -fx-background-color: #dcebe1; }
+.library-root .tab:selected .tab-label { -fx-text-fill: #234d3e; }
+.library-root .tab .focus-indicator { -fx-border-width: 0; }
+.library-root .tab:disabled { -fx-opacity: 0.45; }
+.library-root .toolbar-row, .library-root .content-pane { -fx-background-color: #f3f6f3; }
+.library-root .detail-panel, .library-root .admin-form {
+    -fx-background-color: #ffffff; -fx-background-radius: 10;
+    -fx-border-color: #dde6df; -fx-border-radius: 10;
+}
+.library-root .panel-title { -fx-font-size: 16px; -fx-font-weight: bold; -fx-text-fill: #234d3e; }
+.library-root .panel-title-small { -fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: #386b56; -fx-padding: 4 3; }
+.library-root .detail-text { -fx-background-color: #edf4ef; -fx-padding: 10; -fx-background-radius: 8; -fx-text-fill: #355846; }
+.library-root .button {
+    -fx-background-radius: 7; -fx-padding: 8 12; -fx-cursor: hand;
+    -fx-background-color: #e8eee9; -fx-text-fill: #345443; -fx-font-size: 12px;
+}
+.library-root .btn-primary {
+    -fx-background-color: #386b56; -fx-text-fill: white;
+    -fx-font-weight: bold; -fx-effect: null;
+}
+.library-root .btn-primary:hover { -fx-background-color: #285641; }
+.library-root .btn-secondary { -fx-background-color: #e3ece6; -fx-text-fill: #345443; -fx-font-weight: bold; }
+.library-root .btn-secondary:hover { -fx-background-color: #d4e4da; }
+.library-root .btn-danger-soft { -fx-background-color: #faeeeb; -fx-text-fill: #ab5144; }
+.library-root .btn-danger-soft:hover { -fx-background-color: #f2dcd5; }
+.library-root .button:disabled { -fx-opacity: 0.45; }
+.library-root .button:focused { -fx-border-color: #83a894; -fx-border-radius: 7; }
+.library-root .text-field, .library-root .text-area, .library-root .combo-box {
+    -fx-background-color: white; -fx-border-color: #d3dfd6;
+    -fx-background-radius: 7; -fx-border-radius: 7; -fx-padding: 7;
+}
+.library-root .text-field:focused, .library-root .text-area:focused { -fx-border-color: #62957d; }
+.library-root .text-area .content { -fx-background-color: white; }
+.library-root .hyperlink { -fx-text-fill: #386b56; -fx-padding: 2 0; -fx-font-weight: bold; }
+.library-root .table-view {
+    -fx-background-color: white; -fx-background-radius: 8;
+    -fx-border-color: #dbe5dd; -fx-border-radius: 8; -fx-padding: 1;
+}
+.library-root .table-view .column-header-background { -fx-background-color: #eaf1ec; -fx-background-radius: 8 8 0 0; }
+.library-root .table-view .column-header, .library-root .table-view .filler {
+    -fx-background-color: transparent; -fx-border-color: transparent transparent #dce5df transparent; -fx-size: 36;
+}
+.library-root .table-view .column-header .label { -fx-text-fill: #476454; -fx-alignment: CENTER_LEFT; -fx-padding: 0 8; }
+.library-root .table-row-cell { -fx-background-color: white; -fx-cell-size: 34; }
+.library-root .table-row-cell:odd { -fx-background-color: #f7faf7; }
+.library-root .table-row-cell:filled:hover { -fx-background-color: #edf4ef; }
+.library-root .table-row-cell:filled:selected { -fx-background-color: #d8e9dd; }
+.library-root .table-cell { -fx-padding: 7 9; -fx-text-fill: #34493d; -fx-border-color: transparent; }
+.library-root .table-row-cell:selected .table-cell { -fx-text-fill: #1f4933; }
+.library-root .list-view { -fx-background-color: white; -fx-border-color: #e1e9e3; -fx-border-radius: 8; -fx-padding: 3; }
+.library-root .list-cell { -fx-background-color: white; -fx-padding: 10; -fx-text-fill: #42574a; }
+.library-root .list-cell:filled { -fx-border-color: transparent transparent #edf1ed transparent; }
+.library-root .list-cell:filled:selected { -fx-background-color: #e3efe7; -fx-text-fill: #234d3e; }
+.library-root .split-pane { -fx-background-color: transparent; -fx-padding: 0; }
+.library-root .split-pane-divider { -fx-background-color: #e0e8e1; -fx-padding: 3; }
+.library-root .split-pane-divider:hover { -fx-background-color: #8cac98; }
+.library-root .scroll-pane, .library-root .scroll-pane > .viewport { -fx-background-color: transparent; }
+.library-root .scroll-bar { -fx-background-color: #f4f7f4; }
+.library-root .scroll-bar .thumb { -fx-background-color: #bfcec3; -fx-background-radius: 8; }
+.library-root .scroll-bar .thumb:hover { -fx-background-color: #8da896; }
+.library-root .separator .line { -fx-border-color: #e5ece6; -fx-border-width: 1 0 0 0; }

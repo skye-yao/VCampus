@@ -45,13 +45,13 @@ public final class StudentPdfLayout {
      * 姓名 | 性别 | 出生年月
      */
     public static final TextSlot NAME =
-            slot(118.80f, 122.64f, 184.08f);
+            slot(118.80f, 121.32f, 184.08f);
 
     public static final TextSlot GENDER =
-            slot(253.60f, 122.64f, 331.80f);
+            slot(253.60f, 121.32f, 331.80f);
 
     public static final TextSlot BIRTH_DATE =
-            slot(395.28f, 122.64f, 460.32f);
+            slot(395.28f, 121.32f, 460.32f);
 
 
     /**
@@ -59,13 +59,13 @@ public final class StudentPdfLayout {
      * 籍贯 | 民族 | 政治面貌
      */
     public static final TextSlot NATIVE_PLACE =
-            slot(118.80f, 148.68f, 184.08f);
+            slot(118.80f, 144.48f, 184.08f);
 
     public static final TextSlot NATIONALITY =
-            slot(253.60f, 148.68f, 331.80f);
+            slot(253.60f, 144.48f, 331.80f);
 
     public static final TextSlot POLITICAL_STATUS =
-            slot(395.28f, 148.68f, 460.32f);
+            slot(395.28f, 144.48f, 460.32f);
 
 
     /**
@@ -73,13 +73,13 @@ public final class StudentPdfLayout {
      * 学历 | 学院 | 专业
      */
     public static final TextSlot EDUCATION =
-            slot(118.80f, 174.72f, 184.08f);
+            slot(118.80f, 167.64f, 184.08f);
 
     public static final TextSlot COLLEGE =
-            slot(253.60f, 174.72f, 331.80f);
+            slot(253.60f, 167.64f, 331.80f);
 
     public static final TextSlot MAJOR =
-            slot(395.30f, 174.72f, 460.32f);
+            slot(395.30f, 167.64f, 460.32f);
 
 
     /**
@@ -89,10 +89,10 @@ public final class StudentPdfLayout {
      * 入学日期所在的数据格横向较宽。
      */
     public static final TextSlot SCHOOLING_LENGTH =
-            slot(118.80f, 200.64f, 184.08f);
+            slot(118.80f, 190.92f, 184.08f);
 
     public static final TextSlot ADMISSION_DATE =
-            slot(253.58f, 200.64f, 460.32f);
+            slot(253.58f, 190.92f, 460.32f);
 
 
     /**
@@ -100,10 +100,10 @@ public final class StudentPdfLayout {
      * 证件号码 | 联系电话
      */
     public static final TextSlot ID_NUMBER =
-            slot(118.80f, 226.68f, 331.80f);
+            slot(118.80f, 214.08f, 331.80f);
 
     public static final TextSlot TELEPHONE =
-            slot(395.28f, 226.68f, 538.08f);
+            slot(395.28f, 214.08f, 538.08f);
 
 
     /**
@@ -111,10 +111,10 @@ public final class StudentPdfLayout {
      * 家庭地址 | 电子邮箱
      */
     public static final TextSlot FAMILY_ADDRESS =
-            slot(118.80f, 252.72f, 331.80f);
+            slot(118.80f, 237.24f, 331.80f);
 
     public static final TextSlot EMAIL =
-            slot(395.28f, 252.72f, 538.08f);
+            slot(395.28f, 237.24f, 538.08f);
 
 
     // =========================================================
@@ -131,7 +131,7 @@ public final class StudentPdfLayout {
                     460.80f,
                     106.08f,
                     77.28f,
-                    103.56f
+                    92.28f
             );
 
 
@@ -148,11 +148,11 @@ public final class StudentPdfLayout {
      */
     public static final List<ExperienceRow> EXPERIENCE_ROWS =
             List.of(
-                    experienceRow(304.68f),
-                    experienceRow(330.72f),
-                    experienceRow(356.64f),
-                    experienceRow(382.68f),
-                    experienceRow(408.72f)
+                    experienceRow(283.68f),
+                    experienceRow(306.96f),
+                    experienceRow(330.12f),
+                    experienceRow(353.28f),
+                    experienceRow(376.56f)
             );
 
 
@@ -169,10 +169,10 @@ public final class StudentPdfLayout {
      */
     public static final List<AwardRow> AWARD_ROWS =
             List.of(
-                    awardRow(460.68f),
-                    awardRow(486.72f),
-                    awardRow(512.64f),
-                    awardRow(538.68f)
+                    awardRow(422.88f),
+                    awardRow(446.16f),
+                    awardRow(469.32f),
+                    awardRow(492.48f)
             );
 
 
@@ -190,10 +190,10 @@ public final class StudentPdfLayout {
     public static final List<SocialRelationRow>
             SOCIAL_RELATION_ROWS =
             List.of(
-                    socialRelationRow(590.64f),
-                    socialRelationRow(616.68f),
-                    socialRelationRow(642.72f),
-                    socialRelationRow(668.64f)
+                    socialRelationRow(538.92f),
+                    socialRelationRow(562.08f),
+                    socialRelationRow(585.36f),
+                    socialRelationRow(608.52f)
             );
 
 
@@ -210,7 +210,7 @@ public final class StudentPdfLayout {
     public static final TextSlot SIGNATURE =
             new TextSlot(
                     400.0f,
-                    pdfY(738.96f),
+                    pdfY(677.40f),
                     55.0f,
                     DEFAULT_FONT_SIZE
             );
@@ -226,7 +226,7 @@ public final class StudentPdfLayout {
     public static final TextSlot SIGN_YEAR =
             new TextSlot(
                     445.0f,
-                    pdfY(738.96f),
+                    pdfY(677.40f),
                     21.0f,
                     DEFAULT_FONT_SIZE
             );
@@ -234,7 +234,7 @@ public final class StudentPdfLayout {
     public static final TextSlot SIGN_MONTH =
             new TextSlot(
                     482.0f,
-                    pdfY(738.96f),
+                    pdfY(677.40f),
                     11.0f,
                     DEFAULT_FONT_SIZE
             );
@@ -242,7 +242,7 @@ public final class StudentPdfLayout {
     public static final TextSlot SIGN_DAY =
             new TextSlot(
                     509.0f,
-                    pdfY(738.96f),
+                    pdfY(677.40f),
                     11.0f,
                     DEFAULT_FONT_SIZE
             );

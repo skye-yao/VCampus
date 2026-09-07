@@ -34,6 +34,17 @@ public class UserHandler {
             switch (action.toLowerCase()) {
                 case "login":
                     return handleLogin(request, response);
+                case "sendsmscode":
+                case "send_code":
+                    return handleSendSmsCode(request, response);
+                case "sendresetcode":
+                case "send_reset_code":
+                    return handleSendResetCode(request, response);
+                case "register":
+                    return handleRegister(request, response);
+                case "resetpassword":
+                case "reset_password":
+                    return handleResetPassword(request, response);
                 case "getuserinfo":
                     return handleGetUserInfo(request, response);
                 case "changepassword":
@@ -86,6 +97,54 @@ public class UserHandler {
         response.putData("role", session.getRole());
         response.putData("user", userInfo);
 
+        return response;
+    }
+
+    private Message handleSendSmsCode(Message request, Message response) throws BusinessException, DatabaseException {
+        String phone = request.getData("phone");
+        String uid = request.getData("uid");
+        String code = userService.sendVerificationCode(phone, uid);
+
+        response.setCode(MessageCode.SUCCESS);
+        response.setMessage("验证码发送成功");
+        response.putData("code", code);
+        return response;
+    }
+
+    private Message handleSendResetCode(Message request, Message response) throws BusinessException, DatabaseException {
+        String phone = request.getData("phone");
+        String uid = request.getData("uid");
+        String code = userService.sendResetPasswordCode(phone, uid);
+
+        response.setCode(MessageCode.SUCCESS);
+        response.setMessage("重置验证码发送成功");
+        response.putData("code", code);
+        return response;
+    }
+
+    private Message handleRegister(Message request, Message response) throws BusinessException, DatabaseException {
+        String uid = request.getData("uid");
+        String name = request.getData("name");
+        String phone = request.getData("phone");
+        String code = request.getData("code");
+        String password = request.getData("password");
+        String role = request.getData("role");
+
+        userService.register(uid, name, phone, code, password, role);
+        response.setCode(MessageCode.SUCCESS);
+        response.setMessage("注册成功！请使用新账号登录");
+        return response;
+    }
+
+    private Message handleResetPassword(Message request, Message response) throws BusinessException, DatabaseException {
+        String uid = request.getData("uid");
+        String phone = request.getData("phone");
+        String code = request.getData("code");
+        String newPassword = request.getData("newPassword");
+
+        userService.resetPassword(uid, phone, code, newPassword);
+        response.setCode(MessageCode.SUCCESS);
+        response.setMessage("密码修改成功！请使用新密码重新登录");
         return response;
     }
 

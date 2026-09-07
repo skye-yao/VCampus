@@ -40,7 +40,17 @@ public class BankAccountDAO {
                 "WHERE account_id=? AND status='ACTIVE' AND balance+?>=0";
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setBigDecimal(1, delta); stmt.setLong(2, accountId); stmt.setBigDecimal(3, delta);
-            return stmt.executeUpdate() == 1;
+            boolean ok = stmt.executeUpdate() == 1;
+            if (ok) {
+                // 实时同步更新 tbl_user.balance
+                String syncSql = "UPDATE tbl_user u JOIN tbl_bank_account b ON u.UID = b.user_id " +
+                        "SET u.balance = b.balance WHERE b.account_id = ?";
+                try (PreparedStatement syncStmt = conn.prepareStatement(syncSql)) {
+                    syncStmt.setLong(1, accountId);
+                    syncStmt.executeUpdate();
+                }
+            }
+            return ok;
         }
     }
 
