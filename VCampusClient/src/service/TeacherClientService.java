@@ -3,7 +3,7 @@ import entity.*; import network.SocketClient; import protocol.*; import vo.Teach
 public class TeacherClientService implements ITeacherClientService {private final SocketClient socket=SocketClient.getInstance();
  @Override
     public void cancel(long id,Consumer<Message> c){send(MessageType.TEACHER_CHANGE_CANCEL,"cancel","requestId",id,c);}
- private void send(MessageType type,String action,String key,Object value,Consumer<Message> c){Message m=new Message(type,"teacher",action);if(key!=null)m.putData(key,value);socket.sendAsync(m).whenComplete((r,e)->{if(e==null)c.accept(r);else{Message f=new Message(MessageType.RESPONSE,"teacher",action);f.setCode(MessageCode.ERROR);f.setMessage("连接教师信息服务失败: "+e.getMessage());c.accept(f);}});}
+ private void send(MessageType type,String action,String key,Object value,Consumer<Message> c){Message m=new Message(type,"teacher",action);if(key!=null)m.putData(key,value);String requestSession=session.ClientSession.getInstance().getToken();socket.sendAsync(m).whenComplete((r,e)->{if(!java.util.Objects.equals(requestSession,session.ClientSession.getInstance().getToken()))return;if(e==null)c.accept(r);else{Message f=new Message(MessageType.RESPONSE,"teacher",action);f.setCode(MessageCode.ERROR);f.setMessage("连接教师信息服务失败: "+e.getMessage());c.accept(f);}});}
  @Override
     public void overview(Consumer<Message> c){send(MessageType.TEACHER_OVERVIEW_QUERY,"overview",null,null,c);} @Override
     public void submit(TeacherChangeRequest r,Consumer<Message> c){send(MessageType.TEACHER_CHANGE_SUBMIT,"submit","request",r,c);}

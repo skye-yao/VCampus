@@ -823,7 +823,14 @@ public class StudentController {
         r.setItems(items);
         service.submitChangeRequest(r,m->runOnPage(()-> {
             setStatus(message(m,"申请已提交"));if(ok(m)) {
-                releaseEditLock();editing=false;refreshData();
+                releaseEditLock();editing=false;
+                r.setRequestId(data(m,"requestId",Long.class));
+                r.setStudentId(overview.getStudent().getStudentId());
+                r.setStatus(StudentChangeStatus.PENDING);
+                r.setSubmitTime(new java.sql.Timestamp(System.currentTimeMillis()));
+                overview.setPendingRequest(r);overview.setLatestRequest(r);
+                render(overview);setStatus("申请已提交，当前显示修改后的内容，等待管理员审核");
+                refreshData();
             }
         }
         ));
@@ -835,7 +842,7 @@ public class StudentController {
             if(!old.equals(now)) {
                 StudentChangeItem i=new StudentChangeItem();
                 i.setFieldName(n);
-                i.setOldValue(old);
+                i.setOldValue(safe(read(overview.getStudent(),n)));
                 i.setNewValue(now);
                 items.add(i);
             }
@@ -845,11 +852,20 @@ public class StudentController {
     private String validateRequired() {
         if(isAdmin())return null;
         Map<String,String> values=new HashMap<>();
-        for(Control control:editable)values.put((String)control.getUserData(),controlValue(control));
-        for(String name:REQUIRED)if(values.getOrDefault(name,safe(read(overview.getStudent(),name))).isBlank())return title(name)+"为必填项";
-        if("是".equals(values.get("leagueMember"))&&values.getOrDefault("leagueJoinDate","").isBlank())return "团员必须填写入团时间";
-        if("是".equals(values.get("partyMember"))&&values.getOrDefault("partyJoinDate","").isBlank())return "党员必须填写入党时间";
-        return null;
+        for(Control control:editable)values.put((String)control.getUserData(),controlValue(control).trim());
+        Set<String> required=new HashSet<>(REQUIRED);
+        if("是".equals(values.get("leagueMember")))required.add("leagueJoinDate");
+        if("是".equals(values.get("partyMember")))required.add("partyJoinDate");
+        Control first=null;
+        for(Control control:editable){
+            String name=(String)control.getUserData();
+            boolean missing=required.contains(name)&&values.getOrDefault(name,"").isBlank();
+            util.control.RequiredFieldValidation.mark(control,missing);
+            if(missing&&first==null)first=control;
+        }
+        if(first==null)return null;
+        first.requestFocus();
+        return "请填写浅红色标记的必填项："+title((String)first.getUserData());
     }
     private void write(Student s,String n,String value)throws Exception {
         String x=Character.toUpperCase(n.charAt(0))+n.substring(1);
@@ -1027,7 +1043,7 @@ public class StudentController {
         if(value==null||value.getStudent()==null)return null;
         Student result=gson.fromJson(gson.toJson(value.getStudent()),Student.class);
         StudentChangeRequest pending=value.getPendingRequest();
-        if(!isAdmin()&&pending!=null&&pending.getItems()!=null){
+        if(!isAdmin()&&pending!=null&&pending.getStatus()==StudentChangeStatus.PENDING&&pending.getItems()!=null){
             for(StudentChangeItem item:pending.getItems()){
                 if(item.getFieldName()==null||item.getFieldName().contains("."))continue;
                 try{write(result,item.getFieldName(),safe(item.getNewValue()));}catch(Exception ignored){}
@@ -1257,6 +1273,7 @@ public class StudentController {
         Dialog<Map<String,String>> dialog=new Dialog<>();dialog.setTitle(title);dialog.setHeaderText("请在同一表单中填写全部信息");
         GridPane grid=new GridPane();grid.setHgap(12);grid.setVgap(10);grid.setPadding(new Insets(8,12,8,12));
         LinkedHashMap<String,Node> fields=new LinkedHashMap<>();
+        Set<String> requiredKeys=new HashSet<>();
         LinkedHashMap<String,java.util.function.Supplier<String>> readers=new LinkedHashMap<>();int row=0;
         for(Map.Entry<String,String> entry:initial.entrySet()){
             String key=entry.getKey();Node field;
@@ -1302,12 +1319,24 @@ public class StudentController {
                     ||(title.contains("家庭")&&Set.of("姓名","与本人关系","出生年月","户口所在地","工作单位","联系电话").contains(key))
                     ||(title.contains("奖励")&&Set.of("奖励名称","类型","奖励日期").contains(key))
                     ||(title.contains("资助")&&Set.of("资助名称","资助类型","资助日期").contains(key))){
+                requiredKeys.add(key);
                 Label star=new Label("*");star.setStyle("-fx-text-fill: #dc2626; -fx-font-weight: bold;");
                 label.setGraphic(star);label.setContentDisplay(ContentDisplay.RIGHT);
             }
             grid.add(label,0,row);grid.add(field,1,row++);
         }
         dialog.getDialogPane().setContent(grid);dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK,ButtonType.CANCEL);
+        dialog.getDialogPane().lookupButton(ButtonType.OK).addEventFilter(javafx.event.ActionEvent.ACTION,event->{
+            boolean invalid=false;
+            for(String key:requiredKeys){
+                boolean missing=readers.get(key).get().isBlank();invalid|=missing;
+                Node field=fields.get(key);
+                if(field instanceof Control control)util.control.RequiredFieldValidation.mark(control,missing);
+                else if(field instanceof Pane pane)for(Node child:pane.getChildren())if(child instanceof Control control)
+                    util.control.RequiredFieldValidation.mark(control,missing&&controlValue(control).isBlank());
+            }
+            if(invalid){dialog.setHeaderText("请填写浅红色标记的必填项");event.consume();}
+        });
         dialog.setResultConverter(button->{
             if(button!=ButtonType.OK)return null;Map<String,String> values=new LinkedHashMap<>();
             readers.forEach((key,reader)->values.put(key,reader.get()));return values;

@@ -47,7 +47,7 @@ public class StudentService implements IStudentService {
             "mobile", "emergencyContact", "emergencyPhone"
     );
     private static final Set<String> ID_TYPES = Set.of("居民身份证", "港澳台居民居住证", "护照", "其他");
-    private static final Set<String> HOUSEHOLD_TYPES = Set.of("城镇户口", "农村居民户口", "集体户口");
+    private static final Set<String> HOUSEHOLD_TYPES = Set.of("城镇户口", "农村居民户口", "集体户口", "其他");
     private final StudentDAO students = new StudentDAO();
     private final StudentChangeRequestDAO requests = new StudentChangeRequestDAO();
     private final StudentAwardDAO awards = new StudentAwardDAO();

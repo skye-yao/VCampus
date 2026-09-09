@@ -171,7 +171,9 @@ public class StudentClientService implements IStudentClientService {
         LeaseClient lease=record?recordLease:type.equals("STUDENT_REVIEW")?reviewLease:editLease;
         if(type.equals("STUDENT_ADMIN_UPDATE")||type.equals("STUDENT_CHANGE_SUBMIT")||type.equals("STUDENT_REVIEW"))m.setLock(lease.proof());
         if(record)m.setLock(recordLease.proof());
+        String requestSession=session.ClientSession.getInstance().getToken();
         socket.sendAsync(m).whenComplete((response,error)->util.Fx.run(()->{
+            if(!java.util.Objects.equals(requestSession,session.ClientSession.getInstance().getToken())){dispose();return;}
             boolean relevant=m.getLock()==null || !lease.busy() || lease.owns(m.getLock());
             if(record){recordInFlight=false;recordLease.closeIfOwned(m.getLock());}
             if(type.equals("STUDENT_REVIEW"))reviewLease.closeIfOwned(m.getLock());
