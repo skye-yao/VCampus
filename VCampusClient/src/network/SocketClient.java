@@ -117,54 +117,70 @@ public class SocketClient {
      * 异步发送请求并返回 CompletableFuture
      */
     public CompletableFuture<Message> sendAsync(Message request) {
+        return sendAsync(request, REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    }
+
+    /**
+     * 异步发送请求，并按调用方指定的时间清理未完成请求。
+     */
+    public CompletableFuture<Message> sendAsync(
+            Message request,
+            long timeoutDuration,
+            TimeUnit timeoutUnit) {
         CompletableFuture<Message> future = new CompletableFuture<>();
         MessageDispatcher requestDispatcher = null;
+        PrintWriter requestWriter = null;
         Long requestUID = null;
         boolean registered = false;
 
         try {
+            if (request.getUID() == null) {
+                request.setUID(Message.nextUID());
+            }
+
+            // 附加 Session 认证信息
+            ClientSession session = ClientSession.getInstance();
+            if (session.isLoggedIn()) {
+                request.setSender(session.getUsername());
+                request.setToken(session.getToken());
+            }
+
             synchronized (this) {
                 if (!isConnected() || receiver == null || !receiver.isRunning()) {
                     connect();
                 }
 
-                if (request.getUID() == null) {
-                    request.setUID(Message.nextUID());
-                }
-
-                // 附加 Session 认证信息
-                ClientSession session = ClientSession.getInstance();
-                if (session.isLoggedIn()) {
-                    request.setSender(session.getUsername());
-                    request.setToken(session.getToken());
-                }
-
-                requestUID = request.getUID();
                 requestDispatcher = dispatcher;
-                registered = requestDispatcher.registerPendingRequest(requestUID, future);
-                if (!registered) {
-                    throw new IllegalStateException("请求 UID 已在等待响应: " + requestUID);
-                }
+                requestWriter = writer;
+            }
 
-                MessageDispatcher timeoutDispatcher = requestDispatcher;
-                Long timeoutUID = requestUID;
-                ScheduledFuture<?> timeout = TIMEOUT_EXECUTOR.schedule(
-                        () -> timeoutDispatcher.failPending(
-                                timeoutUID,
-                                new TimeoutException("请求超时: " + timeoutUID)),
-                        REQUEST_TIMEOUT_SECONDS,
-                        TimeUnit.SECONDS);
-                future.whenComplete((response, error) -> timeout.cancel(false));
+            requestUID = request.getUID();
+            registered = requestDispatcher.registerPendingRequest(requestUID, future);
+            if (!registered) {
+                throw new IllegalStateException("请求 UID 已在等待响应: " + requestUID);
+            }
 
-                // 序列化并发送
-                String json = gson.toJson(request);
-                synchronized (sendLock) {
-                    writer.println(json);
+            MessageDispatcher timeoutDispatcher = requestDispatcher;
+            Long timeoutUID = requestUID;
+            ScheduledFuture<?> timeoutTask = TIMEOUT_EXECUTOR.schedule(
+                    () -> timeoutDispatcher.failPending(
+                            timeoutUID,
+                            new TimeoutException("请求超时: " + timeoutUID)),
+                    timeoutDuration,
+                    timeoutUnit);
+            future.whenComplete((response, error) -> {
+                timeoutTask.cancel(false);
+                timeoutDispatcher.removePendingRequest(timeoutUID, future);
+            });
 
-                    // PrintWriter 不会抛 IOException，需主动检查发送是否失败
-                    if (writer.checkError()) {
-                        throw new IOException("消息发送失败，连接已断开");
-                    }
+            // 序列化并发送
+            String json = gson.toJson(request);
+            synchronized (sendLock) {
+                requestWriter.println(json);
+
+                // PrintWriter 不会抛 IOException，需主动检查发送是否失败
+                if (requestWriter.checkError()) {
+                    throw new IOException("消息发送失败，连接已断开");
                 }
             }
         } catch (Exception e) {
@@ -182,7 +198,7 @@ public class SocketClient {
      * 同步发送请求并阻塞等待响应（带超时）
      */
     public Message sendSync(Message request, long timeoutSeconds) throws Exception {
-        return sendAsync(request).get(timeoutSeconds, TimeUnit.SECONDS);
+        return sendAsync(request, timeoutSeconds, TimeUnit.SECONDS).get();
     }
 
     /**

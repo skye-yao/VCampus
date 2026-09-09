@@ -3,9 +3,12 @@ package network;
 import protocol.Message;
 import protocol.MessageType;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 客户端消息分发器。
@@ -18,21 +21,36 @@ public class MessageDispatcher {
     /** 请求 UID -> 对应的 CompletableFuture */
     private final Map<Long, CompletableFuture<Message>> pendingRequests = new ConcurrentHashMap<>();
 
+    /** 注册与关闭操作共用的锁，保证关闭后不会再接受请求 */
+    private final Object pendingLock = new Object();
+
+    /** 连接代际关闭后，该分发器不再接受新请求 */
+    private final AtomicBoolean closed = new AtomicBoolean(false);
+
     /**
      * 注册待接收响应的异步任务
      */
     public boolean registerPendingRequest(Long UID, CompletableFuture<Message> future) {
-        return UID != null
-                && future != null
-                && pendingRequests.putIfAbsent(UID, future) == null;
+        if (UID == null || future == null) {
+            return false;
+        }
+
+        synchronized (pendingLock) {
+            return !closed.get()
+                    && pendingRequests.putIfAbsent(UID, future) == null;
+        }
     }
 
     /**
-     * 移除超时的异步任务
+     * 仅当 UID 仍映射到同一个异步任务时移除。
      */
-    public void removePendingRequest(Long UID) {
-        if (UID != null) {
-            pendingRequests.remove(UID);
+    public boolean removePendingRequest(Long UID, CompletableFuture<Message> future) {
+        if (UID == null || future == null) {
+            return false;
+        }
+
+        synchronized (pendingLock) {
+            return pendingRequests.remove(UID, future);
         }
     }
 
@@ -44,7 +62,10 @@ public class MessageDispatcher {
             return;
         }
 
-        CompletableFuture<Message> future = pendingRequests.remove(UID);
+        CompletableFuture<Message> future;
+        synchronized (pendingLock) {
+            future = pendingRequests.remove(UID);
+        }
         if (future != null) {
             future.completeExceptionally(cause);
         }
@@ -54,8 +75,17 @@ public class MessageDispatcher {
      * 连接断开时，让所有等待中的请求以异常结束
      */
     public void failAllPending(Throwable cause) {
-        pendingRequests.values().forEach(future -> future.completeExceptionally(cause));
-        pendingRequests.clear();
+        List<CompletableFuture<Message>> futures;
+        synchronized (pendingLock) {
+            if (!closed.compareAndSet(false, true)) {
+                return;
+            }
+
+            futures = new ArrayList<>(pendingRequests.values());
+            pendingRequests.clear();
+        }
+
+        futures.forEach(future -> future.completeExceptionally(cause));
     }
 
     /**
@@ -83,7 +113,10 @@ public class MessageDispatcher {
     private void handleResponse(Message message) {
         Long UID = message.getUID();
         if (UID != null) {
-            CompletableFuture<Message> future = pendingRequests.remove(UID);
+            CompletableFuture<Message> future;
+            synchronized (pendingLock) {
+                future = pendingRequests.remove(UID);
+            }
             if (future != null) {
                 future.complete(message);
                 return;
