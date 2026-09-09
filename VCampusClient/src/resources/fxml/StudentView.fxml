@@ -91,10 +91,10 @@
                   <Label fx:id="sidebarNameLabel" styleClass="student-side-name" text="学生姓名"/>
                   <Label fx:id="sidebarMajorLabel" styleClass="hint-text" text="专业"/>
                   <Separator/>
-                  <Button maxWidth="Infinity" onAction="#handleIndexBase" styleClass="student-side-button-active" text="个人基本信息"/>
-                  <Button maxWidth="Infinity" onAction="#handleIndexStudy" styleClass="student-side-button" text="学籍信息"/>
-                  <Button maxWidth="Infinity" onAction="#handleIndexAdmission" styleClass="student-side-button" text="入学信息"/>
-                  <Button maxWidth="Infinity" onAction="#handleIndexContact" styleClass="student-side-button" text="联系信息"/>
+                  <Button fx:id="baseIndexButton" maxWidth="Infinity" onAction="#handleIndexBase" styleClass="student-side-button-active" text="个人基本信息"/>
+                  <Button fx:id="studyIndexButton" maxWidth="Infinity" onAction="#handleIndexStudy" styleClass="student-side-button" text="学籍信息"/>
+                  <Button fx:id="admissionIndexButton" maxWidth="Infinity" onAction="#handleIndexAdmission" styleClass="student-side-button" text="入学信息"/>
+                  <Button fx:id="contactIndexButton" maxWidth="Infinity" onAction="#handleIndexContact" styleClass="student-side-button" text="联系信息"/>
                   <Separator/>
                   <Button fx:id="exportPdfButton" maxWidth="Infinity" onAction="#handleExportPdf" styleClass="student-export-button" text="导出"/>
                 </VBox>
@@ -106,8 +106,8 @@
                     <Label styleClass="avatar-text-lg" text="管"/>
                   </StackPane>
                   <Label styleClass="student-side-name" text="管理员"/>
-                  <Button maxWidth="Infinity" onAction="#handleShowStudentManagement" styleClass="student-side-button" text="学生信息管理"/>
-                  <Button maxWidth="Infinity" onAction="#handleShowStudentMaintenance" styleClass="student-side-button-active" text="学生信息维护"/>
+                  <Button fx:id="adminDetailManagementNavButton" maxWidth="Infinity" onAction="#handleShowStudentManagement" styleClass="student-side-button-active" text="学生信息管理"/>
+                  <Button fx:id="adminDetailMaintenanceNavButton" maxWidth="Infinity" onAction="#handleShowStudentMaintenance" styleClass="student-side-button" text="学生信息维护"/>
                   <Button maxWidth="Infinity" onAction="#handleShowReview" styleClass="student-side-button" text="审核信息"/>
                 </VBox>
               </StackPane>

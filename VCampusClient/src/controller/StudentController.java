@@ -39,6 +39,7 @@ public class StudentController {
     @FXML private GridPane reviewStudentBaseGrid,reviewStudentStudyGrid;
     @FXML private VBox studentDetailSidebar,adminDetailSidebar,reviewOverviewPane,reviewDetailPane,experienceCardContainer,familyCardContainer,adminReadOnlyInfoPane,adminExperienceCardContainer,adminFamilyCardContainer;
     @FXML private Button detailReturnButton,editBaseButton,editStudyButton,editAdmissionButton,editContactButton,exportPdfButton,exportStudentsButton,managementNavButton,maintenanceNavButton,editExperienceButton,deleteExperienceButton,editFamilyButton,deleteFamilyButton;
+    @FXML private Button baseIndexButton,studyIndexButton,admissionIndexButton,contactIndexButton,adminDetailManagementNavButton,adminDetailMaintenanceNavButton;
     @FXML private VBox adminRecordMaintenancePane;
     @FXML private TextArea reviewRemarkArea;
     @FXML private TextField searchIdField,searchNameField,searchCollegeField,pageNumberField,reviewSearchIdField,reviewSearchStudentField,reviewSearchStatusField,reviewPageNumberField;
@@ -351,16 +352,33 @@ public class StudentController {
     }
     private void releaseEditLock(){if(overview!=null&&overview.getStudent()!=null)service.endEdit(overview.getStudent().getStudentId(),m->{});}
     @FXML private void handleIndexBase() {
+        setDetailIndexActive(baseIndexButton);
         scrollDetail(0.0);
     }
     @FXML private void handleIndexStudy() {
+        setDetailIndexActive(studyIndexButton);
         scrollDetail(0.34);
     }
     @FXML private void handleIndexAdmission() {
+        setDetailIndexActive(admissionIndexButton);
         scrollDetail(0.68);
     }
     @FXML private void handleIndexContact() {
+        setDetailIndexActive(contactIndexButton);
         scrollDetail(1.0);
+    }
+    private void setDetailIndexActive(Button active) {
+        for(Button button:List.of(baseIndexButton,studyIndexButton,admissionIndexButton,contactIndexButton)) {
+            button.getStyleClass().removeAll("student-side-button","student-side-button-active");
+            button.getStyleClass().add(button==active?"student-side-button-active":"student-side-button");
+        }
+    }
+    private void syncAdminDetailNavigation() {
+        if(adminDetailManagementNavButton==null||adminDetailMaintenanceNavButton==null)return;
+        adminDetailManagementNavButton.getStyleClass().removeAll("student-side-button","student-side-button-active");
+        adminDetailMaintenanceNavButton.getStyleClass().removeAll("student-side-button","student-side-button-active");
+        adminDetailManagementNavButton.getStyleClass().add(adminMaintenanceMode?"student-side-button":"student-side-button-active");
+        adminDetailMaintenanceNavButton.getStyleClass().add(adminMaintenanceMode?"student-side-button-active":"student-side-button");
     }
     @FXML private void handleExportPdf() {
         if(overview==null||overview.getStudent()==null){
@@ -703,6 +721,8 @@ public class StudentController {
     }
     private void showStudentDetails(Student s) {
         boolean editableAdmin=isAdmin()&&adminMaintenanceMode;
+        syncAdminDetailNavigation();
+        setDetailIndexActive(baseIndexButton);
         for(Button button:List.of(editBaseButton,editStudyButton,editAdmissionButton,editContactButton)){
             button.setVisible(!isAdmin()||editableAdmin);button.setManaged(!isAdmin()||editableAdmin);
         }
