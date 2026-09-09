@@ -685,3 +685,106 @@ VALUES
 (7, 4, 0, '【选课流程与制度】选课轮次：每学期选课分为三轮。第一轮为预选（抽签制，不分先后）；第二轮为正选（先到先得，即选即中）；第三轮为退补选（开学前两周开放）。学分限制：学生每学期选修课程总学分原则上不低于15学分，最高不超过32学分。退选截止时间为开学第二周周日24:00。', 155),
 (8, 5, 0, '【校园商店操作指引】选购与下单：在商店首页浏览商品加入购物车结算，待支付订单有效期为30分钟，超时未支付订单将自动取消并释放库存。商店支持使用校园银行虚拟账户结账。针对已支付订单可提交退款申请，经管理员审核后资金原路退回校园银行账户。', 150)
 ON DUPLICATE KEY UPDATE `content`=VALUES(`content`);
+
+-- ============================================================
+-- 1. 图书表 tblBook
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `tblBook` (
+                                         `id` INT NOT NULL AUTO_INCREMENT COMMENT '图书编号',
+                                         `isbn` VARCHAR(20) NOT NULL COMMENT 'ISBN编号',
+                                         `name` VARCHAR(100) NOT NULL COMMENT '图书名称',
+                                         `author` VARCHAR(100) NOT NULL COMMENT '图书作者',
+                                         `publisher` VARCHAR(100) DEFAULT '' COMMENT '出版社',
+                                         `status` INT NOT NULL DEFAULT 0 COMMENT '状态: 0-可借, 1-已借, 2-预约, 3-遗失',
+                                         PRIMARY KEY (`id`),
+                                         UNIQUE KEY `uk_isbn` (`isbn`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='图书基本信息表';
+
+-- ============================================================
+-- 2. 借阅记录表 tblBorrowRecord
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `tblBorrowRecord` (
+                                                 `id` INT NOT NULL AUTO_INCREMENT COMMENT '借阅记录编号',
+                                                 `userid` VARCHAR(32) NOT NULL COMMENT '用户编号(关联tbl_user.uid)',
+                                                 `bookid` INT NOT NULL COMMENT '图书编号(关联tblBook.id)',
+                                                 `borrowTime` DATETIME NOT NULL COMMENT '借阅时间',
+                                                 `returnTime` DATETIME DEFAULT NULL COMMENT '实际归还时间',
+                                                 `dueTime` DATETIME NOT NULL COMMENT '最迟归还时间',
+                                                 `status` INT NOT NULL DEFAULT 0 COMMENT '借阅状态: 0-借阅中, 1-已归还, 2-逾期',
+                                                 PRIMARY KEY (`id`),
+                                                 KEY `idx_userid` (`userid`),
+                                                 KEY `idx_bookid` (`bookid`),
+                                                 KEY `idx_status` (`status`),
+                                                 CONSTRAINT `fk_borrow_user` FOREIGN KEY (`userid`) REFERENCES `tbl_user` (`uid`) ON DELETE RESTRICT ON UPDATE CASCADE,
+                                                 CONSTRAINT `fk_borrow_book` FOREIGN KEY (`bookid`) REFERENCES `tblBook` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='借阅记录表';
+
+-- ============================================================
+-- 3. 预约记录表 tblReservation
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `tblReservation` (
+                                                `id` INT NOT NULL AUTO_INCREMENT COMMENT '预约编号',
+                                                `userid` VARCHAR(32) NOT NULL COMMENT '用户编号(关联tbl_user.uid)',
+                                                `bookid` INT NOT NULL COMMENT '图书编号(关联tblBook.id)',
+                                                `reserveTime` DATETIME NOT NULL COMMENT '预约时间',
+                                                `status` INT NOT NULL DEFAULT 0 COMMENT '预约状态: 0-预约中, 1-已取消, 2-已借阅',
+                                                PRIMARY KEY (`id`),
+                                                KEY `idx_userid` (`userid`),
+                                                KEY `idx_bookid` (`bookid`),
+                                                KEY `idx_status` (`status`),
+                                                CONSTRAINT `fk_reserve_user` FOREIGN KEY (`userid`) REFERENCES `tbl_user` (`uid`) ON DELETE RESTRICT ON UPDATE CASCADE,
+                                                CONSTRAINT `fk_reserve_book` FOREIGN KEY (`bookid`) REFERENCES `tblBook` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='预约记录表';
+
+-- ============================================================
+-- 4. 书评表 tblBookReview
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `tblBookReview` (
+                                               `id` INT NOT NULL AUTO_INCREMENT COMMENT '书评编号',
+                                               `userid` VARCHAR(32) NOT NULL COMMENT '用户编号(关联tbl_user.uid)',
+                                               `bookid` INT NOT NULL COMMENT '图书编号(关联tblBook.id)',
+                                               `content` TEXT NOT NULL COMMENT '书评内容',
+                                               `createTime` DATETIME NOT NULL COMMENT '发表时间',
+                                               PRIMARY KEY (`id`),
+                                               KEY `idx_userid` (`userid`),
+                                               KEY `idx_bookid` (`bookid`),
+                                               CONSTRAINT `fk_review_user` FOREIGN KEY (`userid`) REFERENCES `tbl_user` (`uid`) ON DELETE RESTRICT ON UPDATE CASCADE,
+                                               CONSTRAINT `fk_review_book` FOREIGN KEY (`bookid`) REFERENCES `tblBook` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='图书书评表';
+
+-- ============================================================
+-- 5. 挂失记录表 tblLossRecord
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `tblLossRecord` (
+                                               `id` INT NOT NULL AUTO_INCREMENT COMMENT '挂失记录编号',
+                                               `userid` VARCHAR(32) NOT NULL COMMENT '用户编号(关联tbl_user.uid)',
+                                               `bookid` INT NOT NULL COMMENT '图书编号(关联tblBook.id)',
+                                               `lossTime` DATETIME NOT NULL COMMENT '挂失时间',
+                                               `status` INT NOT NULL DEFAULT 0 COMMENT '挂失状态: 0-挂失中, 1-已解除',
+                                               PRIMARY KEY (`id`),
+                                               KEY `idx_userid` (`userid`),
+                                               KEY `idx_bookid` (`bookid`),
+                                               KEY `idx_status` (`status`),
+                                               CONSTRAINT `fk_loss_user` FOREIGN KEY (`userid`) REFERENCES `tbl_user` (`uid`) ON DELETE RESTRICT ON UPDATE CASCADE,
+                                               CONSTRAINT `fk_loss_book` FOREIGN KEY (`bookid`) REFERENCES `tblBook` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='图书挂失记录表';
+
+-- ============================================================
+-- 6. 罚款记录表 tblFineRecord
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `tblFineRecord` (
+                                               `id` INT NOT NULL AUTO_INCREMENT COMMENT '缴费记录编号',
+                                               `userid` VARCHAR(32) NOT NULL COMMENT '用户编号(关联tbl_user.uid)',
+                                               `amount` DECIMAL(10,2) NOT NULL COMMENT '罚金金额',
+                                               `reason` VARCHAR(200) NOT NULL COMMENT '违章原因',
+                                               `status` INT NOT NULL DEFAULT 0 COMMENT '缴费状态: 0-未缴费, 1-已缴费',
+                                               PRIMARY KEY (`id`),
+                                               KEY `idx_userid` (`userid`),
+                                               KEY `idx_status` (`status`),
+                                               CONSTRAINT `fk_fine_user` FOREIGN KEY (`userid`) REFERENCES `tbl_user` (`uid`) ON DELETE RESTRICT ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='罚款记录表';
+
+-- 图书馆演示数据已移到 sample_library_data.sql。
+-- 正常启动或重新构建不需要重新导入演示数据。
+
+
