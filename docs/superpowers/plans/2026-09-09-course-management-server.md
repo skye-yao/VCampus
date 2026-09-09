@@ -16,7 +16,7 @@
 - Treat `feature/courses` and commit `d71ef18` as read-only reference material; do not switch, reset, commit, or write to that branch.
 - Do not commit `db.properties`, the local MySQL password, generated classes, screenshots, logs, or `.codex-tmp`.
 - Derive the student UID from `SessionManager.getSession(token)`, never from request `sender` or `data.uid`.
-- Encode every database `BIGINT` identifier as a decimal string in JSON DTOs.
+- Encode every database `BIGINT` identifier as a decimal string in JSON DTOs; keep account UID values as `VARCHAR(32)` strings.
 - Execute capacity and enrollment state changes in one JDBC transaction with `SELECT ... FOR UPDATE`.
 - Keep front-end filtering display-only; enforce term, role, major, cohort, window, capacity, and schedule rules on the server.
 - Keep `MockCourseService` working for tests and `CourseUiPreview`; normal application execution uses `SocketCourseService`.
@@ -236,7 +236,7 @@ git commit -m "fix: harden socket request correlation"
 - Test: `VCampusServer/test/database/CourseMigrationContractTest.java`
 
 **Interfaces:**
-- Consumes: `tbl_user(UID)` from `VCampusServer/src/resources/init.sql` and read-only SQL from `feature/courses`.
+- Consumes: the current branch's `tbl_user(UID VARCHAR(32))` from `VCampusServer/src/resources/init.sql` and read-only SQL from `feature/courses`.
 - Produces: one non-overlapping migration sequence supporting all approved student APIs.
 
 - [ ] **Step 1: Write the failing migration contract test**
@@ -267,7 +267,7 @@ git show feature/courses:VCampusServer/src/resources/migrations/v001_create_cour
 git show feature/courses:VCampusServer/src/resources/migrations/V002_create_table2.sql
 ```
 
-Create `V001_create_course_tables.sql` with only the reference definitions from `course` through `grade`. Create `V002_create_schedule_tables.sql` with exactly one definition of each schedule table from `teaching_calendar` through `course_offering_conflict`. Use `ON UPDATE RESTRICT` for the two offering-conflict foreign keys so both creation paths are deterministic.
+Create `V001_create_course_tables.sql` with only the reference definitions from `course` through `grade`. Preserve `tbl_user.UID` as the current branch's `VARCHAR(32)` contract, so `course_offering_teacher.uid` and `enrollment.uid` must also be `VARCHAR(32)`; do not copy the reference branch's incompatible `BIGINT` UID change. Create `V002_create_schedule_tables.sql` with exactly one definition of each schedule table from `teaching_calendar` through `course_offering_conflict`. Use `ON UPDATE RESTRICT` for the two offering-conflict foreign keys so both creation paths are deterministic.
 
 - [ ] **Step 4: Implement V003 additive schema**
 
@@ -291,13 +291,13 @@ Use these exact columns and meanings:
 
 ```text
 major: major_id INT AUTO_INCREMENT PK, major_code VARCHAR(32), major_name VARCHAR(100)
-student_academic_profile: uid BIGINT PK, major_id INT FK, enrollment_year INT
+student_academic_profile: uid VARCHAR(32) PK, major_id INT FK, enrollment_year INT
 course_selection_window: window_id BIGINT AUTO_INCREMENT PK, academic_year INT,
     semester TINYINT, plan_start_at DATETIME, plan_end_at DATETIME,
     confirm_start_at DATETIME, confirm_end_at DATETIME, drop_deadline DATETIME,
     status TINYINT (1-DRAFT, 2-OPEN, 3-CLOSED)
 course_waitlist: waitlist_id BIGINT AUTO_INCREMENT PK, offering_id BIGINT FK,
-    uid BIGINT FK, queue_time DATETIME, active TINYINT
+    uid VARCHAR(32) FK, queue_time DATETIME, active TINYINT
 training_plan: plan_id BIGINT AUTO_INCREMENT PK, major_id INT FK,
     cohort_year INT, version INT, status VARCHAR(20)
 training_plan_group: group_id BIGINT AUTO_INCREMENT PK, plan_id BIGINT FK,
@@ -307,12 +307,12 @@ training_plan_course: group_id BIGINT FK, course_id BIGINT FK,
 course_notice: notice_id BIGINT AUTO_INCREMENT PK, offering_id BIGINT FK,
     occurrence_id BIGINT NULL FK, week_no SMALLINT, notice_type VARCHAR(20),
     title VARCHAR(200), content TEXT, status VARCHAR(20), published_at DATETIME,
-    created_by BIGINT FK
+    created_by VARCHAR(32) FK
 ```
 
 Add nullable `academic_year INT` and `semester TINYINT` columns to `teaching_calendar`, back them with `uk_teaching_calendar_term_version(academic_year, semester, version)`, and validate a non-null semester as `1..3`. Existing calendars remain valid but are ignored by term queries until assigned a term. This gives schedule and conflict queries a real relationship instead of parsing calendar names.
 
-Use checks for active/published booleans `0/1`, training-plan/notice status values `DRAFT` and `PUBLISHED`, and notice type values `GENERAL`, `CANCELLED`, `RESCHEDULED`. Reference `tbl_user.UID` using `BIGINT`, matching the authoritative `init.sql` on `feature/courses`. Do not add a `course_major.major_id` foreign key in this migration because existing installations may contain locally assigned major IDs; enforce that relationship after those IDs are migrated into the new dictionary.
+Use checks for active/published booleans `0/1`, training-plan/notice status values `DRAFT` and `PUBLISHED`, and notice type values `GENERAL`, `CANCELLED`, `RESCHEDULED`. Every FK to `tbl_user.UID` uses `VARCHAR(32)`, matching the current branch and its alphanumeric accounts. Do not add a `course_major.major_id` foreign key in this migration because existing installations may contain locally assigned major IDs; enforce that relationship after those IDs are migrated into the new dictionary.
 
 - [ ] **Step 5: Add deterministic integration seed data**
 
@@ -365,7 +365,7 @@ Message request = new Message(MessageType.REQUEST, "course", CourseActions.LIST_
 request.setToken(student.getToken());
 request.setSender("99999999");
 Message response = handler.handle(request);
-require(service.lastStudentUid == 20240001L, "session UID must win over sender");
+require("20240001".equals(service.lastStudentUid), "session UID must win over sender");
 ```
 
 - [ ] **Step 2: Verify handler tests fail before implementation**
@@ -385,12 +385,12 @@ Compile common and server sources. Expected: failure because `CourseHandler` and
 Use these public signatures:
 
 ```java
-List<CourseTermDTO> listTerms(long studentUid) throws BusinessException, DatabaseException;
-List<CourseOfferingDTO> listOfferings(long studentUid, int academicYear, int semester) throws BusinessException, DatabaseException;
-List<ScheduleEntryDTO> loadSchedule(long studentUid, int academicYear, int semester, int week) throws BusinessException, DatabaseException;
-List<CourseNoticeDTO> loadNotices(long studentUid, int academicYear, int semester, int week) throws BusinessException, DatabaseException;
-GradeSummaryDTO loadGrades(long studentUid, int academicYear, int semester) throws BusinessException, DatabaseException;
-List<TrainingPlanGroupDTO> loadTrainingPlan(long studentUid) throws BusinessException, DatabaseException;
+List<CourseTermDTO> listTerms(String studentUid) throws BusinessException, DatabaseException;
+List<CourseOfferingDTO> listOfferings(String studentUid, int academicYear, int semester) throws BusinessException, DatabaseException;
+List<ScheduleEntryDTO> loadSchedule(String studentUid, int academicYear, int semester, int week) throws BusinessException, DatabaseException;
+List<CourseNoticeDTO> loadNotices(String studentUid, int academicYear, int semester, int week) throws BusinessException, DatabaseException;
+GradeSummaryDTO loadGrades(String studentUid, int academicYear, int semester) throws BusinessException, DatabaseException;
+List<TrainingPlanGroupDTO> loadTrainingPlan(String studentUid) throws BusinessException, DatabaseException;
 ```
 
 Validate `academicYear > 0`, semester `1..3`, and week `1..30` before DAO calls.
@@ -453,17 +453,17 @@ DAO methods accept a caller-owned `Connection` and never close it. Include opera
 Add these public methods to `CourseApplicationService`:
 
 ```java
-CourseOfferingDTO addToPlan(long studentUid, int academicYear, int semester, long offeringId)
+CourseOfferingDTO addToPlan(String studentUid, int academicYear, int semester, long offeringId)
         throws BusinessException, DatabaseException;
-CourseOfferingDTO removeFromPlan(long studentUid, int academicYear, int semester, long offeringId)
+CourseOfferingDTO removeFromPlan(String studentUid, int academicYear, int semester, long offeringId)
         throws BusinessException, DatabaseException;
-PlanConfirmationDTO confirmPlan(long studentUid, int academicYear, int semester)
+PlanConfirmationDTO confirmPlan(String studentUid, int academicYear, int semester)
         throws BusinessException, DatabaseException;
-CourseOfferingDTO joinWaitlist(long studentUid, int academicYear, int semester, long offeringId)
+CourseOfferingDTO joinWaitlist(String studentUid, int academicYear, int semester, long offeringId)
         throws BusinessException, DatabaseException;
-CourseOfferingDTO leaveWaitlist(long studentUid, int academicYear, int semester, long offeringId)
+CourseOfferingDTO leaveWaitlist(String studentUid, int academicYear, int semester, long offeringId)
         throws BusinessException, DatabaseException;
-CourseOfferingDTO dropCourse(long studentUid, int academicYear, int semester, long offeringId)
+CourseOfferingDTO dropCourse(String studentUid, int academicYear, int semester, long offeringId)
         throws BusinessException, DatabaseException;
 ```
 
