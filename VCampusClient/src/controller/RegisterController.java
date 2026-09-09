@@ -176,7 +176,7 @@ public class RegisterController {
                     registerButton.setText("立即注册");
 
                     if (response.getCode() == MessageCode.SUCCESS) {
-                        AlertUtil.showInfo("注册成功", "恭喜您，校园账号 " + uid + "（" + role + "）注册成功！\n已为您发放 1500.00 元【新用户福利】至校园账户，请返回登录。");
+                        AlertUtil.showInfo("注册成功", "恭喜您，校园账号 " + uid + "（" + role + "）注册成功！\n已为您发放 10000.00 元【新用户福利】至校园账户，请返回登录。");
                         if (countdownTimeline != null) {
                             countdownTimeline.stop();
                         }

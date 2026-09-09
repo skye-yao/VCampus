@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS `tbl_user` (
     `phone` VARCHAR(20) DEFAULT '' COMMENT '电话',
     `email` VARCHAR(100) DEFAULT '' COMMENT '邮箱',
     `avatar` LONGTEXT DEFAULT NULL COMMENT '头像图片Base64编码',
-    `balance` DECIMAL(12,2) DEFAULT 1500.00 COMMENT '校园账户余额镜像，主余额见tbl_bank_account',
+    `balance` DECIMAL(12,2) DEFAULT 10000.00 COMMENT '校园账户余额镜像，主余额见tbl_bank_account',
     `create_time` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     PRIMARY KEY (`UID`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户基本信息表';
@@ -32,8 +32,8 @@ PREPARE avatar_stmt FROM @avatar_ddl;
 EXECUTE avatar_stmt;
 DEALLOCATE PREPARE avatar_stmt;
 
--- 普通用户的校园账户统一采用1500元开户余额，并让镜像字段与银行主余额精度一致。
-ALTER TABLE `tbl_user` MODIFY COLUMN `balance` DECIMAL(12,2) DEFAULT 1500.00
+-- 普通用户的校园账户统一采用10000元开户余额，并让镜像字段与银行主余额精度一致。
+ALTER TABLE `tbl_user` MODIFY COLUMN `balance` DECIMAL(12,2) DEFAULT 10000.00
     COMMENT '校园账户余额镜像，主余额见tbl_bank_account';
 
 -- 插入默认测试数据（明文密码统一为 123456）
@@ -41,17 +41,17 @@ ALTER TABLE `tbl_user` MODIFY COLUMN `balance` DECIMAL(12,2) DEFAULT 1500.00
 -- hash: PasswordUtil.hashPassword("123456", "dGVzdHNhbHQxMjM0NTY=")
 INSERT INTO `tbl_user` (`UID`, `name`, `gender`, `password`, `salt`, `role`, `college`, `major`, `phone`, `email`, `balance`)
 VALUES 
-('213242789', '张三', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '计算机科学与工程学院', '计算机科学与技术', '13800138000', 'zhangsan@seu.edu.cn', 1500.00),
-('213242790', '李雨桐', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '电子科学与工程学院', '信息工程', '13800138001', 'liyutong@seu.edu.cn', 1500.00),
-('213242791', '王浩然', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '机械工程学院', '机器人工程', '13800138002', 'wanghaoran@seu.edu.cn', 1500.00),
-('213242792', '陈思远', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '建筑学院', '城乡规划', '13800138003', 'chensiyuan@seu.edu.cn', 1500.00),
-('213242793', '周可欣', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '经济管理学院', '金融学', '13800138004', 'zhouke@seu.edu.cn', 1500.00),
-('213242794', '赵子墨', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '交通学院', '交通运输', '13800138005', 'zhaozimo@seu.edu.cn', 1500.00),
-('223242801', '孙婉清', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '外国语学院', '英语', '13800138006', 'sunwanqing@seu.edu.cn', 1500.00),
-('223242802', '吴承宇', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '计算机科学与工程学院', '人工智能', '13800138007', 'wuchengyu@seu.edu.cn', 1500.00),
-('233242815', '郑晓彤', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '医学院', '临床医学', '13800138008', 'zhengxiaotong@seu.edu.cn', 1500),
-('admin', '系统管理员', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 0, '网络信息中心', '系统管理', '13900139000', 'admin@seu.edu.cn', 1500.00),
-('teacher01', '李老师', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 1, '计算机科学与工程学院', '副教授', '13700137000', 'teacher@seu.edu.cn', 1500.00)
+('213242789', '张三', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '计算机科学与工程学院', '计算机科学与技术', '13800138000', 'zhangsan@seu.edu.cn', 10000.00),
+('213242790', '李雨桐', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '电子科学与工程学院', '信息工程', '13800138001', 'liyutong@seu.edu.cn', 10000.00),
+('213242791', '王浩然', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '机械工程学院', '机器人工程', '13800138002', 'wanghaoran@seu.edu.cn', 10000.00),
+('213242792', '陈思远', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '建筑学院', '城乡规划', '13800138003', 'chensiyuan@seu.edu.cn', 10000.00),
+('213242793', '周可欣', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '经济管理学院', '金融学', '13800138004', 'zhouke@seu.edu.cn', 10000.00),
+('213242794', '赵子墨', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '交通学院', '交通运输', '13800138005', 'zhaozimo@seu.edu.cn', 10000.00),
+('223242801', '孙婉清', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '外国语学院', '英语', '13800138006', 'sunwanqing@seu.edu.cn', 10000.00),
+('223242802', '吴承宇', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '计算机科学与工程学院', '人工智能', '13800138007', 'wuchengyu@seu.edu.cn', 10000.00),
+('233242815', '郑晓彤', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '医学院', '临床医学', '13800138008', 'zhengxiaotong@seu.edu.cn', 10000.00),
+('admin', '系统管理员', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 0, '网络信息中心', '系统管理', '13900139000', 'admin@seu.edu.cn', 50000.00),
+('teacher01', '李老师', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 1, '计算机科学与工程学院', '副教授', '13700137000', 'teacher@seu.edu.cn', 10000.00)
 ON DUPLICATE KEY UPDATE `name`=VALUES(`name`);
 
 -- 学籍管理
@@ -455,7 +455,7 @@ ON DUPLICATE KEY UPDATE `product_name`=VALUES(`product_name`);
 CREATE TABLE IF NOT EXISTS `tbl_bank_account` (
     `account_id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '虚拟账户主键',
     `user_id` VARCHAR(32) NOT NULL COMMENT '所属用户一卡通号',
-    `balance` DECIMAL(12,2) NOT NULL DEFAULT 1500.00 COMMENT '校园账户主余额',
+    `balance` DECIMAL(12,2) NOT NULL DEFAULT 10000.00 COMMENT '校园账户主余额',
     `payment_password_hash` VARCHAR(128) DEFAULT NULL COMMENT '支付密码摘要',
     `payment_password_salt` VARCHAR(64) DEFAULT NULL COMMENT '支付密码盐值',
     `status` VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' COMMENT 'ACTIVE/LOCKED/RESET_REQUIRED',
@@ -470,8 +470,8 @@ CREATE TABLE IF NOT EXISTS `tbl_bank_account` (
     CONSTRAINT `chk_bank_status` CHECK (`status` IN ('ACTIVE','LOCKED','RESET_REQUIRED'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='校园银行虚拟账户表';
 
--- CREATE TABLE IF NOT EXISTS 不会修改旧表默认值，显式同步为1500元。
-ALTER TABLE `tbl_bank_account` ALTER COLUMN `balance` SET DEFAULT 1500.00;
+-- CREATE TABLE IF NOT EXISTS 不会修改旧表默认值，显式同步为10000元。
+ALTER TABLE `tbl_bank_account` ALTER COLUMN `balance` SET DEFAULT 10000.00;
 
 CREATE TABLE IF NOT EXISTS `tbl_bank_transaction` (
     `transaction_id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '流水主键',
@@ -537,14 +537,59 @@ CREATE TABLE IF NOT EXISTS `tbl_finance_reimbursement` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='校园财务报销申请表';
 
 -- 所有演示用户都会开通校园账户，默认支付密码为123456。
--- 普通用户开户余额统一为1500元；admin作为校园财务账户保留50000元初始资金。
+-- 普通用户开户余额统一为10000元；admin作为校园财务账户保留50000元初始资金。
 INSERT INTO `tbl_bank_account`
 (`user_id`,`balance`,`payment_password_hash`,`payment_password_salt`,`status`)
-SELECT `UID`,IF(`UID`='admin',50000.00,1500.00),
+SELECT `UID`,IF(`UID`='admin',50000.00,10000.00),
        'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=',
        'dGVzdHNhbHQxMjM0NTY=','ACTIVE'
 FROM `tbl_user`
 ON DUPLICATE KEY UPDATE `user_id`=VALUES(`user_id`);
+
+-- 先为旧账户补齐原始开户流水，再执行1500→10000的一次性余额升级。
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`transaction_type`,`amount`,`balance_after`,`request_id`,`remark`)
+SELECT CONCAT('INIT-',a.`user_id`),a.`account_id`,'INITIAL_BALANCE',a.`balance`,a.`balance`,
+       CONCAT('INIT-',a.`user_id`),'课程演示账户初始资金'
+FROM `tbl_bank_account` a
+WHERE NOT EXISTS (
+    SELECT 1 FROM `tbl_bank_transaction` t
+    WHERE t.`account_id`=a.`account_id` AND t.`transaction_type`='INITIAL_BALANCE'
+);
+
+DROP TEMPORARY TABLE IF EXISTS `tmp_balance_upgrade_10000`;
+CREATE TEMPORARY TABLE `tmp_balance_upgrade_10000` (
+    `account_id` BIGINT NOT NULL,
+    `user_id` VARCHAR(32) NOT NULL,
+    PRIMARY KEY (`account_id`)
+) ENGINE=MEMORY;
+
+INSERT INTO `tmp_balance_upgrade_10000` (`account_id`,`user_id`)
+SELECT a.`account_id`,a.`user_id`
+FROM `tbl_bank_account` a
+JOIN `tbl_user` u ON u.`UID`=a.`user_id`
+WHERE u.`role`<>0
+  AND a.`balance`=1500.00
+  AND NOT EXISTS (
+      SELECT 1 FROM `tbl_bank_transaction` t
+      WHERE t.`request_id`=CONCAT('OPENING-UPGRADE-10000-',a.`user_id`)
+  );
+
+START TRANSACTION;
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`transaction_type`,`amount`,`balance_after`,`request_id`,`remark`)
+SELECT CONCAT('UPGRADE-10000-',e.`user_id`),e.`account_id`,'ACCOUNT_RECHARGE',8500.00,10000.00,
+       CONCAT('OPENING-UPGRADE-10000-',e.`user_id`),'初始余额由1500元统一调整为10000元'
+FROM `tmp_balance_upgrade_10000` e;
+
+UPDATE `tbl_bank_account` a
+JOIN `tmp_balance_upgrade_10000` e ON e.`account_id`=a.`account_id`
+SET a.`balance`=10000.00,
+    a.`version`=a.`version`+1
+WHERE a.`account_id`>0;
+COMMIT;
+
+DROP TEMPORARY TABLE `tmp_balance_upgrade_10000`;
 
 -- 银行表是余额主数据，用户表余额仅供用户资料等旧接口展示。
 UPDATE `tbl_user` u
@@ -786,5 +831,21 @@ CREATE TABLE IF NOT EXISTS `tblFineRecord` (
 
 -- 图书馆演示数据已移到 sample_library_data.sql。
 -- 正常启动或重新构建不需要重新导入演示数据。
+
+-- 主初始化脚本至少提供基础书目，避免只执行 init.sql 后图书馆为空。
+-- 已存在的 ISBN 只更新基础信息，不覆盖借阅、预约或挂失产生的状态。
+INSERT INTO `tblBook` (`isbn`,`name`,`author`,`publisher`,`status`) VALUES
+('978-7-302-12345-6','数据库系统概论','王珊','清华大学出版社',0),
+('978-7-111-67890-1','深入理解计算机系统','Randal E. Bryant','机械工业出版社',0),
+('978-7-121-34567-8','算法导论','Thomas H. Cormen','电子工业出版社',0),
+('978-7-302-98765-4','软件工程','Roger S. Pressman','清华大学出版社',0),
+('978-7-111-54321-0','计算机网络：自顶向下方法','James F. Kurose','机械工业出版社',0),
+('978-7-302-11111-1','操作系统概念','Abraham Silberschatz','清华大学出版社',0),
+('978-7-121-22222-2','Python编程从入门到实践','Eric Matthes','电子工业出版社',0),
+('978-7-111-33333-3','数据结构与算法分析','Mark Allen Weiss','机械工业出版社',0)
+ON DUPLICATE KEY UPDATE
+`name`=VALUES(`name`),
+`author`=VALUES(`author`),
+`publisher`=VALUES(`publisher`);
 
 

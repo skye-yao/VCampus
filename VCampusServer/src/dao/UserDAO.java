@@ -30,7 +30,7 @@ public class UserDAO {
             conn = DBUtil.getConnection();
             conn.setAutoCommit(false);
             BigDecimal openingBalance = user.getBalance() != null
-                    ? user.getBalance() : new BigDecimal("1500.00");
+                    ? user.getBalance() : new BigDecimal("10000.00");
 
             // 1. 写入用户基本表（未填字段全部置空）
             try (PreparedStatement stmt = conn.prepareStatement(sqlUser)) {

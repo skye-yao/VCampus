@@ -257,7 +257,7 @@ public class UserService {
         user.setMajor("");
         user.setPhone(phone);
         user.setEmail("");
-        user.setBalance(new java.math.BigDecimal("1500.00"));
+        user.setBalance(new java.math.BigDecimal("10000.00"));
 
         try {
             userDAO.register(user);
