@@ -6,13 +6,19 @@ import protocol.*;
 import vo.StudentReviewVO;
 public class StudentClientService implements IStudentClientService {
     public final LeaseClient editLease=new LeaseClient(), reviewLease=new LeaseClient();
+    private final LeaseClient recordLease=new LeaseClient();
+    private final java.util.Map<String,String> recordOwners=new java.util.HashMap<>();
+    private String currentStudentId;
     public boolean recordInFlight;
     public Runnable onUnconfirmed=()->{};
     private boolean disposed;
     private final java.util.Map<String,Long> queryVersions=new java.util.HashMap<>();
-    public void dispose(){disposed=true;queryVersions.replaceAll((k,v)->v+1);editLease.close();reviewLease.close();}
+    public void dispose(){disposed=true;queryVersions.replaceAll((k,v)->v+1);editLease.close();reviewLease.close();recordLease.close();}
 
-    public void beginEdit(String id,Consumer<Message> callback){editLease.acquire("STUDENT",id,()->callback.accept(reply(true,"已取得占用")),error->callback.accept(reply(false,error)));}
+    public void beginEdit(String id,Consumer<Message> callback){
+        if(disposed)return;
+        editLease.acquire("STUDENT",id,()->{if(!disposed)callback.accept(reply(true,"已取得占用"));},error->{if(!disposed)callback.accept(reply(false,error));});
+    }
     public void endEdit(String id,Consumer<Message> callback){editLease.close();callback.accept(reply(true,"已释放占用"));}
     private Message reply(boolean success,String text){Message m=new Message(MessageType.RESPONSE,"student","lock");m.setCode(success?MessageCode.SUCCESS:MessageCode.CONFLICT);m.setMessage(text);return m;}
     private final SocketClient socket;
@@ -20,9 +26,19 @@ public class StudentClientService implements IStudentClientService {
         socket=s;
     }
     private void send(String action,String key,Object value,Consumer<Message> c) {
+        if(disposed)return;
         Message m=new Message(typeOf(action),"student",action);
         if(key!=null)m.putData(key,value);
-        dispatch(m,c);
+        String type=m.getType().name();
+        boolean record=type.contains("_EXPERIENCE_")||type.contains("_FAMILY_MEMBER_")||type.contains("_AWARD_")||type.contains("_AID_");
+        if(record) {
+            if(recordInFlight){c.accept(reply(false,"记录正在保存，请等待完成"));return;}
+            String id=value instanceof StudentAward a?a.getStudentId():value instanceof StudentAid a?a.getStudentId():currentStudentId;
+            if("awardId".equals(key)||"aidId".equals(key))id=recordOwners.get(key+":"+value);
+            if(id==null){c.accept(reply(false,"请刷新学生详情后重试"));return;}
+            recordInFlight=true;
+            recordLease.acquire("STUDENT",id,()->{if(!disposed)dispatch(m,c);},error->{recordInFlight=false;if(!disposed)c.accept(reply(false,error));});
+        } else dispatch(m,c);
     }
     private MessageType typeOf(String action) {
         return switch(action) {
@@ -78,10 +94,16 @@ public class StudentClientService implements IStudentClientService {
         send("queryChangeRequest","requestId",id,c);
     }
     public void reviewChangeRequest(StudentReviewVO r,Consumer<Message> c) {
-        send("reviewChangeRequest","review",r,c);
+        if(disposed)return;
+        if(reviewLease.busy()){c.accept(reply(false,"审核正在提交，请等待完成"));return;}
+        reviewLease.acquire("STUDENT_CHANGE_REQUEST",String.valueOf(r.getRequestId()),
+                ()->{if(!disposed)send("reviewChangeRequest","review",r,c);},
+                error->{if(!disposed)c.accept(reply(false,error));});
     }
-    public void updateStudentByAdmin(Student s,Consumer<Message> c) {
-        send("updateStudentByAdmin","student",s,c);
+    public void updateStudentByAdmin(Student s,Student original,Consumer<Message> c) {
+        if(disposed)return;
+        Message m=new Message(MessageType.STUDENT_ADMIN_UPDATE,"student","updateStudentByAdmin");
+        m.putData("student",s);m.putData("original",original);dispatch(m,c);
     }
     public void addAward(StudentAward a,Consumer<Message> c) {
         send("addAward","award",a,c);
@@ -109,18 +131,20 @@ public class StudentClientService implements IStudentClientService {
     public void deleteFamilyMember(long id,Consumer<Message> c){send("deleteFamilyMember","memberId",id,c);}
 
     private void dispatch(Message m,Consumer<Message> callback) {
+        if(disposed)return;
         String type=m.getType().name();
         boolean record=type.contains("_EXPERIENCE_")||type.contains("_FAMILY_MEMBER_")||type.contains("_AWARD_")||type.contains("_AID_");
         if(record)recordInFlight=true;
         boolean query=type.endsWith("QUERY")||type.endsWith("LIST");
         String channel=type.contains("OVERVIEW")||type.equals("STUDENT_QUERY")||type.equals("STUDENT_DETAIL_QUERY")?"overview":type;
         long version=query?queryVersions.merge(channel,1L,Long::sum):0;
-        LeaseClient lease=type.equals("STUDENT_REVIEW")||type.equals("STUDENT_REVIEW_QUERY")?reviewLease:editLease;
-        if(type.equals("STUDENT_ADMIN_UPDATE")||type.equals("STUDENT_CHANGE_SUBMIT")||type.equals("STUDENT_REVIEW")||type.equals("STUDENT_REVIEW_QUERY"))m.setLock(lease.proof());
-        if(record)m.setLock(editLease.proof());
+        LeaseClient lease=record?recordLease:type.equals("STUDENT_REVIEW")?reviewLease:editLease;
+        if(type.equals("STUDENT_ADMIN_UPDATE")||type.equals("STUDENT_CHANGE_SUBMIT")||type.equals("STUDENT_REVIEW"))m.setLock(lease.proof());
+        if(record)m.setLock(recordLease.proof());
         socket.sendAsync(m).whenComplete((response,error)->util.Fx.run(()->{
             boolean relevant=m.getLock()==null || !lease.busy() || lease.owns(m.getLock());
-            if(record){recordInFlight=false;editLease.closeIfOwned(m.getLock());}
+            if(record){recordInFlight=false;recordLease.closeIfOwned(m.getLock());}
+            if(type.equals("STUDENT_REVIEW"))reviewLease.closeIfOwned(m.getLock());
             if(disposed)return;
             if(query && !java.util.Objects.equals(queryVersions.get(channel),version))return;
             Message result=response;
@@ -131,6 +155,15 @@ public class StudentClientService implements IStudentClientService {
                 result.setMessage(uncertain?"操作结果未确认，请刷新查看最新状态后再决定是否重试。":"网络请求未完成，请稍后重新操作。");
                 if(!query)lease.invalidateIfOwned(m.getLock());
             }else if((result.getCode()==MessageCode.CONFLICT || result.getCode()==MessageCode.UNAUTHORIZED || result.getCode()==MessageCode.FORBIDDEN) && m.getLock()!=null)lease.invalidateIfOwned(m.getLock());
+            if(query && result.getCode()==MessageCode.SUCCESS && result.getData().containsKey("overview")) {
+                com.google.gson.Gson gson=new com.google.gson.Gson();
+                vo.StudentOverviewVO overview=gson.fromJson(gson.toJson(result.getData().get("overview")),vo.StudentOverviewVO.class);
+                if(overview!=null&&overview.getStudent()!=null) {
+                    currentStudentId=overview.getStudent().getStudentId();
+                    if(overview.getAwards()!=null)for(StudentAward a:overview.getAwards())recordOwners.put("awardId:"+a.getAwardId(),currentStudentId);
+                    if(overview.getAids()!=null)for(StudentAid a:overview.getAids())recordOwners.put("aidId:"+a.getAidId(),currentStudentId);
+                }
+            }
             callback.accept(result);
             if(relevant && Boolean.TRUE.equals(result.getData().get("resultUnconfirmed")))onUnconfirmed.run();
         }));

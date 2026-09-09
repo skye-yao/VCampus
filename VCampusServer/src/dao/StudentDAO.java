@@ -56,13 +56,25 @@ public class StudentDAO {
         }
         return o;
     }
-    public boolean update(Student s)throws SQLException {
-        List<String>f=COLUMNS.subList(1,COLUMNS.size());
-        String set=String.join(",",f.stream().map(x->x+"=?").toList());
-        try(Connection c=DBUtil.getConnection();PreparedStatement p=c.prepareStatement("UPDATE tblStudent SET "+set+" WHERE studentId=?")) {
-            bind(p,s,f);
-            p.setString(f.size()+1,s.getStudentId());
-            return p.executeUpdate()==1;
+    /** Compare the client's original snapshot while holding the database row lock. */
+    public boolean updateIfUnchanged(Student updated,Student original)throws SQLException {
+        try(Connection c=DBUtil.getConnection()) {
+            c.setAutoCommit(false);
+            try {
+                Student current=lockByStudentId(c,updated.getStudentId());
+                if(current==null)throw new IllegalStateException("学生不存在");
+                for(String field:COLUMNS) {
+                    if(!Objects.equals(fieldValue(current,field),fieldValue(original,field)))
+                        throw new IllegalStateException("学籍信息已被其他操作修改，请刷新后重新编辑");
+                }
+                List<String> fields=COLUMNS.subList(1,COLUMNS.size());
+                String set=String.join(",",fields.stream().map(x->x+"=?").toList());
+                try(PreparedStatement p=c.prepareStatement("UPDATE tblStudent SET "+set+" WHERE studentId=?")) {
+                    bind(p,updated,fields);p.setString(fields.size()+1,updated.getStudentId());
+                    if(p.executeUpdate()!=1)throw new IllegalStateException("学籍更新失败");
+                }
+                c.commit();return true;
+            } catch(SQLException|RuntimeException e){c.rollback();throw e;}
         }
     }
     public boolean updateApprovedFields(Connection c,String id,List<StudentChangeItem>items)throws SQLException {

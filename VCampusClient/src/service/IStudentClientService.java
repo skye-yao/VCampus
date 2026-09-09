@@ -15,7 +15,7 @@ public interface IStudentClientService {
     void listPendingRequests(Consumer<Message> c);
     void queryChangeRequest(long id,Consumer<Message> c);
     void reviewChangeRequest(StudentReviewVO r,Consumer<Message> c);
-    void updateStudentByAdmin(Student s,Consumer<Message> c);
+    void updateStudentByAdmin(Student s,Student original,Consumer<Message> c);
     void addAward(StudentAward a,Consumer<Message> c);
     void updateAward(StudentAward a,Consumer<Message> c);
     void deleteAward(long id,Consumer<Message> c);

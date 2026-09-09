@@ -47,9 +47,6 @@ public class StudentService {
     );
     private static final Set<String> ID_TYPES = Set.of("居民身份证", "港澳台居民居住证", "护照", "其他");
     private static final Set<String> HOUSEHOLD_TYPES = Set.of("城镇户口", "农村居民户口", "集体户口");
-    private static final long EDIT_LEASE_MILLIS = 15 * 60 * 1000L;
-    private static final Map<String, EditLease> EDIT_LEASES = new ConcurrentHashMap<>();
-    private record EditLease(String owner,long expiresAt) {}
     private final StudentDAO students = new StudentDAO();
     private final StudentChangeRequestDAO requests = new StudentChangeRequestDAO();
     private final StudentAwardDAO awards = new StudentAwardDAO();
@@ -104,7 +101,6 @@ public class StudentService {
             try {
                 Student student = students.lockByUID(connection, UID);
                 if (student == null) throw new IllegalArgumentException("当前用户没有学籍");
-                assertMayMutate(student.getStudentId(),"STUDENT:"+UID);
                 validateStudentRequest(student, request);
                 if (requests.findPendingByStudentId(connection, student.getStudentId()) != null) {
                     throw new IllegalStateException("已有待审核申请");
@@ -112,7 +108,6 @@ public class StudentService {
                 request.setStudentId(student.getStudentId());
                 long requestId = requests.insert(connection, request);
                 connection.commit();
-                releaseLease(student.getStudentId(),"STUDENT:"+UID);
                 return requestId;
             }
             catch (Exception exception) {
@@ -153,31 +148,24 @@ public class StudentService {
             }
         }
     }
-    public boolean updateByAdmin(String adminId,Student student) throws SQLException {
-        if (student == null || student.getStudentId() == null || student.getStudentId().isBlank()) {
-            throw new IllegalArgumentException("学生信息不能为空");
+    public boolean updateByAdmin(String adminId,Student student,Student original) throws SQLException {
+        if(student==null || original==null || student.getStudentId()==null
+                || !student.getStudentId().equals(original.getStudentId()))
+            throw new IllegalArgumentException("缺少原始学籍快照或学生编号已变化，请刷新");
+        return students.updateIfUnchanged(student,original);
+    }
+    public String studentIdForUser(String uid)throws SQLException{return requireStudent(uid).getStudentId();}
+    public String recordStudentId(String table,String column,long id)throws SQLException {
+        if(!Set.of("tblStudentAward:awardId","tblStudentAid:aidId").contains(table+":"+column))
+            throw new IllegalArgumentException("记录类型无效");
+        try(Connection c=DBUtil.getConnection();java.sql.PreparedStatement p=c.prepareStatement(
+                "SELECT studentId FROM "+table+" WHERE "+column+"=?")) {
+            p.setLong(1,id);
+            try(java.sql.ResultSet r=p.executeQuery()) {
+                if(!r.next())throw new IllegalArgumentException("记录不存在，请刷新");
+                return r.getString(1);
+            }
         }
-        assertMayMutate(student.getStudentId(),"ADMIN:"+adminId);
-        if (!students.update(student)) throw new IllegalStateException("学生不存在或更新失败");
-        releaseLease(student.getStudentId(),"ADMIN:"+adminId);
-        return true;
-    }
-    public String beginEdit(String UID, boolean admin, String requestedStudentId) throws SQLException {
-        Student student = admin ? students.findByStudentId(required(requestedStudentId,"缺少学生学号")) : requireStudent(UID);
-        if (student == null) throw new IllegalArgumentException("学生不存在");
-        String studentId=student.getStudentId(), owner=(admin?"ADMIN:":"STUDENT:")+UID;
-        long now=System.currentTimeMillis();
-        EDIT_LEASES.compute(studentId,(id,current)-> {
-            if(current==null||current.expiresAt()<now||current.owner().equals(owner))return new EditLease(owner,now+EDIT_LEASE_MILLIS);
-            throw new IllegalStateException("该学生信息正在被另一端编辑，请稍后再试");
-        });
-        return studentId;
-    }
-    public void endEdit(String UID, boolean admin, String requestedStudentId) throws SQLException {
-        Student student=admin?null:requireStudent(UID);
-        String studentId=admin?required(requestedStudentId,"缺少学生学号"):student.getStudentId();
-        String owner=(admin?"ADMIN:":"STUDENT:")+UID;
-        EDIT_LEASES.computeIfPresent(studentId,(id,current)->current.owner().equals(owner)?null:current);
     }
     public boolean addAward(StudentAward award) throws SQLException {
         validateAward(award);
@@ -295,12 +283,5 @@ public class StudentService {
     }
     private static String normalize(String value){return value==null?"":value.trim();}
     private static boolean truthy(String value){return Set.of("true","1","是","在籍","在校").contains(normalize(value));}
-    private static void assertMayMutate(String studentId,String owner) {
-        EditLease lease=EDIT_LEASES.get(studentId);long now=System.currentTimeMillis();
-        if(lease!=null&&lease.expiresAt()>=now&&!lease.owner().equals(owner))throw new IllegalStateException("该学生信息正在被另一端编辑，请稍后再试");
-    }
-    private static void releaseLease(String studentId,String owner) {
-        EDIT_LEASES.computeIfPresent(studentId,(id,current)->current.owner().equals(owner)?null:current);
-    }
     private static String required(String value,String message){if(value==null||value.isBlank())throw new IllegalArgumentException(message);return value;}
 }

@@ -5,12 +5,9 @@
 <StackPane xmlns="http://javafx.com/javafx/17" xmlns:fx="http://javafx.com/fxml/1"
            fx:controller="controller.InformationSelectController"
            stylesheets="@../css/style.css" styleClass="information-select-page">
-  <VBox alignment="TOP_LEFT" maxWidth="760" minHeight="520" prefWidth="760" spacing="0" styleClass="information-select-panel">
-    <padding><Insets bottom="42" left="48" right="48" top="44"/></padding>
+  <VBox alignment="CENTER_LEFT" maxWidth="760" minHeight="520" prefWidth="760" spacing="0" styleClass="information-select-panel">
+    <padding><Insets bottom="44" left="48" right="48" top="44"/></padding>
     <Label styleClass="information-select-title" text="基本信息"/>
-    <Label styleClass="information-select-subtitle" text="选择信息类型，进入管理与审核">
-      <VBox.margin><Insets top="12" bottom="34"/></VBox.margin>
-    </Label>
     <Button alignment="CENTER_LEFT" maxWidth="Infinity" minHeight="108"
             onAction="#openStudent" styleClass="information-choice-card, information-choice-card-primary">
       <graphic><VBox alignment="CENTER_LEFT" spacing="8"><Label styleClass="information-choice-title" text="学生信息"/><Label styleClass="information-choice-description" text="学籍资料 · 信息维护 · 修改审核"/></VBox></graphic>

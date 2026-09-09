@@ -9,8 +9,8 @@ public class TeacherController {
  private static final List<String> JOB=List.of("employed","employmentStatus","campus","college","department","title","position","education","employmentStartDate");
  private static final List<String> CONTACT=List.of("telephone","mobile","email","qq","wechat","officeAddress","emergencyContact","emergencyPhone");
  private static final Set<String> EDITABLE=Set.of("politicalStatus","nationality","gender","idType","idNumber","idIssueDate","birthDate","nativePlace","householdType","birthPlace","sourcePlace","registeredResidence","partyMember","partyJoinDate","healthStatus","campus","department","education","employmentStartDate","telephone","mobile","email","qq","wechat","officeAddress","emergencyContact","emergencyPhone");
- @FXML public void initialize(){setupTables();setupActionColumn();setupReviewActionColumn();ToggleGroup reviewGroup=new ToggleGroup();unfinishedTeacherReviewButton.setToggleGroup(reviewGroup);completedTeacherReviewButton.setToggleGroup(reviewGroup);reviewGroup.selectedToggleProperty().addListener((o,oldToggle,newToggle)->{if(newToggle==null)oldToggle.setSelected(true);else searchTeacherReviews();});boolean admin=isAdmin();reviewStatusPane.setVisible(!admin);reviewStatusPane.setManaged(!admin);if(admin){for(Button button:List.of(addExperienceButton,editExperienceButton,deleteExperienceButton,addFamilyButton,editFamilyButton,deleteFamilyButton)){button.setVisible(false);button.setManaged(false);}applyAdminMode();loadAdmin();}else{tabs.getTabs().removeAll(adminTab,reviewTab);service.overview(this::receiveOverview);}}
- @FXML private void back(){ClientMain.switchScene("/resources/fxml/MainView.fxml");} @FXML private void refresh(){if(editing)cancelEdit();if(isAdmin()&&tabs.getSelectionModel().getSelectedItem()==detailTab&&overview!=null&&overview.getTeacher()!=null)service.query(overview.getTeacher().getTeacherId(),this::receiveOverview);else if(isAdmin())loadAdmin();else service.overview(this::receiveOverview);} @FXML private void edit(){beginGlobalEdit();}
+ @FXML public void initialize(){setupTables();setupActionColumn();setupReviewActionColumn();ToggleGroup reviewGroup=new ToggleGroup();unfinishedTeacherReviewButton.setToggleGroup(reviewGroup);completedTeacherReviewButton.setToggleGroup(reviewGroup);reviewGroup.selectedToggleProperty().addListener((o,oldToggle,newToggle)->{if(newToggle==null)oldToggle.setSelected(true);else searchTeacherReviews();});boolean admin=isAdmin();reviewStatusPane.setVisible(!admin);reviewStatusPane.setManaged(!admin);reviewStatusPane.setOnCancel(this::cancelPendingRequest);if(admin){for(Button button:List.of(addExperienceButton,editExperienceButton,deleteExperienceButton,addFamilyButton,editFamilyButton,deleteFamilyButton)){button.setVisible(false);button.setManaged(false);}applyAdminMode();loadAdmin();}else{tabs.getTabs().removeAll(adminTab,reviewTab);service.overview(this::receiveOverview);}}
+ @FXML private void back(){ClientMain.switchScene("/resources/fxml/MainView.fxml");} @FXML private void refresh(){if(isAdmin()&&tabs.getSelectionModel().getSelectedItem()==reviewTab&&teacherReviewDetailPane.isVisible()){if(selectedReview!=null)showTeacherReviewDetail(selectedReview);else{backToTeacherReviews();loadAdmin();}return;}if(editing)cancelEdit();if(isAdmin()&&tabs.getSelectionModel().getSelectedItem()==detailTab&&overview!=null&&overview.getTeacher()!=null)service.query(overview.getTeacher().getTeacherId(),this::receiveOverview);else if(isAdmin())loadAdmin();else service.overview(this::receiveOverview);} @FXML private void edit(){beginGlobalEdit();}
  @FXML private void viewDetails(){tabs.getSelectionModel().select(detailTab); }
  @FXML private void viewExperiences(){tabs.getSelectionModel().select(experienceTab);}
  @FXML private void backFromExperiences(){tabs.getSelectionModel().select(isAdmin()?detailTab:overviewTab);}
@@ -28,6 +28,30 @@ public class TeacherController {
  @FXML private void returnOverview(){if(editing)cancelEdit();tabs.getSelectionModel().select(isAdmin()?adminTab:overviewTab); }
  @FXML private void showBase(){scrollTo(baseSection);}@FXML private void showJob(){scrollTo(jobSection);}@FXML private void showContact(){scrollTo(contactSection);}
  private void scrollTo(VBox node){if(detailScroll==null||node==null)return;double total=detailScroll.getContent().getBoundsInLocal().getHeight()-detailScroll.getViewportBounds().getHeight();detailScroll.setVvalue(total<=0?0:node.getBoundsInParent().getMinY()/total);}
+ private boolean cancellingRequest;
+ private void cancelPendingRequest(){
+  if(isAdmin()||cancellingRequest||overview==null||overview.getPendingRequest()==null)return;
+  TeacherChangeRequest request=overview.getPendingRequest();
+  if(request.getStatus()!=StudentChangeStatus.PENDING)return;
+  cancellingRequest=true;
+  reviewStatusPane.setCancelling(true);
+  service.cancel(request.getRequestId(),m->Platform.runLater(()->{
+   cancellingRequest=false;
+   reviewStatusPane.setCancelling(false);
+   if(ok(m)){
+    editing=false;
+    editableControls.clear();
+    request.setStatus(StudentChangeStatus.CANCELLED);
+    overview.setPendingRequest(null);
+    overview.setLatestRequest(request);
+    render();
+    statusLabel.setText("申请已撤销，可以重新编辑并提交");
+   }else{
+    statusLabel.setText(m==null?"撤销失败，请刷新后重试":m.getMessage());
+    service.overview(this::receiveOverview);
+   }
+  }));
+ }
  private void receiveOverview(Message m){Platform.runLater(()->{if(!ok(m)){statusLabel.setText(m.getMessage());return;}overview=data(m,"overview",TeacherOverviewVO.class);render();});}
  private void render(){TeacherChangeRequest progress=overview==null?null:(overview.getPendingRequest()!=null?overview.getPendingRequest():overview.getLatestRequest());reviewStatusPane.showRequest(progress==null?null:progress.getStatus(),progress==null?null:progress.getSubmitTime());Teacher t=displayTeacher();if(t==null){statusLabel.setText("暂无教师档案");return;}String name=show(t.getName()),initial="-".equals(name)?"师":name.substring(0,1);nameLabel.setText(name);avatarLabel.setText(initial);sideAvatarLabel.setText(initial);sideNameLabel.setText(name);sideMetaLabel.setText(show(t.getDepartment()));metaLabel.setText(String.join(" · ",show(t.getTeacherId()),show(t.getCollege()),show(t.getDepartment()),show(t.getTitle())));overviewStatusValue.setText(show(t.getEmploymentStatus()));overviewTitleValue.setText(show(t.getTitle()));overviewCollegeValue.setText(show(t.getCollege()));overviewEmployedValue.setText(t.isEmployed()?"在职":"离职");fill(baseGrid,t,BASE);fill(jobGrid,t,JOB);fill(contactGrid,t,CONTACT);renderExperiences(overview.getWorkExperiences());renderFamilyMembers(overview.getFamilyMembers());if(isAdmin())setDetailEditable(adminMaintenanceMode);statusLabel.setText(overview.getPendingRequest()==null?"教师信息已更新":"修改申请待管理员审核，当前显示修改后的内容");}
  private Teacher displayTeacher(){if(overview==null||overview.getTeacher()==null)return null;Teacher result=gson.fromJson(gson.toJson(overview.getTeacher()),Teacher.class);TeacherChangeRequest pending=overview.getPendingRequest();if(!isAdmin()&&pending!=null&&pending.getItems()!=null)for(TeacherChangeItem item:pending.getItems())try{write(result,item.getFieldName(),item.getNewValue());}catch(Exception ignored){}return result;}
@@ -50,21 +74,87 @@ public class TeacherController {
  @FXML private void exportSelectedTeachers(){List<Teacher> selected=teachers.stream().filter(t->selectedTeacherIds.contains(t.getTeacherId())).toList();if(selected.isEmpty()){AlertUtil.showWarning("请选择教师","请先勾选需要导出的教师。");return;}FileChooser chooser=new FileChooser();chooser.setTitle("导出教师信息");chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Excel 工作簿 (*.xlsx)","*.xlsx"));chooser.setInitialFileName("教师信息_"+java.time.LocalDate.now()+".xlsx");File chosen=chooser.showSaveDialog(teacherTable.getScene().getWindow());if(chosen==null)return;File output=chosen.getName().toLowerCase(Locale.ROOT).endsWith(".xlsx")?chosen:new File(chosen.getParentFile(),chosen.getName()+".xlsx");exportTeachersButton.setDisable(true);statusLabel.setText("正在导出 "+selected.size()+" 名教师的信息...");Task<Void> task=new Task<>(){@Override protected Void call()throws Exception{TeacherExcelExport.export(selected,output);return null;}};task.setOnSucceeded(e->{exportTeachersButton.setDisable(false);statusLabel.setText("已导出 "+selected.size()+" 名教师的信息");AlertUtil.showInfo("导出成功","Excel 已保存至：\n"+output.getAbsolutePath());});task.setOnFailed(e->{exportTeachersButton.setDisable(false);statusLabel.setText("教师信息导出失败");Throwable error=task.getException();AlertUtil.showError("导出失败",error==null?"无法生成 Excel 文件。":"无法生成 Excel 文件：\n"+error.getMessage());});Thread worker=new Thread(task,"teacher-excel-export");worker.setDaemon(true);worker.start();}
  @FXML private void exportTeacherPdf(){if(overview==null||overview.getTeacher()==null){AlertUtil.showWarning("暂时无法导出","教师信息尚未加载完成，请稍后重试。");return;}Teacher teacher=overview.getTeacher();FileChooser chooser=new FileChooser();chooser.setTitle("导出教师信息");chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("PDF 文件 (*.pdf)","*.pdf"));chooser.setInitialFileName("教师信息_"+input(teacher.getName())+"_"+input(teacher.getTeacherId())+".pdf");File chosen=chooser.showSaveDialog(tabs.getScene().getWindow());if(chosen==null)return;File output=chosen.getName().toLowerCase(Locale.ROOT).endsWith(".pdf")?chosen:new File(chosen.getParentFile(),chosen.getName()+".pdf");exportPdfButton.setDisable(true);statusLabel.setText("正在导出教师信息...");Task<Void> task=new Task<>(){@Override protected Void call()throws Exception{TeacherPdfExport.export(teacher,overview.getWorkExperiences(),overview.getFamilyMembers(),output);return null;}};task.setOnSucceeded(e->{exportPdfButton.setDisable(false);statusLabel.setText("教师信息已导出");AlertUtil.showInfo("导出成功","PDF 已保存至：\n"+output.getAbsolutePath());});task.setOnFailed(e->{exportPdfButton.setDisable(false);statusLabel.setText("教师信息导出失败");Throwable error=task.getException();AlertUtil.showError("导出失败",error==null?"无法生成 PDF 文件。":"无法生成 PDF 文件：\n"+error.getMessage());});Thread worker=new Thread(task,"teacher-pdf-export");worker.setDaemon(true);worker.start();}
  private void setupReviewActionColumn(){requestActionCol.setCellFactory(column->new TableCell<>(){private final Button button=new Button("查看详情");{button.getStyleClass().add("table-action-button");button.setOnAction(e->{int index=getIndex();if(index<0||index>=getTableView().getItems().size())return;showTeacherReviewDetail(getTableView().getItems().get(index));});}@Override protected void updateItem(Void item,boolean empty){super.updateItem(item,empty);setGraphic(empty||getIndex()<0||getIndex()>=getTableView().getItems().size()?null:button);}});}
- private void showTeacherReviewDetail(TeacherChangeRequest summary){service.reviewQuery(summary.getRequestId(),message->Platform.runLater(()->{if(!ok(message)){statusLabel.setText(message.getMessage());return;}TeacherChangeRequest request=data(message,"request",TeacherChangeRequest.class);service.query(request.getTeacherId(),teacherMessage->Platform.runLater(()->{TeacherOverviewVO teacherOverview=ok(teacherMessage)?data(teacherMessage,"overview",TeacherOverviewVO.class):null;openTeacherReviewDialog(request,teacherOverview==null?null:teacherOverview.getTeacher());}));}));}
- private void openTeacherReviewDialog(TeacherChangeRequest request,Teacher teacher){
-  Dialog<ButtonType> dialog=new Dialog<>();dialog.setTitle("教师修改申请详情");dialog.setHeaderText("申请修改详情");
-  Teacher preview=teacher==null?new Teacher():gson.fromJson(gson.toJson(teacher),Teacher.class);Set<String> changed=new HashSet<>();
-  if(request.getItems()!=null)for(TeacherChangeItem item:request.getItems())try{write(preview,item.getFieldName(),input(item.getNewValue()));changed.add(item.getFieldName());}catch(Exception ignored){}
-  GridPane info=new GridPane();info.setHgap(18);info.setVgap(8);int row=0;
-  for(String field:concat(BASE,JOB,CONTACT)){Label key=new Label(title(field)),value=new Label(show(read(preview,field)));key.getStyleClass().add("student-field-key");value.getStyleClass().add("student-field-value");if(changed.contains(field)){value.getStyleClass().add("student-review-changed-value");value.setTooltip(new Tooltip("修改前："+request.getItems().stream().filter(item->field.equals(item.getFieldName())).map(TeacherChangeItem::getOldValue).findFirst().orElse("")));}info.addRow(row++,key,value);}
-  ScrollPane information=new ScrollPane(info);information.setFitToWidth(true);information.setPrefViewportWidth(620);information.setPrefViewportHeight(620);
-  VBox audit=new VBox(10);audit.setPrefWidth(260);Label auditTitle=new Label("审核处理");auditTitle.getStyleClass().add("student-section-title");TextArea reason=new TextArea(input(request.getReviewRemark()));reason.setPromptText("选择不通过时必须填写理由");reason.setPrefRowCount(18);reason.setWrapText(true);reason.setEditable(request.getStatus()==StudentChangeStatus.PENDING);audit.getChildren().addAll(auditTitle,new Label("不通过理由"),reason);VBox.setVgrow(reason,Priority.ALWAYS);
-  HBox content=new HBox(16,information,audit);content.setPrefSize(920,640);dialog.getDialogPane().setContent(content);
-  ButtonType approve=new ButtonType("通过",ButtonBar.ButtonData.OK_DONE),reject=new ButtonType("不通过",ButtonBar.ButtonData.NO);
-  if(request.getStatus()==StudentChangeStatus.PENDING){dialog.getDialogPane().getButtonTypes().addAll(approve,reject,ButtonType.CANCEL);Button rejectButton=(Button)dialog.getDialogPane().lookupButton(reject);rejectButton.addEventFilter(javafx.event.ActionEvent.ACTION,event->{if(reason.getText().isBlank()){statusLabel.setText("不通过时必须填写理由");reason.requestFocus();event.consume();}});}else dialog.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
-  dialog.showAndWait().ifPresent(button->{if(button!=approve&&button!=reject)return;TeacherReviewVO value=new TeacherReviewVO();value.setRequestId(request.getRequestId());value.setReviewResult(button==approve?StudentChangeStatus.APPROVED:StudentChangeStatus.REJECTED);value.setReviewRemark(reason.getText().trim());service.review(value,result->Platform.runLater(()->{statusLabel.setText(result.getMessage());if(ok(result))loadAdmin();}));});
+ @FXML private VBox teacherReviewOverviewPane,teacherReviewDetailPane;
+ @FXML private GridPane teacherReviewBaseGrid,teacherReviewJobGrid,teacherReviewContactGrid;
+ @FXML private Label teacherReviewDetailStatus;
+ @FXML private TextArea teacherReviewRemark;
+ @FXML private Button teacherApproveButton,teacherRejectButton;
+ private TeacherChangeRequest selectedReview;
+ private long reviewLoadVersion;
+ private boolean reviewSubmitting;
+ private void setReviewEnabled(boolean enabled){teacherApproveButton.setDisable(!enabled);teacherRejectButton.setDisable(!enabled);teacherReviewRemark.setEditable(enabled);}
+ private void showTeacherReviewDetail(TeacherChangeRequest summary){
+  if(summary==null||reviewSubmitting)return;
+  long version=++reviewLoadVersion;
+  selectedReview=null;
+  teacherReviewOverviewPane.setVisible(false);teacherReviewOverviewPane.setManaged(false);
+  teacherReviewDetailPane.setVisible(true);teacherReviewDetailPane.setManaged(true);
+  teacherReviewBaseGrid.getChildren().clear();teacherReviewJobGrid.getChildren().clear();teacherReviewContactGrid.getChildren().clear();
+  teacherReviewRemark.clear();setReviewEnabled(false);teacherReviewDetailStatus.setText("正在加载...");
+  service.reviewQuery(summary.getRequestId(),message->Platform.runLater(()->{
+   if(version!=reviewLoadVersion)return;
+   TeacherChangeRequest request=ok(message)?data(message,"request",TeacherChangeRequest.class):null;
+   if(request==null){teacherReviewDetailStatus.setText(message==null?"审核详情加载失败":message.getMessage());return;}
+   service.query(request.getTeacherId(),result->Platform.runLater(()->{
+    if(version!=reviewLoadVersion)return;
+    TeacherOverviewVO detail=ok(result)?data(result,"overview",TeacherOverviewVO.class):null;
+    if(detail==null||detail.getTeacher()==null){teacherReviewDetailStatus.setText(result==null?"教师档案加载失败":result.getMessage());return;}
+    selectedReview=request;
+    Teacher preview=gson.fromJson(gson.toJson(detail.getTeacher()),Teacher.class);
+    Map<String,String> changed=new HashMap<>();
+    if(request.getItems()!=null)for(TeacherChangeItem item:request.getItems()){
+     String field=item.getFieldName();if(field==null||field.contains("."))continue;
+     try{write(preview,field,input(item.getNewValue()));changed.put(field,input(item.getOldValue()));}catch(Exception ignored){}
+    }
+    renderTeacherReviewGrid(teacherReviewBaseGrid,preview,BASE,changed);
+    renderTeacherReviewGrid(teacherReviewJobGrid,preview,JOB,changed);
+    renderTeacherReviewGrid(teacherReviewContactGrid,preview,CONTACT,changed);
+    teacherReviewRemark.setText(input(request.getReviewRemark()));
+    teacherReviewDetailStatus.setText(teacherReviewStatus(request.getStatus()));
+    setReviewEnabled(request.getStatus()==StudentChangeStatus.PENDING);
+   }));
+  }));
  }
- private String teacherReviewStatus(StudentChangeStatus status){if(status==null)return "-";return switch(status){case PENDING->"待审核";case APPROVED->"已通过";case REJECTED->"未通过";case CANCELLED->"已取消";};} @FXML private void reviewSelected(){TeacherChangeRequest r=requestTable.getSelectionModel().getSelectedItem();if(r==null||r.getStatus()!=StudentChangeStatus.PENDING)return;Alert a=new Alert(Alert.AlertType.CONFIRMATION,"请选择审核结果",new ButtonType("通过"),new ButtonType("不通过"),ButtonType.CANCEL);a.showAndWait().ifPresent(b->{if(b==ButtonType.CANCEL)return;TeacherReviewVO v=new TeacherReviewVO();v.setRequestId(r.getRequestId());v.setReviewResult("通过".equals(b.getText())?StudentChangeStatus.APPROVED:StudentChangeStatus.REJECTED);service.review(v,m->Platform.runLater(this::loadAdmin));});}
+ private void renderTeacherReviewGrid(GridPane grid,Teacher teacher,List<String> fields,Map<String,String> changed){
+  fill(grid,teacher,fields);
+  for(int i=0;i<fields.size();i++){
+   String field=fields.get(i);if(!changed.containsKey(field))continue;
+   for(javafx.scene.Node node:grid.getChildren())if(Objects.equals(GridPane.getRowIndex(node),i/3)&&Objects.equals(GridPane.getColumnIndex(node),(i%3)*2+1)){
+    node.getStyleClass().add("student-review-changed-value");
+    if(node instanceof Label label)label.setTooltip(new Tooltip("修改前："+show(changed.get(field))));
+   }
+  }
+ }
+ @FXML private void backToTeacherReviews(){
+  if(reviewSubmitting)return;
+  ++reviewLoadVersion;selectedReview=null;setReviewEnabled(false);
+  teacherReviewDetailPane.setVisible(false);teacherReviewDetailPane.setManaged(false);
+  teacherReviewOverviewPane.setVisible(true);teacherReviewOverviewPane.setManaged(true);
+ }
+ @FXML private void approveTeacherRequest(){submitTeacherReview(StudentChangeStatus.APPROVED);}
+ @FXML private void rejectTeacherRequest(){submitTeacherReview(StudentChangeStatus.REJECTED);}
+ private void submitTeacherReview(StudentChangeStatus result){
+  if(reviewSubmitting||selectedReview==null||selectedReview.getStatus()!=StudentChangeStatus.PENDING)return;
+  if(result==StudentChangeStatus.REJECTED&&teacherReviewRemark.getText().isBlank()){
+   teacherReviewDetailStatus.setText("不通过时必须填写理由");teacherReviewRemark.requestFocus();return;
+  }
+  TeacherChangeRequest request=selectedReview;
+  TeacherReviewVO value=new TeacherReviewVO();value.setRequestId(request.getRequestId());value.setReviewResult(result);value.setReviewRemark(teacherReviewRemark.getText().trim());
+  reviewSubmitting=true;setReviewEnabled(false);
+  service.review(value,message->Platform.runLater(()->{
+   reviewSubmitting=false;
+   if(ok(message)){
+    request.setStatus(result);request.setReviewRemark(value.getReviewRemark());request.setReviewTime(new java.sql.Timestamp(System.currentTimeMillis()));
+    reviewRequests.removeIf(row->row.getRequestId()==request.getRequestId());reviewRequests.add(request);
+    backToTeacherReviews();reviewTeacherSearchField.clear();reviewStatusSearchField.clear();completedTeacherReviewButton.setSelected(true);searchTeacherReviews();loadAdmin();
+    statusLabel.setText("审核完成");
+   }else{
+    teacherReviewDetailStatus.setText(message==null?"审核失败，请刷新后重试":message.getMessage());
+    statusLabel.setText(teacherReviewDetailStatus.getText());
+   }
+  }));
+ }
+ private String teacherReviewStatus(StudentChangeStatus status){if(status==null)return "-";return switch(status){case PENDING->"待审核";case APPROVED->"已通过";case REJECTED->"未通过";case CANCELLED->"已取消";};} @FXML private void reviewSelected(){showTeacherReviewDetail(requestTable.getSelectionModel().getSelectedItem());}
  @FXML private void addWorkExperience(){showWorkExperienceEditor(null);}
  @FXML private void editWorkExperience(){if(selectedExperience==null){statusLabel.setText("请先选择工作经历");return;}showWorkExperienceEditor(selectedExperience);}
  @FXML private void deleteWorkExperience(){if(selectedExperience==null){statusLabel.setText("请先选择工作经历");return;}Alert alert=new Alert(Alert.AlertType.CONFIRMATION,"确定删除选中的工作经历吗？",ButtonType.OK,ButtonType.CANCEL);alert.setHeaderText(null);if(alert.showAndWait().orElse(ButtonType.CANCEL)!=ButtonType.OK)return;service.deleteWorkExperience(selectedExperience.getExperienceId(),m->Platform.runLater(()->{statusLabel.setText(m.getMessage());if(ok(m))service.overview(this::receiveOverview);}));}

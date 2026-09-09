@@ -4,14 +4,16 @@ import enums.StudentChangeStatus;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Label;
+import javafx.scene.control.Button;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import java.sql.Timestamp;
 import java.time.format.DateTimeFormatter;
 
-/** 学籍、教师详情页的只读审核进度。 */
+/** 学籍、教师详情页的审核进度和撤销入口。 */
 public class InformationReviewStatusPane extends VBox {
+    private final Button cancelButton = new Button("撤销申请");
     private final Label submitLabel = new Label("学生提交");
     private final Label submitTimeLabel = new Label("提交时间：—");
     private final Label reviewLabel = new Label("待管理员审核");
@@ -33,7 +35,11 @@ public class InformationReviewStatusPane extends VBox {
         noteLabel.getStyleClass().add("information-review-note");
         submitTimeLabel.setWrapText(true);
         noteLabel.setWrapText(true);
-        VBox submitted = new VBox(8, submitLabel, submitTimeLabel);
+        cancelButton.getStyleClass().add("information-review-cancel");
+        cancelButton.setMinWidth(Region.USE_PREF_SIZE);
+        HBox submitHeading = new HBox(12, submitLabel, cancelButton);
+        submitHeading.setAlignment(Pos.CENTER_LEFT);
+        VBox submitted = new VBox(8, submitHeading, submitTimeLabel);
         HBox first = new HBox(12, firstStep, submitted);
         Region line = new Region();
         line.setMinSize(2, 34);
@@ -68,7 +74,17 @@ public class InformationReviewStatusPane extends VBox {
         return submitLabel.getText().replace("提交", "");
     }
 
+    public void setOnCancel(Runnable action) {
+        cancelButton.setOnAction(event -> action.run());
+    }
+
+    public void setCancelling(boolean cancelling) {
+        cancelButton.setDisable(cancelling);
+    }
+
     public void showRequest(StudentChangeStatus status, Timestamp submitTime) {
+        cancelButton.setVisible(status == StudentChangeStatus.PENDING);
+        cancelButton.setManaged(status == StudentChangeStatus.PENDING);
         boolean submitted = status != null;
         boolean reviewed = status == StudentChangeStatus.APPROVED || status == StudentChangeStatus.REJECTED;
         firstStep.getStyleClass().remove("information-review-done");
