@@ -1,0 +1,7 @@
+.text-input:required-missing,
+.combo-box:required-missing,
+.date-picker:required-missing,
+.date-picker:required-missing > .text-field {
+    -fx-background-color: #fde8e8;
+    -fx-border-color: #e5a1a1;
+}

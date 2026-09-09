@@ -328,21 +328,103 @@ public class StudentController {
     //创建编辑
     private Control createEditor(String name,String initial) {
         Control control;
+
         if(DATE_FIELDS.contains(name)) {
+
             DatePicker picker=new DatePicker();
-            if(!initial.isBlank())try{picker.setValue(java.time.LocalDate.parse(initial));}catch(Exception ignored){}
+
+            if(!initial.isBlank()) {
+                try {
+                    picker.setValue(
+                            java.time.LocalDate.parse(initial)
+                    );
+                } catch(Exception ignored) {
+                }
+            }
+
             control=picker;
+
+        } else if("gender".equals(name)) {
+
+            ComboBox<String> combo =
+                    new ComboBox<>(
+                            FXCollections.observableArrayList(
+                                    "男",
+                                    "女"
+                            )
+                    );
+
+            combo.setValue(
+                    Set.of("男","女").contains(initial)
+                            ? initial
+                            : null
+            );
+
+            control=combo;
+
         } else if("idType".equals(name)) {
-            control=new ComboBox<>(FXCollections.observableArrayList("居民身份证","港澳台居民居住证","护照","其他"));
-            ((ComboBox<String>)control).setValue(initial);
+
+            control=new ComboBox<>(
+                    FXCollections.observableArrayList(
+                            "居民身份证",
+                            "港澳台居民居住证",
+                            "护照",
+                            "其他"
+                    )
+            );
+
+            ((ComboBox<String>)control)
+                    .setValue(initial);
+
         } else if("householdType".equals(name)) {
-            control=new ComboBox<>(FXCollections.observableArrayList("城镇户口","农村居民户口","集体户口","其他"));
-            ((ComboBox<String>)control).setValue(initial);
-        } else if(Set.of("leagueMember","partyMember","registered","inSchool").contains(name)) {
-            control=new ComboBox<>(FXCollections.observableArrayList("是","否"));
-            ((ComboBox<String>)control).setValue(Set.of("true","1","是","在籍","在校").contains(initial)?"是":"否");
-        } else control=new TextField(initial);
-        control.setUserData(name);control.getStyleClass().add("form-control");
+
+            control=new ComboBox<>(
+                    FXCollections.observableArrayList(
+                            "城镇户口",
+                            "农村居民户口",
+                            "集体户口",
+                            "其他"
+                    )
+            );
+
+            ((ComboBox<String>)control)
+                    .setValue(initial);
+
+        } else if(Set.of(
+                "leagueMember",
+                "partyMember",
+                "registered",
+                "inSchool"
+        ).contains(name)) {
+
+            control=new ComboBox<>(
+                    FXCollections.observableArrayList(
+                            "是",
+                            "否"
+                    )
+            );
+
+            ((ComboBox<String>)control)
+                    .setValue(
+                            Set.of(
+                                    "true",
+                                    "1",
+                                    "是",
+                                    "在籍",
+                                    "在校"
+                            ).contains(initial)
+                                    ? "是"
+                                    : "否"
+                    );
+
+        } else {
+
+            control=new TextField(initial);
+        }
+
+        control.setUserData(name);
+        control.getStyleClass().add("form-control");
+
         return control;
     }
     //定义从不同输入控件读取字符串的方法

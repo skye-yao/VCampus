@@ -22,4 +22,9 @@ public interface ITeacherClientService {
     void addFamilyMember(TeacherFamilyMember x,Consumer<Message> c);
     void updateFamilyMember(TeacherFamilyMember x,Consumer<Message> c);
     void deleteFamilyMember(long id,Consumer<Message> c);
+    void onEditLeaseLost(Runnable callback);
+    void releaseEditLease();
+    void dispose();
+    void beginEdit(String teacherId, Consumer<Message> callback);
+    void endEdit(String teacherId, Consumer<Message> callback);
 }

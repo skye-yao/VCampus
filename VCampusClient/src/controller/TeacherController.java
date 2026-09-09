@@ -62,9 +62,218 @@ public class TeacherController {
  private void addCardField(GridPane grid,String key,Object value,int row,int pair){Label k=new Label(key),v=new Label(show(value));k.getStyleClass().add("student-field-key");v.getStyleClass().add("student-field-value");v.setWrapText(true);v.setMaxWidth(Double.MAX_VALUE);grid.add(k,pair*2,row);grid.add(v,pair*2+1,row);ColumnConstraints a=new ColumnConstraints(120),b=new ColumnConstraints();if(grid.getColumnConstraints().isEmpty()){b.setHgrow(Priority.ALWAYS);grid.getColumnConstraints().addAll(a,b,new ColumnConstraints(120),new ColumnConstraints());grid.getColumnConstraints().get(3).setHgrow(Priority.ALWAYS);}}
  private void selectExperience(TeacherWorkExperience record,Pane card){if(selectedExperienceCard!=null)selectedExperienceCard.getStyleClass().remove("student-info-record-card-selected");selectedExperience=record;selectedExperienceCard=card;card.getStyleClass().add("student-info-record-card-selected");editExperienceButton.setDisable(false);deleteExperienceButton.setDisable(false);}
  private void fill(GridPane g,Teacher t,List<String> fields){prepareSixColumns(g);g.getChildren().clear();for(int i=0;i<fields.size();i++){String f=fields.get(i);Label k=new Label(title(f)),v=new Label(show(read(t,f)));k.getStyleClass().add("student-field-key");k.setAlignment(Pos.CENTER_LEFT);k.setMinWidth(136);k.setPrefWidth(136);k.setMaxWidth(136);k.setTooltip(new Tooltip(k.getText()));v.getStyleClass().add("student-field-value");v.setAlignment(Pos.CENTER_LEFT);v.setWrapText(true);v.setMinWidth(0);v.setMaxWidth(Double.MAX_VALUE);v.setTooltip(new Tooltip(v.getText()));int row=i/3,pair=i%3;g.add(k,pair*2,row);g.add(v,pair*2+1,row);}}
- private void beginGlobalEdit(){if(editing||overview==null||overview.getTeacher()==null)return;if(!isAdmin()&&overview.getPendingRequest()!=null){statusLabel.setText("当前修改申请正在审核中，审核完成后才能再次修改");return;}editableControls.clear();editing=true;fillEditable(baseGrid,BASE);fillEditable(jobGrid,JOB);fillEditable(contactGrid,CONTACT);Button cancel=new Button("取消");cancel.getStyleClass().add("btn-secondary");cancel.setOnAction(e->cancelEdit());Button submit=new Button(isAdmin()?"保存修改":"提交修改申请");submit.getStyleClass().add("btn-primary");submit.setOnAction(e->submitEdit());HBox actions=new HBox(8,cancel,submit);actions.setAlignment(Pos.CENTER_RIGHT);contactGrid.add(actions,0,(CONTACT.size()+2)/3,6,1);statusLabel.setText(isAdmin()?"全部信息已进入编辑状态，保存后直接生效":"全部信息已进入编辑状态，提交后等待审核");}
+
+ private void beginGlobalEdit() {
+
+  if (editing
+          || overview == null
+          || overview.getTeacher() == null) {
+   return;
+  }
+
+  if (!isAdmin()
+          && overview.getPendingRequest() != null) {
+
+   statusLabel.setText(
+           "当前修改申请正在审核中，审核完成后才能再次修改"
+   );
+   return;
+  }
+
+  String teacherId =
+          overview.getTeacher().getTeacherId();
+
+  statusLabel.setText("正在申请编辑权限...");
+
+  service.beginEdit(
+          teacherId,
+          message -> Platform.runLater(() -> {
+
+           if (!ok(message)) {
+            statusLabel.setText(
+                    message == null
+                            ? "暂时无法进入编辑状态"
+                            : message.getMessage()
+            );
+            return;
+           }
+
+           // 只有锁申请成功，才真正打开编辑状态
+           openGlobalEditor();
+          })
+  );
+ }
+ private void openGlobalEditor() {
+
+  editableControls.clear();
+  editing = true;
+
+  fillEditable(baseGrid, BASE);
+  fillEditable(jobGrid, JOB);
+  fillEditable(contactGrid, CONTACT);
+
+  Button cancel = new Button("取消");
+  cancel.getStyleClass().add("btn-secondary");
+  cancel.setOnAction(e -> cancelEdit());
+
+  Button submit =
+          new Button(
+                  isAdmin()
+                          ? "保存修改"
+                          : "提交修改申请"
+          );
+
+  submit.getStyleClass().add("btn-primary");
+  submit.setOnAction(e -> submitEdit());
+
+  HBox actions =
+          new HBox(8, cancel, submit);
+
+  actions.setAlignment(Pos.CENTER_RIGHT);
+
+  contactGrid.add(
+          actions,
+          0,
+          (CONTACT.size() + 2) / 3,
+          6,
+          1
+  );
+
+  statusLabel.setText(
+          isAdmin()
+                  ? "全部信息已进入编辑状态，保存后直接生效"
+                  : "全部信息已进入编辑状态，提交后等待审核"
+  );
+ }
  private void fillEditable(GridPane grid,List<String> fields){prepareSixColumns(grid);grid.getChildren().clear();Teacher teacher=overview.getTeacher();for(int i=0;i<fields.size();i++){String field=fields.get(i);Label key=new Label(title(field)+(Set.of("department","education","employmentStartDate").contains(field)?" *":""));key.getStyleClass().add("student-field-key");if(Set.of("department","education","employmentStartDate").contains(field))key.setStyle("-fx-text-fill: #b91c1c;");key.setAlignment(Pos.CENTER_LEFT);key.setMinWidth(136);key.setPrefWidth(136);key.setMaxWidth(136);Control value=createEditor(field,showInput(read(teacher,field)));value.setUserData(field);value.setMinWidth(0);value.setMaxWidth(Double.MAX_VALUE);boolean allowed=isAdmin()||EDITABLE.contains(field);value.setDisable(!allowed);if(allowed)editableControls.add(value);int row=i/3,pair=i%3;grid.add(key,pair*2,row);grid.add(value,pair*2+1,row);}}
- private Control createEditor(String field,String initial){Control control;if(Set.of("idIssueDate","birthDate","partyJoinDate","employmentStartDate").contains(field)){DatePicker picker=new DatePicker();if(!initial.isBlank())try{picker.setValue(java.time.LocalDate.parse(initial));}catch(Exception ignored){}control=picker;}else if("education".equals(field)){ComboBox<String> combo=new ComboBox<>(FXCollections.observableArrayList("专科","本科","硕士研究生","博士研究生","其他"));combo.setValue(initial.isBlank()?null:initial);control=combo;}else if("idType".equals(field)){ComboBox<String> combo=new ComboBox<>(FXCollections.observableArrayList("居民身份证","港澳台居民居住证","护照","其他"));combo.setValue(initial);control=combo;}else if("householdType".equals(field)){ComboBox<String> combo=new ComboBox<>(FXCollections.observableArrayList("城镇户口","农村居民户口","集体户口","其他"));combo.setValue(initial);control=combo;}else if(Set.of("partyMember","employed").contains(field)){ComboBox<String> combo=new ComboBox<>(FXCollections.observableArrayList("是","否"));combo.setValue(Set.of("true","1","是","在职").contains(initial)?"是":"否");control=combo;}else control=new TextField(initial);control.getStyleClass().add("form-control");return control;}
+ private Control createEditor(String field,String initial) {
+
+  Control control;
+
+  if(Set.of(
+          "idIssueDate",
+          "birthDate",
+          "partyJoinDate",
+          "employmentStartDate"
+  ).contains(field)) {
+
+   DatePicker picker=new DatePicker();
+
+   if(!initial.isBlank()) {
+    try {
+     picker.setValue(
+             java.time.LocalDate.parse(initial)
+     );
+    } catch(Exception ignored) {
+    }
+   }
+
+   control=picker;
+
+  } else if("gender".equals(field)) {
+
+   ComboBox<String> combo =
+           new ComboBox<>(
+                   FXCollections.observableArrayList(
+                           "男",
+                           "女"
+                   )
+           );
+
+   combo.setValue(
+           Set.of("男","女").contains(initial)
+                   ? initial
+                   : null
+   );
+
+   control=combo;
+
+  } else if("education".equals(field)) {
+
+   ComboBox<String> combo =
+           new ComboBox<>(
+                   FXCollections.observableArrayList(
+                           "专科",
+                           "本科",
+                           "硕士研究生",
+                           "博士研究生",
+                           "其他"
+                   )
+           );
+
+   combo.setValue(
+           initial.isBlank()
+                   ? null
+                   : initial
+   );
+
+   control=combo;
+
+  } else if("idType".equals(field)) {
+
+   ComboBox<String> combo =
+           new ComboBox<>(
+                   FXCollections.observableArrayList(
+                           "居民身份证",
+                           "港澳台居民居住证",
+                           "护照",
+                           "其他"
+                   )
+           );
+
+   combo.setValue(initial);
+   control=combo;
+
+  } else if("householdType".equals(field)) {
+
+   ComboBox<String> combo =
+           new ComboBox<>(
+                   FXCollections.observableArrayList(
+                           "城镇户口",
+                           "农村居民户口",
+                           "集体户口",
+                           "其他"
+                   )
+           );
+
+   combo.setValue(initial);
+   control=combo;
+
+  } else if(Set.of(
+          "partyMember",
+          "employed"
+  ).contains(field)) {
+
+   ComboBox<String> combo =
+           new ComboBox<>(
+                   FXCollections.observableArrayList(
+                           "是",
+                           "否"
+                   )
+           );
+
+   combo.setValue(
+           Set.of(
+                   "true",
+                   "1",
+                   "是",
+                   "在职"
+           ).contains(initial)
+                   ? "是"
+                   : "否"
+   );
+
+   control=combo;
+
+  } else {
+
+   control=new TextField(initial);
+  }
+
+  control.getStyleClass().add("form-control");
+
+  return control;
+ }
  private String controlValue(Control control){if(control instanceof TextInputControl text)return text.getText().trim();if(control instanceof DatePicker date)return date.getValue()==null?"":date.getValue().toString();if(control instanceof ComboBox<?> combo)return combo.getValue()==null?"":String.valueOf(combo.getValue()).trim();return "";}
  private void cancelEdit(){editing=false;editableControls.clear();render();statusLabel.setText("已取消编辑");}
  private boolean validateRequiredInputs(){

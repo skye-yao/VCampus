@@ -1,9 +1,185 @@
 package service;
 import entity.*; import network.SocketClient; import protocol.*; import vo.TeacherReviewVO; import java.util.function.Consumer;
-public class TeacherClientService implements ITeacherClientService {private final SocketClient socket=SocketClient.getInstance();
+public class TeacherClientService implements ITeacherClientService {
+    private final SocketClient socket=SocketClient.getInstance();
+    private final LeaseClient editLease = new LeaseClient();
+    private final LeaseClient reviewLease = new LeaseClient();
+    private boolean disposed;
  @Override
     public void cancel(long id,Consumer<Message> c){send(MessageType.TEACHER_CHANGE_CANCEL,"cancel","requestId",id,c);}
- private void send(MessageType type,String action,String key,Object value,Consumer<Message> c){Message m=new Message(type,"teacher",action);if(key!=null)m.putData(key,value);String requestSession=session.ClientSession.getInstance().getToken();socket.sendAsync(m).whenComplete((r,e)->{if(!java.util.Objects.equals(requestSession,session.ClientSession.getInstance().getToken()))return;if(e==null)c.accept(r);else{Message f=new Message(MessageType.RESPONSE,"teacher",action);f.setCode(MessageCode.ERROR);f.setMessage("连接教师信息服务失败: "+e.getMessage());c.accept(f);}});}
+    private void send(
+            MessageType type,
+            String action,
+            String key,
+            Object value,
+            Consumer<Message> callback) {
+        if (disposed)
+            return;
+        Message message =
+                new Message(
+                        type,
+                        "teacher",
+                        action
+                );
+        if (key != null) {
+            message.putData(
+                    key,
+                    value
+            );
+        }
+        dispatch(
+                message,
+                callback
+        );
+    }
+    private void dispatch(
+            Message message,
+            Consumer<Message> callback) {
+
+        if (disposed)
+            return;
+
+        MessageType type =
+                message.getType();
+
+        // ------------------------------------------------
+        // 1. 判断这次写操作应该使用哪一个 Lease
+        // ------------------------------------------------
+
+        LeaseClient lease =
+                type == MessageType.TEACHER_REVIEW
+                        ? reviewLease
+                        : editLease;
+
+
+        // ------------------------------------------------
+        // 2. 教师正式档案写操作
+        //    必须带 TEACHER:teacherId 的编辑锁凭证
+        // ------------------------------------------------
+
+        if (type == MessageType.TEACHER_CHANGE_SUBMIT
+                || type == MessageType.TEACHER_ADMIN_UPDATE) {
+
+            message.setLock(
+                    editLease.proof()
+            );
+        }
+
+
+        // ------------------------------------------------
+        // 3. 审核操作
+        //    使用 TEACHER_CHANGE_REQUEST:requestId
+        // ------------------------------------------------
+
+        if (type == MessageType.TEACHER_REVIEW) {
+
+            message.setLock(
+                    reviewLease.proof()
+            );
+        }
+
+
+        // ------------------------------------------------
+        // 4. 记录当前登录 Session
+        // ------------------------------------------------
+
+        String requestSession =
+                session.ClientSession
+                        .getInstance()
+                        .getToken();
+
+
+        // ------------------------------------------------
+        // 5. 真正发送
+        // ------------------------------------------------
+
+        socket.sendAsync(message)
+                .whenComplete(
+                        (response, error) ->
+                                util.Fx.run(() -> {
+
+                                    // 登录账号已经变化，旧请求直接丢弃
+                                    if (!java.util.Objects.equals(
+                                            requestSession,
+                                            session.ClientSession
+                                                    .getInstance()
+                                                    .getToken())) {
+
+                                        dispose();
+                                        return;
+                                    }
+
+                                    if (disposed)
+                                        return;
+
+
+                                    Message result =
+                                            response;
+
+
+                                    // ------------------------------------------------
+                                    // 6. 网络错误
+                                    // ------------------------------------------------
+
+                                    if (error != null) {
+
+                                        result =
+                                                new Message(
+                                                        MessageType.RESPONSE,
+                                                        "teacher",
+                                                        message.getAction()
+                                                );
+
+                                        result.setCode(
+                                                MessageCode.ERROR
+                                        );
+
+                                        result.setMessage(
+                                                "连接教师信息服务失败: "
+                                                        + error.getMessage()
+                                        );
+
+                                        // 如果这个请求带了锁，
+                                        // 网络状态已经无法确认，
+                                        // 本地不继续认为锁可靠
+                                        if (message.getLock() != null) {
+
+                                            lease.invalidateIfOwned(
+                                                    message.getLock()
+                                            );
+                                        }
+                                    }
+
+
+                                    // ------------------------------------------------
+                                    // 7. 服务器明确告诉锁失效/没权限
+                                    // ------------------------------------------------
+
+                                    else if (
+                                            (result.getCode()
+                                                    == MessageCode.CONFLICT
+
+                                                    || result.getCode()
+                                                    == MessageCode.UNAUTHORIZED
+
+                                                    || result.getCode()
+                                                    == MessageCode.FORBIDDEN)
+
+                                                    && message.getLock() != null) {
+
+                                        lease.invalidateIfOwned(
+                                                message.getLock()
+                                        );
+                                    }
+
+
+                                    // ------------------------------------------------
+                                    // 8. 返回 Controller
+                                    // ------------------------------------------------
+
+                                    callback.accept(result);
+                                }));
+    }
  @Override
     public void overview(Consumer<Message> c){send(MessageType.TEACHER_OVERVIEW_QUERY,"overview",null,null,c);} @Override
     public void submit(TeacherChangeRequest r,Consumer<Message> c){send(MessageType.TEACHER_CHANGE_SUBMIT,"submit","request",r,c);}
@@ -27,4 +203,63 @@ public class TeacherClientService implements ITeacherClientService {private fina
     public void updateFamilyMember(TeacherFamilyMember x,Consumer<Message> c){send(MessageType.TEACHER_FAMILY_MEMBER_UPDATE,"updateFamilyMember","member",x,c);}
  @Override
     public void deleteFamilyMember(long id,Consumer<Message> c){send(MessageType.TEACHER_FAMILY_MEMBER_DELETE,"deleteFamilyMember","memberId",id,c);}
+
+    @Override
+    public void onEditLeaseLost(Runnable callback) {
+        editLease.onLost(callback);
+    }
+
+    @Override
+    public void releaseEditLease() {
+        editLease.close();
+    }
+
+    @Override
+    public void dispose() {
+        disposed = true;
+        editLease.close();
+        reviewLease.close();
+    }
+
+    @Override
+    public void beginEdit(String teacherId, Consumer<Message> callback) {
+        if (disposed) {
+            return;
+        }
+
+        editLease.acquire(
+                "TEACHER",
+                teacherId,
+                () -> {
+                    if (!disposed) {
+                        callback.accept(reply(true, "已取得占用"));
+                    }
+                },
+                error -> {
+                    if (!disposed) {
+                        callback.accept(reply(false, error));
+                    }
+                }
+        );
+    }
+
+    @Override
+    public void endEdit(String teacherId, Consumer<Message> callback) {
+        editLease.close();
+        callback.accept(reply(true, "已释放占用"));
+    }
+
+    private Message reply(boolean success, String text) {
+        Message message =
+                new Message(MessageType.RESPONSE, "teacher", "lock");
+
+        message.setCode(
+                success
+                        ? MessageCode.SUCCESS
+                        : MessageCode.CONFLICT
+        );
+
+        message.setMessage(text);
+        return message;
+    }
 }
