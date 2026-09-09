@@ -58,13 +58,12 @@ public final class CourseManagementController {
         setPageState(gradePage, false);
         setPageState(planPage, false);
 
-        setPageState(page, true);
-
         selectionNavButton.setSelected(false);
         scheduleNavButton.setSelected(false);
         gradeNavButton.setSelected(false);
         planNavButton.setSelected(false);
 
+        setPageState(page, true);
         button.setSelected(true);
 
         refreshAction.run();

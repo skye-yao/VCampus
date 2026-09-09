@@ -10,6 +10,9 @@ import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.stage.Stage;
 import javafx.util.Duration;
+import service.CourseService;
+import service.CourseServices;
+import service.MockCourseService;
 
 public final class CourseUiPreview extends Application {
     private static final String VIEW_PATH =
@@ -25,15 +28,24 @@ public final class CourseUiPreview extends Application {
         return arguments.contains("--smoke");
     }
 
+    static void requireMockService(CourseService service) {
+        if (!(service instanceof MockCourseService)) {
+            throw new IllegalStateException(
+                    "Course UI preview requires MockCourseService");
+        }
+    }
+
     @Override
     public void start(Stage stage) throws Exception {
+        requireMockService(CourseServices.current());
+
         URL resource = viewResource();
         if (resource == null) {
             throw new IllegalStateException("Missing FXML resource: " + VIEW_PATH);
         }
 
         Parent root = FXMLLoader.load(resource);
-        stage.setTitle("选课管理系统 - 客户端预览");
+        stage.setTitle("教务管理系统 - 客户端预览");
         stage.setScene(new Scene(root, WIDTH, HEIGHT));
         stage.setResizable(false);
         stage.centerOnScreen();
