@@ -23,11 +23,13 @@ public class MessageDispatcherTest {
         closeRejectsNewRegistrationsAndFailsAcceptedRequests();
         concurrentRegistrationAndCloseLeaveNoAcceptedRequestPending();
         conditionalRemovalDoesNotDeleteReplacement();
+        staleFailureDoesNotAffectReplacement();
         closedGenerationCannotFailNewGeneration();
         disconnectDoesNotWaitForSendLock();
         customAsyncTimeoutCleansPendingRegistration();
         sendSyncTimeoutCleansPendingRegistration();
         callerCancellationRemovesPendingRegistration();
+        callerCompletionRemovesPendingRegistration();
         System.out.println("MessageDispatcherTest passed");
     }
 
@@ -44,7 +46,7 @@ public class MessageDispatcherTest {
         require(first && !duplicate, "duplicate UID must not replace an existing future");
         require(unrelated, "a different UID must register successfully");
 
-        dispatcher.failPending(42L, new TimeoutException("request timed out"));
+        dispatcher.failPending(42L, futureA, new TimeoutException("request timed out"));
 
         require(futureA.isCompletedExceptionally(), "registered future must fail");
         require(!futureB.isDone(), "unregistered duplicate must remain untouched");
@@ -117,9 +119,40 @@ public class MessageDispatcherTest {
         require(!dispatcher.removePendingRequest(7L, original),
                 "stale future must not remove replacement registration");
 
-        dispatcher.failPending(7L, new TimeoutException("replacement timeout"));
+        dispatcher.failPending(
+                7L,
+                replacement,
+                new TimeoutException("replacement timeout"));
         require(replacement.isCompletedExceptionally(),
                 "replacement registration must remain available for cleanup");
+    }
+
+    private static void staleFailureDoesNotAffectReplacement() {
+        MessageDispatcher dispatcher = new MessageDispatcher();
+        CompletableFuture<Message> original = new CompletableFuture<>();
+        CompletableFuture<Message> replacement = new CompletableFuture<>();
+
+        require(dispatcher.registerPendingRequest(8L, original),
+                "original request must register");
+        require(dispatcher.removePendingRequest(8L, original),
+                "completed original request must be removed");
+        require(dispatcher.registerPendingRequest(8L, replacement),
+                "replacement must register under the reused UID");
+
+        dispatcher.failPending(
+                8L,
+                original,
+                new TimeoutException("stale timeout"));
+
+        require(!replacement.isDone(),
+                "stale failure must not remove or complete replacement");
+
+        dispatcher.failPending(
+                8L,
+                replacement,
+                new TimeoutException("test cleanup"));
+        require(replacement.isCompletedExceptionally(),
+                "matching failure must still complete replacement");
     }
 
     private static void closedGenerationCannotFailNewGeneration() {
@@ -291,6 +324,36 @@ public class MessageDispatcherTest {
 
             require(!secondFuture.isCompletedExceptionally(),
                     "caller cancellation must remove its pending registration");
+            secondFuture.cancel(false);
+        } finally {
+            client.disconnect();
+        }
+    }
+
+    private static void callerCompletionRemovesPendingRegistration() throws Exception {
+        SocketClient client = SocketClient.getInstance();
+
+        try (ServerSocket server = new ServerSocket(0)) {
+            Thread peer = new Thread(() -> drainClientMessages(server), "ExternalCompletionTestPeer");
+            peer.setDaemon(true);
+            peer.start();
+
+            client.init("127.0.0.1", server.getLocalPort());
+
+            Message firstRequest = new Message(MessageType.REQUEST, "test", "first-complete");
+            Long reusedUID = firstRequest.getUID();
+            CompletableFuture<Message> firstFuture = client.sendAsync(firstRequest);
+            Message externalResponse = new Message(MessageType.RESPONSE, "test", "external");
+
+            require(firstFuture.complete(externalResponse),
+                    "caller must be able to complete pending request");
+
+            Message secondRequest = new Message(MessageType.REQUEST, "test", "after-complete");
+            secondRequest.setUID(reusedUID);
+            CompletableFuture<Message> secondFuture = client.sendAsync(secondRequest);
+
+            require(!secondFuture.isCompletedExceptionally(),
+                    "caller completion must remove its pending registration");
             secondFuture.cancel(false);
         } finally {
             client.disconnect();

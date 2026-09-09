@@ -165,6 +165,7 @@ public class SocketClient {
             ScheduledFuture<?> timeoutTask = TIMEOUT_EXECUTOR.schedule(
                     () -> timeoutDispatcher.failPending(
                             timeoutUID,
+                            future,
                             new TimeoutException("请求超时: " + timeoutUID)),
                     timeoutDuration,
                     timeoutUnit);
@@ -185,7 +186,7 @@ public class SocketClient {
             }
         } catch (Exception e) {
             if (registered) {
-                requestDispatcher.failPending(requestUID, e);
+                requestDispatcher.failPending(requestUID, future, e);
             } else {
                 future.completeExceptionally(e);
             }

@@ -55,20 +55,25 @@ public class MessageDispatcher {
     }
 
     /**
-     * 让指定请求以异常结束，并从等待队列中移除。
+     * 仅当 UID 仍映射到指定任务时，让该请求以异常结束。
      */
-    public void failPending(Long UID, Throwable cause) {
-        if (UID == null || cause == null) {
-            return;
+    public boolean failPending(
+            Long UID,
+            CompletableFuture<Message> expected,
+            Throwable cause) {
+        if (UID == null || expected == null || cause == null) {
+            return false;
         }
 
-        CompletableFuture<Message> future;
+        boolean removed;
         synchronized (pendingLock) {
-            future = pendingRequests.remove(UID);
+            removed = pendingRequests.remove(UID, expected);
         }
-        if (future != null) {
-            future.completeExceptionally(cause);
+
+        if (removed) {
+            expected.completeExceptionally(cause);
         }
+        return removed;
     }
 
     /**
