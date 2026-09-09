@@ -1,6 +1,6 @@
 package handler;
-import com.google.gson.Gson; import entity.*; import protocol.*; import service.TeacherService; import session.*; import vo.TeacherReviewVO;
-public class TeacherHandler {private final TeacherService service=new TeacherService();private final Gson gson=new Gson();
+import com.google.gson.Gson; import entity.*; import protocol.*; import service.TeacherService; import service.ITeacherService; import session.*; import vo.TeacherReviewVO;
+public class TeacherHandler {private final ITeacherService service=new TeacherService();private final Gson gson=new Gson();
  public Message handle(Message q){Message r=new Message(MessageType.RESPONSE,"teacher",q.getAction());r.setUID(q.getUID());try{UserSession s=SessionManager.getInstance().getSession(q.getToken());if(s==null)return fail(r,MessageCode.UNAUTHORIZED,"请先登录");boolean admin="管理员".equals(s.getRole())||"ADMIN".equalsIgnoreCase(s.getRole());switch(q.getType()){
  case TEACHER_OVERVIEW_QUERY,TEACHER_DETAIL_QUERY->r.putData("overview",service.queryByUID(s.getUsername()));
  case TEACHER_CHANGE_SUBMIT->r.putData("requestId",service.submit(s.getUsername(),value(q,"request",TeacherChangeRequest.class)));

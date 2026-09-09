@@ -4,9 +4,13 @@ import lock.ResourceLockManager;
 import protocol.*;
 import session.*;
 import service.StudentService;
+import service.IStudentService;
 import service.TeacherService;
+import service.ITeacherService;
 
 public class LockHandler {
+    private final IStudentService studentService = new StudentService();
+    private final ITeacherService teacherService = new TeacherService();
     private final ResourceLockManager locks=ResourceLockManager.getInstance();
     public Message handle(Message q) {
         Message r=new Message(MessageType.RESPONSE,"lock",q.getAction());
@@ -21,8 +25,8 @@ public class LockHandler {
                 case LOCK_ACQUIRE -> {
                     try(var guard=locks.guard(proof.resourceKey())) {
                         switch(proof.resourceType()) {
-                            case "STUDENT", "STUDENT_RECORDS", "STUDENT_CHANGE_REQUEST" -> new StudentService().authorizeLock(user,proof);
-                            case "TEACHER", "TEACHER_RECORDS", "TEACHER_CHANGE_REQUEST" -> new TeacherService().authorizeLock(user,proof);
+                            case "STUDENT", "STUDENT_RECORDS", "STUDENT_CHANGE_REQUEST" -> studentService.authorizeLock(user,proof);
+                            case "TEACHER", "TEACHER_RECORDS", "TEACHER_CHANGE_REQUEST" -> teacherService.authorizeLock(user,proof);
                             default -> throw new IllegalArgumentException("未知资源类型");
                         }
                         result=locks.acquire(user,proof);

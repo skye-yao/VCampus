@@ -2,11 +2,11 @@ package handler;
 import com.google.gson.Gson;
 import entity.*;
 import protocol.*;
-import service.StudentService;
+import service.StudentService; import service.IStudentService;
 import session.*;
 import vo.StudentReviewVO;
 public class StudentHandler {
-    private final StudentService service=new StudentService();
+    private final IStudentService service=new StudentService();
     private final Gson gson=new Gson();
     public Message handle(Message q) {
         Message r=new Message(MessageType.RESPONSE,"student",q.getAction());

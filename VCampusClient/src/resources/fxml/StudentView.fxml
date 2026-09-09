@@ -373,6 +373,9 @@
                       <VBox spacing="12">
                         <VBox spacing="8" styleClass="student-panel"><Label styleClass="student-section-title" text="个人信息"/><GridPane fx:id="reviewStudentBaseGrid" hgap="12" vgap="9"/></VBox>
                         <VBox spacing="8" styleClass="student-panel"><Label styleClass="student-section-title" text="学籍信息"/><GridPane fx:id="reviewStudentStudyGrid" hgap="12" vgap="9"/></VBox>
+                        <VBox spacing="8" styleClass="student-panel"><Label styleClass="student-section-title" text="入学信息"/><GridPane fx:id="reviewStudentAdmissionGrid" hgap="12" vgap="9"/></VBox>
+                        <VBox spacing="8" styleClass="student-panel"><Label styleClass="student-section-title" text="联系信息"/><GridPane fx:id="reviewStudentContactGrid" hgap="12" vgap="9"/></VBox>
+                        <VBox fx:id="reviewStudentRecords" spacing="12"/>
                       </VBox>
                     </ScrollPane>
                     <VBox prefWidth="260" spacing="12" styleClass="student-panel">

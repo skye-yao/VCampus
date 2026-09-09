@@ -44,6 +44,7 @@
           <VBox spacing="8" styleClass="student-panel"><Label styleClass="student-section-title" text="个人信息"/><GridPane fx:id="teacherReviewBaseGrid" hgap="12" vgap="9"/></VBox>
           <VBox spacing="8" styleClass="student-panel"><Label styleClass="student-section-title" text="任职信息"/><GridPane fx:id="teacherReviewJobGrid" hgap="12" vgap="9"/></VBox>
           <VBox spacing="8" styleClass="student-panel"><Label styleClass="student-section-title" text="联系信息"/><GridPane fx:id="teacherReviewContactGrid" hgap="12" vgap="9"/></VBox>
+          <VBox fx:id="teacherReviewRecords" spacing="12"/>
         </VBox></ScrollPane>
         <VBox minWidth="260" prefWidth="260" maxWidth="260" spacing="12" styleClass="student-panel">
           <Label styleClass="student-section-title" text="审核处理"/>

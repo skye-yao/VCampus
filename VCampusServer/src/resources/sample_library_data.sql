@@ -1,4 +1,6 @@
 -- 仅供全新、空白图书馆数据库使用；重复执行会拒绝，避免重复记录与自增号消耗。
+
+USE `virtual_campus`;
 DELIMITER $$
 DROP PROCEDURE IF EXISTS seed_library_once$$
 CREATE PROCEDURE seed_library_once()

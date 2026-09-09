@@ -14,7 +14,8 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import protocol.LockRequest;
 import session.UserSession;
-public class StudentService {
+public class StudentService implements IStudentService {
+    @Override
     public void authorizeLock(UserSession user, LockRequest proof) throws SQLException {
         boolean admin = "ADMIN".equalsIgnoreCase(user.getRole()) || "管理员".equals(user.getRole());
         if ("STUDENT_CHANGE_REQUEST".equals(proof.resourceType())) {
@@ -54,10 +55,12 @@ public class StudentService {
     private final StudentExperienceDAO experiences = new StudentExperienceDAO();
     private final StudentFamilyMemberDAO familyMembers = new StudentFamilyMemberDAO();
     private final Gson gson = new Gson();
+    @Override
     public StudentOverviewVO queryByUID(String UID) throws SQLException {
         Student student = students.findByUID(UID);
         return student == null ? null : overview(student);
     }
+    @Override
     public StudentOverviewVO queryByStudentId(String studentId) throws SQLException {
         Student student = students.findByStudentId(studentId);
         return student == null ? null : overview(student);
@@ -73,25 +76,31 @@ public class StudentService {
         result.setLatestRequest(requests.findLatestByStudentId(student.getStudentId()));
         return result;
     }
+    @Override
     public List<Student> listStudents() throws SQLException {
         return students.findAll();
     }
+    @Override
     public List<StudentChangeRequest> listMyRequests(String UID) throws SQLException {
         return requests.findByStudentId(requireStudent(UID).getStudentId());
     }
+    @Override
     public List<StudentChangeRequest> listPending() throws SQLException {
         return requests.findAll();
     }
+    @Override
     public StudentChangeRequest queryRequest(long requestId) throws SQLException {
         StudentChangeRequest request = requests.findById(requestId);
         if (request == null) throw new IllegalArgumentException("修改申请不存在");
         return request;
     }
+    @Override
     public void cancel(String UID, long requestId) throws SQLException {
         if (!requests.cancel(requestId, requireStudent(UID).getStudentId())) {
             throw new IllegalStateException("申请不存在或已处理");
         }
     }
+    @Override
     public long submit(String UID, StudentChangeRequest request) throws SQLException {
         if (request == null || request.getItems() == null || request.getItems().isEmpty()) {
             throw new IllegalArgumentException("修改项不能为空");
@@ -116,6 +125,7 @@ public class StudentService {
             }
         }
     }
+    @Override
     public void review(long requestId, StudentChangeStatus result, String reviewer, String remark) throws SQLException {
         if (result != StudentChangeStatus.APPROVED && result != StudentChangeStatus.REJECTED) {
             throw new IllegalArgumentException("审核结果无效");
@@ -148,13 +158,16 @@ public class StudentService {
             }
         }
     }
+    @Override
     public boolean updateByAdmin(String adminId,Student student,Student original) throws SQLException {
         if(student==null || original==null || student.getStudentId()==null
                 || !student.getStudentId().equals(original.getStudentId()))
             throw new IllegalArgumentException("缺少原始学籍快照或学生编号已变化，请刷新");
         return students.updateIfUnchanged(student,original);
     }
+    @Override
     public String studentIdForUser(String uid)throws SQLException{return requireStudent(uid).getStudentId();}
+    @Override
     public String recordStudentId(String table,String column,long id)throws SQLException {
         if(!Set.of("tblStudentAward:awardId","tblStudentAid:aidId").contains(table+":"+column))
             throw new IllegalArgumentException("记录类型无效");
@@ -167,25 +180,31 @@ public class StudentService {
             }
         }
     }
+    @Override
     public boolean addAward(StudentAward award) throws SQLException {
         validateAward(award);
         return awards.insert(award);
     }
+    @Override
     public boolean updateAward(StudentAward award) throws SQLException {
         validateAward(award);
         return awards.update(award);
     }
+    @Override
     public boolean deleteAward(long awardId) throws SQLException {
         return awards.delete(awardId);
     }
+    @Override
     public boolean addAid(StudentAid aid) throws SQLException {
         validateAid(aid);
         return aids.insert(aid);
     }
+    @Override
     public boolean updateAid(StudentAid aid) throws SQLException {
         validateAid(aid);
         return aids.update(aid);
     }
+    @Override
     public boolean deleteAid(long aidId) throws SQLException {
         return aids.delete(aidId);
     }
@@ -201,23 +220,29 @@ public class StudentService {
         if(aid.getAidType()==null||aid.getAidType().isBlank())throw new IllegalArgumentException("资助类型不能为空");
         if(aid.getAidDate()==null)throw new IllegalArgumentException("资助日期不能为空");
     }
+    @Override
     public boolean addExperience(String UID,StudentExperience value)throws SQLException{
         if(value==null)throw new IllegalArgumentException("学习经历不能为空");validateRelatedRecord(value);
         value.setExperienceId(null);value.setStudentId(requireStudent(UID).getStudentId());return requireChanged(experiences.insert(value),"学习经历添加失败");
     }
+    @Override
     public boolean addFamilyMember(String UID,StudentFamilyMember value)throws SQLException{
         if(value==null)throw new IllegalArgumentException("家庭成员不能为空");validateRelatedRecord(value);
         value.setMemberId(null);value.setStudentId(requireStudent(UID).getStudentId());return requireChanged(familyMembers.insert(value),"家庭成员添加失败");
     }
+    @Override
     public boolean updateExperience(String UID,StudentExperience value)throws SQLException{
         if(value==null)throw new IllegalArgumentException("学习经历不能为空");validateRelatedRecord(value);requiredId(value.getExperienceId(),"学习经历");
         return requireChanged(experiences.update(requireStudent(UID).getStudentId(),value),"学习经历不存在或更新失败");
     }
+    @Override
     public boolean deleteExperience(String UID,long id)throws SQLException{return requireChanged(experiences.delete(requireStudent(UID).getStudentId(),id),"学习经历不存在或删除失败");}
+    @Override
     public boolean updateFamilyMember(String UID,StudentFamilyMember value)throws SQLException{
         if(value==null)throw new IllegalArgumentException("家庭成员不能为空");validateRelatedRecord(value);requiredId(value.getMemberId(),"家庭成员");
         return requireChanged(familyMembers.update(requireStudent(UID).getStudentId(),value),"家庭成员不存在或更新失败");
     }
+    @Override
     public boolean deleteFamilyMember(String UID,long id)throws SQLException{return requireChanged(familyMembers.delete(requireStudent(UID).getStudentId(),id),"家庭成员不存在或删除失败");}
     private long submitRelatedRecord(String UID,String operation,Object oldValue,Object newValue)throws SQLException {
         if(newValue==null)throw new IllegalArgumentException("提交内容不能为空");
