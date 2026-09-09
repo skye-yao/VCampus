@@ -3,7 +3,7 @@ package protocol;
 import java.io.Serializable;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 统一通信消息
@@ -14,6 +14,8 @@ import java.util.UUID;
 public class Message implements Serializable {
     
     private static final long serialVersionUID = 1L;
+    private static final AtomicLong UID_SEQUENCE =
+            new AtomicLong(System.currentTimeMillis());
     
     // ===== 消息头 =====
     private Long UID;                // 消息标识符（唯一）
@@ -36,10 +38,14 @@ public class Message implements Serializable {
     
     // ===== 构造方法 =====
     public Message() {
-        this.UID = System.currentTimeMillis();
+        this.UID = nextUID();
         this.data = new HashMap<>();
         this.timestamp = String.valueOf(System.currentTimeMillis());
         this.code = MessageCode.SUCCESS;
+    }
+
+    public static Long nextUID() {
+        return UID_SEQUENCE.incrementAndGet();
     }
     
     // ===== 便捷构造：请求消息 =====

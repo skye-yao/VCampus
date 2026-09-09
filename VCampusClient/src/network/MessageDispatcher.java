@@ -21,10 +21,10 @@ public class MessageDispatcher {
     /**
      * 注册待接收响应的异步任务
      */
-    public void registerPendingRequest(Long UID, CompletableFuture<Message> future) {
-        if (UID != null && future != null) {
-            pendingRequests.put(UID, future);
-        }
+    public boolean registerPendingRequest(Long UID, CompletableFuture<Message> future) {
+        return UID != null
+                && future != null
+                && pendingRequests.putIfAbsent(UID, future) == null;
     }
 
     /**
@@ -33,6 +33,20 @@ public class MessageDispatcher {
     public void removePendingRequest(Long UID) {
         if (UID != null) {
             pendingRequests.remove(UID);
+        }
+    }
+
+    /**
+     * 让指定请求以异常结束，并从等待队列中移除。
+     */
+    public void failPending(Long UID, Throwable cause) {
+        if (UID == null || cause == null) {
+            return;
+        }
+
+        CompletableFuture<Message> future = pendingRequests.remove(UID);
+        if (future != null) {
+            future.completeExceptionally(cause);
         }
     }
 

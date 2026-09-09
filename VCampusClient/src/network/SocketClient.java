@@ -6,7 +6,11 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.Socket;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import com.google.gson.Gson;
 
@@ -29,6 +33,16 @@ public class SocketClient {
     /** 默认服务器端口 */
     private static final int DEFAULT_PORT = 8888;
 
+    /** 单个异步请求的默认超时时间 */
+    private static final long REQUEST_TIMEOUT_SECONDS = 10;
+
+    private static final ScheduledExecutorService TIMEOUT_EXECUTOR =
+            Executors.newSingleThreadScheduledExecutor(runnable -> {
+                Thread thread = new Thread(runnable, "SocketRequestTimeout");
+                thread.setDaemon(true);
+                return thread;
+            });
+
     private String host = DEFAULT_HOST;
     private int port = DEFAULT_PORT;
 
@@ -47,8 +61,11 @@ public class SocketClient {
     /** 消息接收线程 */
     private MessageReceiver receiver;
 
-    /** 消息分发器 */
-    private final MessageDispatcher dispatcher = new MessageDispatcher();
+    /** 当前连接代际对应的消息分发器 */
+    private MessageDispatcher dispatcher;
+
+    /** 防止多个线程写出的 JSON 行互相穿插 */
+    private final Object sendLock = new Object();
 
     private SocketClient() {
     }
@@ -70,17 +87,25 @@ public class SocketClient {
             return;
         }
 
+        MessageDispatcher previousDispatcher = dispatcher;
+
         // 旧连接已失效（对端关闭或接收线程已结束），清理后重连
         if (receiver != null) {
             receiver.stop();
         }
         closeSocketQuietly();
 
+        if (previousDispatcher != null) {
+            previousDispatcher.failAllPending(new IOException("与服务器的连接已断开"));
+        }
+
         socket = new Socket(host, port);
         writer = new PrintWriter(socket.getOutputStream(), true);
         reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
 
-        receiver = new MessageReceiver(reader, gson, dispatcher);
+        MessageDispatcher connectionDispatcher = new MessageDispatcher();
+        dispatcher = connectionDispatcher;
+        receiver = new MessageReceiver(reader, gson, connectionDispatcher);
         Thread receiverThread = new Thread(receiver, "MessageReceiver");
         receiverThread.setDaemon(true);
         receiverThread.start();
@@ -93,37 +118,61 @@ public class SocketClient {
      */
     public CompletableFuture<Message> sendAsync(Message request) {
         CompletableFuture<Message> future = new CompletableFuture<>();
+        MessageDispatcher requestDispatcher = null;
+        Long requestUID = null;
+        boolean registered = false;
 
         try {
-            if (!isConnected() || receiver == null || !receiver.isRunning()) {
-                connect();
+            synchronized (this) {
+                if (!isConnected() || receiver == null || !receiver.isRunning()) {
+                    connect();
+                }
+
+                if (request.getUID() == null) {
+                    request.setUID(Message.nextUID());
+                }
+
+                // 附加 Session 认证信息
+                ClientSession session = ClientSession.getInstance();
+                if (session.isLoggedIn()) {
+                    request.setSender(session.getUsername());
+                    request.setToken(session.getToken());
+                }
+
+                requestUID = request.getUID();
+                requestDispatcher = dispatcher;
+                registered = requestDispatcher.registerPendingRequest(requestUID, future);
+                if (!registered) {
+                    throw new IllegalStateException("请求 UID 已在等待响应: " + requestUID);
+                }
+
+                MessageDispatcher timeoutDispatcher = requestDispatcher;
+                Long timeoutUID = requestUID;
+                ScheduledFuture<?> timeout = TIMEOUT_EXECUTOR.schedule(
+                        () -> timeoutDispatcher.failPending(
+                                timeoutUID,
+                                new TimeoutException("请求超时: " + timeoutUID)),
+                        REQUEST_TIMEOUT_SECONDS,
+                        TimeUnit.SECONDS);
+                future.whenComplete((response, error) -> timeout.cancel(false));
+
+                // 序列化并发送
+                String json = gson.toJson(request);
+                synchronized (sendLock) {
+                    writer.println(json);
+
+                    // PrintWriter 不会抛 IOException，需主动检查发送是否失败
+                    if (writer.checkError()) {
+                        throw new IOException("消息发送失败，连接已断开");
+                    }
+                }
             }
-
-            if (request.getUID() == null) {
-                request.setUID(System.currentTimeMillis());
-            }
-
-            // 附加 Session 认证信息
-            ClientSession session = ClientSession.getInstance();
-            if (session.isLoggedIn()) {
-                request.setSender(session.getUsername());
-                request.setToken(session.getToken());
-            }
-
-            // 注册等待
-            dispatcher.registerPendingRequest(request.getUID(), future);
-
-            // 序列化并发送
-            String json = gson.toJson(request);
-            writer.println(json);
-
-            // PrintWriter 不会抛 IOException，需主动检查发送是否失败
-            if (writer.checkError()) {
-                throw new IOException("消息发送失败，连接已断开");
-            }
-
         } catch (Exception e) {
-            future.completeExceptionally(e);
+            if (registered) {
+                requestDispatcher.failPending(requestUID, e);
+            } else {
+                future.completeExceptionally(e);
+            }
         }
 
         return future;
