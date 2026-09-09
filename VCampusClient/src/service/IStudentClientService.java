@@ -1,11 +1,17 @@
 package service;
-import java.util.function.Consumer;
+
 import entity.*;
 import protocol.Message;
 import vo.StudentReviewVO;
+import java.util.function.Consumer;
+
+/** Student information client operations. */
 public interface IStudentClientService {
-    void beginEdit(String studentId, java.util.function.Consumer<protocol.Message> callback);
-    void endEdit(String studentId, java.util.function.Consumer<protocol.Message> callback);
+    void onEditLeaseLost(Runnable callback);
+    void releaseEditLease();
+    void dispose();
+    void beginEdit(String id,Consumer<Message> callback);
+    void endEdit(String id,Consumer<Message> callback);
     void queryOverview(Consumer<Message> c);
     void submitChangeRequest(StudentChangeRequest r,Consumer<Message> c);
     void queryMyRequests(Consumer<Message> c);
@@ -22,4 +28,10 @@ public interface IStudentClientService {
     void addAid(StudentAid a,Consumer<Message> c);
     void updateAid(StudentAid a,Consumer<Message> c);
     void deleteAid(long id,Consumer<Message> c);
+    void addExperience(StudentExperience x,Consumer<Message> c);
+    void addFamilyMember(StudentFamilyMember x,Consumer<Message> c);
+    void updateExperience(StudentExperience x,Consumer<Message> c);
+    void deleteExperience(long id,Consumer<Message> c);
+    void updateFamilyMember(StudentFamilyMember x,Consumer<Message> c);
+    void deleteFamilyMember(long id,Consumer<Message> c);
 }

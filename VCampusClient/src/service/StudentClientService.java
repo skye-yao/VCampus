@@ -5,20 +5,28 @@ import entity.*;
 import protocol.*;
 import vo.StudentReviewVO;
 public class StudentClientService implements IStudentClientService {
-    public final LeaseClient editLease=new LeaseClient(), reviewLease=new LeaseClient();
+    private final LeaseClient editLease=new LeaseClient(), reviewLease=new LeaseClient();
     private final LeaseClient recordLease=new LeaseClient();
     private final java.util.Map<String,String> recordOwners=new java.util.HashMap<>();
     private String currentStudentId;
-    public boolean recordInFlight;
-    public Runnable onUnconfirmed=()->{};
+    private boolean recordInFlight;
+    private final Runnable onUnconfirmed=()->{};
     private boolean disposed;
     private final java.util.Map<String,Long> queryVersions=new java.util.HashMap<>();
+    @Override
+    public void onEditLeaseLost(Runnable callback) { editLease.onLost(callback); }
+    @Override
+    public void releaseEditLease() { editLease.close(); }
+
+    @Override
     public void dispose(){disposed=true;queryVersions.replaceAll((k,v)->v+1);editLease.close();reviewLease.close();recordLease.close();}
 
+    @Override
     public void beginEdit(String id,Consumer<Message> callback){
         if(disposed)return;
         editLease.acquire("STUDENT",id,()->{if(!disposed)callback.accept(reply(true,"已取得占用"));},error->{if(!disposed)callback.accept(reply(false,error));});
     }
+    @Override
     public void endEdit(String id,Consumer<Message> callback){editLease.close();callback.accept(reply(true,"已释放占用"));}
     private Message reply(boolean success,String text){Message m=new Message(MessageType.RESPONSE,"student","lock");m.setCode(success?MessageCode.SUCCESS:MessageCode.CONFLICT);m.setMessage(text);return m;}
     private final SocketClient socket;
@@ -69,30 +77,39 @@ public class StudentClientService implements IStudentClientService {
             default -> throw new IllegalArgumentException("未知学籍消息类型: "+action);
         };
     }
+    @Override
     public void queryOverview(Consumer<Message> c) {
         send("queryOverview",null,null,c);
     }
+    @Override
     public void submitChangeRequest(StudentChangeRequest r,Consumer<Message> c) {
         send("submitChangeRequest","request",r,c);
     }
+    @Override
     public void queryMyRequests(Consumer<Message> c) {
         send("queryMyRequests",null,null,c);
     }
+    @Override
     public void cancelChangeRequest(long id,Consumer<Message> c) {
         send("cancelChangeRequest","requestId",id,c);
     }
+    @Override
     public void listStudents(Consumer<Message> c) {
         send("listStudents",null,null,c);
     }
+    @Override
     public void queryStudentOverview(String id,Consumer<Message> c) {
         send("queryStudentOverview","studentId",id,c);
     }
+    @Override
     public void listPendingRequests(Consumer<Message> c) {
         send("listPendingRequests",null,null,c);
     }
+    @Override
     public void queryChangeRequest(long id,Consumer<Message> c) {
         send("queryChangeRequest","requestId",id,c);
     }
+    @Override
     public void reviewChangeRequest(StudentReviewVO r,Consumer<Message> c) {
         if(disposed)return;
         if(reviewLease.busy()){c.accept(reply(false,"审核正在提交，请等待完成"));return;}
@@ -100,34 +117,47 @@ public class StudentClientService implements IStudentClientService {
                 ()->{if(!disposed)send("reviewChangeRequest","review",r,c);},
                 error->{if(!disposed)c.accept(reply(false,error));});
     }
+    @Override
     public void updateStudentByAdmin(Student s,Student original,Consumer<Message> c) {
         if(disposed)return;
         Message m=new Message(MessageType.STUDENT_ADMIN_UPDATE,"student","updateStudentByAdmin");
         m.putData("student",s);m.putData("original",original);dispatch(m,c);
     }
+    @Override
     public void addAward(StudentAward a,Consumer<Message> c) {
         send("addAward","award",a,c);
     }
+    @Override
     public void updateAward(StudentAward a,Consumer<Message> c) {
         send("updateAward","award",a,c);
     }
+    @Override
     public void deleteAward(long id,Consumer<Message> c) {
         send("deleteAward","awardId",id,c);
     }
+    @Override
     public void addAid(StudentAid a,Consumer<Message> c) {
         send("addAid","aid",a,c);
     }
+    @Override
     public void updateAid(StudentAid a,Consumer<Message> c) {
         send("updateAid","aid",a,c);
     }
+    @Override
     public void deleteAid(long id,Consumer<Message> c) {
         send("deleteAid","aidId",id,c);
     }
+    @Override
     public void addExperience(StudentExperience x,Consumer<Message> c){send("addExperience","experience",x,c);}
+    @Override
     public void addFamilyMember(StudentFamilyMember x,Consumer<Message> c){send("addFamilyMember","member",x,c);}
+    @Override
     public void updateExperience(StudentExperience x,Consumer<Message> c){send("updateExperience","experience",x,c);}
+    @Override
     public void deleteExperience(long id,Consumer<Message> c){send("deleteExperience","experienceId",id,c);}
+    @Override
     public void updateFamilyMember(StudentFamilyMember x,Consumer<Message> c){send("updateFamilyMember","member",x,c);}
+    @Override
     public void deleteFamilyMember(long id,Consumer<Message> c){send("deleteFamilyMember","memberId",id,c);}
 
     private void dispatch(Message m,Consumer<Message> callback) {

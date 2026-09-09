@@ -17,7 +17,7 @@ import javafx.scene.Node;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.stage.FileChooser;
-import service.StudentClientService;
+import service.StudentClientService; import service.IStudentClientService;
 import session.ClientSession;
 import protocol.*;
 import util.AlertUtil;
@@ -36,7 +36,8 @@ public class StudentController {
     @FXML private util.control.InformationReviewStatusPane reviewStatusPane;
     @FXML private ScrollPane detailScrollPane;
     @FXML private GridPane baseInfoGrid,studyInfoGrid,admissionInfoGrid,contactInfoGrid;
-    @FXML private GridPane reviewStudentBaseGrid,reviewStudentStudyGrid;
+    @FXML private GridPane reviewStudentBaseGrid,reviewStudentStudyGrid,reviewStudentAdmissionGrid,reviewStudentContactGrid;
+    @FXML private VBox reviewStudentRecords;
     @FXML private VBox studentDetailSidebar,adminDetailSidebar,reviewOverviewPane,reviewDetailPane,experienceCardContainer,familyCardContainer,adminReadOnlyInfoPane,adminExperienceCardContainer,adminFamilyCardContainer;
     @FXML private Button detailReturnButton,editBaseButton,editStudyButton,editAdmissionButton,editContactButton,exportPdfButton,exportStudentsButton,managementNavButton,maintenanceNavButton,editExperienceButton,deleteExperienceButton,editFamilyButton,deleteFamilyButton;
     @FXML private Button baseIndexButton,studyIndexButton,admissionIndexButton,contactIndexButton,adminDetailManagementNavButton,adminDetailMaintenanceNavButton;
@@ -60,7 +61,7 @@ public class StudentController {
     @FXML private ToggleButton unfinishedReviewButton,completedReviewButton;
     private static final int PAGE_SIZE=20;
     //创建StudentClientService，把单例Scoket客户端传入，让它能够发送请求。
-    private final StudentClientService service=new StudentClientService(network.SocketClient.getInstance());
+    private final IStudentClientService service=new StudentClientService(network.SocketClient.getInstance());
     private final Gson gson=new Gson();
     //定义学生的字段能否进行编辑
     private static final Set<String> STUDENT_EDITABLE=Set.of(
@@ -91,6 +92,7 @@ public class StudentController {
     private boolean adminMaintenanceMode;
     private StudentChangeRequest selected;
     private Student reviewBaseStudent;
+    private StudentOverviewVO reviewStudentOverview;
     private StudentExperience selectedExperience;
     private StudentFamilyMember selectedFamilyMember;
     private Pane selectedExperienceCard,selectedFamilyCard;
@@ -98,7 +100,7 @@ public class StudentController {
     private void runOnPage(Runnable action){util.Fx.run(()->{if(!disposed)action.run();});}
     @FXML public void initialize() {
         ClientMain.setPageCleanup(()->{disposed=true;resetEditState();service.dispose();});
-        service.editLease.onLost(()->{if(!disposed){resetEditState();if(overview!=null)render(overview);setStatus("编辑占用已失效，请重新进入编辑页面");}});
+        service.onEditLeaseLost(()->{if(!disposed){resetEditState();if(overview!=null)render(overview);setStatus("编辑占用已失效，请重新进入编辑页面");}});
         setupTables();
         setupRole();
         reviewStatusPane.setVisible(!isAdmin());
@@ -313,7 +315,7 @@ public class StudentController {
     }
     private void resetEditState(){
         ++editEntryVersion;enteringEdit=false;editing=false;
-        editable.clear();service.editLease.close();
+        editable.clear();service.releaseEditLease();
     }
 
     //取消编辑
@@ -879,6 +881,9 @@ public class StudentController {
         reviewRemarkArea.setEditable(pendingReview);
         reviewRemarkArea.setText(safe(r.getReviewRemark()));
         reviewBaseStudent=null;
+        reviewStudentOverview=null;
+        reviewStudentRecords.getChildren().clear();
+        for(GridPane grid:List.of(reviewStudentBaseGrid,reviewStudentStudyGrid,reviewStudentAdmissionGrid,reviewStudentContactGrid))grid.getChildren().clear();
         long expected=r.getRequestId();
         service.queryChangeRequest(expected,m->runOnPage(()-> {
             if(selected==null||selected.getRequestId()!=expected)return;StudentChangeRequest detail=ok(m)?data(m,"request",StudentChangeRequest.class):null;if(detail==null) {
@@ -893,6 +898,7 @@ public class StudentController {
             StudentOverviewVO studentOverview=ok(m)?data(m,"overview",StudentOverviewVO.class):null;
             if(studentOverview!=null&&studentOverview.getStudent()!=null) {
                 reviewBaseStudent=studentOverview.getStudent();
+                reviewStudentOverview=studentOverview;
                 renderReviewStudent();
             }
         }));
@@ -910,6 +916,22 @@ public class StudentController {
         fill(reviewStudentStudyGrid,preview,studyFields());
         highlightReviewFields(reviewStudentBaseGrid,baseFields(),changed);
         highlightReviewFields(reviewStudentStudyGrid,studyFields(),changed);
+        fill(reviewStudentAdmissionGrid,preview,admissionFields());
+        fill(reviewStudentContactGrid,preview,contactFields());
+        highlightReviewFields(reviewStudentAdmissionGrid,admissionFields(),changed);
+        highlightReviewFields(reviewStudentContactGrid,contactFields(),changed);
+        reviewStudentRecords.getChildren().clear();
+        util.control.InformationReviewRecords.student(reviewStudentRecords,reviewStudentOverview);
+        for(StudentChangeItem item:selected.getItems()){
+            String field=item.getFieldName();
+            if(field==null||!field.contains("."))continue;
+            StudentChangeRequest change=new StudentChangeRequest();
+            change.setItems(List.of(item));
+            Label description=new Label(changeSummary(change));
+            description.setWrapText(true);
+            description.getStyleClass().add("student-review-changed-value");
+            reviewStudentRecords.getChildren().add(description);
+        }
     }
     private void highlightReviewFields(GridPane grid,List<String> fields,Set<String> changed){
         for(int i=0;i<fields.size();i++){
@@ -923,6 +945,9 @@ public class StudentController {
     @FXML private void handleBackToReviewOverview() {
         selected=null;
         reviewBaseStudent=null;
+        reviewStudentOverview=null;
+        reviewStudentRecords.getChildren().clear();
+        for(GridPane grid:List.of(reviewStudentBaseGrid,reviewStudentStudyGrid,reviewStudentAdmissionGrid,reviewStudentContactGrid))grid.getChildren().clear();
         reviewRemarkArea.clear();
         approveButton.setDisable(true);
         rejectButton.setDisable(true);

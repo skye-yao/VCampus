@@ -27,7 +27,7 @@ public class SocketClient {
     private static final SocketClient INSTANCE = new SocketClient();
 
     /** 默认服务器地址 */
-    private static final String DEFAULT_HOST = "127.0.0.1";
+    private static final String DEFAULT_HOST = "10.125.254.191";
 
     /** 默认服务器端口 */
     private static final int DEFAULT_PORT = 8888;
