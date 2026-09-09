@@ -13,11 +13,11 @@
     <top>
         <HBox alignment="CENTER_LEFT" maxHeight="64.0" minHeight="64.0" prefHeight="64.0" spacing="12.0" styleClass="course-topbar" BorderPane.alignment="CENTER">
             <padding>
-                <Insets left="20.0" right="20.0" />
+                <Insets left="20.0" right="20.0" top="1.0" />
             </padding>
             <children>
                 <Button onAction="#handleBack" prefHeight="64.0" styleClass="course-nav-button" text="返回主菜单" />
-                <Label styleClass="course-title" text="选课管理系统" />
+                <Label styleClass="course-title" text="教务管理系统" />
                 <Region HBox.hgrow="ALWAYS" />
                 <ToggleButton fx:id="selectionNavButton" onAction="#showSelection" prefHeight="64.0" selected="true" styleClass="course-nav-button" text="选课" />
                 <ToggleButton fx:id="scheduleNavButton" onAction="#showSchedule" prefHeight="64.0" styleClass="course-nav-button" text="课表" />

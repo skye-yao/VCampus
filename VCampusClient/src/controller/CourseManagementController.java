@@ -53,14 +53,20 @@ public final class CourseManagementController {
     }
 
     private void activate(Node page, ToggleButton button, Runnable refreshAction) {
-        setPageState(selectionPage, page == selectionPage);
-        setPageState(schedulePage, page == schedulePage);
-        setPageState(gradePage, page == gradePage);
-        setPageState(planPage, page == planPage);
-        selectionNavButton.setSelected(button == selectionNavButton);
-        scheduleNavButton.setSelected(button == scheduleNavButton);
-        gradeNavButton.setSelected(button == gradeNavButton);
-        planNavButton.setSelected(button == planNavButton);
+        setPageState(selectionPage, false);
+        setPageState(schedulePage, false);
+        setPageState(gradePage, false);
+        setPageState(planPage, false);
+
+        setPageState(page, true);
+
+        selectionNavButton.setSelected(false);
+        scheduleNavButton.setSelected(false);
+        gradeNavButton.setSelected(false);
+        planNavButton.setSelected(false);
+
+        button.setSelected(true);
+
         refreshAction.run();
     }
 
