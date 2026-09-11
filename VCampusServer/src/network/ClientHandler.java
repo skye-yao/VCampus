@@ -20,8 +20,14 @@ import protocol.MessageCode;
  */
 public class ClientHandler implements Runnable {
 
+    /** 线程本地存储，用于在请求处理链中获取当前处理连接的 ClientHandler 实例 */
+    public static final ThreadLocal<ClientHandler> CURRENT_HANDLER = new ThreadLocal<>();
+
     /** 客户端 Socket */
     private Socket socket;
+
+    /** 客户端输出流 */
+    private volatile PrintWriter writer;
 
     /** 消息分发器 */
     private MessageDispatcher dispatcher;
@@ -40,15 +46,14 @@ public class ClientHandler implements Runnable {
 
     @Override
     public void run() {
+        CURRENT_HANDLER.set(this);
         System.out.println("客户端已连接: " + socket.getRemoteSocketAddress());
-
-        PrintWriter writer = null;
 
         try (
             BufferedReader reader = new BufferedReader(
                     new InputStreamReader(socket.getInputStream(), java.nio.charset.StandardCharsets.UTF_8))
         ) {
-            writer = new PrintWriter(new java.io.OutputStreamWriter(socket.getOutputStream(), java.nio.charset.StandardCharsets.UTF_8), true);
+            this.writer = new PrintWriter(new java.io.OutputStreamWriter(socket.getOutputStream(), java.nio.charset.StandardCharsets.UTF_8), true);
 
             String line;
             while ((line = reader.readLine()) != null) {
@@ -96,19 +101,50 @@ public class ClientHandler implements Runnable {
                     jsonResponse = gson.toJson(error);
                     response = error;
                 }
-                writer.println(jsonResponse);
-                if (writer.checkError()) throw new java.io.IOException("响应发送失败");
+                synchronized (this) {
+                    if (writer != null) {
+                        writer.println(jsonResponse);
+                        if (writer.checkError()) throw new java.io.IOException("响应发送失败");
+                    }
+                }
                 System.out.println("发送响应: " + response);
             }
         } catch (Throwable e) {
             System.out.println("客户端连接异常: " + e);
         } finally {
-            try {
-                socket.close();
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
+            CURRENT_HANDLER.remove();
+            session.SessionManager.getInstance().unbindHandler(this);
+            close();
+            this.writer = null;
             System.out.println("客户端已断开: " + socket.getRemoteSocketAddress());
+        }
+    }
+
+    /**
+     * 向客户端发送消息（如主动推送下线提示）
+     */
+    public synchronized void sendMessage(Message message) {
+        if (writer != null) {
+            try {
+                String json = gson.toJson(message);
+                writer.println(json);
+                writer.flush();
+                System.out.println("已向客户端发送推送消息: " + message);
+            } catch (Exception e) {
+                System.err.println("发送推送消息异常: " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * 主动关闭客户端 Socket 连接
+     */
+    public void close() {
+        try {
+            if (socket != null && !socket.isClosed()) {
+                socket.close();
+            }
+        } catch (Exception ignored) {
         }
     }
 

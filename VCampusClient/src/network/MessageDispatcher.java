@@ -3,6 +3,13 @@ package network;
 import protocol.Message;
 import protocol.MessageType;
 
+import javafx.application.Platform;
+import javafx.scene.control.Alert;
+import javafx.scene.control.Label;
+import javafx.stage.Modality;
+import app.ClientMain;
+import session.ClientSession;
+
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -89,5 +96,33 @@ public class MessageDispatcher {
      */
     private void handlePush(Message message) {
         System.out.println("收到服务器推送: " + message);
+        if ("user".equalsIgnoreCase(message.getModule()) && "kickout".equalsIgnoreCase(message.getAction())) {
+            Platform.runLater(() -> {
+                // 1. 本地安全登出并断开连接
+                ClientSession.getInstance().logout();
+                SocketClient.getInstance().disconnect();
+
+                // 2. 返回登录页
+                ClientMain.switchScene("/resources/fxml/LoginView.fxml");
+
+                // 3. 模态弹窗提示，冻结主窗口
+                Alert alert = new Alert(Alert.AlertType.WARNING);
+                alert.setTitle("下线通知");
+                alert.setHeaderText("下线通知");
+
+                Label contentLabel = new Label(message.getMessage());
+                contentLabel.setWrapText(true);
+                contentLabel.setStyle("-fx-font-size: 13px; -fx-line-spacing: 4px;");
+                alert.getDialogPane().setContent(contentLabel);
+                alert.getDialogPane().setMinWidth(480);
+                alert.getDialogPane().setPrefWidth(500);
+
+                if (ClientMain.getPrimaryStage() != null) {
+                    alert.initOwner(ClientMain.getPrimaryStage());
+                    alert.initModality(Modality.APPLICATION_MODAL);
+                }
+                alert.show();
+            });
+        }
     }
 }

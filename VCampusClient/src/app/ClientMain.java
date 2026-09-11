@@ -1,15 +1,24 @@
 package app;
 
 import javafx.application.Application;
+import javafx.application.Platform;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
+import javafx.scene.control.Alert;
+import javafx.scene.control.ButtonBar;
+import javafx.scene.control.ButtonType;
 import javafx.scene.image.Image;
+import javafx.stage.Modality;
 import javafx.stage.Stage;
 import network.SocketClient;
+import protocol.Message;
+import protocol.MessageType;
+import session.ClientSession;
 import util.AlertUtil;
 import util.FXMLUtil;
 
 import java.io.InputStream;
+import java.util.Optional;
 
 /**
  * 虚拟校园系统客户端启动主入口
@@ -36,13 +45,10 @@ public class ClientMain extends Application {
             System.err.println("图标加载失败: " + e.getMessage());
         }
 
-        // 监听窗口关闭事件，释放网络资源
+        // 监听窗口关闭事件，弹出模态退出确认对话框（冻结主窗口）
         primaryStage.setOnCloseRequest(event -> {
-            System.out.println("VCampus 客户端正在退出...");
-            cleanupPage();
-            service.LeaseClient.shutdown();
-            util.BackgroundTasks.shutdown();
-            SocketClient.getInstance().shutdown();
+            event.consume();
+            showExitConfirmation();
         });
 
         // 初始加载登录界面
@@ -101,6 +107,53 @@ public class ClientMain extends Application {
         } catch (Exception e) {
             e.printStackTrace();
             AlertUtil.showError("界面加载失败", "无法加载界面: " + fxmlPath + "\n错误详情: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 弹出退出系统确认对话框（模态，冻结主窗口）。
+     * 点击“确定”执行安全登出+关闭窗口；点击“取消”则返回主窗口继续操作。
+     */
+    public static void showExitConfirmation() {
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.setTitle("退出确认");
+        alert.setHeaderText(null);
+        alert.setContentText("确定退出吗？");
+        alert.getDialogPane().setMinWidth(360);
+        if (primaryStage != null) {
+            alert.initOwner(primaryStage);
+            alert.initModality(Modality.APPLICATION_MODAL);
+        }
+
+        ButtonType yesBtn = new ButtonType("确定", ButtonBar.ButtonData.YES);
+        ButtonType noBtn = new ButtonType("取消", ButtonBar.ButtonData.NO);
+        alert.getButtonTypes().setAll(yesBtn, noBtn);
+
+        Optional<ButtonType> result = alert.showAndWait();
+        if (result.isPresent() && result.get() == yesBtn) {
+            System.out.println("用户确认退出，正在执行安全登出...");
+            // 若当前处于登录状态，向服务端发起登出通知
+            if (ClientSession.getInstance().isLoggedIn()) {
+                try {
+                    Message logoutMsg = new Message(MessageType.REQUEST, "user", "logout");
+                    SocketClient.getInstance().sendSync(logoutMsg, 2);
+                } catch (Exception ignored) {
+                } finally {
+                    ClientSession.getInstance().logout();
+                }
+            }
+
+            // 清理页面租约、定时任务及 Socket 连接
+            cleanupPage();
+            service.LeaseClient.shutdown();
+            util.BackgroundTasks.shutdown();
+            SocketClient.getInstance().shutdown();
+
+            if (primaryStage != null) {
+                primaryStage.close();
+            }
+            Platform.exit();
+            System.exit(0);
         }
     }
 
