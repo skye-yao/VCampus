@@ -53,6 +53,9 @@ public final class CourseSelectionController {
     private final BiConsumer<String, String> errorReporter;
     private final Consumer<Runnable> fxExecutor;
     private final Set<Long> pendingOfferingIds = new HashSet<>();
+    private final Map<Long, CourseTermView> pendingOfferingTerms = new HashMap<>();
+    private final Set<Long> reconciliationPendingOfferingIds = new HashSet<>();
+    private final Set<Long> failedOfferingCourseIds = new HashSet<>();
     private final Map<Long, List<Consumer<Boolean>>> renderedOfferingActions =
             new HashMap<>();
     private final Map<Long, List<CourseOfferingView>> offeringCache = new HashMap<>();
@@ -197,13 +200,20 @@ public final class CourseSelectionController {
             if (generation != offeringCacheGeneration) return;
             offeringLoads.remove(courseId);
             if (error != null) {
+                failedOfferingCourseIds.add(courseId);
                 onError.accept(error);
                 return;
             }
             List<CourseOfferingView> immutable = List.copyOf(loaded);
+            failedOfferingCourseIds.remove(courseId);
             offeringCache.put(courseId, immutable);
             onLoaded.accept(immutable);
         }));
+    }
+
+    boolean shouldRequestOfferings(long courseId, boolean expanded,
+            boolean containerEmpty) {
+        return expanded && (containerEmpty || failedOfferingCourseIds.remove(courseId));
     }
 
     void registerOfferingAction(long offeringId, Consumer<Boolean> setDisabled) {
@@ -219,6 +229,7 @@ public final class CourseSelectionController {
             updateOfferingActionState(offeringId);
             return;
         }
+        pendingOfferingTerms.put(offeringId, term);
         updateOfferingActionState(offeringId);
 
         CompletableFuture<CourseMutationResultView> future;
@@ -231,13 +242,11 @@ public final class CourseSelectionController {
         }
 
         future.whenComplete((result, error) -> fxExecutor.accept(() -> {
-            if (error != null) {
-                reconcileFailure(term, offeringId, rerender, error);
+            if (currentTerm != null && !term.equals(currentTerm)) {
+                finishMutation(offeringId, rerender);
                 return;
             }
-            if (result != null) snapshot = result.getSnapshot();
-            invalidateOfferingCache();
-            finishMutation(offeringId, rerender);
+            reconcileMutation(term, offeringId, rerender, error);
         }));
     }
 
@@ -304,11 +313,12 @@ public final class CourseSelectionController {
             errorReporter.accept("课程加载失败", errorMessage(error));
         });
         requestSnapshot(term, loaded -> {
-            if (!term.equals(currentTerm)) return;
-            snapshot = loaded;
+            acceptAuthoritativeSnapshot(term, loaded);
             renderCourses();
         }, error -> {
-            snapshot = new CoursePlanSnapshotView(term, List.of(), List.of(), List.of());
+            if (snapshot == null || !term.equals(snapshot.getTerm())) {
+                snapshot = new CoursePlanSnapshotView(term, List.of(), List.of(), List.of());
+            }
             renderCourses();
             errorReporter.accept("选课状态加载失败", errorMessage(error));
         });
@@ -383,7 +393,8 @@ public final class CourseSelectionController {
             offeringList.setVisible(expanded);
             offeringList.setManaged(expanded);
             expandButton.setText(expanded ? "-" : "+");
-            if (expanded && offeringList.getChildren().isEmpty()) {
+            if (shouldRequestOfferings(course.getCourseId(), expanded,
+                    offeringList.getChildren().isEmpty())) {
                 Label loading = styledLabel("正在加载教学班...", "course-empty-state");
                 offeringList.getChildren().add(loading);
                 requestCourseOfferings(currentTerm, course.getCourseId(), loaded -> {
@@ -509,11 +520,23 @@ public final class CourseSelectionController {
                     operationId -> service.cancelWaitlist(
                             currentTerm, offering.getOfferingId(), operationId)));
         } else if (status == SelectionStatus.WAITLIST_OFFERED) {
-            actions.getChildren().add(confirmAction(course, offering, "处理",
-                    "确认接受“" + course.getCourseName() + "”的候补席位？",
-                    operationId -> service.resolveWaitlistOffer(
-                            currentTerm, offering.getOfferingId(), operationId,
-                            WaitlistDecision.ACCEPT)));
+            Button button = new Button("处理");
+            button.getStyleClass().add("course-row-action");
+            registerOfferingAction(offering.getOfferingId(), button::setDisable);
+            button.setOnAction(event -> {
+                ButtonType choice = confirmation.apply("处理候补席位",
+                        "确定接受“" + course.getCourseName()
+                                + "”的候补席位；取消则放弃该席位。");
+                WaitlistDecision decision = waitlistDecision(choice);
+                if (decision != null) {
+                    executeMutation(currentTerm, offering.getOfferingId(),
+                            this::renderCourses,
+                            operationId -> service.resolveWaitlistOffer(
+                                    currentTerm, offering.getOfferingId(), operationId,
+                                    decision));
+                }
+            });
+            actions.getChildren().add(button);
         } else if (status == SelectionStatus.ENROLLED) {
             actions.getChildren().add(confirmAction(course, offering, "退选",
                     "确认退选“" + course.getCourseName() + "”？",
@@ -558,23 +581,58 @@ public final class CourseSelectionController {
         return button;
     }
 
+    static WaitlistDecision waitlistDecision(ButtonType choice) {
+        if (choice == ButtonType.OK) return WaitlistDecision.ACCEPT;
+        if (choice == ButtonType.CANCEL) return WaitlistDecision.ABANDON;
+        return null;
+    }
+
     private void reconcileFailure(CourseTermView term, long offeringId,
             Runnable rerender, Throwable mutationError) {
-        service.loadSelectionSnapshot(term).whenComplete((loaded, refreshError) ->
-                fxExecutor.accept(() -> {
-                    if (refreshError == null && loaded != null) snapshot = loaded;
-                    invalidateOfferingCache();
-                    finishMutation(offeringId, rerender);
-                    String message = errorMessage(mutationError);
-                    if (refreshError != null) {
-                        message += "；状态刷新失败：" + errorMessage(refreshError);
-                    }
-                    errorReporter.accept("操作失败", message);
-                }));
+        reconcileMutation(term, offeringId, rerender, mutationError);
+    }
+
+    private void reconcileMutation(CourseTermView term, long offeringId,
+            Runnable rerender, Throwable mutationError) {
+        reconciliationPendingOfferingIds.add(offeringId);
+        requestSnapshot(term, loaded -> {
+            acceptAuthoritativeSnapshot(term, loaded);
+            invalidateOfferingCache();
+            rerender.run();
+            if (mutationError != null) {
+                errorReporter.accept("操作失败", errorMessage(mutationError));
+            }
+        }, refreshError -> {
+            invalidateOfferingCache();
+            rerender.run();
+            String message = mutationError == null
+                    ? "操作结果尚未确认"
+                    : errorMessage(mutationError);
+            message += "；状态刷新失败：" + errorMessage(refreshError);
+            errorReporter.accept("状态待确认", message);
+        });
+    }
+
+    void acceptAuthoritativeSnapshot(CourseTermView term,
+            CoursePlanSnapshotView loaded) {
+        if (currentTerm == null || term.equals(currentTerm)) {
+            snapshot = loaded;
+        }
+        List<Long> reconciled = new ArrayList<>();
+        for (Long offeringId : reconciliationPendingOfferingIds) {
+            if (term.equals(pendingOfferingTerms.get(offeringId))) {
+                reconciled.add(offeringId);
+            }
+        }
+        for (Long offeringId : reconciled) {
+            finishMutation(offeringId, () -> { });
+        }
     }
 
     private void finishMutation(long offeringId, Runnable rerender) {
         pendingOfferingIds.remove(offeringId);
+        pendingOfferingTerms.remove(offeringId);
+        reconciliationPendingOfferingIds.remove(offeringId);
         updateOfferingActionState(offeringId);
         rerender.run();
     }

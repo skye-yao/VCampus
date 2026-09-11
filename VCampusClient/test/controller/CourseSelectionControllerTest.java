@@ -1,6 +1,7 @@
 package controller;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.Collections;
@@ -40,6 +41,11 @@ public final class CourseSelectionControllerTest {
         testNoBatchConfirmationInFxml();
         testSameOfferingDisablesEveryCopyAndStartsOneMutation();
         testFailureReconcilesBeforeReenable();
+        testFailedReconciliationStaysDisabledUntilLaterSnapshot();
+        testWaitlistOfferSupportsAcceptAndAbandon();
+        testStaleMutationCannotReplaceCurrentTermSnapshot();
+        testOutOfOrderMutationResultsUseAuthoritativeSnapshot();
+        testOfferingLoadFailureCanRetryOnNextExpansion();
         testLoadGenerationCallbacks();
         System.out.println("CourseSelectionControllerTest: PASS");
     }
@@ -146,6 +152,96 @@ public final class CourseSelectionControllerTest {
                 "offering may re-enable only after snapshot reconciliation");
     }
 
+    private static void testFailedReconciliationStaysDisabledUntilLaterSnapshot() {
+        ControlledCourseService service = new ControlledCourseService();
+        CourseSelectionController controller = testController(service);
+        AtomicBoolean disabled = new AtomicBoolean();
+        controller.registerOfferingAction(1001L, disabled::set);
+
+        CompletableFuture<CoursePlanSnapshotView> failedRefresh = new CompletableFuture<>();
+        service.snapshotResults.addLast(failedRefresh);
+        CompletableFuture<CourseMutationResultView> failure = new CompletableFuture<>();
+        controller.executeMutation(TERM, 1001L, () -> { }, operationId -> failure);
+        failure.completeExceptionally(new IllegalStateException("request timeout"));
+        failedRefresh.completeExceptionally(new IllegalStateException("refresh failed"));
+
+        require(disabled.get(),
+                "offering must stay disabled while its authoritative state is unknown");
+        controller.acceptAuthoritativeSnapshot(
+                TERM, snapshot(item(1001L, SelectionStatus.PLANNED)));
+        require(!disabled.get(),
+                "a later authoritative snapshot must release the pending offering");
+    }
+
+    private static void testWaitlistOfferSupportsAcceptAndAbandon() {
+        require(CourseSelectionController.waitlistDecision(ButtonType.OK)
+                        == WaitlistDecision.ACCEPT,
+                "confirming an offered seat must accept it");
+        require(CourseSelectionController.waitlistDecision(ButtonType.CANCEL)
+                        == WaitlistDecision.ABANDON,
+                "cancelling an offered seat must explicitly abandon it");
+    }
+
+    private static void testStaleMutationCannotReplaceCurrentTermSnapshot()
+            throws ReflectiveOperationException {
+        ControlledCourseService service = new ControlledCourseService();
+        CourseSelectionController controller = testController(service);
+        CoursePlanSnapshotView current = snapshot(item(1001L, SelectionStatus.PLANNED));
+        CourseTermView oldTerm = new CourseTermView(2025, 2, "2025-2026 春学期");
+        setField(controller, "currentTerm", TERM);
+        setField(controller, "snapshot", current);
+
+        CoursePlanSnapshotView stale = snapshot(
+                oldTerm, item(2001L, SelectionStatus.ENROLLED));
+        CourseMutationResultView staleResult = mutationResult(
+                item(2001L, SelectionStatus.ENROLLED), stale);
+        controller.executeMutation(oldTerm, 2001L, () -> { },
+                operationId -> CompletableFuture.completedFuture(staleResult));
+
+        require(getField(controller, "snapshot") == current,
+                "a previous-term mutation must not replace the active-term snapshot");
+    }
+
+    private static void testOutOfOrderMutationResultsUseAuthoritativeSnapshot()
+            throws ReflectiveOperationException {
+        ControlledCourseService service = new ControlledCourseService();
+        CourseSelectionController controller = testController(service);
+        setField(controller, "currentTerm", TERM);
+        setField(controller, "snapshot", snapshot());
+
+        CoursePlanSnapshotView authoritative = snapshot(
+                item(1001L, SelectionStatus.PLANNED),
+                item(2001L, SelectionStatus.PLANNED));
+        service.snapshotResults.addLast(CompletableFuture.completedFuture(authoritative));
+        service.snapshotResults.addLast(CompletableFuture.completedFuture(authoritative));
+
+        CompletableFuture<CourseMutationResultView> older = new CompletableFuture<>();
+        CompletableFuture<CourseMutationResultView> newer = new CompletableFuture<>();
+        controller.executeMutation(TERM, 1001L, () -> { }, operationId -> older);
+        controller.executeMutation(TERM, 2001L, () -> { }, operationId -> newer);
+        newer.complete(mutationResult(
+                item(2001L, SelectionStatus.PLANNED), authoritative));
+        older.complete(mutationResult(
+                item(1001L, SelectionStatus.PLANNED),
+                snapshot(item(1001L, SelectionStatus.PLANNED))));
+
+        CoursePlanSnapshotView actual = getField(controller, "snapshot");
+        require(actual.getPlanItems().size() == 2,
+                "late mutation results must not replace a newer authoritative snapshot");
+    }
+
+    private static void testOfferingLoadFailureCanRetryOnNextExpansion() {
+        ControlledCourseService service = new ControlledCourseService();
+        CourseSelectionController controller = testController(service);
+        CompletableFuture<List<CourseOfferingView>> failure = new CompletableFuture<>();
+        service.offeringResults.addLast(failure);
+        controller.requestCourseOfferings(TERM, 101L, rows -> { }, error -> { });
+        failure.completeExceptionally(new IllegalStateException("load failed"));
+
+        require(controller.shouldRequestOfferings(101L, true, false),
+                "a failed teaching-class load must retry on the next expansion");
+    }
+
     private static void testLoadGenerationCallbacks() {
         ControlledCourseService service = new ControlledCourseService();
         CourseSelectionController controller = testController(service);
@@ -191,6 +287,11 @@ public final class CourseSelectionControllerTest {
     }
 
     private static CoursePlanSnapshotView snapshot(CourseSelectionItemView... items) {
+        return snapshot(TERM, items);
+    }
+
+    private static CoursePlanSnapshotView snapshot(
+            CourseTermView term, CourseSelectionItemView... items) {
         List<CourseSelectionItemView> plan = new java.util.ArrayList<>();
         List<CourseSelectionItemView> waitlist = new java.util.ArrayList<>();
         List<CourseSelectionItemView> enrolled = new java.util.ArrayList<>();
@@ -204,7 +305,29 @@ public final class CourseSelectionControllerTest {
                 plan.add(item);
             }
         }
-        return new CoursePlanSnapshotView(TERM, plan, waitlist, enrolled);
+        return new CoursePlanSnapshotView(term, plan, waitlist, enrolled);
+    }
+
+    private static CourseMutationResultView mutationResult(
+            CourseSelectionItemView item, CoursePlanSnapshotView snapshot) {
+        return new CourseMutationResultView(
+                "operation", item, item.getStatus(), item.getStatus().name(),
+                "result", snapshot);
+    }
+
+    private static void setField(Object target, String name, Object value)
+            throws ReflectiveOperationException {
+        Field field = target.getClass().getDeclaredField(name);
+        field.setAccessible(true);
+        field.set(target, value);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> T getField(Object target, String name)
+            throws ReflectiveOperationException {
+        Field field = target.getClass().getDeclaredField(name);
+        field.setAccessible(true);
+        return (T) field.get(target);
     }
 
     private static void require(boolean condition, String message) {
