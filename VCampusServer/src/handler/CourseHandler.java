@@ -1,11 +1,14 @@
 package handler;
 
 import dto.course.CourseActions;
+import dto.course.CourseMutationResultDTO;
+import dto.course.CourseTermDTO;
 import exception.DatabaseException;
 import protocol.Message;
 import protocol.MessageCode;
 import protocol.MessageType;
 import service.CourseQueryService;
+import service.CourseSelectionService;
 import session.SessionManager;
 import session.UserSession;
 
@@ -13,13 +16,19 @@ import java.util.Map;
 
 public class CourseHandler {
     private final CourseQueryService service;
+    private final CourseSelectionService selectionService;
 
     public CourseHandler() {
-        this(new CourseQueryService());
+        this(new CourseQueryService(), new CourseSelectionService());
     }
 
     CourseHandler(CourseQueryService service) {
+        this(service, new CourseSelectionService());
+    }
+
+    CourseHandler(CourseQueryService service, CourseSelectionService selectionService) {
         this.service = service;
+        this.selectionService = selectionService;
     }
 
     public Message handle(Message request) {
@@ -75,6 +84,30 @@ public class CourseHandler {
                 }
                 case CourseActions.LOAD_TRAINING_PLAN ->
                         response.putData("trainingPlan", service.loadTrainingPlan(uid));
+                case CourseActions.ADD_TO_PLAN -> {
+                    Term term = term(request);
+                    return mutationResponse(response, selectionService.addToPlan(uid,
+                            term.dto(), decimalId(request, "offeringId"),
+                            text(request, "operationId")));
+                }
+                case CourseActions.REMOVE_FROM_PLAN -> {
+                    Term term = term(request);
+                    return mutationResponse(response, selectionService.removeFromPlan(uid,
+                            term.dto(), decimalId(request, "offeringId"),
+                            text(request, "operationId")));
+                }
+                case CourseActions.SELECT_OFFERING -> {
+                    Term term = term(request);
+                    return mutationResponse(response, selectionService.selectOffering(uid,
+                            term.dto(), decimalId(request, "offeringId"),
+                            text(request, "operationId")));
+                }
+                case CourseActions.DROP_OFFERING -> {
+                    Term term = term(request);
+                    return mutationResponse(response, selectionService.dropOffering(uid,
+                            term.dto(), decimalId(request, "offeringId"),
+                            text(request, "operationId")));
+                }
                 default -> {
                     return failure(response, MessageCode.BAD_REQUEST, "不支持的课程操作");
                 }
@@ -85,6 +118,10 @@ public class CourseHandler {
             return failure(response, MessageCode.BAD_REQUEST, failure.getMessage());
         } catch (CourseQueryService.NotFoundException failure) {
             return failure(response, MessageCode.NOT_FOUND, "课程资源不存在");
+        } catch (CourseSelectionService.NotFoundException failure) {
+            return failure(response, MessageCode.NOT_FOUND, "课程资源不存在");
+        } catch (CourseSelectionService.ConflictException failure) {
+            return failure(response, MessageCode.CONFLICT, failure.getMessage());
         } catch (DatabaseException failure) {
             return failure(response, MessageCode.ERROR, "课程服务暂不可用");
         } catch (RuntimeException failure) {
@@ -102,6 +139,24 @@ public class CourseHandler {
         response.setCode(code);
         response.setMessage(message);
         return response;
+    }
+
+    private static Message mutationResponse(Message response, CourseMutationResultDTO result) {
+        response.putData("result", result);
+        response.setCode(isConflict(result.getOutcomeCode())
+                ? MessageCode.CONFLICT : MessageCode.SUCCESS);
+        response.setMessage(result.getMessage());
+        return response;
+    }
+
+    private static boolean isConflict(String outcomeCode) {
+        return "FULL".equals(outcomeCode)
+                || "SAME_COURSE_CONFLICT".equals(outcomeCode)
+                || "SCHEDULE_CONFLICT".equals(outcomeCode)
+                || "WINDOW_CLOSED".equals(outcomeCode)
+                || "SELECTION_CLOSED".equals(outcomeCode)
+                || "DROP_CLOSED".equals(outcomeCode)
+                || "WAITLIST_ACTIVE".equals(outcomeCode);
     }
 
     private static Term term(Message request) {
@@ -153,6 +208,14 @@ public class CourseHandler {
         }
     }
 
+    private static String text(Message request, String key) {
+        Object value = data(request, key);
+        if (!(value instanceof String text) || text.isBlank()) {
+            throw new IllegalArgumentException(key + " 必须为非空字符串");
+        }
+        return text;
+    }
+
     private static Object data(Message request, String key) {
         Map<String, Object> data = request.getData();
         Object value = data == null ? null : data.get(key);
@@ -161,5 +224,8 @@ public class CourseHandler {
     }
 
     private record Term(int academicYear, int semester) {
+        private CourseTermDTO dto() {
+            return new CourseTermDTO(academicYear, semester, "");
+        }
     }
 }
