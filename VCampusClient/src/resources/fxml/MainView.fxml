@@ -15,25 +15,25 @@
 <?import javafx.scene.layout.StackPane?>
 <?import javafx.scene.layout.VBox?>
 
-<BorderPane fx:id="rootMain" prefHeight="700.0" prefWidth="1020.0" styleClass="dash-content-pane" stylesheets="@../css/style.css" xmlns="http://javafx.com/javafx/25.0.4" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.MainController">
+<BorderPane fx:id="rootMain" prefHeight="700.0" prefWidth="1060.0" styleClass="dash-content-pane" stylesheets="@../css/style.css" xmlns="http://javafx.com/javafx/25.0.4" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.MainController">
 
     <!-- 左侧导航栏 -->
     <left>
-        <VBox prefWidth="220.0" minWidth="210.0" spacing="12.0" styleClass="main-sidebar" BorderPane.alignment="CENTER">
+        <VBox prefWidth="255.0" minWidth="245.0" spacing="14.0" styleClass="main-sidebar" BorderPane.alignment="CENTER">
             <padding>
-                <Insets top="20.0" left="12.0" right="12.0" bottom="18.0" />
+                <Insets top="22.0" left="15.0" right="15.0" bottom="20.0" />
             </padding>
             <children>
                 <!-- 左上角用户信息卡片 -->
                 <HBox alignment="CENTER_LEFT" spacing="12.0" styleClass="sidebar-profile-box">
                     <children>
-                        <StackPane prefHeight="48.0" prefWidth="48.0" minHeight="48.0" minWidth="48.0" styleClass="sidebar-avatar-stack">
+                        <StackPane prefHeight="54.0" prefWidth="54.0" minHeight="54.0" minWidth="54.0" styleClass="sidebar-avatar-stack">
                             <children>
                                 <Label styleClass="sidebar-avatar-fallback" text="👤" />
-                                <ImageView fx:id="sidebarAvatarView" fitHeight="48.0" fitWidth="48.0" pickOnBounds="true" preserveRatio="true" />
+                                <ImageView fx:id="sidebarAvatarView" fitHeight="54.0" fitWidth="54.0" pickOnBounds="true" preserveRatio="true" />
                             </children>
                         </StackPane>
-                        <VBox alignment="CENTER_LEFT" spacing="3.0">
+                        <VBox alignment="CENTER_LEFT" spacing="4.0">
                             <children>
                                 <Label fx:id="sidebarNameLabel" styleClass="sidebar-name" text="张三" />
                                 <Label fx:id="sidebarRoleLabel" styleClass="sidebar-role" text="计院 · 学生" />
@@ -50,7 +50,7 @@
                 </Region>
 
                 <!-- 功能模块导航入口列表（按指定顺序排列） -->
-                <VBox spacing="4.0" VBox.vgrow="ALWAYS">
+                <VBox spacing="6.0" VBox.vgrow="ALWAYS">
                     <children>
                         <!-- 1. 主页 (默认选中) -->
                         <Button fx:id="navHomeBtn" maxWidth="1.7976931348623157E308" onAction="#handleNavigateHome" styleClass="main-nav-btn, main-nav-btn-active" text="🏠   主页" />
@@ -262,7 +262,7 @@
                                             <children>
                                                 <HBox alignment="CENTER_LEFT" spacing="8.0">
                                                     <children>
-                                                        <Label styleClass="dashboard-card-title" text="🔔  通知 / 消息" />
+                                                        <Label styleClass="dashboard-card-title" text="🔔  图书馆通知消息" />
                                                     </children>
                                                 </HBox>
 

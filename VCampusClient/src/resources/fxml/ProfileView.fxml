@@ -134,7 +134,7 @@
                                     <children>
                                         <Button onAction="#handleSaveProfile" prefHeight="30.0" styleClass="btn-primary" text="保存修改" />
                                         <Button onAction="#handleBackToMain" prefHeight="35.0" styleClass="btn-secondary" text="取消返回" />
-                              <Text strokeType="OUTSIDE" strokeWidth="0.0" text="提示：新版本中信息修改已移至学籍模块（除手机号）" wrappingWidth="172.24032592773438" />
+                                        <Text fx:id="profileHintText" strokeType="OUTSIDE" strokeWidth="0.0" text="提示：新版本中信息修改已移至学籍模块（除手机号）" wrappingWidth="260.0" />
                                     </children>
                                 </HBox>
                             </children>
