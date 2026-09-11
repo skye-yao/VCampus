@@ -9,6 +9,7 @@ import protocol.MessageCode;
 import protocol.MessageType;
 import service.CourseQueryService;
 import service.CourseSelectionService;
+import service.CourseWaitlistService;
 import session.SessionManager;
 import session.UserSession;
 
@@ -17,18 +18,29 @@ import java.util.Map;
 public class CourseHandler {
     private final CourseQueryService service;
     private final CourseSelectionService selectionService;
+    private final CourseWaitlistService waitlistService;
 
     public CourseHandler() {
-        this(new CourseQueryService(), new CourseSelectionService());
+        this(defaultServices());
+    }
+
+    private CourseHandler(DefaultServices services) {
+        this(services.queryService, services.selectionService, services.waitlistService);
     }
 
     CourseHandler(CourseQueryService service) {
-        this(service, new CourseSelectionService());
+        this(service, new CourseSelectionService(), new CourseWaitlistService());
     }
 
     CourseHandler(CourseQueryService service, CourseSelectionService selectionService) {
+        this(service, selectionService, new CourseWaitlistService());
+    }
+
+    CourseHandler(CourseQueryService service, CourseSelectionService selectionService,
+                  CourseWaitlistService waitlistService) {
         this.service = service;
         this.selectionService = selectionService;
+        this.waitlistService = waitlistService;
     }
 
     public Message handle(Message request) {
@@ -108,6 +120,24 @@ public class CourseHandler {
                             term.dto(), decimalId(request, "offeringId"),
                             text(request, "operationId")));
                 }
+                case CourseActions.JOIN_WAITLIST -> {
+                    Term term = term(request);
+                    return mutationResponse(response, waitlistService.joinWaitlist(uid,
+                            term.dto(), decimalId(request, "offeringId"),
+                            text(request, "operationId")));
+                }
+                case CourseActions.CANCEL_WAITLIST -> {
+                    Term term = term(request);
+                    return mutationResponse(response, waitlistService.cancelWaitlist(uid,
+                            term.dto(), decimalId(request, "offeringId"),
+                            text(request, "operationId")));
+                }
+                case CourseActions.RESOLVE_WAITLIST_OFFER -> {
+                    Term term = term(request);
+                    return mutationResponse(response, waitlistService.resolveWaitlistOffer(uid,
+                            term.dto(), decimalId(request, "offeringId"),
+                            text(request, "operationId"), text(request, "decision")));
+                }
                 default -> {
                     return failure(response, MessageCode.BAD_REQUEST, "不支持的课程操作");
                 }
@@ -156,7 +186,8 @@ public class CourseHandler {
                 || "WINDOW_CLOSED".equals(outcomeCode)
                 || "SELECTION_CLOSED".equals(outcomeCode)
                 || "DROP_CLOSED".equals(outcomeCode)
-                || "WAITLIST_ACTIVE".equals(outcomeCode);
+                || "WAITLIST_ACTIVE".equals(outcomeCode)
+                || "WAITLIST_OFFER_EXPIRED".equals(outcomeCode);
     }
 
     private static Term term(Message request) {
@@ -227,5 +258,16 @@ public class CourseHandler {
         private CourseTermDTO dto() {
             return new CourseTermDTO(academicYear, semester, "");
         }
+    }
+
+    private static DefaultServices defaultServices() {
+        CourseWaitlistService waitlistService = new CourseWaitlistService();
+        return new DefaultServices(new CourseQueryService(),
+                waitlistService.newSelectionService(), waitlistService);
+    }
+
+    private record DefaultServices(CourseQueryService queryService,
+                                   CourseSelectionService selectionService,
+                                   CourseWaitlistService waitlistService) {
     }
 }
