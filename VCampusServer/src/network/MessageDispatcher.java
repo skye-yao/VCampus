@@ -3,6 +3,7 @@ package network;
 import protocol.Message;
 import protocol.MessageCode;
 import protocol.MessageType;
+import handler.CourseHandler;
 import handler.UserHandler;
 
 /**
@@ -17,9 +18,11 @@ public class MessageDispatcher {
 
     // 各模块 Handler
     private final UserHandler userHandler;
+    private final CourseHandler courseHandler;
 
     public MessageDispatcher() {
         this.userHandler = new UserHandler();
+        this.courseHandler = new CourseHandler();
     }
 
     /**
@@ -41,6 +44,8 @@ public class MessageDispatcher {
         // 根据模块分发
         if ("user".equalsIgnoreCase(module)) {
             return userHandler.handle(request);
+        } else if ("course".equalsIgnoreCase(module)) {
+            return courseHandler.handle(request);
         } else {
             // 未知模块或未实现的模块
             Message response = new Message(MessageType.RESPONSE, module, request.getAction());
