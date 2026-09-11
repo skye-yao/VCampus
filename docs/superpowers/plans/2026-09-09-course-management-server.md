@@ -1,5 +1,7 @@
 # Course Management Server Integration Implementation Plan
 
+> **Superseded:** Do not execute this plan after commit `d178c9c`. The approved replacement is `docs/superpowers/plans/2026-09-10-course-management-system.md`; this file remains only as historical context for completed prerequisite Tasks 1-3.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Connect the completed JavaFX course-management client to authenticated Socket server APIs backed by transactional MySQL course data while preserving the standalone mock preview.
