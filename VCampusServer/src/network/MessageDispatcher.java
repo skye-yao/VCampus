@@ -59,9 +59,9 @@ public class MessageDispatcher {
         String module = request.getModule();
 
         // 根据模块分发
-        if ("user".equalsIgnoreCase(module)) {
+        if ("user".equalsIgnoreCase(module) || "permission".equalsIgnoreCase(module) || "admin".equalsIgnoreCase(module)) {
             return userHandler.handle(request);
-        }else if ("library".equalsIgnoreCase(module)) {
+        } else if ("library".equalsIgnoreCase(module)) {
                 return libraryHandler.handle(request);
         } else if ("student".equalsIgnoreCase(module)) {
             return studentHandler.handle(request);

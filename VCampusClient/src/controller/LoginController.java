@@ -104,6 +104,13 @@ public class LoginController {
                         }
                         ClientSession.getInstance().login(authenticatedUsername, authenticatedRole, token, user);
 
+                        Object permObj = response.getData("adminPermission");
+                        if (permObj != null) {
+                            String permJson = gson.toJson(permObj);
+                            entity.AdminPermission perm = gson.fromJson(permJson, entity.AdminPermission.class);
+                            ClientSession.getInstance().setAdminPermission(perm);
+                        }
+
                         // 跳转到主控制台
                         ClientMain.switchScene("/resources/fxml/MainView.fxml");
                     } else {

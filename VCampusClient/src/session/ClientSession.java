@@ -15,6 +15,7 @@ public class ClientSession {
     private String role;
     private String token;
     private User currentUser;
+    private entity.AdminPermission adminPermission;
 
     private ClientSession() {
     }
@@ -41,6 +42,7 @@ public class ClientSession {
         this.role = null;
         this.token = null;
         this.currentUser = null;
+        this.adminPermission = null;
     }
 
     public synchronized String getUsername() {
@@ -65,5 +67,37 @@ public class ClientSession {
 
     public synchronized boolean isLoggedIn() {
         return token != null && !token.isEmpty();
+    }
+
+    public synchronized void setAdminPermission(entity.AdminPermission adminPermission) {
+        this.adminPermission = adminPermission;
+    }
+
+    public synchronized entity.AdminPermission getAdminPermission() {
+        return adminPermission;
+    }
+
+    public synchronized boolean hasAcademicPermission() {
+        return adminPermission != null && adminPermission.isAcademicPerm();
+    }
+
+    public synchronized boolean hasLibraryPermission() {
+        return adminPermission != null && adminPermission.isLibraryPerm();
+    }
+
+    public synchronized boolean hasCoursePermission() {
+        return adminPermission != null && adminPermission.isCoursePerm();
+    }
+
+    public synchronized boolean hasShopPermission() {
+        return adminPermission != null && adminPermission.isShopPerm();
+    }
+
+    public synchronized boolean hasBankPermission() {
+        return adminPermission != null && adminPermission.isBankPerm();
+    }
+
+    public synchronized boolean hasFinancePermission() {
+        return adminPermission != null && adminPermission.isFinancePerm();
     }
 }

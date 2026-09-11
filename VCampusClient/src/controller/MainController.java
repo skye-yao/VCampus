@@ -13,6 +13,12 @@ import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
+import javafx.scene.layout.VBox;
+import entity.AdminPermission;
+import entity.Student;
+import entity.Teacher;
+import vo.StudentOverviewVO;
+import vo.TeacherOverviewVO;
 import network.SocketClient;
 import protocol.Message;
 import protocol.MessageCode;
@@ -40,7 +46,31 @@ public class MainController {
     @FXML private Button navStoreBtn;
     @FXML private Button navBankBtn;
     @FXML private Button navAiBtn;
+    @FXML private Button permissionNavBtn;
     @FXML private Button navLogoutBtn;
+
+    // ===== 课表卡片 (管理员隐藏) =====
+    @FXML private VBox scheduleCard;
+
+    // ===== 管理员“我的权限”卡片 =====
+    @FXML private VBox adminPermissionCard;
+    @FXML private Label myPermTagLabel;
+    @FXML private Label permStatusAcademic;
+    @FXML private Label permStatusLibrary;
+    @FXML private Label permStatusCourse;
+    @FXML private Label permStatusShop;
+    @FXML private Label permStatusBank;
+    @FXML private Label myPermDetailText;
+
+    // ===== 学生与教师“学籍信息”卡片 =====
+    @FXML private VBox studentAcademicCard;
+    @FXML private Label academicCardTitle;
+    @FXML private Label academicCardTag;
+    @FXML private Label academicNationalityLabel;
+    @FXML private Label academicPoliticalStatusLabel;
+    @FXML private Label academicNativePlaceLabel;
+    @FXML private Label academicStatusKeyLabel;
+    @FXML private Label academicStatusValLabel;
 
     // ===== 个人信息卡片 =====
     @FXML private Label infoNameLabel;
@@ -136,6 +166,37 @@ public class MainController {
         }
         if (walletAccountLabel != null) {
             walletAccountLabel.setText("一卡通号：" + (uid != null ? uid : "—"));
+        }
+
+        // 身份判断：管理员隐藏主页课表；仅 UID==admin 的主管理员显示权限管理入口
+        boolean isAdmin = "ADMIN".equalsIgnoreCase(roleStr) || "管理员".equals(roleStr)
+                || (user != null && user.getRole() == enums.Role.ADMIN);
+        boolean isTeacher = "TEACHER".equalsIgnoreCase(roleStr) || "教师".equals(roleStr)
+                || (user != null && user.getRole() == enums.Role.TEACHER);
+        boolean isSuperAdmin = isAdmin && "admin".equalsIgnoreCase(uid);
+
+        if (scheduleCard != null) {
+            scheduleCard.setVisible(!isAdmin);
+            scheduleCard.setManaged(!isAdmin);
+        }
+        if (permissionNavBtn != null) {
+            permissionNavBtn.setVisible(isSuperAdmin);
+            permissionNavBtn.setManaged(isSuperAdmin);
+        }
+        if (adminPermissionCard != null) {
+            adminPermissionCard.setVisible(isAdmin);
+            adminPermissionCard.setManaged(isAdmin);
+        }
+        if (studentAcademicCard != null) {
+            studentAcademicCard.setVisible(!isAdmin);
+            studentAcademicCard.setManaged(!isAdmin);
+        }
+
+        if (isAdmin) {
+            updateMyPermissionDisplay();
+            fetchMyPermissions();
+        } else {
+            fetchAcademicInfo(isTeacher);
         }
     }
 
@@ -256,6 +317,10 @@ public class MainController {
         if ("TEACHER".equalsIgnoreCase(role) || "教师".equals(role)) {
             ClientMain.switchScene("/resources/fxml/TeacherView.fxml");
         } else if ("ADMIN".equalsIgnoreCase(role) || "管理员".equals(role)) {
+            if (!ClientSession.getInstance().hasAcademicPermission()) {
+                AlertUtil.showWarning("权限不足", "您没有该模块的管理权限");
+                return;
+            }
             ClientMain.switchScene("/resources/fxml/InformationSelectView.fxml");
         } else {
             ClientMain.switchScene("/resources/fxml/StudentView.fxml");
@@ -269,17 +334,40 @@ public class MainController {
 
     @FXML
     public void openCourseSelection(ActionEvent event) {
+        if (isAdminUser()) {
+            if (!ClientSession.getInstance().hasCoursePermission()) {
+                AlertUtil.showWarning("权限不足", "您没有该模块的管理权限");
+                return;
+            }
+        }
         showSubsystemNotice("选课子系统");
     }
 
     @FXML
     public void openStore(ActionEvent event) {
+        if (isAdminUser()) {
+            if (!ClientSession.getInstance().hasShopPermission()) {
+                AlertUtil.showWarning("权限不足", "您没有该模块的管理权限");
+                return;
+            }
+        }
         ClientMain.switchScene("/resources/fxml/ShopView.fxml");
     }
 
     @FXML
     public void openBank(ActionEvent event) {
+        if (isAdminUser()) {
+            if (!ClientSession.getInstance().hasBankPermission()) {
+                AlertUtil.showWarning("权限不足", "您没有该模块的管理权限");
+                return;
+            }
+        }
         ClientMain.switchScene("/resources/fxml/BankView.fxml");
+    }
+
+    @FXML
+    public void handleNavigatePermission(ActionEvent event) {
+        ClientMain.switchScene("/resources/fxml/PermissionView.fxml");
     }
 
     @FXML
@@ -309,5 +397,169 @@ public class MainController {
 
     private void showSubsystemNotice(String name) {
         AlertUtil.showInfo("系统提示", "正在载入 " + name + " 模块...");
+    }
+
+    private boolean isAdminUser() {
+        String role = ClientSession.getInstance().getRole();
+        User user = ClientSession.getInstance().getCurrentUser();
+        return "ADMIN".equalsIgnoreCase(role) || "管理员".equals(role)
+                || (user != null && user.getRole() == enums.Role.ADMIN);
+    }
+
+    private void fetchMyPermissions() {
+        Message request = new Message(MessageType.REQUEST, "user", "get_my_permissions");
+        SocketClient.getInstance().sendAsync(request)
+                .thenAccept(response -> Platform.runLater(() -> {
+                    if (response.getCode() == MessageCode.SUCCESS) {
+                        Object obj = response.getData("adminPermission");
+                        if (obj != null) {
+                            Gson gson = new Gson();
+                            AdminPermission perm = gson.fromJson(gson.toJson(obj), AdminPermission.class);
+                            ClientSession.getInstance().setAdminPermission(perm);
+                            updateMyPermissionDisplay();
+                        }
+                    }
+                }));
+    }
+
+    /**
+     * 刷新并展示当前管理员的权限信息（两行内容：第一行是模块名称，第二行是只读权限状态）
+     */
+    private void updateMyPermissionDisplay() {
+        if (adminPermissionCard == null || !adminPermissionCard.isVisible()) {
+            return;
+        }
+        ClientSession session = ClientSession.getInstance();
+        User user = session.getCurrentUser();
+        String uid = user != null && user.getUID() != null ? user.getUID() : session.getUsername();
+        boolean isSuperAdmin = "admin".equalsIgnoreCase(uid);
+
+        boolean academic = session.hasAcademicPermission();
+        boolean library = session.hasLibraryPermission();
+        boolean course = session.hasCoursePermission();
+        boolean shop = session.hasShopPermission();
+        boolean bank = session.hasBankPermission();
+
+        // 第二行各个模块的只读状态指示
+        setPermBadge(permStatusAcademic, academic);
+        setPermBadge(permStatusLibrary, library);
+        setPermBadge(permStatusCourse, course);
+        setPermBadge(permStatusShop, shop);
+        setPermBadge(permStatusBank, bank);
+
+        // 文字总结
+        List<String> authorized = new java.util.ArrayList<>();
+        if (academic) authorized.add("学籍信息");
+        if (library) authorized.add("图书馆");
+        if (course) authorized.add("选课");
+        if (shop) authorized.add("商店");
+        if (bank) authorized.add("银行");
+
+        if (isSuperAdmin) {
+            if (authorized.isEmpty()) {
+                if (myPermDetailText != null) {
+                    myPermDetailText.setText("暂无业务子系统管理权限（可在左侧“权限管理”中随时按需分配）");
+                }
+                if (myPermTagLabel != null) {
+                    myPermTagLabel.setText("主管理员");
+                }
+            } else {
+                if (myPermDetailText != null) {
+                    myPermDetailText.setText(String.join("、", authorized));
+                }
+                if (myPermTagLabel != null) {
+                    myPermTagLabel.setText("主管理员 · 已授权 " + authorized.size() + " 个模块");
+                }
+            }
+        } else if (authorized.isEmpty()) {
+            if (myPermDetailText != null) {
+                myPermDetailText.setText("暂无任何已授权业务模块，请联系主管理员分配权限");
+            }
+            if (myPermTagLabel != null) {
+                myPermTagLabel.setText("未授权");
+            }
+        } else {
+            if (myPermDetailText != null) {
+                myPermDetailText.setText(String.join("、", authorized));
+            }
+            if (myPermTagLabel != null) {
+                myPermTagLabel.setText("已授权 " + authorized.size() + " 个模块");
+            }
+        }
+    }
+
+    private void setPermBadge(Label label, boolean hasPerm) {
+        if (label == null) return;
+        if (hasPerm) {
+            label.setText("✔ 有权限");
+            label.setStyle("-fx-background-color: #dcfce7; -fx-text-fill: #166534; -fx-font-weight: bold; -fx-padding: 3 10 3 10; -fx-background-radius: 4px; -fx-font-size: 12px;");
+        } else {
+            label.setText("✖ 无权限");
+            label.setStyle("-fx-background-color: #f1f5f9; -fx-text-fill: #94a3b8; -fx-font-weight: bold; -fx-padding: 3 10 3 10; -fx-background-radius: 4px; -fx-font-size: 12px;");
+        }
+    }
+
+    /**
+     * 异步加载学生/教师的学籍档案信息（民族、籍贯、政治面貌等）
+     */
+    private void fetchAcademicInfo(boolean isTeacher) {
+        if (studentAcademicCard == null || !studentAcademicCard.isVisible()) {
+            return;
+        }
+        if (isTeacher) {
+            if (academicCardTitle != null) academicCardTitle.setText("🎓  学籍信息");
+            if (academicStatusKeyLabel != null) academicStatusKeyLabel.setText("在任状态");
+            Message request = new Message(MessageType.TEACHER_OVERVIEW_QUERY, "teacher", "overview");
+            SocketClient.getInstance().sendAsync(request).thenAccept(response -> {
+                if (response.getCode() == MessageCode.SUCCESS) {
+                    Object obj = response.getData("overview");
+                    if (obj != null) {
+                        Gson gson = new Gson();
+                        TeacherOverviewVO vo = gson.fromJson(gson.toJson(obj), TeacherOverviewVO.class);
+                        if (vo != null && vo.getTeacher() != null) {
+                            Teacher t = vo.getTeacher();
+                            Platform.runLater(() -> {
+                                if (academicNationalityLabel != null) academicNationalityLabel.setText(strOrDefault(t.getNationality()));
+                                if (academicNativePlaceLabel != null) academicNativePlaceLabel.setText(strOrDefault(t.getNativePlace()));
+                                if (academicPoliticalStatusLabel != null) academicPoliticalStatusLabel.setText(strOrDefault(t.getPoliticalStatus()));
+                                if (academicStatusValLabel != null) academicStatusValLabel.setText(strOrDefault(t.getEmploymentStatus(), "在职"));
+                                if (academicCardTag != null) academicCardTag.setText(strOrDefault(t.getEmploymentStatus(), "在职"));
+                            });
+                        }
+                    }
+                }
+            }).exceptionally(e -> null);
+        } else {
+            if (academicCardTitle != null) academicCardTitle.setText("🎓  学籍信息");
+            if (academicStatusKeyLabel != null) academicStatusKeyLabel.setText("学籍状态");
+            Message request = new Message(MessageType.STUDENT_OVERVIEW_QUERY, "student", "queryOverview");
+            SocketClient.getInstance().sendAsync(request).thenAccept(response -> {
+                if (response.getCode() == MessageCode.SUCCESS) {
+                    Object obj = response.getData("overview");
+                    if (obj != null) {
+                        Gson gson = new Gson();
+                        StudentOverviewVO vo = gson.fromJson(gson.toJson(obj), StudentOverviewVO.class);
+                        if (vo != null && vo.getStudent() != null) {
+                            Student s = vo.getStudent();
+                            Platform.runLater(() -> {
+                                if (academicNationalityLabel != null) academicNationalityLabel.setText(strOrDefault(s.getNationality()));
+                                if (academicNativePlaceLabel != null) academicNativePlaceLabel.setText(strOrDefault(s.getNativePlace()));
+                                if (academicPoliticalStatusLabel != null) academicPoliticalStatusLabel.setText(strOrDefault(s.getPoliticalStatus()));
+                                if (academicStatusValLabel != null) academicStatusValLabel.setText(strOrDefault(s.getStudentStatus(), "在籍"));
+                                if (academicCardTag != null) academicCardTag.setText(strOrDefault(s.getStudentStatus(), "在籍"));
+                            });
+                        }
+                    }
+                }
+            }).exceptionally(e -> null);
+        }
+    }
+
+    private String strOrDefault(String val) {
+        return (val != null && !val.isBlank()) ? val : "—";
+    }
+
+    private String strOrDefault(String val, String defaultVal) {
+        return (val != null && !val.isBlank()) ? val : defaultVal;
     }
 }

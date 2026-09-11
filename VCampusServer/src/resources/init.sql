@@ -50,7 +50,11 @@ VALUES
 ('223242801', '孙婉清', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '外国语学院', '英语', '13800138006', 'sunwanqing@seu.edu.cn', 10000.00),
 ('223242802', '吴承宇', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '计算机科学与工程学院', '人工智能', '13800138007', 'wuchengyu@seu.edu.cn', 10000.00),
 ('233242815', '郑晓彤', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 2, '医学院', '临床医学', '13800138008', 'zhengxiaotong@seu.edu.cn', 10000.00),
-('admin', '系统管理员', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 0, '网络信息中心', '系统管理', '13900139000', 'admin@seu.edu.cn', 50000.00),
+('admin', '主管理员', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 0, '网络信息中心', '系统管理', '13900139000', 'admin@seu.edu.cn', 50000.00),
+('admin1', '管理员1', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 0, '教务处', '学籍管理', '18800000001', 'alice.jwc@seu.edu.cn', 50000.00),
+('admin2', '管理员2', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 0, '校图书馆', '系统管理', '18800000002', 'andrew.lib@seu.edu.cn', 50000.00),
+('admin3', '管理员3', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 0, '教务处', '课程管理', '18800000003', 'alexander.jwc@seu.edu.cn', 50000.00),
+('admin4', '管理员4', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 0, '财务处', '系统管理', '18800000004', 'arthur.cwc@seu.edu.cn', 50000.00),
 ('teacher01', '李老师', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 1, '计算机科学与工程学院', '副教授', '13700137000', 'teacher@seu.edu.cn', 10000.00)
 ON DUPLICATE KEY UPDATE `name`=VALUES(`name`);
 
@@ -860,5 +864,25 @@ ON DUPLICATE KEY UPDATE
 `name`=VALUES(`name`),
 `author`=VALUES(`author`),
 `publisher`=VALUES(`publisher`);
+
+-- ============================================================
+-- 7. 管理员子系统分权表 tbl_admin_permission
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `tbl_admin_permission` (
+    `uid` VARCHAR(64) NOT NULL COMMENT '管理员一卡通号/账号UID',
+    `academic_perm` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '学籍管理权限: 0-无, 1-有',
+    `library_perm` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '图书馆管理权限: 0-无, 1-有',
+    `course_perm` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '选课管理权限: 0-无, 1-有',
+    `shop_perm` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '商店管理权限: 0-无, 1-有',
+    `bank_perm` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '银行管理权限: 0-无, 1-有',
+    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最后更新时间',
+    PRIMARY KEY (`uid`),
+    CONSTRAINT `fk_admin_perm_user` FOREIGN KEY (`uid`) REFERENCES `tbl_user` (`UID`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='管理员子系统分权表';
+
+-- 主管理员 admin 默认全为 0 (无业务权限且只读)
+INSERT INTO `tbl_admin_permission` (`uid`, `academic_perm`, `library_perm`, `course_perm`, `shop_perm`, `bank_perm`)
+VALUES ('admin', 0, 0, 0, 0, 0)
+ON DUPLICATE KEY UPDATE `academic_perm`=0, `library_perm`=0, `course_perm`=0, `shop_perm`=0, `bank_perm`=0;
 
 
