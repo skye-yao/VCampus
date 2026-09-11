@@ -6,6 +6,7 @@ import dao.CampusFinanceDAO;
 import entity.BankAccount;
 import entity.BankTransaction;
 import entity.FinanceBill;
+import entity.FinanceChargeTarget;
 import entity.Reimbursement;
 import enums.BankAccountStatus;
 import enums.BankTransactionType;
@@ -19,7 +20,12 @@ import java.math.RoundingMode;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -143,6 +149,106 @@ public class BankService implements IBankPaymentService {
         } finally { resetAndClose(conn); }
     }
 
+    public Map<String, Object> batchTransfer(String userId, boolean admin, List<String> targetUserIds,
+                                              BigDecimal amountPerUser, String paymentPassword,
+                                              String requestId, String remark) {
+        if (!admin || !FINANCE_ACCOUNT_USER_ID.equals(userId)) {
+            throw new BusinessException("仅校园财务管理员可以批量转账");
+        }
+        requireRequestId(requestId);
+        if (requestId.length() > 55) throw new BusinessException("批量转账请求编号过长");
+        amountPerUser = normalizeAmount(amountPerUser);
+        if (amountPerUser.compareTo(new BigDecimal("5000.00")) > 0) {
+            throw new BusinessException("批量转账单人金额不能超过5000元");
+        }
+        LinkedHashSet<String> uniqueIds = new LinkedHashSet<>();
+        if (targetUserIds != null) {
+            for (String id : targetUserIds) {
+                if (id != null && !id.isBlank() && !userId.equals(id.trim())) uniqueIds.add(id.trim());
+            }
+        }
+        if (uniqueIds.isEmpty()) throw new BusinessException("请至少选择一名收款人");
+        if (uniqueIds.size() > 1000) throw new BusinessException("一次最多向1000人批量转账");
+        String cleanRemark = remark == null || remark.isBlank() ? "管理员批量转账" : remark.trim();
+        if (cleanRemark.length() > 120) throw new BusinessException("转账说明不能超过120个字符");
+        BigDecimal totalAmount = amountPerUser.multiply(BigDecimal.valueOf(uniqueIds.size()));
+
+        Connection conn = null;
+        try {
+            conn = DBUtil.getConnection(); conn.setAutoCommit(false);
+            BankAccount sourcePreview = requireAccount(conn, userId, false);
+            BankTransaction duplicate = transactionDAO.findByRequestId(conn, requestId + "-0");
+            if (duplicate != null) {
+                validateDuplicate(duplicate, sourcePreview.getAccountId(), BankTransactionType.TRANSFER_OUT,
+                        amountPerUser.negate(), null);
+                conn.commit();
+                Map<String, Object> repeated = new LinkedHashMap<>();
+                repeated.put("transactionNo", duplicate.getTransactionNo());
+                repeated.put("recipientCount", uniqueIds.size());
+                repeated.put("totalAmount", totalAmount);
+                return repeated;
+            }
+
+            LinkedHashSet<String> allowedIds = new LinkedHashSet<>();
+            for (FinanceChargeTarget target : financeDAO.findChargeTargets(conn, null, null, null)) {
+                allowedIds.add(target.getUserId());
+            }
+            if (!allowedIds.containsAll(uniqueIds)) throw new BusinessException("收款列表包含不存在或不可转账的用户");
+
+            List<BankAccount> previews = new ArrayList<>();
+            previews.add(sourcePreview);
+            for (String targetId : uniqueIds) previews.add(requireAccount(conn, targetId, false));
+            previews.sort(Comparator.comparingLong(BankAccount::getAccountId));
+
+            Map<String, BankAccount> lockedAccounts = new LinkedHashMap<>();
+            for (BankAccount preview : previews) {
+                BankAccount locked = requireAccount(conn, preview.getUserId(), true);
+                requireActive(locked);
+                lockedAccounts.put(locked.getUserId(), locked);
+            }
+            BankAccount source = lockedAccounts.get(userId);
+            verifyPaymentPassword(conn, source, paymentPassword);
+            if (source.getBalance().compareTo(totalAmount) < 0) {
+                throw new BusinessException("校园财务账户余额不足，本次共需" + totalAmount + "元");
+            }
+            if (!accountDAO.changeBalance(conn, source.getAccountId(), totalAmount.negate())) {
+                throw new BusinessException("批量转账扣款失败，请刷新后重试");
+            }
+
+            String batchTransactionNo = null;
+            BigDecimal runningSourceBalance = source.getBalance();
+            int recipientIndex = 0;
+            for (String targetId : uniqueIds) {
+                BankAccount target = lockedAccounts.get(targetId);
+                if (!accountDAO.changeBalance(conn, target.getAccountId(), amountPerUser)) {
+                    throw new BusinessException("用户 " + targetId + " 入账失败，已取消整批转账");
+                }
+                runningSourceBalance = runningSourceBalance.subtract(amountPerUser);
+                String sourceTransactionNo = newTransactionNo();
+                if (batchTransactionNo == null) batchTransactionNo = sourceTransactionNo;
+                insertTransaction(conn, sourceTransactionNo, source, targetId,
+                        BankTransactionType.TRANSFER_OUT, amountPerUser.negate(),
+                        runningSourceBalance, null, requestId + "-" + recipientIndex,
+                        cleanRemark + "；转给 " + targetId);
+                insertTransaction(conn, newTransactionNo(), target, source.getUserId(),
+                        BankTransactionType.TRANSFER_IN, amountPerUser,
+                        target.getBalance().add(amountPerUser), null, null,
+                        cleanRemark + "（批次" + batchTransactionNo + "）");
+                recipientIndex++;
+            }
+            conn.commit();
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("transactionNo", batchTransactionNo);
+            result.put("recipientCount", uniqueIds.size());
+            result.put("totalAmount", totalAmount);
+            return result;
+        } catch (BusinessException e) {
+            rollback(conn); throw e;
+        } catch (SQLException e) {
+            rollback(conn); throw new DatabaseException("管理员批量转账失败", e);
+        } finally { resetAndClose(conn); }
+    }
+
     public List<FinanceBill> listBills(String userId, boolean admin) {
         return listBills(userId, admin, null, null, null);
     }
@@ -152,6 +258,69 @@ public class BankService implements IBankPaymentService {
         try (Connection conn = DBUtil.getConnection()) {
             return financeDAO.findBills(conn, userId, admin, keyword, billType, status);
         } catch (SQLException e) { throw new DatabaseException("查询校园账单失败", e); }
+    }
+
+    public List<FinanceChargeTarget> listChargeTargets(boolean admin, String keyword,
+                                                        Integer role, String college) {
+        if (!admin) throw new BusinessException("仅管理员可以查询收费对象");
+        try (Connection conn = DBUtil.getConnection()) {
+            return financeDAO.findChargeTargets(conn, keyword, role, college);
+        } catch (SQLException e) {
+            throw new DatabaseException("查询收费对象失败", e);
+        }
+    }
+
+    public Map<String, Object> createBills(boolean admin, List<String> targetUserIds,
+                                            String billType, String title, BigDecimal amount,
+                                            String dueDateText) {
+        if (!admin) throw new BusinessException("仅管理员可以发起收费");
+        if (targetUserIds == null || targetUserIds.isEmpty()) {
+            throw new BusinessException("请至少选择一名收费对象");
+        }
+        if (title == null || title.isBlank()) throw new BusinessException("收费名称不能为空");
+        title = title.trim();
+        if (title.length() > 100) throw new BusinessException("收费名称不能超过100个字符");
+        if (!List.of("TUITION", "ACCOMMODATION", "OTHER").contains(billType)) {
+            throw new BusinessException("收费类型不正确");
+        }
+        amount = normalizeAmount(amount);
+        if (amount.compareTo(new BigDecimal("1000000.00")) > 0) {
+            throw new BusinessException("单笔收费金额不能超过1000000元");
+        }
+        LocalDate dueDate;
+        try {
+            dueDate = LocalDate.parse(dueDateText);
+        } catch (DateTimeParseException | NullPointerException e) {
+            throw new BusinessException("请选择正确的缴费截止日期");
+        }
+        if (dueDate.isBefore(LocalDate.now())) throw new BusinessException("缴费截止日期不能早于今天");
+
+        LinkedHashSet<String> uniqueIds = new LinkedHashSet<>();
+        for (String id : targetUserIds) {
+            if (id != null && !id.isBlank()) uniqueIds.add(id.trim());
+        }
+        if (uniqueIds.isEmpty()) throw new BusinessException("请至少选择一名收费对象");
+        if (uniqueIds.size() > 5000) throw new BusinessException("一次最多向5000人发起收费");
+
+        Connection conn = null;
+        try {
+            conn = DBUtil.getConnection();
+            conn.setAutoCommit(false);
+            List<String> ids = new ArrayList<>(uniqueIds);
+            int created = financeDAO.createBills(conn, ids, billType, title, amount,
+                    java.sql.Date.valueOf(dueDate));
+            conn.commit();
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("selectedCount", ids.size());
+            result.put("createdCount", created);
+            result.put("skippedCount", ids.size() - created);
+            return result;
+        } catch (SQLException e) {
+            rollback(conn);
+            throw new DatabaseException("批量创建收费账单失败", e);
+        } finally {
+            resetAndClose(conn);
+        }
     }
 
     public Map<String, Object> billStatistics(boolean admin) {
