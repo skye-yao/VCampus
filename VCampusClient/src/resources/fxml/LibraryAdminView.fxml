@@ -35,6 +35,7 @@
             <Label text="作者 *"/><TextField fx:id="authorField"/>
             <Label text="出版社"/><TextField fx:id="publisherField"/>
             <Label text="状态"/><ComboBox fx:id="statusCombo" maxWidth="Infinity"/>
+            <Label text="仅支持：遗失 → 可借（找回入库）" wrapText="true"/>
             <Region VBox.vgrow="ALWAYS"/>
             <GridPane hgap="8.0" vgap="8.0">
                 <columnConstraints><ColumnConstraints percentWidth="50.0"/><ColumnConstraints percentWidth="50.0"/></columnConstraints>

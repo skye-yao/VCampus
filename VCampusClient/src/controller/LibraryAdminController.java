@@ -108,11 +108,22 @@ public class LibraryAdminController {
 
     @FXML private void handleAddBook() {
         Book book = readForm(false);
+        if (book != null && book.getStatus() != BookStatus.AVAILABLE.getCode()) {
+            AlertUtil.showWarning("不合法的图书状态", "新上架图书只能设为可借。");
+            return;
+        }
         if (book != null) run(service.addBook(book), "图书上架成功");
     }
 
     @FXML private void handleUpdateBook() {
         Book book = readForm(true);
+        Book selected = adminBookTable.getSelectionModel().getSelectedItem();
+        if (book != null && selected != null && book.getId() == selected.getId()
+                && book.getStatus() != selected.getStatus()
+                && !(selected.getStatus() == BookStatus.LOST.getCode() && book.getStatus() == BookStatus.AVAILABLE.getCode())) {
+            AlertUtil.showWarning("不合法的状态转换", "管理员只能将遗失图书改为可借（找回入库）。借阅、预约和挂失请通过对应业务操作。");
+            return;
+        }
         if (book != null) run(service.updateBook(book), "图书信息修改成功");
     }
 

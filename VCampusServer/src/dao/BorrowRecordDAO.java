@@ -258,7 +258,7 @@ public class BorrowRecordDAO {
         String sql =
                 "SELECT id, userid, bookid, borrowTime, returnTime, dueTime, status " +
                         "FROM tblBorrowRecord " +
-                        "WHERE userid = ? AND status IN (0, 2) " +
+                        "WHERE userid = ? AND status IN (0, 2) AND returnTime IS NULL " +
                         "ORDER BY dueTime ASC";
 
         Connection conn = null;

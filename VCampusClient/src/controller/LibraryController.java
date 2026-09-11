@@ -103,15 +103,20 @@ public class LibraryController {
         table.getColumns().add(1, name);
     }
     @FXML private ListView<vo.LostBookNotice> lossNoticeList;
+    private long lossNoticeVersion;
+    private long myLibraryVersion;
 
     @FXML private void refreshLossNotices() {
+        long version = ++lossNoticeVersion;
         service.getPublicLossNotices().whenComplete((notices, error) -> Platform.runLater(() -> {
+            if (version != lossNoticeVersion) return;
             if (error != null) showError("加载挂失公告失败", error);
             else lossNoticeList.getItems().setAll(notices);
         }));
     }
 
     @FXML private Tab adminTab;
+    @FXML private TabPane libraryTabs;
     @FXML private TextField searchField;
     @FXML private TableView<Book> bookTable;
     @FXML private TableColumn<Book, Number> bookIdColumn;
@@ -185,6 +190,12 @@ public class LibraryController {
             adminTab.setDisable(true);
         }
         bookTable.getSelectionModel().selectedItemProperty().addListener((obs, oldBook, newBook) -> showBook(newBook));
+        libraryTabs.getSelectionModel().selectedItemProperty().addListener((obs, oldTab, newTab) -> {
+            if (newTab != adminTab) {
+                handleSearch();
+                refreshMyLibrary();
+            }
+        });
         handleSearch();
         refreshMyLibrary();
     }
@@ -215,7 +226,8 @@ public class LibraryController {
         historyBookColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(c.getValue().getBookId()));
         historyBorrowTimeColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(time(c.getValue().getBorrowTime())));
         historyReturnTimeColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(time(c.getValue().getReturnTime())));
-        historyStatusColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(borrowStatus(c.getValue().getStatus())));
+        historyStatusColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(c.getValue().isLossReported()
+                ? "挂失中" : borrowStatus(c.getValue().getStatus())));
 
         reservationBookColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(c.getValue().getBookId()));
         reservationTimeColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(time(c.getValue().getReserveTime())));
@@ -300,23 +312,25 @@ public class LibraryController {
     }
 
     @FXML private void refreshMyLibrary() {
+        long version = ++myLibraryVersion;
         service.searchBooks("").whenComplete((books, error) -> Platform.runLater(() -> {
+            if (version != myLibraryVersion) return;
             if (error != null) { showError("加载书名失败", error); return; }
             bookNames.clear();
             for (Book book : books) bookNames.put(book.getId(), book.getName());
             currentBorrowTable.refresh(); historyTable.refresh(); reservationTable.refresh();
         }));
         refreshLossNotices();
-        service.getCurrentBorrow().whenComplete((v, e) -> updateTable(currentBorrowTable, v, e, "当前借阅"));
-        service.getBorrowHistory().whenComplete((v, e) -> updateTable(historyTable, v, e, "借阅历史"));
-        service.getReservations().whenComplete((v, e) -> updateTable(reservationTable, v, e, "预约记录"));
-        service.getFineRecords().whenComplete((v, e) -> updateTable(fineTable, v, e, "罚款记录"));
+        service.getCurrentBorrow().whenComplete((v, e) -> updateTable(currentBorrowTable, v, e, "当前借阅", version));
+        service.getBorrowHistory().whenComplete((v, e) -> updateTable(historyTable, v, e, "借阅历史", version));
+        service.getReservations().whenComplete((v, e) -> updateTable(reservationTable, v, e, "预约记录", version));
+        service.getFineRecords().whenComplete((v, e) -> updateTable(fineTable, v, e, "罚款记录", version));
     }
 
     @FXML private void handleReportLoss() {
         BorrowRecord record = currentBorrowTable.getSelectionModel().getSelectedItem();
         if (record == null) { AlertUtil.showWarning("提示", "请在当前借阅中选择一本图书"); return; }
-        runAction(service.reportLoss(record.getBookId()), "图书挂失成功", this::refreshMyLibrary);
+        runAction(service.reportLoss(record.getBookId()), "图书挂失成功", () -> { refreshMyLibrary(); handleSearch(); });
     }
 
     @FXML private void handleCancelReservation() {
@@ -334,7 +348,7 @@ public class LibraryController {
     @FXML private void handleCancelLoss() {
         BorrowRecord record = currentBorrowTable.getSelectionModel().getSelectedItem();
         if (record == null) { AlertUtil.showWarning("提示", "请在当前借阅中选择一本图书"); return; }
-        runAction(service.cancelLoss(record.getBookId()), "已解除挂失", this::refreshMyLibrary);
+        runAction(service.cancelLoss(record.getBookId()), "已解除挂失", () -> { refreshMyLibrary(); handleSearch(); });
     }
 
     @FXML private void handlePayFine() {
@@ -353,8 +367,9 @@ public class LibraryController {
         }));
     }
 
-    private <T> void updateTable(TableView<T> table, List<T> values, Throwable error, String name) {
+    private <T> void updateTable(TableView<T> table, List<T> values, Throwable error, String name, long version) {
         Platform.runLater(() -> {
+            if (version != myLibraryVersion) return;
             if (error != null) showError("加载" + name + "失败", error);
             else table.getItems().setAll(values);
         });

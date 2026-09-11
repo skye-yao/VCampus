@@ -17,6 +17,60 @@ import java.util.List;
  * 负责 tblBook 表的数据访问。
  */
 public class BookDAO {
+    @FunctionalInterface
+    interface ConnectionFactory { Connection open() throws SQLException; }
+    private final ConnectionFactory connections;
+
+    public BookDAO() { this(DBUtil::getConnection); }
+    BookDAO(ConnectionFactory connections) { this.connections = connections; }
+
+    private boolean lockBook(Connection conn, int bookId) throws SQLException {
+        try (PreparedStatement stmt = conn.prepareStatement("SELECT id FROM tblBook WHERE id=? FOR UPDATE")) {
+            stmt.setInt(1, bookId);
+            try (ResultSet rows = stmt.executeQuery()) { return rows.next(); }
+        }
+    }
+
+    private int executeForBook(Connection conn, String sql, int bookId) throws SQLException {
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setInt(1, bookId);
+            return stmt.executeUpdate();
+        }
+    }
+
+    /** 用户挂失与管理员修改共用图书行锁，检查和写入不可分开提交。 */
+    public boolean changeLoss(String userId, int bookId, boolean report) throws SQLException {
+        try (Connection conn = connections.open()) {
+            conn.setAutoCommit(false);
+            try {
+                if (!lockBook(conn, bookId)) { conn.rollback(); return false; }
+                try (PreparedStatement stmt = conn.prepareStatement(
+                        "SELECT id FROM tblBorrowRecord WHERE bookid=? AND userid=? AND status IN(0,2) AND returnTime IS NULL")) {
+                    stmt.setInt(1, bookId); stmt.setString(2, userId);
+                    try (ResultSet rows = stmt.executeQuery()) {
+                        if (!rows.next()) { conn.rollback(); return false; }
+                    }
+                }
+                boolean active;
+                try (PreparedStatement stmt = conn.prepareStatement(
+                        "SELECT id FROM tblLossRecord WHERE bookid=? AND userid=? AND status=0")) {
+                    stmt.setInt(1, bookId); stmt.setString(2, userId);
+                    try (ResultSet rows = stmt.executeQuery()) { active = rows.next(); }
+                }
+                if (active == report) { conn.rollback(); return false; }
+                try (PreparedStatement stmt = conn.prepareStatement(report
+                        ? "INSERT INTO tblLossRecord(bookid,userid,lossTime,status) VALUES(?,?,CURRENT_TIMESTAMP,0)"
+                        : "UPDATE tblLossRecord SET status=1 WHERE bookid=? AND userid=? AND status=0")) {
+                    stmt.setInt(1, bookId); stmt.setString(2, userId); stmt.executeUpdate();
+                }
+                executeForBook(conn, "UPDATE tblBook SET status=CASE WHEN EXISTS " +
+                        "(SELECT 1 FROM tblLossRecord l WHERE l.bookid=tblBook.id AND l.status=0) " +
+                        "THEN 3 ELSE 1 END WHERE id=?", bookId);
+                conn.commit();
+                return true;
+            } catch (SQLException | RuntimeException e) { conn.rollback(); throw e; }
+        }
+    }
     public boolean cancelReservation(String userId, int reservationId) throws SQLException {
         try (Connection conn = DBUtil.getConnection()) {
             conn.setAutoCommit(false);
@@ -261,35 +315,47 @@ public class BookDAO {
     }
 
     /**
-     * 修改图书基本信息。
+     * 管理员只能将遗失图书找回入库；状态不变时仅修改基本信息。
      *
      * @param book 图书
      * @return 是否修改成功
      */
     public boolean update(Book book) throws SQLException {
-
-        String sql =
-                "UPDATE tblBook " +
-                        "SET isbn = ?, name = ?, author = ?, publisher = ? " +
-                        "WHERE id = ?";
-
-        Connection conn = null;
-        PreparedStatement stmt = null;
-
-        try {
-            conn = DBUtil.getConnection();
-            stmt = conn.prepareStatement(sql);
-
-            stmt.setString(1, book.getIsbn());
-            stmt.setString(2, book.getName());
-            stmt.setString(3, book.getAuthor());
-            stmt.setString(4, book.getPublisher());
-            stmt.setInt(5, book.getId());
-
-            return stmt.executeUpdate() > 0;
-
-        } finally {
-            DBUtil.close(conn, stmt, null);
+        if (book == null || book.getId() <= 0 || book.getStatus() < 0 || book.getStatus() > 3) return false;
+        try (Connection conn = connections.open()) {
+            conn.setAutoCommit(false);
+            try {
+                int id = book.getId();
+                if (!lockBook(conn, id)) { conn.rollback(); return false; }
+                int currentStatus;
+                try (PreparedStatement query = conn.prepareStatement(BOOK_SELECT + "WHERE id=?")) {
+                    query.setInt(1, id);
+                    try (ResultSet rows = query.executeQuery()) {
+                        if (!rows.next()) { conn.rollback(); return false; }
+                        currentStatus = rows.getInt("status");
+                    }
+                }
+                int status = book.getStatus();
+                boolean recovered = currentStatus == 3 && status == 0;
+                if (status != currentStatus && !recovered) {
+                    throw new IllegalArgumentException("不合法的状态转换：管理员只能将遗失图书改为可借（找回入库），请刷新后重试");
+                }
+                if (recovered) {
+                    executeForBook(conn, "UPDATE tblLossRecord SET status=1 WHERE bookid=? AND status=0", id);
+                    executeForBook(conn, "UPDATE tblBorrowRecord SET status=1,returnTime=CURRENT_TIMESTAMP " +
+                            "WHERE bookid=? AND status IN(0,2) AND returnTime IS NULL", id);
+                    executeForBook(conn, "UPDATE tblReservation SET status=1 WHERE bookid=? AND status=0", id);
+                    executeForBook(conn, "UPDATE tblBook SET status=0 WHERE id=?", id);
+                }
+                try (PreparedStatement stmt = conn.prepareStatement(
+                        "UPDATE tblBook SET isbn=?,name=?,author=?,publisher=? WHERE id=?")) {
+                    stmt.setString(1, book.getIsbn()); stmt.setString(2, book.getName());
+                    stmt.setString(3, book.getAuthor()); stmt.setString(4, book.getPublisher());
+                    stmt.setInt(5, id); stmt.executeUpdate();
+                }
+                conn.commit();
+                return true;
+            } catch (SQLException | RuntimeException e) { conn.rollback(); throw e; }
         }
     }
 
