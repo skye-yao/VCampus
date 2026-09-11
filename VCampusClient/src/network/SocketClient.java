@@ -11,11 +11,14 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 
 import com.google.gson.Gson;
 
 import protocol.Message;
 import protocol.MessageType;
+import service.CourseSubscription;
 import session.ClientSession;
 
 /**
@@ -64,6 +67,18 @@ public class SocketClient {
     /** 当前连接代际对应的消息分发器 */
     private MessageDispatcher dispatcher;
 
+    /** 跨连接代际持久的 PUSH 与重连监听注册表 */
+    private final PushListenerRegistry pushListeners = new PushListenerRegistry();
+
+    /** 连接代际令牌：每次真正建立连接时递增 */
+    private final AtomicLong generationCounter = new AtomicLong();
+
+    /** 重连通知声明与代际校验共用的锁 */
+    private final Object reconnectLock = new Object();
+
+    /** 已通知过的代际，保证每个有效代际至多通知一次 */
+    private long notifiedGeneration;
+
     /** 防止多个线程写出的 JSON 行互相穿插 */
     private final Object sendLock = new Object();
 
@@ -82,35 +97,83 @@ public class SocketClient {
     /**
      * 连接服务器。若连接有效则直接返回；若旧连接已失效则重连。
      */
-    public synchronized void connect() throws IOException {
-        if (isConnected() && receiver != null && receiver.isRunning()) {
-            return;
+    public void connect() throws IOException {
+        long generation;
+        synchronized (this) {
+            if (isConnected() && receiver != null && receiver.isRunning()) {
+                return;
+            }
+
+            MessageDispatcher previousDispatcher = dispatcher;
+
+            // 旧连接已失效（对端关闭或接收线程已结束），清理后重连
+            if (receiver != null) {
+                receiver.stop();
+            }
+            closeSocketQuietly();
+
+            if (previousDispatcher != null) {
+                previousDispatcher.failAllPending(new IOException("与服务器的连接已断开"));
+            }
+
+            socket = new Socket(host, port);
+            writer = new PrintWriter(socket.getOutputStream(), true);
+            reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+
+            MessageDispatcher connectionDispatcher = new MessageDispatcher(pushListeners);
+            dispatcher = connectionDispatcher;
+            receiver = new MessageReceiver(reader, gson, connectionDispatcher);
+            Thread receiverThread = new Thread(receiver, "MessageReceiver");
+            receiverThread.setDaemon(true);
+            receiverThread.start();
+
+            // 代际令牌按连接建立顺序分配；pending future 不跨代际（旧 dispatcher 已 failAllPending）
+            generation = generationCounter.incrementAndGet();
+
+            System.out.println("已连接服务器: " + host + ":" + port);
         }
 
-        MessageDispatcher previousDispatcher = dispatcher;
+        // 只有该代际仍是当前代际且尚未通知过才触发；冗余、失败或被更新代际取代的 connect 不通知
+        fireReconnectIfCurrent(generation);
+    }
 
-        // 旧连接已失效（对端关闭或接收线程已结束），清理后重连
-        if (receiver != null) {
-            receiver.stop();
+    /**
+     * 当前连接代际令牌；从未连接过为 0。
+     */
+    long connectionGeneration() {
+        return generationCounter.get();
+    }
+
+    /**
+     * 仅当给定代际仍是最新代际且未通知过时，才通知一次重连监听。
+     */
+    void fireReconnectIfCurrent(long generation) {
+        synchronized (reconnectLock) {
+            if (generationCounter.get() != generation || notifiedGeneration == generation) {
+                return;
+            }
+            notifiedGeneration = generation;
         }
-        closeSocketQuietly();
+        pushListeners.fireReconnect();
+    }
 
-        if (previousDispatcher != null) {
-            previousDispatcher.failAllPending(new IOException("与服务器的连接已断开"));
-        }
+    /**
+     * 注册持久课程推送监听，重新连接后仍然有效。
+     */
+    public CourseSubscription subscribePush(String module, String action,
+            Consumer<Message> listener) {
+        PushListenerRegistry.Subscription subscription =
+                pushListeners.registerPush(module, action, listener);
+        return subscription::cancel;
+    }
 
-        socket = new Socket(host, port);
-        writer = new PrintWriter(socket.getOutputStream(), true);
-        reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-
-        MessageDispatcher connectionDispatcher = new MessageDispatcher();
-        dispatcher = connectionDispatcher;
-        receiver = new MessageReceiver(reader, gson, connectionDispatcher);
-        Thread receiverThread = new Thread(receiver, "MessageReceiver");
-        receiverThread.setDaemon(true);
-        receiverThread.start();
-
-        System.out.println("已连接服务器: " + host + ":" + port);
+    /**
+     * 注册持久重连监听，只在成功建立新连接代际后触发。
+     */
+    public CourseSubscription subscribeReconnect(Runnable listener) {
+        PushListenerRegistry.Subscription subscription =
+                pushListeners.registerReconnect(listener);
+        return subscription::cancel;
     }
 
     /**

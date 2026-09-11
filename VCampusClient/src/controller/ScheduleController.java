@@ -22,13 +22,13 @@ import javafx.scene.layout.Region;
 import javafx.scene.layout.RowConstraints;
 import javafx.scene.layout.VBox;
 import model.course.CourseNoticeView;
+import model.course.CourseTermView;
 import model.course.ScheduleEntryView;
 import service.CourseService;
 import service.CourseServices;
 import util.AlertUtil;
 
 public final class ScheduleController {
-    private static final String DEFAULT_TERM = "2026-2027 秋学期";
     private static final int FIRST_PERIOD = 1;
     private static final int LAST_PERIOD = 10;
 
@@ -36,9 +36,11 @@ public final class ScheduleController {
     private final BiConsumer<String, String> infoReporter;
     private final BiConsumer<String, String> errorReporter;
     private final Consumer<Runnable> fxExecutor;
+    private CourseTermView selectedTerm;
     private long loadGeneration;
+    private long termLoadGeneration; // 学期加载的版本管理，避免陈旧学期覆盖最新服务端学期
 
-    @FXML private ComboBox<String> termFilter;
+    @FXML private ComboBox<CourseTermView> termFilter;
     @FXML private Spinner<Integer> weekSpinner;
     @FXML private GridPane scheduleGrid;
     @FXML private VBox noticeList;
@@ -58,16 +60,19 @@ public final class ScheduleController {
 
     @FXML
     public void initialize() {
-        termFilter.getItems().add(DEFAULT_TERM);
-        termFilter.setValue(DEFAULT_TERM);
         weekSpinner.setValueFactory(
                 new SpinnerValueFactory.IntegerSpinnerValueFactory(1, 20, 3));
-        termFilter.valueProperty().addListener(
-                (observable, oldValue, newValue) -> refresh());
+        termFilter.valueProperty().addListener((observable, oldValue, newValue) -> {
+            if (newValue != null && !newValue.equals(selectedTerm)) {
+                selectedTerm = newValue;
+                refresh();
+            }
+        });
         weekSpinner.valueProperty().addListener(
                 (observable, oldValue, newValue) -> refresh());
         renderSchedule(Collections.emptyList());
         renderNotices(Collections.emptyList());
+        loadTerms();
     }
 
     @FXML
@@ -75,35 +80,75 @@ public final class ScheduleController {
         fxExecutor.accept(this::loadSchedule);
     }
 
-    private void loadSchedule() {
-        String term = termFilter.getValue();
-        Integer selectedWeek = weekSpinner.getValue();
-        if (term == null || selectedWeek == null) {
-            return;
-        }
+    private void loadTerms() {
+        requestTerms(terms -> {
+            termFilter.getItems().setAll(terms);
+            if (terms.isEmpty()) {
+                selectedTerm = null;
+                renderSchedule(Collections.emptyList());
+                renderNotices(Collections.emptyList(), "暂无学期");
+            } else {
+                termFilter.setValue(terms.get(0));
+            }
+        }, error -> {
+            selectedTerm = null;
+            termFilter.getItems().clear();
+            renderSchedule(Collections.emptyList());
+            renderNotices(Collections.emptyList(), "加载失败，请刷新重试");
+            errorReporter.accept("加载失败", errorMessage(error));
+        });
+    }
 
+    void requestTerms(Consumer<List<CourseTermView>> onLoaded,
+            Consumer<Throwable> onError) {
+        long generation = ++termLoadGeneration;
+        service.loadTerms().whenComplete((terms, error) -> fxExecutor.accept(() -> {
+            if (generation != termLoadGeneration) return;
+            if (error != null) {
+                onError.accept(error);
+            } else {
+                onLoaded.accept(List.copyOf(terms));
+            }
+        }));
+    }
+
+    void requestScheduleData(CourseTermView term, int week,
+            Consumer<ScheduleData> onLoaded, Consumer<Throwable> onError) {
         long generation = ++loadGeneration;
-        renderSchedule(Collections.emptyList());
-        renderNotices(Collections.emptyList(), "正在加载课表...");
         CompletableFuture<List<ScheduleEntryView>> scheduleFuture =
-                service.loadSchedule(term, selectedWeek);
+                service.loadSchedule(term, week);
         CompletableFuture<List<CourseNoticeView>> noticeFuture =
-                service.loadNotices(term, selectedWeek);
-
+                service.loadNotices(term, week);
         scheduleFuture.thenCombine(noticeFuture, ScheduleData::new)
                 .whenComplete((data, error) -> fxExecutor.accept(() -> {
                     if (generation != loadGeneration) {
                         return;
                     }
                     if (error != null) {
-                        renderSchedule(Collections.emptyList());
-                        renderNotices(Collections.emptyList(), "加载失败，请刷新重试");
-                        errorReporter.accept("加载失败", errorMessage(error));
-                        return;
+                        onError.accept(error);
+                    } else {
+                        onLoaded.accept(data);
                     }
-                    renderSchedule(data.entries);
-                    renderNotices(data.notices);
                 }));
+    }
+
+    private void loadSchedule() {
+        CourseTermView term = selectedTerm != null ? selectedTerm : termFilter.getValue();
+        Integer selectedWeek = weekSpinner.getValue();
+        if (term == null || selectedWeek == null) {
+            return;
+        }
+
+        renderSchedule(Collections.emptyList());
+        renderNotices(Collections.emptyList(), "正在加载课表...");
+        requestScheduleData(term, selectedWeek, data -> {
+            renderSchedule(data.entries);
+            renderNotices(data.notices);
+        }, error -> {
+            renderSchedule(Collections.emptyList());
+            renderNotices(Collections.emptyList(), "加载失败，请刷新重试");
+            errorReporter.accept("加载失败", errorMessage(error));
+        });
     }
 
     private void renderSchedule(List<ScheduleEntryView> entries) {
@@ -285,7 +330,7 @@ public final class ScheduleController {
         }
     }
 
-    private static final class ScheduleData {
+    static final class ScheduleData {
         private final List<ScheduleEntryView> entries;
         private final List<CourseNoticeView> notices;
 
@@ -293,6 +338,14 @@ public final class ScheduleController {
                 List<CourseNoticeView> notices) {
             this.entries = entries;
             this.notices = notices;
+        }
+
+        List<ScheduleEntryView> getEntries() {
+            return entries;
+        }
+
+        List<CourseNoticeView> getNotices() {
+            return notices;
         }
     }
 }

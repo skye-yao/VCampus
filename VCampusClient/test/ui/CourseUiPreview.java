@@ -37,6 +37,7 @@ public final class CourseUiPreview extends Application {
 
     @Override
     public void start(Stage stage) throws Exception {
+        CourseServices.install(new MockCourseService());
         requireMockService(CourseServices.current());
 
         URL resource = viewResource();

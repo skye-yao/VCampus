@@ -240,17 +240,19 @@ public final class TrainingPlanControllerTest {
         }
 
         @Override
-        public CompletableFuture<List<ScheduleEntryView>> loadSchedule(String term, int week) {
+        public CompletableFuture<List<ScheduleEntryView>> loadSchedule(
+                CourseTermView term, int week) {
             return CompletableFuture.completedFuture(Collections.emptyList());
         }
 
         @Override
-        public CompletableFuture<List<CourseNoticeView>> loadNotices(String term, int week) {
+        public CompletableFuture<List<CourseNoticeView>> loadNotices(
+                CourseTermView term, int week) {
             return CompletableFuture.completedFuture(Collections.emptyList());
         }
 
         @Override
-        public CompletableFuture<GradeSummaryView> loadGrades(String term) {
+        public CompletableFuture<GradeSummaryView> loadGrades(CourseTermView term) {
             return CompletableFuture.completedFuture(null);
         }
 

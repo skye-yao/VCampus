@@ -7,6 +7,9 @@ import javafx.scene.control.ToggleButton;
 
 public final class CourseManagementController {
 
+    private Runnable backAction =
+            () -> ClientMain.switchScene("/resources/fxml/MainView.fxml");
+
     @FXML private Node selectionPage;
     @FXML private Node schedulePage;
     @FXML private Node gradePage;
@@ -48,8 +51,19 @@ public final class CourseManagementController {
     }
 
     @FXML
-    private void handleBack() {
-        ClientMain.switchScene("/resources/fxml/MainView.fxml");
+    void handleBack() {
+        // 切回主菜单前先释放选课页面的推送监听与本地重试，再执行导航
+        disposeCoursePages();
+        backAction.run();
+    }
+
+    /**
+     * 课程页面被替换（返回主菜单）前释放选课页面的推送监听与本地重试。幂等。
+     */
+    void disposeCoursePages() {
+        if (selectionPageController != null) {
+            selectionPageController.dispose();
+        }
     }
 
     private void activate(Node page, ToggleButton button, Runnable refreshAction) {

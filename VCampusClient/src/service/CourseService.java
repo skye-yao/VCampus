@@ -49,11 +49,11 @@ public interface CourseService {
 
     CourseSubscription subscribe(CoursePushListener listener);
 
-    CompletableFuture<List<ScheduleEntryView>> loadSchedule(String term, int week);
+    CompletableFuture<List<ScheduleEntryView>> loadSchedule(CourseTermView term, int week);
 
-    CompletableFuture<List<CourseNoticeView>> loadNotices(String term, int week);
+    CompletableFuture<List<CourseNoticeView>> loadNotices(CourseTermView term, int week);
 
-    CompletableFuture<GradeSummaryView> loadGrades(String term);
+    CompletableFuture<GradeSummaryView> loadGrades(CourseTermView term);
 
     CompletableFuture<List<TrainingPlanGroupView>> loadTrainingPlan();
 }

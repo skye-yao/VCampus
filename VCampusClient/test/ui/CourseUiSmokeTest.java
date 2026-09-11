@@ -15,6 +15,8 @@ import javafx.scene.control.ButtonBase;
 import javafx.scene.image.WritableImage;
 import javafx.stage.Stage;
 import javafx.util.Duration;
+import service.CourseServices;
+import service.MockCourseService;
 
 public final class CourseUiSmokeTest {
     private static final String[] FILES = {
@@ -40,6 +42,7 @@ public final class CourseUiSmokeTest {
     }
 
     public static void main(String[] args) throws Exception {
+        CourseServices.install(new MockCourseService());
         prepareOutputDirectory();
         Application.launch(SnapshotApplication.class, args);
     }

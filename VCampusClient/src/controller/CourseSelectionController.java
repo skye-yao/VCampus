@@ -1,5 +1,7 @@
 package controller;
 
+import java.time.Clock;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -12,6 +14,10 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
@@ -33,12 +39,14 @@ import model.course.CourseMeetingView;
 import model.course.CourseMutationResultView;
 import model.course.CourseOfferingView;
 import model.course.CoursePlanSnapshotView;
+import model.course.CoursePushEventView;
 import model.course.CourseSelectionItemView;
 import model.course.CourseTeacherView;
 import model.course.CourseTermView;
 import model.course.CourseView;
 import model.course.SelectionStatus;
 import model.course.WaitlistDecision;
+import service.CoursePushCoordinator;
 import service.CourseService;
 import service.CourseServices;
 import util.AlertUtil;
@@ -47,6 +55,13 @@ public final class CourseSelectionController {
     enum SelectionTab {
         ALL, PLAN, WAITLIST, ENROLLED
     }
+
+    private static final ScheduledExecutorService RETRY_EXECUTOR =
+            Executors.newSingleThreadScheduledExecutor(runnable -> {
+                Thread thread = new Thread(runnable, "CoursePushRetry");
+                thread.setDaemon(true);
+                return thread;
+            });
 
     private final CourseService service;
     private final BiFunction<String, String, ButtonType> confirmation;
@@ -70,6 +85,7 @@ public final class CourseSelectionController {
     private long courseLoadGeneration;
     private long snapshotLoadGeneration;
     private long offeringCacheGeneration;
+    private CoursePushCoordinator pushCoordinator;
 
     @FXML private TextField searchField;
     @FXML private ComboBox<CourseTermView> termFilter;
@@ -107,6 +123,7 @@ public final class CourseSelectionController {
         this.waitlistDecisionPrompt = waitlistDecisionPrompt;
         this.errorReporter = errorReporter;
         this.fxExecutor = fxExecutor;
+        startPushCoordinator();
     }
 
     @FXML
@@ -122,6 +139,58 @@ public final class CourseSelectionController {
         });
         selectTab(SelectionTab.ALL);
         loadTerms();
+    }
+
+    /**
+     * 视图 detached 或被替换时释放推送/reconnect 监听与本地重试。幂等。
+     */
+    public void dispose() {
+        CoursePushCoordinator coordinator = pushCoordinator;
+        pushCoordinator = null;
+        if (coordinator != null) {
+            coordinator.close();
+        }
+    }
+
+    private void startPushCoordinator() {
+        if (pushCoordinator != null) return;
+        pushCoordinator = new CoursePushCoordinator(service,
+                this::showCourseEvent,
+                this::reloadAuthoritativeSnapshot,
+                fxExecutor,
+                CourseSelectionController::scheduleRetry,
+                () -> currentTerm,
+                Clock.systemUTC());
+        pushCoordinator.start();
+    }
+
+    private static CoursePushCoordinator.RetryHandle scheduleRetry(
+            Runnable task, long delayMillis) {
+        ScheduledFuture<?> future =
+                RETRY_EXECUTOR.schedule(task, delayMillis, TimeUnit.MILLISECONDS);
+        return () -> future.cancel(false);
+    }
+
+    private void showCourseEvent(CoursePushEventView event, Duration remaining) {
+        String suffix = remaining == null ? ""
+                : "（剩余 " + Math.max(0L, remaining.toMinutes()) + " 分钟）";
+        String message = (event.getMessage() == null ? "课程状态已更新" : event.getMessage())
+                + suffix;
+        AlertUtil.showInfo("课程通知", message);
+    }
+
+    private CompletableFuture<Void> reloadAuthoritativeSnapshot() {
+        CourseTermView term = currentTerm;
+        if (term == null) {
+            return CompletableFuture.completedFuture(null);
+        }
+        CompletableFuture<Void> done = new CompletableFuture<>();
+        requestSnapshot(term, loaded -> {
+            acceptAuthoritativeSnapshot(term, loaded);
+            renderCourses();
+            done.complete(null);
+        }, error -> done.completeExceptionally(error));
+        return done;
     }
 
     @FXML

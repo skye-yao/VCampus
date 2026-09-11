@@ -1,12 +1,22 @@
 package service;
 
+import java.util.Objects;
+
 public final class CourseServices {
-    private static final CourseService CURRENT = new MockCourseService();
+    private static volatile CourseService current = new SocketCourseService();
 
     private CourseServices() {
     }
 
     public static CourseService current() {
-        return CURRENT;
+        return current;
+    }
+
+    public static void install(CourseService service) {
+        current = Objects.requireNonNull(service, "Course service is required");
+    }
+
+    public static void resetToSocket() {
+        current = new SocketCourseService();
     }
 }

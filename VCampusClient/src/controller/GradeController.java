@@ -12,6 +12,7 @@ import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
+import model.course.CourseTermView;
 import model.course.GradeRecordView;
 import model.course.GradeSummaryView;
 import service.CourseService;
@@ -19,15 +20,14 @@ import service.CourseServices;
 import util.AlertUtil;
 
 public final class GradeController {
-    private static final String DEFAULT_TERM = "2026-2027 秋学期";
-    private static final String EMPTY_TERM = "2025-2026 春学期";
-
     private final CourseService service;
     private final BiConsumer<String, String> errorReporter;
     private final Consumer<Runnable> fxExecutor;
+    private CourseTermView selectedTerm;
     private long loadGeneration;
+    private long termLoadGeneration;
 
-    @FXML private ComboBox<String> termFilter;
+    @FXML private ComboBox<CourseTermView> termFilter;
     @FXML private Label termGpaLabel;
     @FXML private Label termAverageLabel;
     @FXML private Label cumulativeAverageLabel;
@@ -60,14 +60,18 @@ public final class GradeController {
     @FXML
     public void initialize() {
         configureColumns();
-        termFilter.getItems().setAll(DEFAULT_TERM, EMPTY_TERM);
-        termFilter.setValue(DEFAULT_TERM);
         termFilter.valueProperty().addListener(
-                (observable, oldValue, newValue) -> refresh());
+                (observable, oldValue, newValue) -> {
+                    if (newValue != null && !newValue.equals(selectedTerm)) {
+                        selectedTerm = newValue;
+                        refresh();
+                    }
+                });
         gradeTable.getSelectionModel().selectedItemProperty().addListener(
                 (observable, oldValue, newValue) -> renderDetails(newValue));
         clearGradeData();
         showEmptyState("请选择学期");
+        loadTerms();
     }
 
     @FXML
@@ -75,7 +79,26 @@ public final class GradeController {
         fxExecutor.accept(this::loadGrades);
     }
 
-    void requestGrades(String term, Consumer<GradeSummaryView> onLoaded,
+    private void loadTerms() {
+        long generation = ++termLoadGeneration;
+        service.loadTerms().whenComplete((terms, error) -> fxExecutor.accept(() -> {
+            if (generation != termLoadGeneration) return;
+            if (error != null) {
+                errorReporter.accept("加载失败", errorMessage(error));
+                return;
+            }
+            termFilter.getItems().setAll(terms);
+            if (terms.isEmpty()) {
+                selectedTerm = null;
+                clearGradeData();
+                showEmptyState("暂无学期");
+            } else {
+                termFilter.setValue(terms.get(0));
+            }
+        }));
+    }
+
+    void requestGrades(CourseTermView term, Consumer<GradeSummaryView> onLoaded,
             Consumer<Throwable> onError) {
         long generation = ++loadGeneration;
         CompletableFuture<GradeSummaryView> future;
@@ -127,7 +150,7 @@ public final class GradeController {
     }
 
     private void loadGrades() {
-        String term = termFilter.getValue();
+        CourseTermView term = selectedTerm != null ? selectedTerm : termFilter.getValue();
         clearGradeData();
         if (term == null) {
             showEmptyState("请选择学期");

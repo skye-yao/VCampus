@@ -27,6 +27,20 @@ public class MessageDispatcher {
     /** 连接代际关闭后，该分发器不再接受新请求 */
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
+    /** 跨连接代际持久的 PUSH 监听注册表 */
+    private final PushListenerRegistry pushListeners;
+
+    public MessageDispatcher() {
+        this(new PushListenerRegistry());
+    }
+
+    public MessageDispatcher(PushListenerRegistry pushListeners) {
+        if (pushListeners == null) {
+            throw new IllegalArgumentException("Push listener registry is required");
+        }
+        this.pushListeners = pushListeners;
+    }
+
     /**
      * 注册待接收响应的异步任务
      */
@@ -138,9 +152,9 @@ public class MessageDispatcher {
     }
 
     /**
-     * 处理服务器主动推送。
+     * 处理服务器主动推送。PUSH 只交给持久注册表，绝不触碰 pending response future。
      */
     private void handlePush(Message message) {
-        System.out.println("收到服务器推送: " + message);
+        pushListeners.dispatch(message);
     }
 }

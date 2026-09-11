@@ -12,9 +12,11 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import protocol.Message;
 import protocol.MessageType;
+import service.CourseSubscription;
 
 public class MessageDispatcherTest {
 
@@ -30,7 +32,114 @@ public class MessageDispatcherTest {
         sendSyncTimeoutCleansPendingRegistration();
         callerCancellationRemovesPendingRegistration();
         callerCompletionRemovesPendingRegistration();
+        pushListenersAreScopedByModuleAndAction();
+        pushCancellationIsIdempotentAndIndependent();
+        pushListenerExceptionDoesNotBlockOthers();
+        pushDoesNotCompletePendingResponseFuture();
+        pushListenerSurvivesDispatcherReplacement();
+        socketReconnectFiresOnceForEachNewGeneration();
+        reconnectNotificationIsGenerationGuarded();
         System.out.println("MessageDispatcherTest passed");
+    }
+
+    private static void pushListenersAreScopedByModuleAndAction() {
+        PushListenerRegistry registry = new PushListenerRegistry();
+        MessageDispatcher dispatcher = new MessageDispatcher(registry);
+        AtomicInteger courseEvents = new AtomicInteger();
+        AtomicInteger otherEvents = new AtomicInteger();
+        registry.registerPush("course", "selectionEvent", message -> courseEvents.incrementAndGet());
+        registry.registerPush("shop", "orderPaid", message -> otherEvents.incrementAndGet());
+
+        dispatcher.dispatch(new Message(MessageType.PUSH, "course", "selectionEvent"));
+
+        require(courseEvents.get() == 1, "matching push listener must be invoked");
+        require(otherEvents.get() == 0, "unrelated push listener must not be invoked");
+    }
+
+    private static void pushCancellationIsIdempotentAndIndependent() {
+        PushListenerRegistry registry = new PushListenerRegistry();
+        MessageDispatcher dispatcher = new MessageDispatcher(registry);
+        AtomicInteger first = new AtomicInteger();
+        AtomicInteger second = new AtomicInteger();
+        PushListenerRegistry.Subscription subscription =
+                registry.registerPush("course", "selectionEvent", message -> first.incrementAndGet());
+        registry.registerPush("course", "selectionEvent", message -> second.incrementAndGet());
+
+        subscription.cancel();
+        subscription.cancel();
+        dispatcher.dispatch(new Message(MessageType.PUSH, "course", "selectionEvent"));
+
+        require(first.get() == 0, "cancelled listener must not run");
+        require(second.get() == 1, "a cancelled listener must not affect its sibling");
+    }
+
+    private static void pushListenerExceptionDoesNotBlockOthers() {
+        PushListenerRegistry registry = new PushListenerRegistry();
+        MessageDispatcher dispatcher = new MessageDispatcher(registry);
+        AtomicInteger delivered = new AtomicInteger();
+        registry.registerPush("course", "selectionEvent", message -> {
+            throw new IllegalStateException("listener failed");
+        });
+        registry.registerPush("course", "selectionEvent", message -> delivered.incrementAndGet());
+
+        dispatcher.dispatch(new Message(MessageType.PUSH, "course", "selectionEvent"));
+
+        require(delivered.get() == 1, "a failing listener must not block the remaining listeners");
+    }
+
+    private static void pushDoesNotCompletePendingResponseFuture() {
+        PushListenerRegistry registry = new PushListenerRegistry();
+        MessageDispatcher dispatcher = new MessageDispatcher(registry);
+        registry.registerPush("course", "selectionEvent", message -> { });
+        CompletableFuture<Message> pending = new CompletableFuture<>();
+        require(dispatcher.registerPendingRequest(55L, pending), "pending request must register");
+
+        Message push = new Message(MessageType.PUSH, "course", "selectionEvent");
+        push.setUID(55L);
+        dispatcher.dispatch(push);
+
+        require(!pending.isDone(), "a PUSH must never complete a pending response future");
+        require(dispatcher.failPending(55L, pending, new TimeoutException("cleanup")),
+                "a PUSH must never remove a pending response future");
+    }
+
+    private static void pushListenerSurvivesDispatcherReplacement() {
+        PushListenerRegistry registry = new PushListenerRegistry();
+        AtomicInteger events = new AtomicInteger();
+        registry.registerPush("course", "selectionEvent", message -> events.incrementAndGet());
+
+        MessageDispatcher newDispatcher = new MessageDispatcher(registry);
+        newDispatcher.dispatch(new Message(MessageType.PUSH, "course", "selectionEvent"));
+
+        require(events.get() == 1,
+                "a listener registered before a dispatcher replacement must still run");
+    }
+
+    private static void socketReconnectFiresOnceForEachNewGeneration() throws Exception {
+        SocketClient client = SocketClient.getInstance();
+        client.disconnect();
+        AtomicInteger reconnects = new AtomicInteger();
+        CourseSubscription subscription =
+                client.subscribeReconnect(reconnects::incrementAndGet);
+        try (ServerSocket server = new ServerSocket(0)) {
+            Thread peer = new Thread(() -> drainClientMessages(server), "ReconnectTestPeer");
+            peer.setDaemon(true);
+            peer.start();
+
+            client.init("127.0.0.1", server.getLocalPort());
+            client.connect();
+            require(reconnects.get() == 1, "the first connection generation must fire once");
+
+            client.connect();
+            require(reconnects.get() == 1, "a redundant connect must not fire again");
+
+            client.disconnect();
+            client.connect();
+            require(reconnects.get() == 2, "a new connection generation must fire once");
+        } finally {
+            subscription.close();
+            client.disconnect();
+        }
     }
 
     private static void rejectsDuplicateRegistrationAndTimeoutFailsOnlyMatchingRequest() {
@@ -356,6 +465,42 @@ public class MessageDispatcherTest {
                     "caller completion must remove its pending registration");
             secondFuture.cancel(false);
         } finally {
+            client.disconnect();
+        }
+    }
+
+    private static void reconnectNotificationIsGenerationGuarded() throws Exception {
+        SocketClient client = SocketClient.getInstance();
+        client.disconnect();
+        AtomicInteger reconnects = new AtomicInteger();
+        CourseSubscription subscription =
+                client.subscribeReconnect(reconnects::incrementAndGet);
+        try (ServerSocket server = new ServerSocket(0)) {
+            Thread peer = new Thread(() -> drainClientMessages(server), "ReconnectGenerationPeer");
+            peer.setDaemon(true);
+            peer.start();
+
+            client.init("127.0.0.1", server.getLocalPort());
+            client.connect();
+            long firstGeneration = client.connectionGeneration();
+            require(reconnects.get() == 1, "the first generation must notify once");
+
+            client.disconnect();
+            client.connect();
+            long secondGeneration = client.connectionGeneration();
+            require(secondGeneration > firstGeneration,
+                    "a new connection must advance the generation token");
+            require(reconnects.get() == 2, "the new generation must notify once");
+
+            client.fireReconnectIfCurrent(firstGeneration);
+            require(reconnects.get() == 2,
+                    "a generation superseded by a newer connection must not notify");
+
+            client.fireReconnectIfCurrent(secondGeneration);
+            require(reconnects.get() == 2,
+                    "an already notified generation must not notify twice");
+        } finally {
+            subscription.close();
             client.disconnect();
         }
     }

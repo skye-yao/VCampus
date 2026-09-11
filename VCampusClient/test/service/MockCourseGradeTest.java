@@ -1,12 +1,13 @@
 package service;
 
+import model.course.CourseTermView;
 import model.course.GradeRecordView;
 import model.course.GradeSummaryView;
 
 public final class MockCourseGradeTest {
     public static void main(String[] args) throws Exception {
-        GradeSummaryView summary =
-                new MockCourseService().loadGrades("2026-2027 秋学期").get();
+        CourseTermView term = new CourseTermView(2026, 1, "2026-2027 秋学期");
+        GradeSummaryView summary = new MockCourseService().loadGrades(term).get();
         require(summary.getRecords().size() == 2, "two grade records expected");
         require(summary.getTermGpa() == 3.85, "term GPA must be deterministic");
         require(summary.getTermAverage() == 91.5, "term average must be deterministic");
@@ -55,8 +56,8 @@ public final class MockCourseGradeTest {
         expectUnsupported(() -> summary.getRecords().add(math),
                 "grade records must be immutable");
 
-        GradeSummaryView unknown =
-                new MockCourseService().loadGrades("unknown term").get();
+        GradeSummaryView unknown = new MockCourseService()
+                .loadGrades(new CourseTermView(2024, 2, "unknown term")).get();
         require(unknown.getTermGpa() == 0.0, "unknown term GPA must be zero");
         require(unknown.getTermAverage() == 0.0, "unknown term average must be zero");
         require(unknown.getCumulativeAverage() == 0.0,

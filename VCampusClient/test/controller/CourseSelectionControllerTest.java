@@ -413,14 +413,14 @@ public final class CourseSelectionControllerTest {
             return () -> { };
         }
         @Override public CompletableFuture<List<ScheduleEntryView>> loadSchedule(
-                String term, int week) {
+                CourseTermView term, int week) {
             return CompletableFuture.completedFuture(Collections.emptyList());
         }
         @Override public CompletableFuture<List<CourseNoticeView>> loadNotices(
-                String term, int week) {
+                CourseTermView term, int week) {
             return CompletableFuture.completedFuture(Collections.emptyList());
         }
-        @Override public CompletableFuture<GradeSummaryView> loadGrades(String term) {
+        @Override public CompletableFuture<GradeSummaryView> loadGrades(CourseTermView term) {
             return CompletableFuture.completedFuture(null);
         }
         @Override public CompletableFuture<List<TrainingPlanGroupView>> loadTrainingPlan() {

@@ -43,7 +43,7 @@ public final class GradeControllerTest {
 
         CompletableFuture<GradeSummaryView> pending = new CompletableFuture<>();
         service.gradeResults.addLast(pending);
-        controller.requestGrades("fx-term", rendered::set, error -> { });
+        controller.requestGrades(term("fx-term"), rendered::set, error -> { });
         pending.complete(summary("fx-term"));
 
         require(rendered.get() == null,
@@ -64,9 +64,9 @@ public final class GradeControllerTest {
         CompletableFuture<GradeSummaryView> latest = new CompletableFuture<>();
         service.gradeResults.addLast(older);
         service.gradeResults.addLast(latest);
-        controller.requestGrades("older", summary -> renderedTerm.set(summary.getTerm()),
+        controller.requestGrades(term("older"), summary -> renderedTerm.set(summary.getTerm()),
                 error -> errors.incrementAndGet());
-        controller.requestGrades("latest", summary -> renderedTerm.set(summary.getTerm()),
+        controller.requestGrades(term("latest"), summary -> renderedTerm.set(summary.getTerm()),
                 error -> errors.incrementAndGet());
 
         latest.complete(summary("latest"));
@@ -78,9 +78,9 @@ public final class GradeControllerTest {
         CompletableFuture<GradeSummaryView> newerSuccess = new CompletableFuture<>();
         service.gradeResults.addLast(staleFailure);
         service.gradeResults.addLast(newerSuccess);
-        controller.requestGrades("stale", summary -> renderedTerm.set(summary.getTerm()),
+        controller.requestGrades(term("stale"), summary -> renderedTerm.set(summary.getTerm()),
                 error -> errors.incrementAndGet());
-        controller.requestGrades("newer", summary -> renderedTerm.set(summary.getTerm()),
+        controller.requestGrades(term("newer"), summary -> renderedTerm.set(summary.getTerm()),
                 error -> errors.incrementAndGet());
         newerSuccess.complete(summary("newer"));
         staleFailure.completeExceptionally(new IllegalStateException("stale failure"));
@@ -90,7 +90,7 @@ public final class GradeControllerTest {
 
         CompletableFuture<GradeSummaryView> currentFailure = new CompletableFuture<>();
         service.gradeResults.addLast(currentFailure);
-        controller.requestGrades("current", summary -> renderedTerm.set(summary.getTerm()),
+        controller.requestGrades(term("current"), summary -> renderedTerm.set(summary.getTerm()),
                 error -> {
                     renderedTerm.set(null);
                     errors.incrementAndGet();
@@ -99,6 +99,10 @@ public final class GradeControllerTest {
         require(errors.get() == 1, "current failure must report exactly one error");
         require(renderedTerm.get() == null,
                 "current failure callback must be able to clear stale grades");
+    }
+
+    private static CourseTermView term(String displayName) {
+        return new CourseTermView(2026, 1, displayName);
     }
 
     private static GradeSummaryView summary(String term) {
@@ -189,17 +193,19 @@ public final class GradeControllerTest {
         }
 
         @Override
-        public CompletableFuture<List<ScheduleEntryView>> loadSchedule(String term, int week) {
+        public CompletableFuture<List<ScheduleEntryView>> loadSchedule(
+                CourseTermView term, int week) {
             return CompletableFuture.completedFuture(Collections.emptyList());
         }
 
         @Override
-        public CompletableFuture<List<CourseNoticeView>> loadNotices(String term, int week) {
+        public CompletableFuture<List<CourseNoticeView>> loadNotices(
+                CourseTermView term, int week) {
             return CompletableFuture.completedFuture(Collections.emptyList());
         }
 
         @Override
-        public CompletableFuture<GradeSummaryView> loadGrades(String term) {
+        public CompletableFuture<GradeSummaryView> loadGrades(CourseTermView term) {
             return gradeResults.removeFirst();
         }
 

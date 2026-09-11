@@ -128,7 +128,7 @@ public final class MockCourseServiceTest {
 
     private static void testUnknownTermAncillaryDataIsEmpty() throws Exception {
         MockCourseService service = new MockCourseService();
-        String term = "2024-2025-2";
+        CourseTermView term = new CourseTermView(2024, 2, "2024-2025 春学期");
         require(service.loadSchedule(term, 5).get().isEmpty(),
                 "schedule fixtures belong to another term");
         require(service.loadNotices(term, 5).get().isEmpty(),

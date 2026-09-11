@@ -253,14 +253,14 @@ public final class MockCourseService implements CourseService {
 
     @Override
     public synchronized CompletableFuture<List<ScheduleEntryView>> loadSchedule(
-            String term, int week) {
+            CourseTermView term, int week) {
         List<ScheduleEntryView> entries = new ArrayList<>();
         for (Map.Entry<Long, ScheduleEntryView> template : scheduleTemplates.entrySet()) {
             CourseOfferingView offering = offerings.get(template.getKey());
             ScheduleEntryView scheduleEntry = template.getValue();
             if (offering != null
                     && offering.getSelectionStatus() == SelectionStatus.ENROLLED
-                    && scheduleEntry.getTerm().equals(term)
+                    && scheduleEntry.getTerm().equals(term == null ? null : term.getDisplayName())
                     && scheduleEntry.isActiveInWeek(week)) {
                 entries.add(scheduleEntry);
             }
@@ -269,10 +269,12 @@ public final class MockCourseService implements CourseService {
     }
 
     @Override
-    public CompletableFuture<List<CourseNoticeView>> loadNotices(String term, int week) {
+    public CompletableFuture<List<CourseNoticeView>> loadNotices(
+            CourseTermView term, int week) {
+        String displayName = term == null ? null : term.getDisplayName();
         List<CourseNoticeView> matching = new ArrayList<>();
         for (CourseNoticeView notice : notices) {
-            if (notice.getTerm().equals(term) && notice.getWeek() == week) {
+            if (notice.getTerm().equals(displayName) && notice.getWeek() == week) {
                 matching.add(notice);
             }
         }
@@ -280,20 +282,21 @@ public final class MockCourseService implements CourseService {
     }
 
     @Override
-    public CompletableFuture<GradeSummaryView> loadGrades(String term) {
-        if (DEFAULT_TERM_NAME.equals(term)) {
+    public CompletableFuture<GradeSummaryView> loadGrades(CourseTermView term) {
+        String displayName = term == null ? null : term.getDisplayName();
+        if (DEFAULT_TERM_NAME.equals(displayName)) {
             List<GradeRecordView> records = List.of(
                     new GradeRecordView(
-                            term, "CS101", "程序设计基础", 4.0, 94.0, 4.0,
+                            displayName, "CS101", "程序设计基础", 4.0, 94.0, 4.0,
                             95.0, 92.0, null, 95.0),
                     new GradeRecordView(
-                            term, "MA101", "高等数学", 5.0, 89.0, 3.7,
+                            displayName, "MA101", "高等数学", 5.0, 89.0, 3.7,
                             90.0, 88.0, 87.0, 90.0));
             return CompletableFuture.completedFuture(
-                    new GradeSummaryView(term, 3.85, 91.5, 90.8, 3.78, records));
+                    new GradeSummaryView(displayName, 3.85, 91.5, 90.8, 3.78, records));
         }
         return CompletableFuture.completedFuture(
-                new GradeSummaryView(term, 0.0, 0.0, 0.0, 0.0, List.of()));
+                new GradeSummaryView(displayName, 0.0, 0.0, 0.0, 0.0, List.of()));
     }
 
     @Override

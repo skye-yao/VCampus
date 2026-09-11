@@ -5,9 +5,11 @@ import java.net.URL;
 import java.util.List;
 import service.CourseService;
 import service.CourseServices;
+import service.MockCourseService;
 
 public final class CourseUiPreviewTest {
     public static void main(String[] args) {
+        CourseServices.install(new MockCourseService());
         URL resource = CourseUiPreview.viewResource();
         require(resource != null, "course management FXML must be available");
         require(resource.toExternalForm().endsWith(

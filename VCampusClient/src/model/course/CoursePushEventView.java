@@ -1,5 +1,6 @@
 package model.course;
 
+import java.time.Duration;
 import java.time.Instant;
 
 public final class CoursePushEventView {
@@ -31,4 +32,12 @@ public final class CoursePushEventView {
     public Instant getOccurredAt() { return occurredAt; }
     public Instant getExpiresAt() { return expiresAt; }
     public String getMessage() { return message; }
+
+    public Duration getRemainingTime(Instant now) {
+        if (expiresAt == null || now == null) {
+            return null;
+        }
+        Duration remaining = Duration.between(now, expiresAt);
+        return remaining.isNegative() ? Duration.ZERO : remaining;
+    }
 }
