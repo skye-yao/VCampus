@@ -66,6 +66,7 @@ public class LibraryHandler {
 
         try {
             dao.LibrarySchema.ensure();
+            new dao.LibraryCirculationDAO().expireReservations();
 
             switch (action.toLowerCase()) {
                 case "lendbook":

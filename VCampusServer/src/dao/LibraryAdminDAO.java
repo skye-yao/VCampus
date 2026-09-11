@@ -28,7 +28,8 @@ public class LibraryAdminDAO {
         } else if ("loss".equals(kind)) {
             sql="SELECT "+person+book+"r.lossTime AS '挂失时间',CASE WHEN r.status=0 THEN '挂失中' ELSE '已解除' END AS '状态' FROM tblLossRecord r"+users+books+"ORDER BY r.lossTime DESC,r.id DESC";
         } else if ("reservation".equals(kind) || "checkout".equals(kind)) {
-            sql="SELECT "+person+book+"r.reserveTime AS '预约时间',CASE r.status WHEN 0 THEN '预约中' WHEN 1 THEN '已取消' ELSE '已借阅' END AS '状态' FROM tblReservation r"+users+books+
+            sql="SELECT "+person+book+"r.reserveTime AS '预约时间',DATE_ADD(r.reserveTime,INTERVAL 12 HOUR) AS '取书截止时间',"+
+                "CASE r.status WHEN 0 THEN '预约中' WHEN 1 THEN '已取消' WHEN 2 THEN '已借阅' WHEN 3 THEN '超时已取消' ELSE '未知' END AS '状态' FROM tblReservation r"+users+books+
                 ("checkout".equals(kind)?"WHERE r.status=0 ":"")+"ORDER BY r.reserveTime DESC,r.id DESC";
         } else throw new IllegalArgumentException("不支持的名单类型");
         List<Map<String,String>> result=new ArrayList<>();

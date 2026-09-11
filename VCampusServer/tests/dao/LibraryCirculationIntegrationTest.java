@@ -57,6 +57,27 @@ public class LibraryCirculationIntegrationTest {
             LibraryCirculationDAO dao=new LibraryCirculationDAO(()->shared);BookDAO books=new BookDAO(()->shared);
             FineRecordDAO fines=new FineRecordDAO(()->shared);
             LibraryAdminDAO adminRecords=new LibraryAdminDAO(()->shared);
+            seed(c);
+            LocalDateTime expiry=LocalDateTime.of(2026,1,20,12,0);
+            LibraryCirculationDAO.update(c,"UPDATE tblReservation SET reserveTime=?",Timestamp.valueOf(expiry.minusHours(12)));
+            LibraryCirculationDAO.expireBookReservations(c,1,expiry.minusSeconds(1));
+            equal(c,"SELECT status FROM tblReservation","0");
+            LibraryCirculationDAO.expireBookReservations(c,1,expiry);c.commit();
+            equal(c,"SELECT status FROM tblReservation","3");equal(c,"SELECT status FROM tblBook","0");
+            check(adminRecords.findRecords("checkout").isEmpty(),"expired reservation leaves checkout queue");
+            check(books.reserveAvailableBook("reader",1),"expired book can be reserved again");
+            denied(()->dao.lend(1));equal(c,"SELECT status FROM tblBook","2");
+            seed(c);sql(c,"UPDATE tblReservation SET reserveTime=DATE_SUB(NOW(),INTERVAL 13 HOUR)");c.commit();
+            denied(()->dao.lend(1));
+            equal(c,"SELECT status FROM tblReservation","3");equal(c,"SELECT status FROM tblBook","0");
+            equal(c,"SELECT COUNT(*) FROM tblBorrowRecord","0");
+            seed(c);sql(c,"UPDATE tblReservation SET reserveTime=DATE_SUB(NOW(),INTERVAL 13 HOUR)");c.commit();
+            dao.expireReservations();dao.expireReservations();
+            equal(c,"SELECT status FROM tblReservation","3");equal(c,"SELECT status FROM tblBook","0");
+            seed(c);dao.lend(1);sql(c,"UPDATE tblReservation SET reserveTime=DATE_SUB(NOW(),INTERVAL 13 HOUR)");c.commit();
+            dao.expireReservations();equal(c,"SELECT status FROM tblBook","1");equal(c,"SELECT status FROM tblReservation","2");
+            seed(c);sql(c,"UPDATE tblBook SET status=3");sql(c,"UPDATE tblReservation SET reserveTime=DATE_SUB(NOW(),INTERVAL 13 HOUR)");c.commit();
+            dao.expireReservations();equal(c,"SELECT status FROM tblBook","3");
             for(int from=0;from<4;from++)for(int to=0;to<4;to++) {
                 seed(c);
                 if(from==0){sql(c,"UPDATE tblBook SET status=0");sql(c,"UPDATE tblReservation SET status=1");c.commit();}

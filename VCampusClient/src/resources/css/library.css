@@ -80,3 +80,25 @@
 .library-root .scroll-bar .thumb { -fx-background-color: #bfcec3; -fx-background-radius: 8; }
 .library-root .scroll-bar .thumb:hover { -fx-background-color: #8da896; }
 .library-root .separator .line { -fx-border-color: #e5ece6; -fx-border-width: 1 0 0 0; }
+
+/* 借还与退款工作台：沿用图书馆的深绿、浅绿与白色卡片。 */
+.circulation-dialog { -fx-padding: 0; }
+.circulation-dialog > .content { -fx-padding: 0; }
+.circulation-dialog > .button-bar { -fx-padding: 8 18 12 18; }
+.library-root .circulation-header-tag { -fx-background-color: #4b7965; -fx-text-fill: #eef7f0; -fx-background-radius: 16; -fx-padding: 6 12; }
+.library-root .circulation-panel { -fx-padding: 14 18 8 18; -fx-background-color: #f3f6f3; }
+.library-root .circulation-metric { -fx-background-color: #ffffff; -fx-background-radius: 10; -fx-border-color: #dde6df; -fx-border-radius: 10; -fx-padding: 12 16; }
+.library-root .circulation-metric-caption { -fx-font-size: 11px; -fx-text-fill: #718377; }
+.library-root .circulation-metric-value { -fx-font-size: 21px; -fx-font-weight: bold; -fx-text-fill: #234d3e; }
+.library-root .circulation-note { -fx-text-fill: #60786a; -fx-font-size: 12px; }
+.library-root .circulation-table .table-row-cell { -fx-cell-size: 43; }
+.library-root .circulation-table .table-cell { -fx-alignment: CENTER_LEFT; }
+.library-root .circulation-selection { -fx-background-color: #ffffff; -fx-border-color: #d6e3da; -fx-border-radius: 9; -fx-background-radius: 9; -fx-padding: 12 16; }
+.library-root .circulation-detail { -fx-text-fill: #60786a; -fx-font-size: 11px; }
+.library-root .circulation-status { -fx-text-fill: #386b56; -fx-background-color: #e4f0e7; -fx-background-radius: 12; -fx-padding: 3 8; -fx-font-size: 11px; }
+.library-root .circulation-status-warning { -fx-background-color: #fff0d9; -fx-text-fill: #936221; }
+.library-root .circulation-empty { -fx-text-fill: #81958a; -fx-padding: 24; }
+.library-root .circulation-refund-form { -fx-padding: 20 24 8 24; }
+.library-root .circulation-field-label { -fx-text-fill: #476454; -fx-padding: 5 0 0 0; }
+.library-root .circulation-readonly { -fx-background-color: #eaf0ec; -fx-text-fill: #60786a; }
+.library-root .circulation-validation { -fx-text-fill: #ab5144; -fx-font-size: 11px; }

@@ -46,14 +46,17 @@ public class LibraryCirculationDAO {
         }
     }
     public void lend(int reservationId) throws SQLException {
-        transaction(conn -> {
+        boolean lent = transaction(conn -> {
             int id = bookId(conn,"tblReservation",reservationId);
             lockBook(conn,id);
+            expireBookReservations(conn,id,LocalDateTime.now());
             String user;
             try (PreparedStatement stmt = conn.prepareStatement("SELECT userid,status FROM tblReservation WHERE id=? FOR UPDATE")) {
                 stmt.setInt(1,reservationId);
                 try (ResultSet rows = stmt.executeQuery()) {
-                    if (!rows.next() || rows.getInt("status")!=0) throw new BusinessException("预约已取消或已办理借书，请刷新");
+                    if (!rows.next()) throw new BusinessException("预约不存在，请刷新");
+                    if (rows.getInt("status")==3) return false;
+                    if (rows.getInt("status")!=0) throw new BusinessException("预约已取消或已办理借书，请刷新");
                     user = rows.getString("userid");
                 }
             }
@@ -80,8 +83,29 @@ public class LibraryCirculationDAO {
             update(conn,"UPDATE tblReservation SET status=2 WHERE id=?",reservationId);
             update(conn,"UPDATE tblReservation SET status=1 WHERE bookid=? AND status=0",id);
             update(conn,"UPDATE tblBook SET status=1 WHERE id=?",id);
-            return null;
+            return true;
         });
+        // 超时取消须提交，不能随借书失败回滚。
+        if (!lent) throw new BusinessException("预约已超过12小时，已自动取消，请重新预约");
+    }
+    /** 调用方必须先持有图书行锁，与借出、重新预约串行处理。 */
+    static void expireBookReservations(Connection conn,int bookId,LocalDateTime now) throws SQLException {
+        int expired=update(conn,"UPDATE tblReservation SET status=3 WHERE bookid=? AND status=0 AND reserveTime<=?",
+                bookId,Timestamp.valueOf(now.minusHours(12)));
+        if(expired==0)return;
+        update(conn,"UPDATE tblBook SET status=CASE " +
+                "WHEN EXISTS(SELECT 1 FROM tblLossRecord l WHERE l.bookid=tblBook.id AND l.status=0) THEN 3 " +
+                "WHEN EXISTS(SELECT 1 FROM tblBorrowRecord r WHERE r.bookid=tblBook.id AND r.status IN(0,2) AND r.returnTime IS NULL) THEN 1 " +
+                "WHEN EXISTS(SELECT 1 FROM tblReservation r WHERE r.bookid=tblBook.id AND r.status=0) THEN 2 ELSE 0 END WHERE id=? AND status=2",bookId);
+    }
+    public void expireReservations() throws SQLException {
+        List<Integer> ids=new ArrayList<>();
+        try(Connection conn=connections.open();PreparedStatement stmt=conn.prepareStatement(
+                "SELECT DISTINCT bookid FROM tblReservation WHERE status=0 AND reserveTime<=? ORDER BY bookid")) {
+            stmt.setTimestamp(1,Timestamp.valueOf(LocalDateTime.now().minusHours(12)));
+            try(ResultSet rows=stmt.executeQuery()){while(rows.next())ids.add(rows.getInt(1));}
+        }
+        for(int id:ids) transaction(conn->{lockBook(conn,id);expireBookReservations(conn,id,LocalDateTime.now());return null;});
     }
     public void returnLoan(int borrowId) throws SQLException {
         transaction(conn -> {
@@ -168,6 +192,7 @@ public class LibraryCirculationDAO {
         }
     }
     public void refresh(String userId) throws SQLException {
+        if(userId==null) expireReservations();
         List<Integer> books=new ArrayList<>();
         try(Connection conn=connections.open(); PreparedStatement stmt=conn.prepareStatement(
                 "SELECT DISTINCT bookid FROM tblBorrowRecord WHERE status IN(0,2) AND returnTime IS NULL"+(userId==null?"":" AND userid=?"))) {

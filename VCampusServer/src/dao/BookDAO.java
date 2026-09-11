@@ -123,7 +123,7 @@ public class BookDAO {
 
     /** 锁住图书行后再次检查，并在一个事务内完成预约和状态更新。 */
     public boolean reserveAvailableBook(String userId, int bookId) throws SQLException {
-        try (Connection conn = DBUtil.getConnection()) {
+        try (Connection conn = connections.open()) {
             conn.setAutoCommit(false);
             try {
                 try (PreparedStatement lock = conn.prepareStatement("SELECT id FROM tblBook WHERE id=? FOR UPDATE")) {
@@ -132,10 +132,11 @@ public class BookDAO {
                         if (!rows.next()) { conn.rollback(); return false; }
                     }
                 }
+                LibraryCirculationDAO.expireBookReservations(conn,bookId,java.time.LocalDateTime.now());
                 try (PreparedStatement query = conn.prepareStatement(BOOK_SELECT + "WHERE id=?")) {
                     query.setInt(1, bookId);
                     try (ResultSet rows = query.executeQuery()) {
-                        if (!rows.next() || rows.getInt("status") != 0) { conn.rollback(); return false; }
+                        if (!rows.next() || rows.getInt("status") != 0) { conn.commit(); return false; }
                     }
                 }
                 try (PreparedStatement insert = conn.prepareStatement(

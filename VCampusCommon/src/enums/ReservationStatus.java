@@ -7,7 +7,8 @@ public enum ReservationStatus {
 
     RESERVING(0, "预约中"),
     CANCELLED(1, "已取消"),
-    BORROWED(2, "已借阅");
+    BORROWED(2, "已借阅"),
+    EXPIRED(3, "超时已取消");
 
     private final int code;
     private final String description;

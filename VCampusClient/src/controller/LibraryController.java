@@ -306,7 +306,7 @@ public class LibraryController {
         }
         service.reserveBook(selectedBook.getId()).whenComplete((ignored, error) -> Platform.runLater(() -> {
             if (error != null) showError("预约失败", error);
-            else AlertUtil.showInfo("预约成功", "预约记录已保存");
+            else AlertUtil.showInfo("预约成功", "请在预约后12小时内到图书馆找管理员办理借书，超时将自动取消预约。");
             // 无论成功或失败都刷新，处理列表打开后被其他读者预约的情况。
             handleSearch();
             refreshMyLibrary();
