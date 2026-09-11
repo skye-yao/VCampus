@@ -2,11 +2,13 @@ package service;
 
 import java.util.List;
 import model.course.CourseNoticeView;
+import model.course.CourseTermView;
 import model.course.ScheduleEntryView;
 
 public final class MockCourseScheduleTest {
     public static void main(String[] args) throws Exception {
         MockCourseService service = new MockCourseService();
+        CourseTermView term = service.loadTerms().get().get(0);
         List<ScheduleEntryView> initial = service.loadSchedule("2026-2027 秋学期", 3).get();
         require(hasOffering(initial, 1005L) && hasOffering(initial, 1006L),
                 "initial enrolled courses must appear");
@@ -15,11 +17,11 @@ public final class MockCourseScheduleTest {
         require(service.loadSchedule("2026-2027 秋学期", 17).get().isEmpty(),
                 "schedule outside the active week range must not appear");
         requireImmutable(initial, "schedule results must be immutable");
-        service.addToPlan(1001L).get();
-        service.confirmPlan().get();
+        service.addToPlan(term, 1001L, "schedule-plan-1001").get();
+        service.selectOffering(term, 1001L, "schedule-select-1001").get();
         require(hasOffering(service.loadSchedule("2026-2027 秋学期", 3).get(), 1001L),
                 "new enrollment must appear");
-        service.dropCourse(1005L).get();
+        service.dropOffering(term, 1005L, "schedule-drop-1005").get();
         require(!hasOffering(service.loadSchedule("2026-2027 秋学期", 3).get(), 1005L),
                 "dropped course must disappear");
         List<CourseNoticeView> notices =

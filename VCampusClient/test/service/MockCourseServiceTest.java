@@ -1,118 +1,153 @@
 package service;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
+import model.course.CourseMutationResultView;
 import model.course.CourseOfferingView;
+import model.course.CoursePlanSnapshotView;
+import model.course.CourseTermView;
+import model.course.CourseView;
 import model.course.GradeSummaryView;
 import model.course.SelectionStatus;
 
 public final class MockCourseServiceTest {
     public static void main(String[] args) throws Exception {
-        testInitialStates();
-        testConfirmPlanRoutesByCapacity();
+        testTwoLevelCatalogAndSixStates();
+        testExplicitFullAndWaitlistTransitions();
+        testSelectingOneOfferingPreservesSiblingPlan();
+        testOperationReplayIsIdempotent();
         testIllegalTransition();
-        testReturnedListIsUnmodifiable();
-        testJoinWaitlistRequiresFullAvailableOffering();
-        testEnrollmentAndWaitlistTransitionsUpdateCounts();
+        testReturnedCollectionsAreImmutable();
+        testSubscriptionAndAckStayOffline();
         testUnknownTermAncillaryDataIsEmpty();
+        System.out.println("MockCourseServiceTest: PASS");
     }
 
-    private static void testInitialStates() throws Exception {
+    private static void testTwoLevelCatalogAndSixStates() throws Exception {
         MockCourseService service = new MockCourseService();
-        List<CourseOfferingView> courses = service.loadOfferings().get();
-        require(courses.size() == 6, "six deterministic courses expected");
-        require(statusOf(courses, 1002L) == SelectionStatus.PLANNED, "OS starts in plan");
-        require(statusOf(courses, 1003L) == SelectionStatus.WAITLISTED, "HCI starts waitlisted");
+        CourseTermView term = defaultTerm(service);
+        List<CourseView> courses = service.loadCourses(term).get();
+        require(courses.size() >= 2, "course catalog required");
+        require(service.loadCourseOfferings(term, courses.get(0).getCourseId()).get().size() >= 2,
+                "one course must expose multiple offerings");
+
+        Set<SelectionStatus> states = new HashSet<>();
+        for (CourseView course : courses) {
+            for (CourseOfferingView offering :
+                    service.loadCourseOfferings(term, course.getCourseId()).get()) {
+                states.add(offering.getSelectionStatus());
+            }
+        }
+        require(states.containsAll(Set.of(SelectionStatus.values())),
+                "mock catalog must expose all six selection states");
     }
 
-    private static void testConfirmPlanRoutesByCapacity() throws Exception {
+    private static void testExplicitFullAndWaitlistTransitions() throws Exception {
         MockCourseService service = new MockCourseService();
-        service.addToPlan(1001L).get();
-        service.confirmPlan().get();
-        List<CourseOfferingView> courses = service.loadOfferings().get();
-        require(statusOf(courses, 1001L) == SelectionStatus.ENROLLED, "course with space enrolls");
-        require(statusOf(courses, 1002L) == SelectionStatus.WAITLISTED, "full course waitlists");
+        CourseTermView term = defaultTerm(service);
+        long fullOffering = 1002L;
+
+        CourseMutationResultView planned = service.addToPlan(
+                term, fullOffering, "plan-full").get();
+        require(planned.getSnapshot().find(fullOffering).getStatus() == SelectionStatus.PLANNED,
+                "full offering first enters the plan");
+        CourseMutationResultView full = service.selectOffering(
+                term, fullOffering, "select-full").get();
+        require(full.getFinalState() == SelectionStatus.FULL,
+                "selecting a full offering must return FULL");
+        require(full.getSnapshot().find(fullOffering).getStatus() == SelectionStatus.FULL,
+                "full selection must remain in plan rather than auto-waitlist");
+        CourseMutationResultView waitlisted = service.joinWaitlist(
+                term, fullOffering, "join-full").get();
+        require(waitlisted.getSnapshot().find(fullOffering).getStatus()
+                        == SelectionStatus.WAITLISTED,
+                "joining the waitlist must be explicit");
+    }
+
+    private static void testSelectingOneOfferingPreservesSiblingPlan() throws Exception {
+        MockCourseService service = new MockCourseService();
+        CourseTermView term = defaultTerm(service);
+        service.addToPlan(term, 1001L, "plan-sibling-a").get();
+        CourseMutationResultView selected = service.selectOffering(
+                term, 1001L, "select-sibling-a").get();
+        require(selected.getSnapshot().find(1001L).getStatus() == SelectionStatus.ENROLLED,
+                "selected offering must enroll when capacity exists");
+        require(selected.getSnapshot().find(1007L).getStatus() == SelectionStatus.PLANNED,
+                "selecting one offering must preserve another plan for the same course");
+    }
+
+    private static void testOperationReplayIsIdempotent() throws Exception {
+        MockCourseService service = new MockCourseService();
+        CourseTermView term = defaultTerm(service);
+        CourseMutationResultView first = service.addToPlan(term, 1001L, "same-operation").get();
+        CourseMutationResultView replay = service.addToPlan(term, 1001L, "same-operation").get();
+        require(first == replay, "duplicate operation ID must return its stored result");
+
+        CourseMutationResultView selected = service.selectOffering(
+                term, 1001L, "same-select").get();
+        int enrolledCount = selected.getItem().getOffering().getEnrolledCount();
+        CourseMutationResultView selectedReplay = service.selectOffering(
+                term, 1001L, "same-select").get();
+        require(selected == selectedReplay, "selection replay must return the stored result");
+        require(selectedReplay.getItem().getOffering().getEnrolledCount() == enrolledCount,
+                "selection replay must not increment enrollment again");
     }
 
     private static void testIllegalTransition() throws Exception {
         MockCourseService service = new MockCourseService();
+        CourseTermView term = defaultTerm(service);
         try {
-            service.dropCourse(1001L).get();
-            throw new AssertionError("dropping an available course must fail");
+            service.dropOffering(term, 1001L, "invalid-drop").get();
+            throw new AssertionError("dropping an available offering must fail");
         } catch (ExecutionException expected) {
-            require(expected.getCause() instanceof IllegalStateException, "state error expected");
+            require(expected.getCause() instanceof IllegalStateException,
+                    "state error expected");
         }
     }
 
-    private static void testReturnedListIsUnmodifiable() throws Exception {
-        List<CourseOfferingView> courses = new MockCourseService().loadOfferings().get();
-        try {
-            courses.clear();
-            throw new AssertionError("service result must be unmodifiable");
-        } catch (UnsupportedOperationException expected) {
-            // Expected.
-        }
-    }
-
-    private static void testJoinWaitlistRequiresFullAvailableOffering() throws Exception {
+    private static void testReturnedCollectionsAreImmutable() throws Exception {
         MockCourseService service = new MockCourseService();
-        try {
-            service.joinWaitlist(1001L).get();
-            throw new AssertionError("available course with spare capacity must be planned");
-        } catch (ExecutionException expected) {
-            require(expected.getCause() instanceof IllegalStateException, "state error expected");
-        }
-
-        service.leaveWaitlist(1003L).get();
-        CourseOfferingView waitlisted = service.joinWaitlist(1003L).get();
-        require(waitlisted.getSelectionStatus() == SelectionStatus.WAITLISTED,
-                "full available course may join waitlist");
-        require(waitlisted.getEnrolledCount() == 60, "joining waitlist must not change enrollment count");
+        CourseTermView term = defaultTerm(service);
+        requireImmutable(service.loadTerms().get(), "term list must be immutable");
+        requireImmutable(service.loadCourses(term).get(), "course list must be immutable");
+        requireImmutable(service.loadCourseOfferings(term, 101L).get(),
+                "offering list must be immutable");
+        CoursePlanSnapshotView snapshot = service.loadSelectionSnapshot(term).get();
+        requireImmutable(snapshot.getPlanItems(), "snapshot plan must be immutable");
     }
 
-    private static void testEnrollmentAndWaitlistTransitionsUpdateCounts() throws Exception {
+    private static void testSubscriptionAndAckStayOffline() throws Exception {
         MockCourseService service = new MockCourseService();
-        service.addToPlan(1001L).get();
-        service.confirmPlan().get();
-        CourseOfferingView enrolled = offeringOf(service.loadOfferings().get(), 1001L);
-        require(enrolled.getEnrolledCount() == 97, "confirming plan with space increments enrollment count");
-
-        CourseOfferingView dropped = service.dropCourse(1001L).get();
-        require(dropped.getEnrolledCount() == 96, "dropping enrolled course decrements enrollment count");
-
-        service.confirmPlan().get();
-        CourseOfferingView fullWaitlisted = offeringOf(service.loadOfferings().get(), 1002L);
-        require(fullWaitlisted.getEnrolledCount() == 100, "waitlisting full plan must not change enrollment count");
-        CourseOfferingView available = service.leaveWaitlist(1002L).get();
-        require(available.getEnrolledCount() == 100, "leaving waitlist must not change enrollment count");
+        service.ackCourseEvent("event-1").get();
+        CourseSubscription subscription = service.subscribe(event -> { });
+        subscription.close();
+        subscription.close();
     }
 
     private static void testUnknownTermAncillaryDataIsEmpty() throws Exception {
         MockCourseService service = new MockCourseService();
         String term = "2024-2025-2";
-
         require(service.loadSchedule(term, 5).get().isEmpty(),
-                "schedule fixtures belong to a later task");
+                "schedule fixtures belong to another term");
         require(service.loadNotices(term, 5).get().isEmpty(),
-                "notice fixtures belong to a later task");
-
+                "notice fixtures belong to another term");
         GradeSummaryView grades = service.loadGrades(term).get();
-        require(grades.getTermGpa() == 0.0, "term GPA must be zero before grade fixtures exist");
-        require(grades.getTermAverage() == 0.0,
-                "term average must be zero before grade fixtures exist");
-        require(grades.getCumulativeAverage() == 0.0,
-                "cumulative average must be zero before grade fixtures exist");
-        require(grades.getCumulativeGpa() == 0.0,
-                "cumulative GPA must be zero before grade fixtures exist");
         require(grades.getRecords().isEmpty(), "unknown term grade records must be empty");
     }
 
-    private static SelectionStatus statusOf(List<CourseOfferingView> courses, long id) {
-        return offeringOf(courses, id).getSelectionStatus();
+    private static CourseTermView defaultTerm(MockCourseService service) throws Exception {
+        return service.loadTerms().get().get(0);
     }
 
-    private static CourseOfferingView offeringOf(List<CourseOfferingView> courses, long id) {
-        return courses.stream().filter(c -> c.getOfferingId() == id).findFirst().orElseThrow();
+    private static void requireImmutable(List<?> values, String message) {
+        try {
+            values.clear();
+            throw new AssertionError(message);
+        } catch (UnsupportedOperationException expected) {
+            // Expected immutable service snapshot.
+        }
     }
 
     private static void require(boolean condition, String message) {

@@ -2,16 +2,20 @@ package controller;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
-import java.util.function.Supplier;
+import java.util.function.Function;
 import javafx.application.Platform;
 import javafx.fxml.FXML;
 import javafx.geometry.Pos;
@@ -25,30 +29,51 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
+import model.course.CourseMeetingView;
+import model.course.CourseMutationResultView;
 import model.course.CourseOfferingView;
+import model.course.CoursePlanSnapshotView;
+import model.course.CourseSelectionItemView;
+import model.course.CourseTeacherView;
+import model.course.CourseTermView;
+import model.course.CourseView;
 import model.course.SelectionStatus;
+import model.course.WaitlistDecision;
 import service.CourseService;
 import service.CourseServices;
 import util.AlertUtil;
 
 public final class CourseSelectionController {
+    enum SelectionTab {
+        ALL, PLAN, WAITLIST, ENROLLED
+    }
+
     private final CourseService service;
     private final BiFunction<String, String, ButtonType> confirmation;
     private final BiConsumer<String, String> errorReporter;
     private final Consumer<Runnable> fxExecutor;
     private final Set<Long> pendingOfferingIds = new HashSet<>();
-    private List<CourseOfferingView> offerings = Collections.emptyList();
-    private SelectionStatus selectedStatus;
-    private boolean planConfirmationPending;
-    private long loadGeneration;
+    private final Map<Long, List<Consumer<Boolean>>> renderedOfferingActions =
+            new HashMap<>();
+    private final Map<Long, List<CourseOfferingView>> offeringCache = new HashMap<>();
+    private final Map<Long, CompletableFuture<List<CourseOfferingView>>> offeringLoads =
+            new HashMap<>();
+    private List<CourseView> courses = Collections.emptyList();
+    private CoursePlanSnapshotView snapshot;
+    private CourseTermView currentTerm;
+    private SelectionTab selectedTab = SelectionTab.ALL;
+    private long termLoadGeneration;
+    private long courseLoadGeneration;
+    private long snapshotLoadGeneration;
+    private long offeringCacheGeneration;
 
     @FXML private TextField searchField;
+    @FXML private ComboBox<CourseTermView> termFilter;
     @FXML private ComboBox<String> typeFilter;
     @FXML private ToggleButton allTabButton;
     @FXML private ToggleButton planTabButton;
     @FXML private ToggleButton waitlistTabButton;
     @FXML private ToggleButton enrolledTabButton;
-    @FXML private Button confirmPlanButton;
     @FXML private VBox courseList;
     @FXML private Label requiredCountLabel;
     @FXML private Label electiveCountLabel;
@@ -71,185 +96,313 @@ public final class CourseSelectionController {
 
     @FXML
     public void initialize() {
-        typeFilter.getItems().addAll("全部", "必修", "专业选修", "通识选修");
+        typeFilter.getItems().addAll("全部", "必修", "限选", "选修", "通选");
         typeFilter.setValue("全部");
-        searchField.textProperty().addListener((observable, oldValue, newValue) -> renderCourses());
+        searchField.textProperty().addListener((observable, oldValue, newValue) -> renderCourses()); // change listener
         typeFilter.valueProperty().addListener((observable, oldValue, newValue) -> renderCourses());
-        selectTab(null);
+        termFilter.valueProperty().addListener((observable, oldValue, newValue) -> {
+            if (newValue != null && !newValue.equals(currentTerm)) {
+                selectTerm(newValue);
+            }
+        });
+        selectTab(SelectionTab.ALL);
+        loadTerms();
     }
 
+    @FXML
     public void refresh() {
-        fxExecutor.accept(this::loadOfferings);
+        fxExecutor.accept(() -> {
+            invalidateOfferingCache();
+            loadCurrentTerm();
+        });
     }
 
-    List<CourseOfferingView> filterCourses(List<CourseOfferingView> source,
-            SelectionStatus status, String keyword, String courseType) {
-        String normalizedKeyword = keyword == null
-                ? "" : keyword.trim().toLowerCase(Locale.ROOT);
-        boolean allTypes = courseType == null || courseType.isEmpty() || "全部".equals(courseType);
-        List<CourseOfferingView> filtered = new ArrayList<>();
-
-        for (CourseOfferingView course : source) {
-            boolean statusMatches = status == null || course.getSelectionStatus() == status;
+    List<CourseView> filterCourses(List<CourseView> source,
+            String keyword, String courseType) {
+        String normalizedKeyword = normalizeKeyword(keyword);
+        boolean allTypes = isAllTypes(courseType);
+        List<CourseView> filtered = new ArrayList<>();
+        for (CourseView course : source) {
             boolean keywordMatches = normalizedKeyword.isEmpty()
-                    || course.getCourseName().toLowerCase(Locale.ROOT).contains(normalizedKeyword)
-                    || course.getCourseCode().toLowerCase(Locale.ROOT).contains(normalizedKeyword);
+                    || course.getCourseName().toLowerCase(Locale.ROOT)
+                            .contains(normalizedKeyword)
+                    || course.getCourseCode().toLowerCase(Locale.ROOT)
+                            .contains(normalizedKeyword);
             boolean typeMatches = allTypes || courseType.equals(course.getCourseType());
-            if (statusMatches && keywordMatches && typeMatches) {
-                filtered.add(course);
-            }
+            if (keywordMatches && typeMatches) filtered.add(course);
         }
-        return filtered;
+        return List.copyOf(filtered);
     }
 
-    boolean tryBeginOfferingOperation(long offeringId) {
-        return pendingOfferingIds.add(offeringId);
-    }
-
-    void finishOfferingOperation(long offeringId) {
-        pendingOfferingIds.remove(offeringId);
-    }
-
-    boolean isOfferingOperationPending(long offeringId) {
-        return pendingOfferingIds.contains(offeringId);
-    }
-
-    boolean tryBeginPlanConfirmation() {
-        if (planConfirmationPending) {
-            return false;
+    List<CourseSelectionItemView> filterSelectionItems(
+            CoursePlanSnapshotView source, SelectionTab tab,
+            String keyword, String courseType) {
+        if (source == null) return List.of();
+        Map<Long, CourseSelectionItemView> candidates = new LinkedHashMap<>();
+        if (tab == SelectionTab.PLAN) {
+            addItems(candidates, source.getPlanItems());
+            addItems(candidates, source.getWaitlistItems());
+        } else if (tab == SelectionTab.WAITLIST) {
+            addItems(candidates, source.getWaitlistItems());
+        } else if (tab == SelectionTab.ENROLLED) {
+            addItems(candidates, source.getEnrolledItems());
         }
-        planConfirmationPending = true;
-        return true;
-    }
 
-    void finishPlanConfirmation() {
-        planConfirmationPending = false;
-    }
-
-    boolean isPlanConfirmationPending() {
-        return planConfirmationPending;
-    }
-
-    long nextLoadGeneration() {
-        return ++loadGeneration;
-    }
-
-    boolean isCurrentLoadGeneration(long generation) {
-        return generation == loadGeneration;
-    }
-
-    void applyOfferingOperationState(long offeringId, Consumer<Boolean> setDisabled) {
-        setDisabled.accept(isOfferingOperationPending(offeringId));
-    }
-
-    void applyPlanConfirmationState(boolean hasPlannedCourse,
-            Consumer<Boolean> setDisabled) {
-        setDisabled.accept(!hasPlannedCourse || isPlanConfirmationPending());
-    }
-
-    @FXML
-    private void showAllCourses() {
-        selectTab(null);
-    }
-
-    @FXML
-    private void showPlannedCourses() {
-        selectTab(SelectionStatus.PLANNED);
-    }
-
-    @FXML
-    private void showWaitlistedCourses() {
-        selectTab(SelectionStatus.WAITLISTED);
-    }
-
-    @FXML
-    private void showEnrolledCourses() {
-        selectTab(SelectionStatus.ENROLLED);
-    }
-
-    @FXML
-    private void confirmPlan() {
-        if (!tryBeginPlanConfirmation()) {
-            confirmPlanButton.setDisable(true);
-            return;
+        String normalizedKeyword = normalizeKeyword(keyword);
+        boolean allTypes = isAllTypes(courseType);
+        List<CourseSelectionItemView> filtered = new ArrayList<>();
+        for (CourseSelectionItemView item : candidates.values()) {
+            CourseView course = item.getCourse();
+            boolean keywordMatches = normalizedKeyword.isEmpty()
+                    || course.getCourseName().toLowerCase(Locale.ROOT)
+                            .contains(normalizedKeyword)
+                    || course.getCourseCode().toLowerCase(Locale.ROOT)
+                            .contains(normalizedKeyword);
+            boolean typeMatches = allTypes || courseType.equals(course.getCourseType());
+            if (keywordMatches && typeMatches) filtered.add(item);
         }
-        confirmPlanButton.setDisable(true);
-        if (confirmation.apply("确认选课", "确认提交计划中的全部课程？") != ButtonType.OK) {
-            finishPlanConfirmation();
-            updateConfirmPlanButton();
-            return;
-        }
-        executePlanConfirmation(service::confirmPlan);
+        return List.copyOf(filtered);
     }
 
-    private void loadOfferings() {
-        requestOfferings(loaded -> {
-            offerings = new ArrayList<>(loaded);
-            updateSummary();
-            renderCourses();
-        }, error -> errorReporter.accept("加载失败", errorMessage(error)));
-    }
-
-    void requestOfferings(Consumer<List<CourseOfferingView>> onLoaded,
+    void requestCourses(CourseTermView term, Consumer<List<CourseView>> onLoaded,
             Consumer<Throwable> onError) {
-        long generation = nextLoadGeneration();
-        service.loadOfferings().whenComplete((loaded, error) -> fxExecutor.accept(() -> {
-            if (!isCurrentLoadGeneration(generation)) {
-                return;
-            }
+        long generation = ++courseLoadGeneration;
+        service.loadCourses(term).whenComplete((loaded, error) ->
+                fxExecutor.accept(() -> {
+                    if (generation != courseLoadGeneration) return;
+                    if (error != null) {
+                        onError.accept(error);
+                    } else {
+                        onLoaded.accept(List.copyOf(loaded));
+                    }
+                }));
+    }
+
+    void requestCourseOfferings(CourseTermView term, long courseId,
+            Consumer<List<CourseOfferingView>> onLoaded,
+            Consumer<Throwable> onError) {
+        List<CourseOfferingView> cached = offeringCache.get(courseId);
+        if (cached != null) {
+            onLoaded.accept(cached);
+            return;
+        }
+
+        long generation = offeringCacheGeneration;
+        CompletableFuture<List<CourseOfferingView>> load = offeringLoads.get(courseId);
+        if (load == null) {
+            load = service.loadCourseOfferings(term, courseId);
+            offeringLoads.put(courseId, load);
+        }
+        load.whenComplete((loaded, error) -> fxExecutor.accept(() -> {
+            if (generation != offeringCacheGeneration) return;
+            offeringLoads.remove(courseId);
             if (error != null) {
                 onError.accept(error);
                 return;
             }
-            onLoaded.accept(loaded);
+            List<CourseOfferingView> immutable = List.copyOf(loaded);
+            offeringCache.put(courseId, immutable);
+            onLoaded.accept(immutable);
         }));
     }
 
-    private void selectTab(SelectionStatus status) {
-        selectedStatus = status;
-        allTabButton.setSelected(status == null);
-        planTabButton.setSelected(status == SelectionStatus.PLANNED);
-        waitlistTabButton.setSelected(status == SelectionStatus.WAITLISTED);
-        enrolledTabButton.setSelected(status == SelectionStatus.ENROLLED);
-        confirmPlanButton.setVisible(status == SelectionStatus.PLANNED);
-        confirmPlanButton.setManaged(status == SelectionStatus.PLANNED);
-        renderCourses();
+    void registerOfferingAction(long offeringId, Consumer<Boolean> setDisabled) {
+        renderedOfferingActions
+                .computeIfAbsent(offeringId, ignored -> new ArrayList<>())
+                .add(setDisabled);
+        setDisabled.accept(pendingOfferingIds.contains(offeringId));
     }
 
-    private void renderCourses() {
-        courseList.getChildren().clear();
-        List<CourseOfferingView> filtered = filterCourses(
-                offerings, selectedStatus, searchField.getText(), typeFilter.getValue());
-        updateConfirmPlanButton();
+    void executeMutation(CourseTermView term, long offeringId, Runnable rerender,
+            Function<String, CompletableFuture<CourseMutationResultView>> mutation) {
+        if (!pendingOfferingIds.add(offeringId)) {
+            updateOfferingActionState(offeringId);
+            return;
+        }
+        updateOfferingActionState(offeringId);
 
-        if (filtered.isEmpty()) {
-            Label emptyState = new Label(emptyStateText());
-            emptyState.getStyleClass().add("course-empty-state");
-            emptyState.setMaxWidth(Double.MAX_VALUE);
-            courseList.getChildren().add(emptyState);
+        CompletableFuture<CourseMutationResultView> future;
+        try {
+            String operationId = UUID.randomUUID().toString();
+            future = mutation.apply(operationId);
+        } catch (RuntimeException error) {
+            reconcileFailure(term, offeringId, rerender, error);
             return;
         }
 
-        for (CourseOfferingView course : filtered) {
-            courseList.getChildren().add(createCourseRow(course));
+        future.whenComplete((result, error) -> fxExecutor.accept(() -> {
+            if (error != null) {
+                reconcileFailure(term, offeringId, rerender, error);
+                return;
+            }
+            if (result != null) snapshot = result.getSnapshot();
+            invalidateOfferingCache();
+            finishMutation(offeringId, rerender);
+        }));
+    }
+
+    @FXML
+    private void showAllCourses() {
+        selectTab(SelectionTab.ALL);
+    }
+
+    @FXML
+    private void showPlannedCourses() {
+        selectTab(SelectionTab.PLAN);
+    }
+
+    @FXML
+    private void showWaitlistedCourses() {
+        selectTab(SelectionTab.WAITLIST);
+    }
+
+    @FXML
+    private void showEnrolledCourses() {
+        selectTab(SelectionTab.ENROLLED);
+    }
+
+    private void loadTerms() {
+        long generation = ++termLoadGeneration;
+        service.loadTerms().whenComplete((terms, error) -> fxExecutor.accept(() -> {
+            if (generation != termLoadGeneration) return;
+            if (error != null) {
+                errorReporter.accept("加载失败", errorMessage(error));
+                return;
+            }
+            termFilter.getItems().setAll(terms);
+            if (terms.isEmpty()) {
+                currentTerm = null;
+                courses = List.of();
+                snapshot = null;
+                renderCourses();
+            } else {
+                termFilter.setValue(terms.get(0));
+            }
+        }));
+    }
+
+    private void selectTerm(CourseTermView term) {
+        currentTerm = term;
+        courses = List.of();
+        snapshot = new CoursePlanSnapshotView(term, List.of(), List.of(), List.of());
+        invalidateOfferingCache();
+        loadCurrentTerm();
+    }
+
+    private void loadCurrentTerm() {
+        if (currentTerm == null) return;
+        CourseTermView term = currentTerm;
+        requestCourses(term, loaded -> {
+            if (!term.equals(currentTerm)) return;
+            courses = loaded;
+            updateSummary();
+            renderCourses();
+        }, error -> {
+            courses = List.of();
+            updateSummary();
+            renderCourses();
+            errorReporter.accept("课程加载失败", errorMessage(error));
+        });
+        requestSnapshot(term, loaded -> {
+            if (!term.equals(currentTerm)) return;
+            snapshot = loaded;
+            renderCourses();
+        }, error -> {
+            snapshot = new CoursePlanSnapshotView(term, List.of(), List.of(), List.of());
+            renderCourses();
+            errorReporter.accept("选课状态加载失败", errorMessage(error));
+        });
+    }
+
+    private void requestSnapshot(CourseTermView term,
+            Consumer<CoursePlanSnapshotView> onLoaded,
+            Consumer<Throwable> onError) {
+        long generation = ++snapshotLoadGeneration;
+        service.loadSelectionSnapshot(term).whenComplete((loaded, error) ->
+                fxExecutor.accept(() -> {
+                    if (generation != snapshotLoadGeneration) return;
+                    if (error != null) onError.accept(error);
+                    else onLoaded.accept(loaded);
+                }));
+    }
+
+    private void selectTab(SelectionTab tab) {
+        selectedTab = tab;
+        if (allTabButton != null) allTabButton.setSelected(tab == SelectionTab.ALL);
+        if (planTabButton != null) planTabButton.setSelected(tab == SelectionTab.PLAN);
+        if (waitlistTabButton != null) {
+            waitlistTabButton.setSelected(tab == SelectionTab.WAITLIST);
+        }
+        if (enrolledTabButton != null) {
+            enrolledTabButton.setSelected(tab == SelectionTab.ENROLLED);
+        }
+        if (courseList != null) renderCourses();
+    }
+
+    private void renderCourses() {
+        if (courseList == null || searchField == null || typeFilter == null) return;
+        renderedOfferingActions.clear();
+        courseList.getChildren().clear();
+
+        if (selectedTab == SelectionTab.ALL) {
+            List<CourseView> filtered = filterCourses(
+                    courses, searchField.getText(), typeFilter.getValue());
+            if (filtered.isEmpty()) {
+                addEmptyState("没有符合条件的课程");
+                return;
+            }
+            for (CourseView course : filtered) {
+                courseList.getChildren().add(createCourseRow(course));
+            }
+            return;
+        }
+
+        List<CourseSelectionItemView> filtered = filterSelectionItems(
+                snapshot, selectedTab, searchField.getText(), typeFilter.getValue());
+        if (filtered.isEmpty()) {
+            addEmptyState(emptyStateText());
+            return;
+        }
+        for (CourseSelectionItemView item : filtered) {
+            courseList.getChildren().add(createSelectionRow(item));
         }
     }
 
-    private VBox createCourseRow(CourseOfferingView course) {
+    private VBox createCourseRow(CourseView course) {
         VBox row = new VBox();
         row.getStyleClass().add("course-row");
-
-        VBox details = createCourseDetails(course);
-        details.setVisible(false);
-        details.setManaged(false);
+        VBox offeringList = new VBox(6.0);
+        offeringList.getStyleClass().add("course-offering-list");
+        offeringList.setVisible(false);
+        offeringList.setManaged(false);
 
         Button expandButton = new Button("+");
         expandButton.getStyleClass().add("course-expand-button");
         expandButton.setOnAction(event -> {
-            boolean expanded = !details.isVisible();
-            details.setVisible(expanded);
-            details.setManaged(expanded);
+            boolean expanded = !offeringList.isVisible();
+            offeringList.setVisible(expanded);
+            offeringList.setManaged(expanded);
             expandButton.setText(expanded ? "-" : "+");
+            if (expanded && offeringList.getChildren().isEmpty()) {
+                Label loading = styledLabel("正在加载教学班...", "course-empty-state");
+                offeringList.getChildren().add(loading);
+                requestCourseOfferings(currentTerm, course.getCourseId(), loaded -> {
+                    offeringList.getChildren().clear();
+                    if (loaded.isEmpty()) {
+                        offeringList.getChildren().add(styledLabel(
+                                "暂无可用教学班", "course-empty-state"));
+                    } else {
+                        for (CourseOfferingView offering : loaded) {
+                            offeringList.getChildren().add(
+                                    createOfferingRow(course, offering, true));
+                        }
+                    }
+                }, error -> {
+                    offeringList.getChildren().setAll(styledLabel(
+                            "教学班加载失败，请重试", "course-empty-state"));
+                    errorReporter.accept("教学班加载失败", errorMessage(error));
+                });
+            }
         });
 
         VBox titleBlock = new VBox(2.0,
@@ -258,202 +411,266 @@ public final class CourseSelectionController {
         titleBlock.getStyleClass().add("course-row-title-block");
         HBox.setHgrow(titleBlock, Priority.ALWAYS);
 
-        Label statusLabel = styledLabel(statusText(course.getSelectionStatus()),
-                statusStyle(course.getSelectionStatus()));
         HBox header = new HBox(10.0,
-                expandButton,
-                titleBlock,
+                expandButton, titleBlock,
                 styledLabel(course.getCourseType(), "course-row-meta"),
                 styledLabel(course.getCredit() + " 学分", "course-row-meta"),
-                styledLabel(course.getCreditHours() + " 学时", "course-row-meta"),
-                styledLabel(course.getTeacher(), "course-row-meta"),
-                styledLabel(course.getEnrolledCount() + "/" + course.getCapacity(),
-                        "course-row-meta"),
-                statusLabel);
+                styledLabel(course.getCreditHours() + " 学时", "course-row-meta"));
         header.setAlignment(Pos.CENTER_LEFT);
         header.getStyleClass().add("course-row-header");
-
-        row.getChildren().addAll(header, details);
+        row.getChildren().addAll(header, offeringList);
         return row;
     }
 
-    private VBox createCourseDetails(CourseOfferingView course) {
-        Label schedule = styledLabel(
-                "上课时间：" + course.getSchedule() + "    地点：" + course.getLocation(),
-                "course-detail-text");
-        Label description = styledLabel("课程简介：" + course.getDescription(),
-                "course-detail-text");
-        Label prerequisites = styledLabel("先修要求：" + course.getPrerequisites(),
-                "course-detail-text");
-        description.setWrapText(true);
-        prerequisites.setWrapText(true);
+    private VBox createSelectionRow(CourseSelectionItemView item) {
+        VBox row = createOfferingRow(item.getCourse(), item.getOffering(), false);
+        row.getStyleClass().add("course-selection-item");
+        return row;
+    }
 
-        Button actionButton = createActionButton(course);
+    private VBox createOfferingRow(CourseView course, CourseOfferingView offering,
+            boolean nested) {
+        VBox row = new VBox(5.0);
+        row.getStyleClass().add(nested ? "course-offering-row" : "course-row");
+
+        VBox titleBlock = new VBox(1.0,
+                styledLabel(course.getCourseName(), "course-row-title"),
+                styledLabel(course.getCourseCode() + " · 教学班 "
+                        + offering.getOfferingId(), "course-row-code"));
+        HBox.setHgrow(titleBlock, Priority.ALWAYS);
+
+        Label status = styledLabel(statusText(offering.getSelectionStatus()),
+                statusStyle(offering.getSelectionStatus()));
+        status.getStyleClass().add("course-status-label");
+        HBox header = new HBox(9.0,
+                titleBlock,
+                styledLabel(teacherText(offering), "course-row-meta"),
+                styledLabel(offering.getEnrolledCount() + "/"
+                        + offering.getCapacity(), "course-capacity"),
+                status);
+        header.setAlignment(Pos.CENTER_LEFT);
+
+        Label meeting = styledLabel(meetingText(offering), "course-detail-text");
+        meeting.setWrapText(true);
+        HBox actions = createActions(course, offering);
+        VBox.setVgrow(actions, Priority.NEVER);
+        row.getChildren().addAll(header, meeting, actions);
+        return row;
+    }
+
+    private HBox createActions(CourseView course, CourseOfferingView offering) {
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox actions = new HBox(spacer, actionButton);
+        HBox actions = new HBox(7.0);
         actions.setAlignment(Pos.CENTER_RIGHT);
+        actions.getStyleClass().add("course-row-actions");
+        actions.getChildren().add(spacer);
 
-        VBox details = new VBox(7.0, schedule, description, prerequisites, actions);
-        details.getStyleClass().add("course-row-details");
-        return details;
-    }
-
-    private Button createActionButton(CourseOfferingView course) {
-        Button actionButton = new Button();
-        actionButton.getStyleClass().add("course-row-action");
-        SelectionStatus status = course.getSelectionStatus();
-
-        if (status == SelectionStatus.AVAILABLE) {
-            if (course.getEnrolledCount() >= course.getCapacity()) {
-                actionButton.setText("加入候补");
-                actionButton.setOnAction(event -> executeTransition(course.getOfferingId(),
-                        actionButton,
-                        () -> service.joinWaitlist(course.getOfferingId())));
+        SelectionStatus status = offering.getSelectionStatus();
+        if (selectedTab == SelectionTab.ALL) {
+            if (status == SelectionStatus.AVAILABLE) {
+                actions.getChildren().add(actionButton(offering, "加入计划", false,
+                        operationId -> service.addToPlan(
+                                currentTerm, offering.getOfferingId(), operationId)));
+            } else if (status == SelectionStatus.PLANNED
+                    || status == SelectionStatus.FULL) {
+                actions.getChildren().add(actionButton(offering, "移除计划", false,
+                        operationId -> service.removeFromPlan(
+                                currentTerm, offering.getOfferingId(), operationId)));
             } else {
-                actionButton.setText("加入计划");
-                actionButton.setOnAction(event -> executeTransition(course.getOfferingId(),
-                        actionButton,
-                        () -> service.addToPlan(course.getOfferingId())));
+                actions.getChildren().add(disabledAction(offering,
+                        status == SelectionStatus.WAITLISTED ? "候补中"
+                                : status == SelectionStatus.WAITLIST_OFFERED
+                                        ? "待处理" : "已选"));
             }
-        } else if (status == SelectionStatus.PLANNED) {
-            actionButton.setText("移出计划");
-            actionButton.setOnAction(event -> executeTransition(course.getOfferingId(),
-                    actionButton,
-                    () -> service.removeFromPlan(course.getOfferingId())));
+            return actions;
+        }
+
+        if (selectedTab == SelectionTab.PLAN
+                && (status == SelectionStatus.PLANNED || status == SelectionStatus.FULL)) {
+            Button remove = actionButton(offering, "移除计划", false,
+                    operationId -> service.removeFromPlan(
+                            currentTerm, offering.getOfferingId(), operationId));
+            remove.getStyleClass().add("course-row-action-secondary");
+            actions.getChildren().add(remove);
+        }
+
+        if (status == SelectionStatus.PLANNED) {
+            actions.getChildren().add(actionButton(offering, "选择", false,
+                    operationId -> service.selectOffering(
+                            currentTerm, offering.getOfferingId(), operationId)));
+        } else if (status == SelectionStatus.FULL) {
+            actions.getChildren().add(actionButton(offering, "候补", false,
+                    operationId -> service.joinWaitlist(
+                            currentTerm, offering.getOfferingId(), operationId)));
         } else if (status == SelectionStatus.WAITLISTED) {
-            actionButton.setText("退出候补");
-            actionButton.setOnAction(event -> confirmAndExecute(
-                    course.getOfferingId(), "退出候补",
-                    "确认退出“" + course.getCourseName() + "”的候补？", actionButton,
-                    () -> service.leaveWaitlist(course.getOfferingId())));
-        } else {
-            actionButton.setText("退选课程");
-            actionButton.setOnAction(event -> confirmAndExecute(
-                    course.getOfferingId(), "退选课程",
-                    "确认退选“" + course.getCourseName() + "”？", actionButton,
-                    () -> service.dropCourse(course.getOfferingId())));
+            actions.getChildren().add(confirmAction(course, offering, "取消候补",
+                    "确认取消“" + course.getCourseName() + "”的候补？",
+                    operationId -> service.cancelWaitlist(
+                            currentTerm, offering.getOfferingId(), operationId)));
+        } else if (status == SelectionStatus.WAITLIST_OFFERED) {
+            actions.getChildren().add(confirmAction(course, offering, "处理",
+                    "确认接受“" + course.getCourseName() + "”的候补席位？",
+                    operationId -> service.resolveWaitlistOffer(
+                            currentTerm, offering.getOfferingId(), operationId,
+                            WaitlistDecision.ACCEPT)));
+        } else if (status == SelectionStatus.ENROLLED) {
+            actions.getChildren().add(confirmAction(course, offering, "退选",
+                    "确认退选“" + course.getCourseName() + "”？",
+                    operationId -> service.dropOffering(
+                            currentTerm, offering.getOfferingId(), operationId)));
         }
-        applyOfferingOperationState(course.getOfferingId(), actionButton::setDisable);
-        return actionButton;
+        return actions;
     }
 
-    private void confirmAndExecute(long offeringId, String title, String message,
-            Button actionButton, Supplier<CompletableFuture<?>> transition) {
-        confirmAndExecute(offeringId, title, message, actionButton::setDisable,
-                this::renderCourses, transition);
-    }
-
-    void confirmAndExecute(long offeringId, String title, String message,
-            Consumer<Boolean> setDisabled, Runnable rerender,
-            Supplier<CompletableFuture<?>> transition) {
-        if (!tryBeginOfferingOperation(offeringId)) {
-            setDisabled.accept(true);
-            return;
-        }
-        setDisabled.accept(true);
-        if (confirmation.apply(title, message) != ButtonType.OK) {
-            finishOfferingOperation(offeringId);
-            setDisabled.accept(false);
-            rerender.run();
-            return;
-        }
-        executePendingOfferingTransition(offeringId, setDisabled, rerender, transition);
-    }
-
-    private void executeTransition(long offeringId, Button actionButton,
-            Supplier<CompletableFuture<?>> transition) {
-        executeTransition(offeringId, actionButton::setDisable, this::renderCourses, transition);
-    }
-
-    void executeTransition(long offeringId, Consumer<Boolean> setDisabled,
-            Runnable rerender, Supplier<CompletableFuture<?>> transition) {
-        if (!tryBeginOfferingOperation(offeringId)) {
-            setDisabled.accept(true);
-            return;
-        }
-        setDisabled.accept(true);
-        executePendingOfferingTransition(offeringId, setDisabled, rerender, transition);
-    }
-
-    private void executePendingOfferingTransition(long offeringId,
-            Consumer<Boolean> setDisabled, Runnable rerender,
-            Supplier<CompletableFuture<?>> transition) {
-        CompletableFuture<?> future;
-        try {
-            future = transition.get();
-        } catch (RuntimeException error) {
-            finishOfferingOperation(offeringId);
-            setDisabled.accept(false);
-            rerender.run();
-            errorReporter.accept("操作失败", errorMessage(error));
-            return;
-        }
-        future.whenComplete((ignored, error) -> fxExecutor.accept(() -> {
-            finishOfferingOperation(offeringId);
-            setDisabled.accept(false);
-            if (error != null) {
-                errorReporter.accept("操作失败", errorMessage(error));
+    private Button confirmAction(CourseView course, CourseOfferingView offering,
+            String text, String message,
+            Function<String, CompletableFuture<CourseMutationResultView>> mutation) {
+        Button button = new Button(text);
+        button.getStyleClass().add("course-row-action");
+        registerOfferingAction(offering.getOfferingId(), button::setDisable);
+        button.setOnAction(event -> {
+            if (confirmation.apply(text, message) == ButtonType.OK) {
+                executeMutation(currentTerm, offering.getOfferingId(),
+                        this::renderCourses, mutation);
             }
-            rerender.run();
-            refresh();
-        }));
+        });
+        return button;
     }
 
-    private void executePlanConfirmation(Supplier<CompletableFuture<?>> transition) {
-        CompletableFuture<?> future;
-        try {
-            future = transition.get();
-        } catch (RuntimeException error) {
-            finishPlanConfirmation();
-            updateConfirmPlanButton();
-            errorReporter.accept("操作失败", errorMessage(error));
-            return;
+    private Button actionButton(CourseOfferingView offering, String text,
+            boolean disabled,
+            Function<String, CompletableFuture<CourseMutationResultView>> mutation) {
+        Button button = new Button(text);
+        button.getStyleClass().add("course-row-action");
+        registerOfferingAction(offering.getOfferingId(), button::setDisable);
+        if (disabled) button.setDisable(true);
+        button.setOnAction(event -> executeMutation(
+                currentTerm, offering.getOfferingId(), this::renderCourses, mutation));
+        return button;
+    }
+
+    private Button disabledAction(CourseOfferingView offering, String text) {
+        Button button = new Button(text);
+        button.getStyleClass().add("course-row-action");
+        button.setDisable(true);
+        registerOfferingAction(offering.getOfferingId(), ignored -> button.setDisable(true));
+        return button;
+    }
+
+    private void reconcileFailure(CourseTermView term, long offeringId,
+            Runnable rerender, Throwable mutationError) {
+        service.loadSelectionSnapshot(term).whenComplete((loaded, refreshError) ->
+                fxExecutor.accept(() -> {
+                    if (refreshError == null && loaded != null) snapshot = loaded;
+                    invalidateOfferingCache();
+                    finishMutation(offeringId, rerender);
+                    String message = errorMessage(mutationError);
+                    if (refreshError != null) {
+                        message += "；状态刷新失败：" + errorMessage(refreshError);
+                    }
+                    errorReporter.accept("操作失败", message);
+                }));
+    }
+
+    private void finishMutation(long offeringId, Runnable rerender) {
+        pendingOfferingIds.remove(offeringId);
+        updateOfferingActionState(offeringId);
+        rerender.run();
+    }
+
+    private void updateOfferingActionState(long offeringId) {
+        boolean disabled = pendingOfferingIds.contains(offeringId);
+        for (Consumer<Boolean> action :
+                renderedOfferingActions.getOrDefault(offeringId, List.of())) {
+            action.accept(disabled);
         }
-        future.whenComplete((ignored, error) -> fxExecutor.accept(() -> {
-            finishPlanConfirmation();
-            if (error != null) {
-                errorReporter.accept("操作失败", errorMessage(error));
-            }
-            renderCourses();
-            refresh();
-        }));
+    }
+
+    private void invalidateOfferingCache() {
+        offeringCache.clear();
+        offeringLoads.clear();
+        offeringCacheGeneration++;
     }
 
     private void updateSummary() {
-        long required = offerings.stream()
-                .filter(course -> "必修".equals(course.getCourseType()))
-                .count();
-        long general = offerings.stream()
-                .filter(course -> isGeneralCourse(course.getCourseType()))
-                .count();
-        long elective = offerings.size() - required - general;
+        if (requiredCountLabel == null) return;
+        long required = courses.stream()
+                .filter(course -> "必修".equals(course.getCourseType())).count();
+        long general = courses.stream()
+                .filter(course -> "通选".equals(course.getCourseType())).count();
+        long elective = courses.size() - required - general;
         requiredCountLabel.setText(required + " 门");
         electiveCountLabel.setText(elective + " 门");
         generalCountLabel.setText(general + " 门");
     }
 
-    private void updateConfirmPlanButton() {
-        boolean hasPlannedCourse = offerings.stream()
-                .anyMatch(course -> course.getSelectionStatus() == SelectionStatus.PLANNED);
-        applyPlanConfirmationState(hasPlannedCourse, confirmPlanButton::setDisable);
+    private void addEmptyState(String text) {
+        Label emptyState = styledLabel(text, "course-empty-state");
+        emptyState.setMaxWidth(Double.MAX_VALUE);
+        courseList.getChildren().add(emptyState);
     }
 
     private String emptyStateText() {
-        if (selectedStatus == SelectionStatus.PLANNED) {
-            return "计划中暂无课程";
-        }
-        if (selectedStatus == SelectionStatus.WAITLISTED) {
-            return "候补中暂无课程";
-        }
-        if (selectedStatus == SelectionStatus.ENROLLED) {
-            return "当前暂无已选课程";
-        }
+        if (selectedTab == SelectionTab.PLAN) return "计划中暂无课程";
+        if (selectedTab == SelectionTab.WAITLIST) return "候补中暂无课程";
+        if (selectedTab == SelectionTab.ENROLLED) return "当前暂无已选课程";
         return "没有符合条件的课程";
     }
 
-    private static boolean isGeneralCourse(String courseType) {
-        return courseType.startsWith("通识") || courseType.startsWith("通选");
+    private static void addItems(Map<Long, CourseSelectionItemView> target,
+            List<CourseSelectionItemView> items) {
+        for (CourseSelectionItemView item : items) {
+            target.put(item.getOffering().getOfferingId(), item);
+        }
+    }
+
+    private static String teacherText(CourseOfferingView offering) {
+        List<String> names = new ArrayList<>();
+        for (CourseTeacherView teacher : offering.getTeachers()) {
+            names.add(teacher.getDisplayName());
+        }
+        return names.isEmpty() ? "教师待定" : String.join("、", names);
+    }
+
+    private static String meetingText(CourseOfferingView offering) {
+        List<String> values = new ArrayList<>();
+        for (CourseMeetingView meeting : offering.getMeetings()) {
+            values.add("周" + chineseDay(meeting.getDayOfWeek()) + " "
+                    + meeting.getStartPeriod() + "-" + meeting.getEndPeriod()
+                    + "节 · " + meeting.getStartWeek() + "-"
+                    + meeting.getEndWeek() + "周 · " + meeting.getLocation());
+        }
+        return values.isEmpty() ? "时间地点待定" : String.join("；", values);
+    }
+
+    private static String chineseDay(int day) {
+        String[] values = {"", "一", "二", "三", "四", "五", "六", "日"};
+        return day >= 1 && day <= 7 ? values[day] : String.valueOf(day);
+    }
+
+    private static String statusText(SelectionStatus status) {
+        switch (status) {
+            case AVAILABLE: return "可选";
+            case PLANNED: return "计划中";
+            case FULL: return "已满";
+            case WAITLISTED: return "候补中";
+            case WAITLIST_OFFERED: return "待处理";
+            case ENROLLED: return "已选";
+            default: throw new IllegalArgumentException("Unknown status: " + status);
+        }
+    }
+
+    private static String statusStyle(SelectionStatus status) {
+        return "course-status-" + status.name().toLowerCase(Locale.ROOT);
+    }
+
+    private static String normalizeKeyword(String keyword) {
+        return keyword == null ? "" : keyword.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private static boolean isAllTypes(String courseType) {
+        return courseType == null || courseType.isEmpty() || "全部".equals(courseType);
     }
 
     private static Label styledLabel(String text, String styleClass) {
@@ -462,39 +679,18 @@ public final class CourseSelectionController {
         return label;
     }
 
-    private static String statusText(SelectionStatus status) {
-        switch (status) {
-            case AVAILABLE:
-                return "可选";
-            case PLANNED:
-                return "计划中";
-            case WAITLISTED:
-                return "候补中";
-            case ENROLLED:
-                return "已选";
-            default:
-                throw new IllegalArgumentException("Unknown status: " + status);
-        }
-    }
-
-    private static String statusStyle(SelectionStatus status) {
-        return "course-status-" + status.name().toLowerCase(Locale.ROOT);
-    }
-
     private static String errorMessage(Throwable error) {
         Throwable cause = error;
         while ((cause instanceof CompletionException || cause.getCause() != null)
                 && cause.getCause() != null) {
             cause = cause.getCause();
         }
-        return cause.getMessage() == null ? cause.getClass().getSimpleName() : cause.getMessage();
+        return cause.getMessage() == null
+                ? cause.getClass().getSimpleName() : cause.getMessage();
     }
 
     private static void runOnFxThread(Runnable action) {
-        if (Platform.isFxApplicationThread()) {
-            action.run();
-        } else {
-            Platform.runLater(action);
-        }
+        if (Platform.isFxApplicationThread()) action.run();
+        else Platform.runLater(action);
     }
 }

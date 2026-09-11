@@ -23,8 +23,9 @@
                 <HBox alignment="CENTER_LEFT" spacing="10.0" styleClass="course-toolbar">
                     <children>
                         <TextField fx:id="searchField" promptText="搜索课程名称或代码" styleClass="course-search-field" HBox.hgrow="ALWAYS" />
+                        <ComboBox fx:id="termFilter" prefWidth="154.0" promptText="学期" styleClass="course-term-filter" />
                         <ComboBox fx:id="typeFilter" prefWidth="118.0" promptText="课程类型" styleClass="course-type-filter" />
-                        <Button onAction="#refresh" styleClass="course-refresh-button" text="刷新" />
+                        <Button onAction="#refresh" styleClass="course-refresh-button" text="搜索" />
                     </children>
                 </HBox>
                 <HBox alignment="CENTER_LEFT" spacing="4.0" styleClass="course-subnav">
@@ -33,8 +34,6 @@
                         <ToggleButton fx:id="planTabButton" onAction="#showPlannedCourses" styleClass="course-subnav-button" text="计划" toggleGroup="$statusToggleGroup" />
                         <ToggleButton fx:id="waitlistTabButton" onAction="#showWaitlistedCourses" styleClass="course-subnav-button" text="候补" toggleGroup="$statusToggleGroup" />
                         <ToggleButton fx:id="enrolledTabButton" onAction="#showEnrolledCourses" styleClass="course-subnav-button" text="已选" toggleGroup="$statusToggleGroup" />
-                        <Region HBox.hgrow="ALWAYS" />
-                        <Button fx:id="confirmPlanButton" managed="false" onAction="#confirmPlan" styleClass="course-plan-action" text="确认选课" visible="false" />
                     </children>
                 </HBox>
             </children>

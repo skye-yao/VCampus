@@ -1,5 +1,5 @@
 package model.course;
 
 public enum SelectionStatus {
-    AVAILABLE, PLANNED, WAITLISTED, ENROLLED
+    AVAILABLE, PLANNED, FULL, WAITLISTED, WAITLIST_OFFERED, ENROLLED
 }

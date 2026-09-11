@@ -8,11 +8,18 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import model.course.CourseNoticeView;
+import model.course.CourseMutationResultView;
 import model.course.CourseOfferingView;
+import model.course.CoursePlanSnapshotView;
+import model.course.CourseTermView;
+import model.course.CourseView;
 import model.course.GradeSummaryView;
 import model.course.ScheduleEntryView;
 import model.course.TrainingPlanGroupView;
+import model.course.WaitlistDecision;
+import service.CoursePushListener;
 import service.CourseService;
+import service.CourseSubscription;
 
 public final class GradeControllerTest {
     public static void main(String[] args) {
@@ -107,38 +114,78 @@ public final class GradeControllerTest {
                 new ArrayDeque<>();
 
         @Override
-        public CompletableFuture<List<CourseOfferingView>> loadOfferings() {
+        public CompletableFuture<List<CourseTermView>> loadTerms() {
             return CompletableFuture.completedFuture(Collections.emptyList());
         }
 
         @Override
-        public CompletableFuture<CourseOfferingView> addToPlan(long offeringId) {
-            return CompletableFuture.completedFuture(null);
-        }
-
-        @Override
-        public CompletableFuture<CourseOfferingView> removeFromPlan(long offeringId) {
-            return CompletableFuture.completedFuture(null);
-        }
-
-        @Override
-        public CompletableFuture<List<CourseOfferingView>> confirmPlan() {
+        public CompletableFuture<List<CourseView>> loadCourses(CourseTermView term) {
             return CompletableFuture.completedFuture(Collections.emptyList());
         }
 
         @Override
-        public CompletableFuture<CourseOfferingView> joinWaitlist(long offeringId) {
+        public CompletableFuture<List<CourseOfferingView>> loadCourseOfferings(
+                CourseTermView term, long courseId) {
+            return CompletableFuture.completedFuture(Collections.emptyList());
+        }
+
+        @Override
+        public CompletableFuture<CoursePlanSnapshotView> loadSelectionSnapshot(
+                CourseTermView term) {
             return CompletableFuture.completedFuture(null);
         }
 
         @Override
-        public CompletableFuture<CourseOfferingView> leaveWaitlist(long offeringId) {
+        public CompletableFuture<CourseMutationResultView> addToPlan(
+                CourseTermView term, long offeringId, String operationId) {
             return CompletableFuture.completedFuture(null);
         }
 
         @Override
-        public CompletableFuture<CourseOfferingView> dropCourse(long offeringId) {
+        public CompletableFuture<CourseMutationResultView> removeFromPlan(
+                CourseTermView term, long offeringId, String operationId) {
             return CompletableFuture.completedFuture(null);
+        }
+
+        @Override
+        public CompletableFuture<CourseMutationResultView> selectOffering(
+                CourseTermView term, long offeringId, String operationId) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        @Override
+        public CompletableFuture<CourseMutationResultView> joinWaitlist(
+                CourseTermView term, long offeringId, String operationId) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        @Override
+        public CompletableFuture<CourseMutationResultView> cancelWaitlist(
+                CourseTermView term, long offeringId, String operationId) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        @Override
+        public CompletableFuture<CourseMutationResultView> resolveWaitlistOffer(
+                CourseTermView term, long offeringId, String operationId,
+                WaitlistDecision decision) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        @Override
+        public CompletableFuture<CourseMutationResultView> dropOffering(
+                CourseTermView term, long offeringId, String operationId) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        @Override
+        public CompletableFuture<Void> ackCourseEvent(String eventId) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        @Override
+        public CourseSubscription subscribe(CoursePushListener listener) {
+            return () -> { };
         }
 
         @Override

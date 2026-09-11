@@ -6,144 +6,249 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Function;
+import model.course.CourseMeetingView;
+import model.course.CourseMutationResultView;
 import model.course.CourseNoticeView;
 import model.course.CourseOfferingView;
+import model.course.CoursePlanSnapshotView;
+import model.course.CourseSelectionItemView;
+import model.course.CourseTeacherView;
+import model.course.CourseTermView;
+import model.course.CourseView;
 import model.course.GradeRecordView;
 import model.course.GradeSummaryView;
 import model.course.ScheduleEntryView;
 import model.course.SelectionStatus;
 import model.course.TrainingPlanCourseView;
 import model.course.TrainingPlanGroupView;
+import model.course.WaitlistDecision;
 
 public final class MockCourseService implements CourseService {
-    private static final String DEFAULT_TERM = "2026-2027 秋学期";
+    private static final String DEFAULT_TERM_NAME = "2026-2027 秋学期";
+    private static final CourseTermView DEFAULT_TERM =
+            new CourseTermView(2026, 1, DEFAULT_TERM_NAME);
+    private static final String OFFERED_AT = "2099-09-10T01:00:00Z";
+    private static final String OFFER_EXPIRES_AT = "2099-09-10T01:05:00Z";
 
+    private final Map<Long, CourseView> courses = new LinkedHashMap<>();
     private final Map<Long, CourseOfferingView> offerings = new LinkedHashMap<>();
+    private final Map<String, CourseMutationResultView> operationResults =
+            new LinkedHashMap<>();
     private final Map<Long, ScheduleEntryView> scheduleTemplates = new LinkedHashMap<>();
     private final List<CourseNoticeView> notices = new ArrayList<>();
 
     public MockCourseService() {
-        addOffering(new CourseOfferingView(
-                1001L, "CS203", "数据结构", "必修", 4.0, 64,
-                "张老师", "周二 3-4节", "教四-201",
-                "线性表、树和图", "程序设计基础",
-                96, 120, SelectionStatus.AVAILABLE));
-        addOffering(new CourseOfferingView(
-                1002L, "CS301", "操作系统", "必修", 3.5, 56,
-                "李老师", "周一 5-6节", "教二-305",
-                "进程、内存与文件系统", "数据结构",
-                100, 100, SelectionStatus.PLANNED));
-        addOffering(new CourseOfferingView(
-                1003L, "CS352", "人机交互", "专业选修", 2.0, 32,
-                "王老师", "周四 7-8节", "教一-408",
-                "交互设计与可用性评估", "无",
-                60, 60, SelectionStatus.WAITLISTED));
-        addOffering(new CourseOfferingView(
-                1004L, "AR101", "音乐鉴赏", "通识选修", 2.0, 32,
-                "陈老师", "周五 9-10节", "艺术楼-101",
-                "中外经典音乐作品赏析", "无",
-                47, 80, SelectionStatus.AVAILABLE));
-        addOffering(new CourseOfferingView(
-                1005L, "MA202", "离散数学", "必修", 3.0, 48,
-                "赵老师", "周三 1-2节", "教三-202",
-                "集合、图论与数理逻辑", "高等数学",
-                86, 120, SelectionStatus.ENROLLED));
-        addOffering(new CourseOfferingView(
-                1006L, "CS305", "计算机网络", "必修", 3.5, 56,
-                "刘老师", "周四 3-4节", "教四-305",
-                "网络体系结构与协议", "操作系统",
-                79, 100, SelectionStatus.ENROLLED));
+        addCourse(new CourseView(101L, "CS203", "数据结构", "必修", 4.0, 64,
+                "线性表、树和图", "程序设计基础"));
+        addCourse(new CourseView(201L, "CS301", "操作系统", "必修", 3.5, 56,
+                "进程、内存与文件系统", "数据结构"));
+        addCourse(new CourseView(301L, "CS352", "人机交互", "限选", 2.0, 32,
+                "交互设计与可用性评估", "无"));
+        addCourse(new CourseView(401L, "AR101", "音乐鉴赏", "通选", 2.0, 32,
+                "中外经典音乐作品赏析", "无"));
+        addCourse(new CourseView(501L, "MA202", "离散数学", "必修", 3.0, 48,
+                "集合、图论与数理逻辑", "高等数学"));
+        addCourse(new CourseView(601L, "CS305", "计算机网络", "选修", 3.5, 56,
+                "网络体系结构与协议", "操作系统"));
 
-        String term = DEFAULT_TERM;
+        addOffering(offering(1001L, 101L, "张老师", 2, 3, 4,
+                "教四-201", 96, 120, SelectionStatus.AVAILABLE, null));
+        addOffering(offering(1007L, 101L, "周老师", 4, 1, 2,
+                "教四-203", 88, 120, SelectionStatus.PLANNED, null));
+        addOffering(offering(1002L, 201L, "李老师", 1, 5, 6,
+                "教二-305", 100, 100, SelectionStatus.AVAILABLE, null));
+        addOffering(offering(1008L, 201L, "孙老师", 3, 5, 6,
+                "教二-307", 100, 100, SelectionStatus.FULL, null));
+        addOffering(offering(1003L, 301L, "王老师", 4, 7, 8,
+                "教一-408", 60, 60, SelectionStatus.WAITLISTED, null));
+        addOffering(offering(1009L, 301L, "郑老师", 2, 7, 8,
+                "教一-410", 59, 60, SelectionStatus.WAITLIST_OFFERED,
+                OFFER_EXPIRES_AT));
+        addOffering(offering(1004L, 401L, "陈老师", 5, 9, 10,
+                "艺术楼-101", 47, 80, SelectionStatus.AVAILABLE, null));
+        addOffering(offering(1010L, 401L, "钱老师", 3, 9, 10,
+                "艺术楼-103", 35, 80, SelectionStatus.AVAILABLE, null));
+        addOffering(offering(1005L, 501L, "赵老师", 3, 1, 2,
+                "教三-202", 86, 120, SelectionStatus.ENROLLED, null));
+        addOffering(offering(1011L, 501L, "吴老师", 5, 1, 2,
+                "教三-204", 72, 120, SelectionStatus.AVAILABLE, null));
+        addOffering(offering(1006L, 601L, "刘老师", 4, 3, 4,
+                "教四-305", 79, 100, SelectionStatus.ENROLLED, null));
+        addOffering(offering(1012L, 601L, "冯老师", 1, 3, 4,
+                "教四-307", 68, 100, SelectionStatus.AVAILABLE, null));
+
         addScheduleTemplate(new ScheduleEntryView(
-                1001L, term, "CS203", "数据结构", "张老师", "教四-201",
+                1001L, DEFAULT_TERM_NAME, "CS203", "数据结构", "张老师", "教四-201",
                 2, 3, 2, 1, 16));
         addScheduleTemplate(new ScheduleEntryView(
-                1002L, term, "CS301", "操作系统", "李老师", "教二-305",
+                1002L, DEFAULT_TERM_NAME, "CS301", "操作系统", "李老师", "教二-305",
                 1, 5, 2, 1, 16));
         addScheduleTemplate(new ScheduleEntryView(
-                1003L, term, "CS352", "人机交互", "王老师", "教一-408",
+                1003L, DEFAULT_TERM_NAME, "CS352", "人机交互", "王老师", "教一-408",
                 4, 7, 2, 1, 16));
         addScheduleTemplate(new ScheduleEntryView(
-                1004L, term, "AR101", "音乐鉴赏", "陈老师", "艺术楼-101",
+                1004L, DEFAULT_TERM_NAME, "AR101", "音乐鉴赏", "陈老师", "艺术楼-101",
                 5, 9, 2, 1, 16));
         addScheduleTemplate(new ScheduleEntryView(
-                1005L, term, "MA202", "离散数学", "赵老师", "教三-202",
+                1005L, DEFAULT_TERM_NAME, "MA202", "离散数学", "赵老师", "教三-202",
                 3, 1, 2, 1, 16));
         addScheduleTemplate(new ScheduleEntryView(
-                1006L, term, "CS305", "计算机网络", "刘老师", "教四-305",
+                1006L, DEFAULT_TERM_NAME, "CS305", "计算机网络", "刘老师", "教四-305",
                 4, 3, 2, 1, 16));
 
         notices.add(new CourseNoticeView(
-                term, 8, "计算机网络停课通知", "第 8 周周四课程暂停一次，补课时间另行通知。"));
+                DEFAULT_TERM_NAME, 8, "计算机网络停课通知",
+                "第 8 周周四课程暂停一次，补课时间另行通知。"));
         notices.add(new CourseNoticeView(
-                term, 13, "数据结构调课通知", "第 13 周课程调整至周五 3-4 节，地点为教四-201。"));
+                DEFAULT_TERM_NAME, 13, "数据结构调课通知",
+                "第 13 周课程调整至周五 3-4 节，地点为教四-201。"));
     }
 
     @Override
-    public synchronized CompletableFuture<List<CourseOfferingView>> loadOfferings() {
-        return CompletableFuture.completedFuture(offeringSnapshot());
+    public CompletableFuture<List<CourseTermView>> loadTerms() {
+        return CompletableFuture.completedFuture(List.of(DEFAULT_TERM));
     }
 
     @Override
-    public synchronized CompletableFuture<CourseOfferingView> addToPlan(long offeringId) {
-        return transition(offeringId, SelectionStatus.AVAILABLE, SelectionStatus.PLANNED, 0);
+    public synchronized CompletableFuture<List<CourseView>> loadCourses(CourseTermView term) {
+        if (!DEFAULT_TERM.equals(term)) {
+            return CompletableFuture.completedFuture(List.of());
+        }
+        return CompletableFuture.completedFuture(List.copyOf(courses.values()));
     }
 
     @Override
-    public synchronized CompletableFuture<CourseOfferingView> removeFromPlan(long offeringId) {
-        return transition(offeringId, SelectionStatus.PLANNED, SelectionStatus.AVAILABLE, 0);
+    public synchronized CompletableFuture<List<CourseOfferingView>> loadCourseOfferings(
+            CourseTermView term, long courseId) {
+        if (!DEFAULT_TERM.equals(term)) {
+            return CompletableFuture.completedFuture(List.of());
+        }
+        List<CourseOfferingView> matching = new ArrayList<>();
+        for (CourseOfferingView offering : offerings.values()) {
+            if (offering.getCourseId() == courseId) matching.add(offering);
+        }
+        return CompletableFuture.completedFuture(List.copyOf(matching));
     }
 
     @Override
-    public synchronized CompletableFuture<List<CourseOfferingView>> confirmPlan() {
-        for (Map.Entry<Long, CourseOfferingView> entry : offerings.entrySet()) {
-            CourseOfferingView offering = entry.getValue();
+    public synchronized CompletableFuture<CoursePlanSnapshotView> loadSelectionSnapshot(
+            CourseTermView term) {
+        if (!DEFAULT_TERM.equals(term)) {
+            return CompletableFuture.completedFuture(
+                    new CoursePlanSnapshotView(term, List.of(), List.of(), List.of()));
+        }
+        return CompletableFuture.completedFuture(snapshot());
+    }
+
+    @Override
+    public synchronized CompletableFuture<CourseMutationResultView> addToPlan(
+            CourseTermView term, long offeringId, String operationId) {
+        return mutate(term, offeringId, operationId, offering ->
+                requireAndCopy(offering, SelectionStatus.AVAILABLE,
+                        SelectionStatus.PLANNED, offering.getEnrolledCount(),
+                        null, null, null));
+    }
+
+    @Override
+    public synchronized CompletableFuture<CourseMutationResultView> removeFromPlan(
+            CourseTermView term, long offeringId, String operationId) {
+        return mutate(term, offeringId, operationId, offering -> {
+            SelectionStatus status = offering.getSelectionStatus();
+            if (status != SelectionStatus.PLANNED && status != SelectionStatus.FULL) {
+                throw stateError(offering, "PLANNED or FULL");
+            }
+            return copyWith(offering, SelectionStatus.AVAILABLE,
+                    offering.getEnrolledCount(), null, null, null);
+        });
+    }
+
+    @Override
+    public synchronized CompletableFuture<CourseMutationResultView> selectOffering(
+            CourseTermView term, long offeringId, String operationId) {
+        return mutate(term, offeringId, operationId, offering -> {
             if (offering.getSelectionStatus() != SelectionStatus.PLANNED) {
-                continue;
+                throw stateError(offering, "PLANNED");
+            }
+            if (offering.getEnrolledCount() >= offering.getCapacity()) {
+                return copyWith(offering, SelectionStatus.FULL,
+                        offering.getEnrolledCount(), "教学班已满", null, null);
+            }
+            return copyWith(offering, SelectionStatus.ENROLLED,
+                    offering.getEnrolledCount() + 1, null, null, null);
+        });
+    }
+
+    @Override
+    public synchronized CompletableFuture<CourseMutationResultView> joinWaitlist(
+            CourseTermView term, long offeringId, String operationId) {
+        return mutate(term, offeringId, operationId, offering ->
+                requireAndCopy(offering, SelectionStatus.FULL,
+                        SelectionStatus.WAITLISTED, offering.getEnrolledCount(),
+                        null, null, null));
+    }
+
+    @Override
+    public synchronized CompletableFuture<CourseMutationResultView> cancelWaitlist(
+            CourseTermView term, long offeringId, String operationId) {
+        return mutate(term, offeringId, operationId, offering ->
+                requireAndCopy(offering, SelectionStatus.WAITLISTED,
+                        SelectionStatus.FULL, offering.getEnrolledCount(),
+                        "教学班已满", null, null));
+    }
+
+    @Override
+    public synchronized CompletableFuture<CourseMutationResultView> resolveWaitlistOffer(
+            CourseTermView term, long offeringId, String operationId,
+            WaitlistDecision decision) {
+        return mutate(term, offeringId, operationId, offering -> {
+            if (offering.getSelectionStatus() != SelectionStatus.WAITLIST_OFFERED) {
+                throw stateError(offering, "WAITLIST_OFFERED");
+            }
+            if (decision == WaitlistDecision.ACCEPT) {
+                return copyWith(offering, SelectionStatus.ENROLLED,
+                        Math.min(offering.getCapacity(), offering.getEnrolledCount() + 1),
+                        null, null, null);
+            }
+            if (decision == WaitlistDecision.ABANDON) {
+                return copyWith(offering, SelectionStatus.FULL,
+                        offering.getEnrolledCount(), "已放弃候补席位", null, null);
+            }
+            throw new IllegalArgumentException("Waitlist decision is required");
+        });
+    }
+
+    @Override
+    public synchronized CompletableFuture<CourseMutationResultView> dropOffering(
+            CourseTermView term, long offeringId, String operationId) {
+        return mutate(term, offeringId, operationId, offering ->
+                requireAndCopy(offering, SelectionStatus.ENROLLED,
+                        SelectionStatus.AVAILABLE,
+                        Math.max(0, offering.getEnrolledCount() - 1),
+                        null, null, null));
+    }
+
+    @Override
+    public CompletableFuture<Void> ackCourseEvent(String eventId) {
+        return CompletableFuture.completedFuture(null);
+    }
+
+    @Override
+    public CourseSubscription subscribe(CoursePushListener listener) {
+        return new CourseSubscription() {
+            private boolean closed;
+
+            @Override
+            public void close() {
+                closed = true;
             }
 
-            if (offering.getEnrolledCount() < offering.getCapacity()) {
-                entry.setValue(copyWith(offering, SelectionStatus.ENROLLED,
-                        offering.getEnrolledCount() + 1));
-            } else {
-                entry.setValue(copyWith(offering, SelectionStatus.WAITLISTED,
-                        offering.getEnrolledCount()));
+            @Override
+            public String toString() {
+                return closed ? "closed mock course subscription"
+                        : "open mock course subscription";
             }
-        }
-        return CompletableFuture.completedFuture(offeringSnapshot());
-    }
-
-    @Override
-    public synchronized CompletableFuture<CourseOfferingView> joinWaitlist(long offeringId) {
-        CourseOfferingView offering = offerings.get(offeringId);
-        if (offering == null) {
-            return failed("Unknown offering: " + offeringId);
-        }
-        if (offering.getSelectionStatus() != SelectionStatus.AVAILABLE
-                || offering.getEnrolledCount() < offering.getCapacity()) {
-            return failed("Only a full available offering can be waitlisted: " + offeringId);
-        }
-        return replace(offering, SelectionStatus.WAITLISTED, offering.getEnrolledCount());
-    }
-
-    @Override
-    public synchronized CompletableFuture<CourseOfferingView> leaveWaitlist(long offeringId) {
-        return transition(offeringId, SelectionStatus.WAITLISTED, SelectionStatus.AVAILABLE, 0);
-    }
-
-    @Override
-    public synchronized CompletableFuture<CourseOfferingView> dropCourse(long offeringId) {
-        CourseOfferingView offering = offerings.get(offeringId);
-        if (offering == null) {
-            return failed("Unknown offering: " + offeringId);
-        }
-        if (offering.getSelectionStatus() != SelectionStatus.ENROLLED) {
-            return failed("Expected ENROLLED but was " + offering.getSelectionStatus()
-                    + " for offering: " + offeringId);
-        }
-        return replace(offering, SelectionStatus.AVAILABLE,
-                Math.max(0, offering.getEnrolledCount() - 1));
+        };
     }
 
     @Override
@@ -160,23 +265,23 @@ public final class MockCourseService implements CourseService {
                 entries.add(scheduleEntry);
             }
         }
-        return CompletableFuture.completedFuture(immutableList(entries));
+        return CompletableFuture.completedFuture(List.copyOf(entries));
     }
 
     @Override
     public CompletableFuture<List<CourseNoticeView>> loadNotices(String term, int week) {
-        List<CourseNoticeView> matchingNotices = new ArrayList<>();
+        List<CourseNoticeView> matching = new ArrayList<>();
         for (CourseNoticeView notice : notices) {
             if (notice.getTerm().equals(term) && notice.getWeek() == week) {
-                matchingNotices.add(notice);
+                matching.add(notice);
             }
         }
-        return CompletableFuture.completedFuture(immutableList(matchingNotices));
+        return CompletableFuture.completedFuture(List.copyOf(matching));
     }
 
     @Override
     public CompletableFuture<GradeSummaryView> loadGrades(String term) {
-        if (DEFAULT_TERM.equals(term)) {
+        if (DEFAULT_TERM_NAME.equals(term)) {
             List<GradeRecordView> records = List.of(
                     new GradeRecordView(
                             term, "CS101", "程序设计基础", 4.0, 94.0, 4.0,
@@ -188,43 +293,147 @@ public final class MockCourseService implements CourseService {
                     new GradeSummaryView(term, 3.85, 91.5, 90.8, 3.78, records));
         }
         return CompletableFuture.completedFuture(
-                new GradeSummaryView(term, 0.0, 0.0, 0.0, 0.0, Collections.emptyList()));
+                new GradeSummaryView(term, 0.0, 0.0, 0.0, 0.0, List.of()));
     }
 
     @Override
     public CompletableFuture<List<TrainingPlanGroupView>> loadTrainingPlan() {
         List<TrainingPlanGroupView> groups = List.of(
                 new TrainingPlanGroupView("必修课程", 80.0, 9.0, List.of(
-                        new TrainingPlanCourseView(
-                                "CS101", "程序设计基础", 4.0, "已修"),
-                        new TrainingPlanCourseView(
-                                "MA101", "高等数学", 5.0, "已修"),
-                        new TrainingPlanCourseView(
-                                "CS203", "数据结构", 4.0, "在修"),
-                        new TrainingPlanCourseView(
-                                "CS301", "操作系统", 3.5, "未修"))),
+                        new TrainingPlanCourseView("CS101", "程序设计基础", 4.0, "已修"),
+                        new TrainingPlanCourseView("MA101", "高等数学", 5.0, "已修"),
+                        new TrainingPlanCourseView("CS203", "数据结构", 4.0, "在修"),
+                        new TrainingPlanCourseView("CS301", "操作系统", 3.5, "未修"))),
                 new TrainingPlanGroupView("限选课程", 20.0, 3.5, List.of(
-                        new TrainingPlanCourseView(
-                                "CS250", "数据库原理", 3.5, "已修"),
-                        new TrainingPlanCourseView(
-                                "CS305", "计算机网络", 3.5, "在修"),
-                        new TrainingPlanCourseView(
-                                "CS330", "编译原理", 2.5, "未修"))),
+                        new TrainingPlanCourseView("CS250", "数据库原理", 3.5, "已修"),
+                        new TrainingPlanCourseView("CS305", "计算机网络", 3.5, "在修"),
+                        new TrainingPlanCourseView("CS330", "编译原理", 2.5, "未修"))),
                 new TrainingPlanGroupView("选修课程", 12.0, 2.0, List.of(
-                        new TrainingPlanCourseView(
-                                "CS410", "人工智能导论", 2.0, "已修"),
-                        new TrainingPlanCourseView(
-                                "CS352", "人机交互", 2.0, "在修"),
-                        new TrainingPlanCourseView(
-                                "CS430", "云计算基础", 2.0, "未修"))),
+                        new TrainingPlanCourseView("CS410", "人工智能导论", 2.0, "已修"),
+                        new TrainingPlanCourseView("CS352", "人机交互", 2.0, "在修"),
+                        new TrainingPlanCourseView("CS430", "云计算基础", 2.0, "未修"))),
                 new TrainingPlanGroupView("通选课程", 10.0, 2.0, List.of(
-                        new TrainingPlanCourseView(
-                                "GE101", "大学生心理健康", 2.0, "已修"),
-                        new TrainingPlanCourseView(
-                                "AR101", "音乐鉴赏", 2.0, "在修"),
-                        new TrainingPlanCourseView(
-                                "PE103", "羽毛球", 1.0, "未修"))));
-        return CompletableFuture.completedFuture(immutableList(groups));
+                        new TrainingPlanCourseView("GE101", "大学生心理健康", 2.0, "已修"),
+                        new TrainingPlanCourseView("AR101", "音乐鉴赏", 2.0, "在修"),
+                        new TrainingPlanCourseView("PE103", "羽毛球", 1.0, "未修"))));
+        return CompletableFuture.completedFuture(groups);
+    }
+
+    private CompletableFuture<CourseMutationResultView> mutate(CourseTermView term,
+            long offeringId, String operationId,
+            Function<CourseOfferingView, CourseOfferingView> transition) {
+        CourseMutationResultView replay = operationResults.get(operationId);
+        if (replay != null) return CompletableFuture.completedFuture(replay);
+        if (!DEFAULT_TERM.equals(term)) return failed("Unknown term: " + term);
+        if (operationId == null || operationId.isBlank()) {
+            return failed("Operation ID is required");
+        }
+        CourseOfferingView offering = offerings.get(offeringId);
+        if (offering == null) return failed("Unknown offering: " + offeringId);
+
+        try {
+            CourseOfferingView updated = transition.apply(offering);
+            offerings.put(offeringId, updated);
+            CoursePlanSnapshotView snapshot = snapshot();
+            CourseSelectionItemView item = selectionItem(updated);
+            CourseMutationResultView result = new CourseMutationResultView(
+                    operationId, item, updated.getSelectionStatus(),
+                    updated.getSelectionStatus().name(), outcomeMessage(updated), snapshot);
+            operationResults.put(operationId, result);
+            return CompletableFuture.completedFuture(result);
+        } catch (RuntimeException error) {
+            return failed(error);
+        }
+    }
+
+    private CoursePlanSnapshotView snapshot() {
+        List<CourseSelectionItemView> plan = new ArrayList<>();
+        List<CourseSelectionItemView> waitlist = new ArrayList<>();
+        List<CourseSelectionItemView> enrolled = new ArrayList<>();
+        for (CourseOfferingView offering : offerings.values()) {
+            CourseSelectionItemView item = selectionItem(offering);
+            switch (offering.getSelectionStatus()) {
+                case PLANNED:
+                case FULL:
+                    plan.add(item);
+                    break;
+                case WAITLISTED:
+                case WAITLIST_OFFERED:
+                    waitlist.add(item);
+                    break;
+                case ENROLLED:
+                    enrolled.add(item);
+                    break;
+                default:
+                    break;
+            }
+        }
+        return new CoursePlanSnapshotView(DEFAULT_TERM, plan, waitlist, enrolled);
+    }
+
+    private CourseSelectionItemView selectionItem(CourseOfferingView offering) {
+        return new CourseSelectionItemView(courses.get(offering.getCourseId()), offering);
+    }
+
+    private static CourseOfferingView requireAndCopy(CourseOfferingView offering,
+            SelectionStatus expected, SelectionStatus target, int enrolledCount,
+            String failureReason, String offeredAt, String expiresAt) {
+        if (offering.getSelectionStatus() != expected) {
+            throw stateError(offering, expected.name());
+        }
+        return copyWith(offering, target, enrolledCount,
+                failureReason, offeredAt, expiresAt);
+    }
+
+    private static CourseOfferingView copyWith(CourseOfferingView offering,
+            SelectionStatus status, int enrolledCount, String failureReason,
+            String offeredAt, String expiresAt) {
+        return new CourseOfferingView(
+                offering.getOfferingId(), offering.getCourseId(),
+                offering.getTeachers(), offering.getMeetings(),
+                enrolledCount, offering.getCapacity(), status, failureReason,
+                offeredAt, expiresAt);
+    }
+
+    private static CourseOfferingView offering(long offeringId, long courseId,
+            String teacher, int day, int startPeriod, int endPeriod,
+            String location, int enrolledCount, int capacity,
+            SelectionStatus status, String expiresAt) {
+        String offeredAt = status == SelectionStatus.WAITLIST_OFFERED
+                ? OFFERED_AT : null;
+        return new CourseOfferingView(
+                offeringId, courseId,
+                List.of(new CourseTeacherView("T" + offeringId, teacher)),
+                List.of(new CourseMeetingView(
+                        day, startPeriod, endPeriod, 1, 16, "ALL", location,
+                        null, null)),
+                enrolledCount, capacity, status,
+                status == SelectionStatus.FULL ? "教学班已满" : null,
+                offeredAt, expiresAt);
+    }
+
+    private static IllegalStateException stateError(
+            CourseOfferingView offering, String expected) {
+        return new IllegalStateException("Expected " + expected + " but was "
+                + offering.getSelectionStatus() + " for offering: "
+                + offering.getOfferingId());
+    }
+
+    private static String outcomeMessage(CourseOfferingView offering) {
+        switch (offering.getSelectionStatus()) {
+            case AVAILABLE: return "已移出";
+            case PLANNED: return "已加入计划";
+            case FULL: return "教学班已满";
+            case WAITLISTED: return "已加入候补";
+            case WAITLIST_OFFERED: return "候补席位待处理";
+            case ENROLLED: return "选课成功";
+            default: throw new IllegalArgumentException(
+                    "Unknown status: " + offering.getSelectionStatus());
+        }
+    }
+
+    private void addCourse(CourseView course) {
+        courses.put(course.getCourseId(), course);
     }
 
     private void addOffering(CourseOfferingView offering) {
@@ -235,48 +444,13 @@ public final class MockCourseService implements CourseService {
         scheduleTemplates.put(scheduleEntry.getOfferingId(), scheduleEntry);
     }
 
-    private CompletableFuture<CourseOfferingView> transition(long offeringId,
-            SelectionStatus expected, SelectionStatus target, int enrolledCountChange) {
-        CourseOfferingView offering = offerings.get(offeringId);
-        if (offering == null) {
-            return failed("Unknown offering: " + offeringId);
-        }
-        if (offering.getSelectionStatus() != expected) {
-            return failed("Expected " + expected + " but was " + offering.getSelectionStatus()
-                    + " for offering: " + offeringId);
-        }
-        int enrolledCount = Math.max(0, offering.getEnrolledCount() + enrolledCountChange);
-        return replace(offering, target, enrolledCount);
-    }
-
-    private CompletableFuture<CourseOfferingView> replace(CourseOfferingView offering,
-            SelectionStatus status, int enrolledCount) {
-        CourseOfferingView replacement = copyWith(offering, status, enrolledCount);
-        offerings.put(replacement.getOfferingId(), replacement);
-        return CompletableFuture.completedFuture(replacement);
-    }
-
-    private static CourseOfferingView copyWith(CourseOfferingView offering,
-            SelectionStatus status, int enrolledCount) {
-        return new CourseOfferingView(
-                offering.getOfferingId(), offering.getCourseCode(), offering.getCourseName(),
-                offering.getCourseType(), offering.getCredit(), offering.getCreditHours(),
-                offering.getTeacher(), offering.getSchedule(), offering.getLocation(),
-                offering.getDescription(), offering.getPrerequisites(), enrolledCount,
-                offering.getCapacity(), status);
-    }
-
-    private List<CourseOfferingView> offeringSnapshot() {
-        return immutableList(new ArrayList<>(offerings.values()));
-    }
-
     private static <T> CompletableFuture<T> failed(String message) {
-        CompletableFuture<T> future = new CompletableFuture<>();
-        future.completeExceptionally(new IllegalStateException(message));
-        return future;
+        return failed(new IllegalStateException(message));
     }
 
-    private static <T> List<T> immutableList(List<T> values) {
-        return Collections.unmodifiableList(new ArrayList<>(values));
+    private static <T> CompletableFuture<T> failed(Throwable error) {
+        CompletableFuture<T> future = new CompletableFuture<>();
+        future.completeExceptionally(error);
+        return future;
     }
 }

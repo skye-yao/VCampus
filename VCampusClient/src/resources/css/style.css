@@ -421,6 +421,7 @@
 }
 
 .course-search-field,
+.course-term-filter,
 .course-type-filter {
     -fx-background-color: #ffffff;
     -fx-border-color: #cbd5cb;
@@ -429,12 +430,12 @@
 }
 
 .course-search-field:focused,
+.course-term-filter:focused,
 .course-type-filter:focused {
     -fx-border-color: #587558;
 }
 
 .course-refresh-button,
-.course-plan-action,
 .course-row-action {
     -fx-background-color: #587558;
     -fx-background-radius: 4px;
@@ -444,12 +445,10 @@
 }
 
 .course-refresh-button:hover,
-.course-plan-action:hover,
 .course-row-action:hover {
     -fx-background-color: #151E49;
 }
 
-.course-plan-action:disabled,
 .course-row-action:disabled {
     -fx-opacity: 0.55;
 }
@@ -540,19 +539,66 @@
     -fx-padding: 10px 14px 12px 50px;
 }
 
+.course-offering-list {
+    -fx-background-color: #f8faf8;
+    -fx-border-color: #e4eae4 transparent transparent transparent;
+    -fx-border-width: 1px 0 0 0;
+    -fx-padding: 8px 12px 10px 48px;
+}
+
+.course-offering-row {
+    -fx-border-color: transparent transparent #e4eae4 transparent;
+    -fx-border-width: 0 0 1px 0;
+    -fx-padding: 7px 4px;
+}
+
+.course-selection-item {
+    -fx-padding: 10px 12px;
+}
+
+.course-row-actions {
+    -fx-min-height: 30px;
+}
+
 .course-detail-text {
     -fx-font-size: 12px;
     -fx-text-fill: #39433b;
 }
 
-.course-row-action,
-.course-plan-action {
+.course-row-action {
+    -fx-min-width: 72px;
+    -fx-pref-width: 72px;
     -fx-padding: 6px 12px;
+}
+
+.course-row-action-secondary {
+    -fx-background-color: #eef3ee;
+    -fx-text-fill: #39433b;
+}
+
+.course-row-action-secondary:hover {
+    -fx-background-color: #dce4dc;
+}
+
+.course-capacity {
+    -fx-min-width: 54px;
+    -fx-pref-width: 54px;
+    -fx-alignment: center-right;
+    -fx-font-size: 11px;
+    -fx-text-fill: #4f5b52;
+}
+
+.course-status-label {
+    -fx-min-width: 54px;
+    -fx-pref-width: 54px;
+    -fx-alignment: center;
 }
 
 .course-status-available,
 .course-status-planned,
+.course-status-full,
 .course-status-waitlisted,
+.course-status-waitlist_offered,
 .course-status-enrolled {
     -fx-background-radius: 4px;
     -fx-padding: 4px 7px;
@@ -570,9 +616,19 @@
     -fx-text-fill: #151E49;
 }
 
+.course-status-full {
+    -fx-background-color: #f5e7e4;
+    -fx-text-fill: #8a3d32;
+}
+
 .course-status-waitlisted {
     -fx-background-color: #fff3bd;
     -fx-text-fill: #151E49;
+}
+
+.course-status-waitlist_offered {
+    -fx-background-color: #fff0c2;
+    -fx-text-fill: #7a5600;
 }
 
 .course-status-enrolled {

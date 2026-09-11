@@ -55,13 +55,35 @@ public final class CourseUiSmokeTest {
             stage.setScene(new Scene(root, 860, 580));
             stage.setResizable(false);
             stage.show();
-            captureAfterPulse();
+            expandFirstCourse();
+        }
+
+        private void expandFirstCourse() {
+            PauseTransition pause = new PauseTransition(Duration.millis(180));
+            pause.setOnFinished(event -> {
+                try {
+                    requireNode("#termFilter", "term selector");
+                    ButtonBase expandButton = (ButtonBase) requireNode(
+                            ".course-expand-button", "course expand button");
+                    expandButton.fire();
+                    captureAfterPulse();
+                } catch (Exception exception) {
+                    exception.printStackTrace();
+                    Platform.exit();
+                    System.exit(1);
+                }
+            });
+            pause.play();
         }
 
         private void captureAfterPulse() {
             PauseTransition pause = new PauseTransition(Duration.millis(180));
             pause.setOnFinished(event -> {
                 try {
+                    if (pageIndex == 0) {
+                        requireNode(".course-offering-row",
+                                "expanded teaching-class row");
+                    }
                     Path target = OUTPUT.resolve(FILES[pageIndex]);
                     WritableImage image = root.snapshot(null, null);
                     boolean written = ImageIO.write(
@@ -82,6 +104,15 @@ public final class CourseUiSmokeTest {
                 }
             });
             pause.play();
+        }
+
+        private javafx.scene.Node requireNode(String selector, String description) {
+            javafx.scene.Node node = root.lookup(selector);
+            if (node == null) {
+                throw new IllegalStateException("Missing " + description
+                        + " for selector " + selector);
+            }
+            return node;
         }
     }
 }

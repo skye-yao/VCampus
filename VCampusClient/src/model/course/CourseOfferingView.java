@@ -1,101 +1,48 @@
 package model.course;
 
+import java.time.Instant;
+import java.util.List;
+
 public final class CourseOfferingView {
     private final long offeringId;
-    private final String courseCode;
-    private final String courseName;
-    private final String courseType;
-    private final double credit;
-    private final int creditHours;
-    private final String teacher;
-    private final String schedule;
-    private final String location;
-    private final String description;
-    private final String prerequisites;
+    private final long courseId;
+    private final List<CourseTeacherView> teachers;
+    private final List<CourseMeetingView> meetings;
     private final int enrolledCount;
     private final int capacity;
     private final SelectionStatus selectionStatus;
+    private final String failureReason;
+    private final Instant offeredAt;
+    private final Instant expiresAt;
 
-    public CourseOfferingView(long offeringId, String courseCode, String courseName,
-            String courseType, double credit, int creditHours, String teacher,
-            String schedule, String location, String description,
-            String prerequisites, int enrolledCount, int capacity,
-            SelectionStatus selectionStatus) {
+    public CourseOfferingView(long offeringId, long courseId,
+            List<CourseTeacherView> teachers, List<CourseMeetingView> meetings,
+            int enrolledCount, int capacity, SelectionStatus selectionStatus,
+            String failureReason, String offeredAtUtc, String expiresAtUtc) {
         this.offeringId = offeringId;
-        this.courseCode = courseCode;
-        this.courseName = courseName;
-        this.courseType = courseType;
-        this.credit = credit;
-        this.creditHours = creditHours;
-        this.teacher = teacher;
-        this.schedule = schedule;
-        this.location = location;
-        this.description = description;
-        this.prerequisites = prerequisites;
+        this.courseId = courseId;
+        this.teachers = List.copyOf(teachers);
+        this.meetings = List.copyOf(meetings);
         this.enrolledCount = enrolledCount;
         this.capacity = capacity;
         this.selectionStatus = selectionStatus;
+        this.failureReason = failureReason;
+        this.offeredAt = parseOptional(offeredAtUtc);
+        this.expiresAt = parseOptional(expiresAtUtc);
     }
 
-    public long getOfferingId() {
-        return offeringId;
-    }
+    public long getOfferingId() { return offeringId; }
+    public long getCourseId() { return courseId; }
+    public List<CourseTeacherView> getTeachers() { return teachers; }
+    public List<CourseMeetingView> getMeetings() { return meetings; }
+    public int getEnrolledCount() { return enrolledCount; }
+    public int getCapacity() { return capacity; }
+    public SelectionStatus getSelectionStatus() { return selectionStatus; }
+    public String getFailureReason() { return failureReason; }
+    public Instant getOfferedAt() { return offeredAt; }
+    public Instant getExpiresAt() { return expiresAt; }
 
-    public String getCourseCode() {
-        return courseCode;
-    }
-
-    public String getCourseName() {
-        return courseName;
-    }
-
-    public String getCourseType() {
-        return courseType;
-    }
-
-    public double getCredit() {
-        return credit;
-    }
-
-    public int getCreditHours() {
-        return creditHours;
-    }
-
-    public String getTeacher() {
-        return teacher;
-    }
-
-    public String getSchedule() {
-        return schedule;
-    }
-
-    public String getLocation() {
-        return location;
-    }
-
-    public String getDescription() {
-        return description;
-    }
-
-    public String getPrerequisites() {
-        return prerequisites;
-    }
-
-    public int getEnrolledCount() {
-        return enrolledCount;
-    }
-
-    public int getCapacity() {
-        return capacity;
-    }
-
-    public SelectionStatus getSelectionStatus() {
-        return selectionStatus;
-    }
-
-    public CourseOfferingView withSelectionStatus(SelectionStatus selectionStatus) {
-        return new CourseOfferingView(offeringId, courseCode, courseName, courseType,
-                credit, creditHours, teacher, schedule, location, description,
-                prerequisites, enrolledCount, capacity, selectionStatus);
+    private static Instant parseOptional(String value) {
+        return value == null || value.isBlank() ? null : Instant.parse(value);
     }
 }
