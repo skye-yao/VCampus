@@ -1,11 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.Hyperlink?>
 <?import javafx.scene.control.Label?>
-<?import javafx.scene.control.MenuButton?>
-<?import javafx.scene.control.MenuItem?>
 <?import javafx.scene.control.ScrollPane?>
-<?import javafx.scene.image.Image?>
 <?import javafx.scene.image.ImageView?>
 <?import javafx.scene.layout.BorderPane?>
 <?import javafx.scene.layout.ColumnConstraints?>
@@ -16,158 +15,300 @@
 <?import javafx.scene.layout.StackPane?>
 <?import javafx.scene.layout.VBox?>
 
-<BorderPane fx:id="rootMain" prefHeight="580.0" prefWidth="860.0" styleClass="main-window" stylesheets="@../css/style.css" xmlns="http://javafx.com/javafx/25.0.4" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.MainController">
-    <!-- 顶部导航栏 -->
-    <top>
-        <HBox alignment="CENTER_LEFT" prefHeight="56.0" spacing="12.0" styleClass="app-topbar" BorderPane.alignment="CENTER">
+<BorderPane fx:id="rootMain" prefHeight="700.0" prefWidth="1020.0" styleClass="dash-content-pane" stylesheets="@../css/style.css" xmlns="http://javafx.com/javafx/25.0.4" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.MainController">
+
+    <!-- 左侧导航栏 -->
+    <left>
+        <VBox prefWidth="220.0" minWidth="210.0" spacing="12.0" styleClass="main-sidebar" BorderPane.alignment="CENTER">
             <padding>
-                <Insets left="24.0" right="24.0" />
+                <Insets top="20.0" left="12.0" right="12.0" bottom="18.0" />
             </padding>
             <children>
-                <ImageView fitHeight="40.0" fitWidth="62.0" pickOnBounds="true" preserveRatio="true">
-                    <image>
-                        <Image url="@../image/icon.png" />
-                    </image>
-                </ImageView>
-                <Label styleClass="brand-title" text="东南大学" />
-                <Label styleClass="brand-divider" text="|" />
-                <Label styleClass="brand-subtitle" text="vCampus虚拟校园" />
-                <Label styleClass="brand-divider" text="|" />
-                <Label styleClass="brand-subtitle" text="v0.1 开发中" />
-                <Region HBox.hgrow="ALWAYS" />
+                <!-- 左上角用户信息卡片 -->
+                <HBox alignment="CENTER_LEFT" spacing="12.0" styleClass="sidebar-profile-box">
+                    <children>
+                        <StackPane prefHeight="48.0" prefWidth="48.0" minHeight="48.0" minWidth="48.0" styleClass="sidebar-avatar-stack">
+                            <children>
+                                <Label styleClass="sidebar-avatar-fallback" text="👤" />
+                                <ImageView fx:id="sidebarAvatarView" fitHeight="48.0" fitWidth="48.0" pickOnBounds="true" preserveRatio="true" />
+                            </children>
+                        </StackPane>
+                        <VBox alignment="CENTER_LEFT" spacing="3.0">
+                            <children>
+                                <Label fx:id="sidebarNameLabel" styleClass="sidebar-name" text="张三" />
+                                <Label fx:id="sidebarRoleLabel" styleClass="sidebar-role" text="计院 · 学生" />
+                            </children>
+                        </VBox>
+                    </children>
+                </HBox>
 
-                <!-- 用户信息下拉菜单 -->
-                <MenuButton fx:id="userMenuButton" styleClass="user-menu-btn" text="张三" textAlignment="CENTER">
-                    <items>
-                        <MenuItem onAction="#handleNavigateProfile" styleClass="menu-item-blue">
-                            <graphic>
-                                <HBox alignment="CENTER_LEFT" prefHeight="50.0" prefWidth="100.0" spacing="4.0">
-                                    <children>
-                                        <Label maxWidth="24.0" minWidth="24.0" styleClass="menu-icon" text="👤" textAlignment="CENTER" />
-                                        <Label text=" 帐号管理" />
-                                    </children>
-                                </HBox>
-                            </graphic></MenuItem>
-                        <MenuItem onAction="#handleLogout" styleClass="menu-item-exit">
-                            <graphic>
-                                <HBox alignment="CENTER_LEFT" prefHeight="50.0" prefWidth="100.0" spacing="8.0">
-                                    <children>
-                                        <Label styleClass="menu-icon" text="🚪" />
-                                        <Label text="安全退出" />
-                                    </children>
-                                </HBox>
-                            </graphic></MenuItem>
-                    </items>
-                </MenuButton>
+                <!-- 分割线 -->
+                <Region minHeight="1.0" maxHeight="1.0" style="-fx-background-color: #e5e7eb;">
+                    <VBox.margin>
+                        <Insets left="4.0" right="4.0" top="2.0" bottom="6.0" />
+                    </VBox.margin>
+                </Region>
+
+                <!-- 功能模块导航入口列表（按指定顺序排列） -->
+                <VBox spacing="4.0" VBox.vgrow="ALWAYS">
+                    <children>
+                        <!-- 1. 主页 (默认选中) -->
+                        <Button fx:id="navHomeBtn" maxWidth="1.7976931348623157E308" onAction="#handleNavigateHome" styleClass="main-nav-btn, main-nav-btn-active" text="🏠   主页" />
+                        <!-- 2. 账号管理 -->
+                        <Button fx:id="navProfileBtn" maxWidth="1.7976931348623157E308" onAction="#handleNavigateProfile" styleClass="main-nav-btn" text="👤   账号管理" />
+                        <!-- 3. 学籍信息 -->
+                        <Button fx:id="navStudentBtn" maxWidth="1.7976931348623157E308" onAction="#openStudentAffairs" styleClass="main-nav-btn" text="🎓   学籍信息" />
+                        <!-- 4. 图书馆 -->
+                        <Button fx:id="navLibraryBtn" maxWidth="1.7976931348623157E308" onAction="#openLibrary" styleClass="main-nav-btn" text="📚   图书馆" />
+                        <!-- 5. 选课 -->
+                        <Button fx:id="navCourseBtn" maxWidth="1.7976931348623157E308" onAction="#openCourseSelection" styleClass="main-nav-btn" text="📝   选课" />
+                        <!-- 6. 商店 -->
+                        <Button fx:id="navStoreBtn" maxWidth="1.7976931348623157E308" onAction="#openStore" styleClass="main-nav-btn" text="🛒   商店" />
+                        <!-- 7. 银行 -->
+                        <Button fx:id="navBankBtn" maxWidth="1.7976931348623157E308" onAction="#openBank" styleClass="main-nav-btn" text="💳   银行" />
+                        <!-- 8. AI助手 -->
+                        <Button fx:id="navAiBtn" maxWidth="1.7976931348623157E308" onAction="#openAI" styleClass="main-nav-btn" text="🤖   AI助手" />
+                    </children>
+                </VBox>
+
+                <!-- 9. 安全退出 -->
+                <Button fx:id="navLogoutBtn" maxWidth="1.7976931348623157E308" onAction="#handleLogout" styleClass="main-nav-btn, main-nav-btn-exit" text="🚪   安全退出" />
             </children>
-        </HBox>
-    </top>
+        </VBox>
+    </left>
 
-    <!-- 应用网格主体 -->
+    <!-- 右侧主界面内容 -->
     <center>
         <ScrollPane fitToWidth="true" styleClass="content-scroll-pane" BorderPane.alignment="CENTER">
             <content>
-                <VBox spacing="20.0" styleClass="app-body">
+                <VBox spacing="18.0" styleClass="dash-content-pane">
                     <padding>
-                        <Insets bottom="24.0" left="30.0" right="30.0" top="24.0" />
+                        <Insets top="24.0" left="30.0" right="30.0" bottom="30.0" />
                     </padding>
                     <children>
-                        <Label styleClass="section-title" text="应用中心" />
+                        <!-- 页面主标题 -->
+                        <HBox alignment="CENTER_LEFT" spacing="12.0">
+                            <children>
+                                <Label styleClass="dash-main-title" text="主页" />
+                            </children>
+                        </HBox>
 
-                        <!-- 八大子系统网格 (4列 x 2行) -->
-                        <GridPane hgap="20.0" vgap="20.0">
+                        <!-- 上半部网格：左侧个人信息卡片 + 右侧（通知消息 + 一卡通卡片） -->
+                        <GridPane hgap="18.0" vgap="18.0">
                             <columnConstraints>
-                                <ColumnConstraints percentWidth="25.0" />
-                                <ColumnConstraints percentWidth="25.0" />
-                                <ColumnConstraints percentWidth="25.0" />
-                                <ColumnConstraints percentWidth="25.0" />
+                                <ColumnConstraints percentWidth="60.0" />
+                                <ColumnConstraints percentWidth="40.0" />
                             </columnConstraints>
                             <rowConstraints>
-                                <RowConstraints minHeight="120.0" />
-                                <RowConstraints minHeight="120.0" />
+                                <RowConstraints valignment="TOP" />
                             </rowConstraints>
                             <children>
-                                <!-- 师生个人信息 -->
-                                <VBox alignment="CENTER" onMouseClicked="#openStudentAffairs" spacing="10.0" styleClass="app-card" GridPane.columnIndex="0" GridPane.rowIndex="0">
+                                <!-- ① 个人信息卡片 (左上方) -->
+                                <VBox spacing="14.0" styleClass="dashboard-card" GridPane.columnIndex="0" GridPane.rowIndex="0">
                                     <children>
-                                        <StackPane prefHeight="54.0" prefWidth="54.0" styleClass="app-icon, icon-academic">
-                                            <children><Label styleClass="icon-text" text="🎓" /></children>
-                                        </StackPane>
-                                        <Label fx:id="informationCardTitle" styleClass="app-card-title" text="学籍信息" />
+                                        <HBox alignment="CENTER_LEFT" spacing="8.0">
+                                            <children>
+                                                <Label styleClass="dashboard-card-title" text="👤  个人信息" />
+                                            </children>
+                                        </HBox>
+
+                                        <!-- 个人信息表格属性 -->
+                                        <GridPane hgap="12.0" vgap="12.0" VBox.vgrow="ALWAYS">
+                                            <columnConstraints>
+                                                <ColumnConstraints minWidth="80.0" prefWidth="90.0" />
+                                                <ColumnConstraints percentWidth="38.0" />
+                                                <ColumnConstraints minWidth="60.0" prefWidth="70.0" />
+                                                <ColumnConstraints percentWidth="42.0" />
+                                            </columnConstraints>
+                                            <children>
+                                                <Label styleClass="dash-info-key" text="姓名" GridPane.columnIndex="0" GridPane.rowIndex="0" />
+                                                <Label fx:id="infoNameLabel" styleClass="dash-info-val" text="—" GridPane.columnIndex="1" GridPane.rowIndex="0" />
+
+                                                <Label styleClass="dash-info-key" text="一卡通号" GridPane.columnIndex="2" GridPane.rowIndex="0" />
+                                                <Label fx:id="infoUIDLabel" styleClass="dash-info-val" text="—" GridPane.columnIndex="3" GridPane.rowIndex="0" />
+
+                                                <Label styleClass="dash-info-key" text="性别" GridPane.columnIndex="0" GridPane.rowIndex="1" />
+                                                <Label fx:id="infoGenderLabel" styleClass="dash-info-val" text="—" GridPane.columnIndex="1" GridPane.rowIndex="1" />
+
+                                                <Label fx:id="infoCollegeTitle" styleClass="dash-info-key" text="学院" GridPane.columnIndex="2" GridPane.rowIndex="1" />
+                                                <Label fx:id="infoCollegeLabel" styleClass="dash-info-val" text="—" GridPane.columnIndex="3" GridPane.rowIndex="1" />
+
+                                                <Label fx:id="infoMajorTitle" styleClass="dash-info-key" text="专业" GridPane.columnIndex="0" GridPane.rowIndex="2" />
+                                                <Label fx:id="infoMajorLabel" styleClass="dash-info-val" text="—" GridPane.columnIndex="1" GridPane.rowIndex="2" />
+
+                                                <Label styleClass="dash-info-key" text="手机号" GridPane.columnIndex="2" GridPane.rowIndex="2" />
+                                                <Label fx:id="infoPhoneLabel" styleClass="dash-info-val" text="—" GridPane.columnIndex="3" GridPane.rowIndex="2" />
+
+                                                <Label styleClass="dash-info-key" text="邮箱" GridPane.columnIndex="0" GridPane.rowIndex="3" />
+                                                <Label fx:id="infoEmailLabel" styleClass="dash-info-val" text="—" GridPane.columnIndex="1" GridPane.columnSpan="3" GridPane.rowIndex="3" />
+                                            </children>
+                                        </GridPane>
+
+                                        <!-- 右下角跳转超链接 -->
+                                        <HBox alignment="CENTER_RIGHT">
+                                            <children>
+                                                <Hyperlink onAction="#handleNavigateProfile" styleClass="dash-card-link" text="修改个人信息 &gt;" />
+                                            </children>
+                                        </HBox>
                                     </children>
                                 </VBox>
 
-                                <!-- 图书馆 -->
-                                <VBox alignment="CENTER" onMouseClicked="#openLibrary" spacing="10.0" styleClass="app-card" GridPane.columnIndex="1" GridPane.rowIndex="0">
+                                <!-- 右侧容器：通知消息 + 一卡通金额 -->
+                                <VBox spacing="14.0" GridPane.columnIndex="1" GridPane.rowIndex="0">
                                     <children>
-                                        <StackPane prefHeight="54.0" prefWidth="54.0" styleClass="app-icon, icon-library">
-                                            <children><Label styleClass="icon-text" text="📚" /></children>
-                                        </StackPane>
-                                        <Label styleClass="app-card-title" text="图书馆" />
-                                    </children>
-                                </VBox>
+                                        <!-- ② 通知/消息卡片 (右上方) -->
+                                        <VBox spacing="10.0" styleClass="dashboard-card" VBox.vgrow="ALWAYS">
+                                            <children>
+                                                <HBox alignment="CENTER_LEFT" spacing="8.0">
+                                                    <children>
+                                                        <Label styleClass="dashboard-card-title" text="🔔  通知 / 消息" />
+                                                    </children>
+                                                </HBox>
 
-                                <!-- 选课 -->
-                                <VBox alignment="CENTER" onMouseClicked="#openCourseSelection" spacing="10.0" styleClass="app-card" GridPane.columnIndex="2" GridPane.rowIndex="0">
-                                    <children>
-                                        <StackPane prefHeight="54.0" prefWidth="54.0" styleClass="app-icon, icon-course">
-                                            <children><Label styleClass="icon-text" text="📝" /></children>
-                                        </StackPane>
-                                        <Label styleClass="app-card-title" text="选课" />
-                                    </children>
-                                </VBox>
+                                                <!-- 图书馆相关消息列表 -->
+                                                <VBox fx:id="noticeContainer" spacing="8.0" VBox.vgrow="ALWAYS">
+                                                    <children>
+                                                        <HBox alignment="CENTER_LEFT" spacing="8.0" styleClass="notice-item">
+                                                            <children>
+                                                                <Label styleClass="notice-badge, notice-badge-info" text="图书在借" />
+                                                                <Label fx:id="libraryBorrowNoticeLabel" text="正在读取图书借阅情况..." />
+                                                            </children>
+                                                        </HBox>
+                                                        <HBox alignment="CENTER_LEFT" spacing="8.0" styleClass="notice-item">
+                                                            <children>
+                                                                <Label styleClass="notice-badge, notice-badge-success" text="图书预约" />
+                                                                <Label fx:id="libraryReservationNoticeLabel" text="正在查询预约到馆记录..." />
+                                                            </children>
+                                                        </HBox>
+                                                        <HBox alignment="CENTER_LEFT" spacing="8.0" styleClass="notice-item">
+                                                            <children>
+                                                                <Label styleClass="notice-badge, notice-badge-warning" text="图书欠款" />
+                                                                <Label fx:id="libraryFineNoticeLabel" text="暂无未缴逾期罚款" />
+                                                            </children>
+                                                        </HBox>
+                                                    </children>
+                                                </VBox>
 
-                                <!-- 商店 -->
-                                <VBox alignment="CENTER" onMouseClicked="#openStore" spacing="10.0" styleClass="app-card" GridPane.columnIndex="3" GridPane.rowIndex="0">
-                                    <children>
-                                        <StackPane prefHeight="54.0" prefWidth="54.0" styleClass="app-icon, icon-store">
-                                            <children><Label styleClass="icon-text" text="🛒" /></children>
-                                        </StackPane>
-                                        <Label styleClass="app-card-title" text="商店" />
-                                    </children>
-                                </VBox>
+                                                <!-- 右下角跳转超链接 -->
+                                                <HBox alignment="CENTER_RIGHT">
+                                                    <children>
+                                                        <Hyperlink onAction="#openLibrary" styleClass="dash-card-link" text="转子界面 &gt;" />
+                                                    </children>
+                                                </HBox>
+                                            </children>
+                                        </VBox>
 
-                                <!-- 银行 -->
-                                <VBox alignment="CENTER" onMouseClicked="#openBank" spacing="10.0" styleClass="app-card" GridPane.columnIndex="0" GridPane.rowIndex="1">
-                                    <children>
-                                        <StackPane prefHeight="54.0" prefWidth="54.0" styleClass="app-icon, icon-bank">
-                                            <children><Label styleClass="icon-text" text="💳" /></children>
-                                        </StackPane>
-                                        <Label styleClass="app-card-title" text="银行" />
-                                    </children>
-                                </VBox>
-
-                                <!-- 校医院 -->
-                                <VBox alignment="CENTER" onMouseClicked="#openHospital" spacing="10.0" styleClass="app-card" GridPane.columnIndex="1" GridPane.rowIndex="1">
-                                    <children>
-                                        <StackPane prefHeight="54.0" prefWidth="54.0" styleClass="app-icon, icon-hospital">
-                                            <children><Label styleClass="icon-text" text="🤖" /></children>
-                                        </StackPane>
-                                        <Label styleClass="app-card-title" text="AI助手" />
-                                    </children>
-                                </VBox>
-
-                                <!-- 体育预约 -->
-                                <VBox alignment="CENTER" onMouseClicked="#openGym" spacing="10.0" styleClass="app-card" GridPane.columnIndex="2" GridPane.rowIndex="1">
-                                    <children>
-                                        <StackPane prefHeight="54.0" prefWidth="54.0" styleClass="app-icon, icon-sports">
-                                            <children><Label styleClass="icon-text" text="🏸" /></children>
-                                        </StackPane>
-                                        <Label styleClass="app-card-title" text="体育预约" />
-                                    </children>
-                                </VBox>
-
-                                <!-- 宿舍管理 -->
-                                <VBox alignment="CENTER" onMouseClicked="#openDormitory" spacing="10.0" styleClass="app-card" GridPane.columnIndex="3" GridPane.rowIndex="1">
-                                    <children>
-                                        <StackPane prefHeight="54.0" prefWidth="54.0" styleClass="app-icon, icon-dorm">
-                                            <children><Label styleClass="icon-text" text="🏢" /></children>
-                                        </StackPane>
-                                        <Label styleClass="app-card-title" text="宿舍管理" />
+                                        <!-- ③ 一卡通金额卡片 (右侧中部) -->
+                                        <VBox spacing="6.0" styleClass="wallet-card">
+                                            <padding>
+                                                <Insets top="14.0" right="16.0" bottom="14.0" left="16.0" />
+                                            </padding>
+                                            <children>
+                                                <Label styleClass="wallet-subtitle" text="校园账户可用余额 (CNY)" />
+                                                <Label fx:id="walletBalanceLabel" styleClass="wallet-balance" text="¥ 0.00" style="-fx-font-size: 26px;" />
+                                                <HBox alignment="CENTER_LEFT">
+                                                    <children>
+                                                        <Label fx:id="walletAccountLabel" styleClass="wallet-footer-info" text="一卡通号：—" HBox.hgrow="ALWAYS" />
+                                                        <Region HBox.hgrow="ALWAYS" />
+                                                        <Hyperlink onAction="#openBank" text="转子界面 &gt;" style="-fx-text-fill: #fdd000; -fx-font-size: 12px; -fx-font-weight: bold; -fx-underline: false;" />
+                                                    </children>
+                                                </HBox>
+                                            </children>
+                                        </VBox>
                                     </children>
                                 </VBox>
                             </children>
                         </GridPane>
+
+                        <!-- ④ 课表卡片 (下方全宽) -->
+                        <VBox spacing="12.0" styleClass="dashboard-card">
+                            <children>
+                                <HBox alignment="CENTER_LEFT" spacing="10.0">
+                                    <children>
+                                        <Label styleClass="dashboard-card-title" text="📅  我的课表" />
+                                        <Label styleClass="dashboard-card-subtitle" text="2026-2027学年 秋季学期" />
+                                    </children>
+                                </HBox>
+
+                                <!-- 课表预留表格 (周一至周五，5个大节) -->
+                                <GridPane styleClass="schedule-table">
+                                    <columnConstraints>
+                                        <ColumnConstraints percentWidth="15.0" />
+                                        <ColumnConstraints percentWidth="17.0" />
+                                        <ColumnConstraints percentWidth="17.0" />
+                                        <ColumnConstraints percentWidth="17.0" />
+                                        <ColumnConstraints percentWidth="17.0" />
+                                        <ColumnConstraints percentWidth="17.0" />
+                                    </columnConstraints>
+                                    <rowConstraints>
+                                        <RowConstraints minHeight="30.0" />
+                                        <RowConstraints minHeight="32.0" />
+                                        <RowConstraints minHeight="32.0" />
+                                        <RowConstraints minHeight="32.0" />
+                                        <RowConstraints minHeight="32.0" />
+                                        <RowConstraints minHeight="32.0" />
+                                    </rowConstraints>
+                                    <children>
+                                        <!-- 表头 -->
+                                        <Label styleClass="schedule-th" text="节次 / 时间" GridPane.columnIndex="0" GridPane.rowIndex="0" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+                                        <Label styleClass="schedule-th" text="星期一" GridPane.columnIndex="1" GridPane.rowIndex="0" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+                                        <Label styleClass="schedule-th" text="星期二" GridPane.columnIndex="2" GridPane.rowIndex="0" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+                                        <Label styleClass="schedule-th" text="星期三" GridPane.columnIndex="3" GridPane.rowIndex="0" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+                                        <Label styleClass="schedule-th" text="星期四" GridPane.columnIndex="4" GridPane.rowIndex="0" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+                                        <Label styleClass="schedule-th" text="星期五" GridPane.columnIndex="5" GridPane.rowIndex="0" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+
+                                        <!-- 第1-2节 -->
+                                        <Label styleClass="schedule-period" text="第1-2节 (08:00-09:35)" GridPane.columnIndex="0" GridPane.rowIndex="1" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="1" GridPane.rowIndex="1" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="2" GridPane.rowIndex="1" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="3" GridPane.rowIndex="1" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="4" GridPane.rowIndex="1" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="5" GridPane.rowIndex="1" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+
+                                        <!-- 第3-4节 -->
+                                        <Label styleClass="schedule-period" text="第3-4节 (09:55-11:30)" GridPane.columnIndex="0" GridPane.rowIndex="2" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="1" GridPane.rowIndex="2" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="2" GridPane.rowIndex="2" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="3" GridPane.rowIndex="2" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="4" GridPane.rowIndex="2" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="5" GridPane.rowIndex="2" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+
+                                        <!-- 第5-6节 -->
+                                        <Label styleClass="schedule-period" text="第5-6节 (14:00-15:35)" GridPane.columnIndex="0" GridPane.rowIndex="3" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="1" GridPane.rowIndex="3" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="2" GridPane.rowIndex="3" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="3" GridPane.rowIndex="3" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="4" GridPane.rowIndex="3" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="5" GridPane.rowIndex="3" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+
+                                        <!-- 第7-8节 -->
+                                        <Label styleClass="schedule-period" text="第7-8节 (15:55-17:30)" GridPane.columnIndex="0" GridPane.rowIndex="4" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="1" GridPane.rowIndex="4" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="2" GridPane.rowIndex="4" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="3" GridPane.rowIndex="4" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="4" GridPane.rowIndex="4" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="5" GridPane.rowIndex="4" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+
+                                        <!-- 第9-10节 -->
+                                        <Label styleClass="schedule-period" text="第9-10节 (18:30-20:05)" GridPane.columnIndex="0" GridPane.rowIndex="5" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="1" GridPane.rowIndex="5" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="2" GridPane.rowIndex="5" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="3" GridPane.rowIndex="5" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="4" GridPane.rowIndex="5" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="5" GridPane.rowIndex="5" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
+                                    </children>
+                                </GridPane>
+
+                                <!-- 底部提示与跳转链接 -->
+                                <HBox alignment="CENTER_LEFT">
+                                    <children>
+                                        <Label styleClass="dashboard-card-subtitle" text="提示：课表模块建设中，选课系统排课完成后将在此自动同步" HBox.hgrow="ALWAYS" />
+                                        <Region HBox.hgrow="ALWAYS" />
+                                        <Hyperlink onAction="#openCourseSelection" styleClass="dash-card-link" text="转子界面 &gt;" />
+                                    </children>
+                                </HBox>
+                            </children>
+                        </VBox>
                     </children>
                 </VBox>
             </content>
