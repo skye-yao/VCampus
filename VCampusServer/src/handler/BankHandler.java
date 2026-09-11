@@ -10,6 +10,9 @@ import session.SessionManager;
 import session.UserSession;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 
 /** 校园银行请求处理器。 */
 public class BankHandler {
@@ -42,9 +45,23 @@ public class BankHandler {
                         session.getUsername(), string(request, "targetUserId"),
                         new BigDecimal(string(request, "amount")), string(request, "paymentPassword"),
                         string(request, "requestId")));
+                case "BANK_TRANSFER_TARGET_LIST" -> response.putData("targets",
+                        bankService.listChargeTargets(admin, string(request, "keyword"),
+                                integer(request, "role", 0), string(request, "college")));
+                case "BANK_BATCH_TRANSFER" -> response.setData(bankService.batchTransfer(
+                        session.getUsername(), admin, stringList(request, "targetUserIds"),
+                        new BigDecimal(string(request, "amount")), string(request, "paymentPassword"),
+                        string(request, "requestId"), string(request, "remark")));
                 case "FINANCE_BILL_MY_LIST", "FINANCE_BILL_ALL_LIST" -> response.putData("bills",
                         bankService.listBills(session.getUsername(), admin && "FINANCE_BILL_ALL_LIST".equals(action),
                                 string(request, "keyword"), string(request, "billType"), string(request, "status")));
+                case "FINANCE_BILL_TARGET_LIST" -> response.putData("targets",
+                        bankService.listChargeTargets(admin, string(request, "keyword"),
+                                integer(request, "role", 0), string(request, "college")));
+                case "FINANCE_BILL_CREATE" -> response.setData(bankService.createBills(admin,
+                        stringList(request, "targetUserIds"), string(request, "billType"),
+                        string(request, "title"), new BigDecimal(string(request, "amount")),
+                        string(request, "dueDate")));
                 case "FINANCE_REPORT_QUERY" -> response.setData(bankService.billStatistics(admin));
                 case "FINANCE_BILL_PAY" -> response.putData("transactionNo", bankService.payBill(
                         session.getUsername(), number(request, "billId"), string(request, "paymentPassword"),
@@ -89,5 +106,13 @@ public class BankHandler {
         if (value instanceof Number number) return number.longValue();
         if (value == null || String.valueOf(value).isBlank()) throw new BusinessException(key + "不能为空");
         return Long.parseLong(String.valueOf(value));
+    }
+
+    private List<String> stringList(Message request, String key) {
+        Object value = request.getData(key);
+        if (!(value instanceof Collection<?> collection)) return List.of();
+        List<String> result = new ArrayList<>();
+        for (Object item : collection) if (item != null) result.add(String.valueOf(item));
+        return result;
     }
 }

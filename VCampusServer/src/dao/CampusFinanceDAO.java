@@ -1,7 +1,9 @@
 package dao;
 
 import entity.FinanceBill;
+import entity.FinanceChargeTarget;
 import entity.Reimbursement;
+import java.math.BigDecimal;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -10,6 +12,64 @@ import java.util.LinkedHashMap;
 
 /** 学费账单与报销申请数据访问。 */
 public class CampusFinanceDAO {
+    public List<FinanceChargeTarget> findChargeTargets(Connection conn, String keyword,
+                                                        Integer role, String college) throws SQLException {
+        StringBuilder sql = new StringBuilder(
+                "SELECT UID,name,role,college,major FROM tbl_user WHERE role IN (1,2)");
+        List<Object> params = new ArrayList<>();
+        if (keyword != null && !keyword.isBlank()) {
+            sql.append(" AND (UID LIKE ? OR name LIKE ? OR college LIKE ? OR major LIKE ?)");
+            String value = "%" + keyword.trim() + "%";
+            params.add(value); params.add(value); params.add(value); params.add(value);
+        }
+        if (role != null && (role == 1 || role == 2)) {
+            sql.append(" AND role=?"); params.add(role);
+        }
+        if (college != null && !college.isBlank()) {
+            sql.append(" AND college=?"); params.add(college.trim());
+        }
+        sql.append(" ORDER BY role,UID");
+        try (PreparedStatement stmt = conn.prepareStatement(sql.toString())) {
+            for (int i = 0; i < params.size(); i++) stmt.setObject(i + 1, params.get(i));
+            try (ResultSet rs = stmt.executeQuery()) {
+                List<FinanceChargeTarget> targets = new ArrayList<>();
+                while (rs.next()) {
+                    FinanceChargeTarget target = new FinanceChargeTarget();
+                    target.setUserId(rs.getString("UID"));
+                    target.setName(rs.getString("name"));
+                    target.setRole(rs.getInt("role"));
+                    target.setCollege(rs.getString("college"));
+                    target.setMajor(rs.getString("major"));
+                    targets.add(target);
+                }
+                return targets;
+            }
+        }
+    }
+
+    /** 批量创建账单；同一用户的同名账单由唯一键保证不会重复。 */
+    public int createBills(Connection conn, List<String> userIds, String billType,
+                           String title, BigDecimal amount, Date dueDate) throws SQLException {
+        String sql = "INSERT INTO tbl_finance_bill(user_id,bill_type,title,amount,status,due_date) " +
+                "SELECT UID,?,?,?,'UNPAID',? FROM tbl_user WHERE UID=? AND role IN (1,2) " +
+                "ON DUPLICATE KEY UPDATE bill_id=bill_id";
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            for (String userId : userIds) {
+                stmt.setString(1, billType);
+                stmt.setString(2, title);
+                stmt.setBigDecimal(3, amount);
+                stmt.setDate(4, dueDate);
+                stmt.setString(5, userId);
+                stmt.addBatch();
+            }
+            int created = 0;
+            for (int count : stmt.executeBatch()) {
+                if (count > 0 || count == Statement.SUCCESS_NO_INFO) created++;
+            }
+            return created;
+        }
+    }
+
     public List<FinanceBill> findBills(Connection conn, String userId, boolean admin) throws SQLException {
         return findBills(conn, userId, admin, null, null, null);
     }

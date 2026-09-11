@@ -38,12 +38,13 @@
                     <Tab text="我的交易流水">
                         <TableView fx:id="transactionTable" styleClass="shop-table">
                             <columns>
-                                <TableColumn fx:id="txNoColumn" prefWidth="220" text="交易流水号"/>
-                                <TableColumn fx:id="txTypeColumn" prefWidth="120" text="交易类型"/>
-                                <TableColumn fx:id="txAmountColumn" prefWidth="120" text="发生金额"/>
-                                <TableColumn fx:id="txBalanceColumn" prefWidth="120" text="交易后余额"/>
-                                <TableColumn fx:id="txCounterpartyColumn" prefWidth="140" text="对方用户编号"/>
-                                <TableColumn fx:id="txTimeColumn" prefWidth="190" text="交易时间"/>
+                                <TableColumn fx:id="txNoColumn" prefWidth="190" text="交易流水号"/>
+                                <TableColumn fx:id="txTypeColumn" prefWidth="105" text="交易类型"/>
+                                <TableColumn fx:id="txAmountColumn" prefWidth="105" text="发生金额"/>
+                                <TableColumn fx:id="txBalanceColumn" prefWidth="105" text="交易后余额"/>
+                                <TableColumn fx:id="txCounterpartyColumn" prefWidth="130" text="对方用户编号"/>
+                                <TableColumn fx:id="txRemarkColumn" prefWidth="230" text="交易详情"/>
+                                <TableColumn fx:id="txTimeColumn" prefWidth="170" text="交易时间"/>
                             </columns>
                         </TableView>
                     </Tab>
@@ -58,6 +59,8 @@
                                         <ComboBox fx:id="billStatusFilter" prefWidth="140" styleClass="form-control"/>
                                         <Button onAction="#handleSearchBills" styleClass="btn-bank-primary" text="查询"/>
                                         <Button onAction="#handleResetBillFilters" styleClass="btn-secondary" text="重置"/>
+                                        <Region HBox.hgrow="ALWAYS"/>
+                                        <Button onAction="#handleCreateCharge" styleClass="btn-bank-primary" text="发起收费"/>
                                     </HBox>
                                     <HBox spacing="12">
                                         <Label fx:id="billPeopleSummaryLabel" styleClass="summary-chip" text="已全部缴清：0 / 应缴人数：0"/>
@@ -128,7 +131,7 @@
                     </Tab>
                     <Tab text="校园转账">
                         <StackPane>
-                        <VBox maxHeight="390" maxWidth="520" spacing="12" styleClass="bank-form-card">
+                        <VBox fx:id="singleTransferPanel" maxHeight="390" maxWidth="520" spacing="12" styleClass="bank-form-card">
                             <padding><Insets bottom="24" left="28" right="28" top="24"/></padding>
                             <Label styleClass="subpanel-title" text="师生账户转账"/>
                             <Label styleClass="hint-text" text="款项仅在虚拟校园账户之间流转，不连接真实银行卡。"/>
@@ -139,6 +142,40 @@
                             <Label styleClass="form-label" text="支付密码"/>
                             <PasswordField fx:id="transferPasswordField" promptText="6位数字支付密码" styleClass="form-control"/>
                             <Button maxWidth="Infinity" onAction="#handleTransfer" styleClass="btn-bank-primary" text="确认转账"/>
+                        </VBox>
+                        <VBox fx:id="adminBatchTransferPanel" managed="false" maxWidth="940" spacing="10" styleClass="bank-form-card" visible="false">
+                            <padding><Insets bottom="18" left="20" right="20" top="18"/></padding>
+                            <Label styleClass="subpanel-title" text="管理员批量转账"/>
+                            <Label styleClass="hint-text" text="筛选并选择收款人，所有选中用户将收到相同金额；整批操作成功或整批回滚。"/>
+                            <HBox alignment="CENTER_LEFT" spacing="10">
+                                <TextField fx:id="transferTargetKeyword" HBox.hgrow="ALWAYS" promptText="筛选用户编号、姓名、学院或专业" styleClass="form-control"/>
+                                <ComboBox fx:id="transferRoleFilter" prefWidth="130" styleClass="form-control"/>
+                                <ComboBox fx:id="transferCollegeFilter" prefWidth="220" styleClass="form-control"/>
+                            </HBox>
+                            <TableView fx:id="transferTargetTable" prefHeight="260" styleClass="shop-table" VBox.vgrow="ALWAYS">
+                                <columns>
+                                    <TableColumn fx:id="transferSelectColumn" prefWidth="70" text="选择"/>
+                                    <TableColumn fx:id="transferUserColumn" prefWidth="130" text="用户编号"/>
+                                    <TableColumn fx:id="transferNameColumn" prefWidth="100" text="姓名"/>
+                                    <TableColumn fx:id="transferRoleColumn" prefWidth="80" text="身份"/>
+                                    <TableColumn fx:id="transferCollegeColumn" prefWidth="220" text="学院"/>
+                                    <TableColumn fx:id="transferMajorColumn" prefWidth="180" text="专业/职称"/>
+                                </columns>
+                            </TableView>
+                            <HBox alignment="CENTER_LEFT" spacing="10">
+                                <Button onAction="#handleSelectAllTransferTargets" styleClass="btn-secondary" text="全选当前结果"/>
+                                <Button onAction="#handleClearTransferTargets" styleClass="btn-secondary" text="清空选择"/>
+                                <Label fx:id="transferSelectionSummary" styleClass="summary-chip" text="已选择 0 人 / 当前结果 0 人"/>
+                            </HBox>
+                            <GridPane hgap="10" vgap="10">
+                                <Label styleClass="form-label" text="每人金额（元）" GridPane.columnIndex="0" GridPane.rowIndex="0"/>
+                                <TextField fx:id="batchTransferAmountField" promptText="例如：500.00" styleClass="form-control" GridPane.columnIndex="1" GridPane.rowIndex="0"/>
+                                <Label styleClass="form-label" text="转账说明" GridPane.columnIndex="2" GridPane.rowIndex="0"/>
+                                <TextField fx:id="batchTransferRemarkField" promptText="例如：奖学金发放" styleClass="form-control" GridPane.columnIndex="3" GridPane.rowIndex="0"/>
+                                <Label styleClass="form-label" text="管理员支付密码" GridPane.columnIndex="0" GridPane.rowIndex="1"/>
+                                <PasswordField fx:id="batchTransferPasswordField" promptText="请输入6位支付密码" styleClass="form-control" GridPane.columnIndex="1" GridPane.rowIndex="1"/>
+                                <Button maxWidth="Infinity" onAction="#handleBatchTransfer" styleClass="btn-bank-primary" text="确认向选中用户转账" GridPane.columnIndex="3" GridPane.rowIndex="1"/>
+                            </GridPane>
                         </VBox>
                         </StackPane>
                     </Tab>

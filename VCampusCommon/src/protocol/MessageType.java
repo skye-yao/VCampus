@@ -119,8 +119,11 @@ BANK_PASSWORD_RESET,                // 管理员重置支付密码状态
 BANK_TRANSACTION_LIST,              // 查询账户交易流水列表
 BANK_TRANSACTION_DETAIL,            // 查询指定交易流水详情
 BANK_TRANSFER,                      // 师生用户之间进行虚拟转账
+BANK_TRANSFER_TARGET_LIST,          // 管理员查询批量转账收款对象
+BANK_BATCH_TRANSFER,                // 管理员向多名师生批量转账
 
 FINANCE_BILL_CREATE,                // 管理员发布校园缴费账单
+FINANCE_BILL_TARGET_LIST,           // 管理员查询可收费的师生用户
 FINANCE_BILL_MY_LIST,               // 用户查询自己的校园账单
 FINANCE_BILL_ALL_LIST,              // 管理员查询全部校园账单
 FINANCE_BILL_PAY,                   // 用户缴纳校园费用
