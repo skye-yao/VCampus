@@ -21,7 +21,7 @@
         </HBox>
     </top>
     <center>
-        <TabPane tabClosingPolicy="UNAVAILABLE" styleClass="library-tabs">
+        <TabPane fx:id="libraryTabs" tabClosingPolicy="UNAVAILABLE" styleClass="library-tabs">
             <tabs>
                 <Tab text="图书检索">
                     <BorderPane>

@@ -634,7 +634,14 @@ public class LibraryHandler {
             return response;
         }
 
-        boolean success = libraryService.updateBook(book);
+        boolean success;
+        try {
+            success = libraryService.updateBook(book);
+        } catch (IllegalArgumentException e) {
+            response.setCode(MessageCode.BAD_REQUEST);
+            response.setMessage(e.getMessage());
+            return response;
+        }
 
         if (!success) {
             response.setCode(MessageCode.BAD_REQUEST);

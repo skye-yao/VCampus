@@ -16,8 +16,6 @@ import entity.Reservation;
 
 import enums.BookStatus;
 import enums.FineStatus;
-import enums.LossStatus;
-import enums.ReservationStatus;
 
 import java.sql.SQLException;
 import java.time.LocalDateTime;
@@ -149,7 +147,7 @@ public class LibraryServerService {
     public List<BorrowRecord> getBorrowHistory(String userId)
             throws SQLException {
 
-        return borrowRecordDAO.findByUserId(userId);
+        return withLossStatus(userId, borrowRecordDAO.findByUserId(userId));
     }
 
 
@@ -163,12 +161,16 @@ public class LibraryServerService {
     public List<BorrowRecord> getCurrentBorrow(String userId)
             throws SQLException {
 
-        List<BorrowRecord> records = borrowRecordDAO.findActiveByUserId(userId);
+        return withLossStatus(userId, borrowRecordDAO.findActiveByUserId(userId));
+    }
+
+    private List<BorrowRecord> withLossStatus(String userId, List<BorrowRecord> records) throws SQLException {
         java.util.Set<Integer> lostBooks = new java.util.HashSet<>();
         for (LossRecord loss : lossRecordDAO.findByUserId(userId)) {
             if (loss.getStatus() == 0) lostBooks.add(loss.getBookId());
         }
-        for (BorrowRecord record : records) record.setLossReported(lostBooks.contains(record.getBookId()));
+        for (BorrowRecord record : records) record.setLossReported(record.getReturnTime() == null
+                && record.getStatus() != 1 && lostBooks.contains(record.getBookId()));
         return records;
     }
 
@@ -291,60 +293,7 @@ public class LibraryServerService {
             return false;
         }
 
-        // 1. 检查用户当前是否借阅这本书
-        List<BorrowRecord> activeRecords =
-                borrowRecordDAO.findActiveByUserId(userId);
-
-        boolean borrowing = false;
-
-        for (BorrowRecord record : activeRecords) {
-
-            if (record.getBookId() == bookId) {
-                borrowing = true;
-                break;
-            }
-        }
-
-        if (!borrowing) {
-            return false;
-        }
-
-        // 2. 判断是否已经挂失
-        List<LossRecord> lossRecords =
-                lossRecordDAO.findByBookId(bookId);
-
-        for (LossRecord record : lossRecords) {
-
-            if (record.getUserId().equals(userId)
-                    && record.getStatus()
-                    == LossStatus.LOST.getCode()) {
-
-                return false;
-            }
-        }
-
-        // 3. 创建挂失记录
-        LossRecord lossRecord = new LossRecord();
-
-        lossRecord.setUserId(userId);
-        lossRecord.setBookId(bookId);
-        lossRecord.setLossTime(LocalDateTime.now());
-        lossRecord.setStatus(
-                LossStatus.LOST.getCode()
-        );
-
-        boolean inserted =
-                lossRecordDAO.insert(lossRecord);
-
-        if (!inserted) {
-            return false;
-        }
-
-        // 4. 修改图书状态为遗失
-        return bookDAO.updateStatus(
-                bookId,
-                BookStatus.LOST.getCode()
-        );
+        return bookDAO.changeLoss(userId, bookId, true);
     }
 
 
@@ -365,45 +314,7 @@ public class LibraryServerService {
             return false;
         }
 
-        List<LossRecord> records =
-                lossRecordDAO.findByBookId(bookId);
-
-        LossRecord activeLoss = null;
-
-        for (LossRecord record : records) {
-
-            if (userId.equals(record.getUserId())
-                    && record.getStatus()
-                    == LossStatus.LOST.getCode()) {
-
-                activeLoss = record;
-                break;
-            }
-        }
-
-        if (activeLoss == null) {
-            return false;
-        }
-
-        // 1. 修改挂失记录状态
-        boolean lossUpdated =
-                lossRecordDAO.updateStatus(
-                        activeLoss.getId(),
-                        LossStatus.CANCELLED.getCode()
-                );
-
-        if (!lossUpdated) {
-            return false;
-        }
-
-        /*
-         * 解除挂失后，因为用户仍然持有该书，
-         * 所以恢复为“已借”状态。
-         */
-        return bookDAO.updateStatus(
-                bookId,
-                BookStatus.BORROWED.getCode()
-        );
+        return bookDAO.changeLoss(userId, bookId, false);
     }
 
 
@@ -490,7 +401,7 @@ public class LibraryServerService {
     public boolean addBook(Book book)
             throws SQLException {
 
-        if (book == null) {
+        if (book == null || book.getStatus() != BookStatus.AVAILABLE.getCode()) {
             return false;
         }
 
@@ -522,7 +433,7 @@ public class LibraryServerService {
 
 
     /**
-     * 修改图书基本信息。
+     * 修改图书信息，并在同一事务中同步借阅、挂失和预约状态。
      */
     public boolean updateBook(Book book)
             throws SQLException {

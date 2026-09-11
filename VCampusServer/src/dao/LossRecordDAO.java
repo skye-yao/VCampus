@@ -19,11 +19,17 @@ import java.util.List;
 public class LossRecordDAO {
     /** 每本仍在挂失的图书一条公告，已解除的记录不公开。 */
     public List<vo.LostBookNotice> findPublicNotices() throws SQLException {
+        try (Connection conn = DBUtil.getConnection()) {
+            return findPublicNotices(conn);
+        }
+    }
+
+    List<vo.LostBookNotice> findPublicNotices(Connection conn) throws SQLException {
         List<vo.LostBookNotice> notices = new ArrayList<>();
         String sql = "SELECT b.id,b.name,b.author,MAX(l.lossTime) AS lossTime " +
                 "FROM tblLossRecord l JOIN tblBook b ON b.id=l.bookid WHERE l.status=0 " +
                 "GROUP BY b.id,b.name,b.author ORDER BY lossTime DESC";
-        try (Connection conn = DBUtil.getConnection(); PreparedStatement stmt = conn.prepareStatement(sql);
+        try (PreparedStatement stmt = conn.prepareStatement(sql);
              ResultSet rows = stmt.executeQuery()) {
             while (rows.next()) notices.add(new vo.LostBookNotice(rows.getInt("id"), rows.getString("name"),
                     rows.getString("author"), rows.getTimestamp("lossTime").toLocalDateTime().toString()));
