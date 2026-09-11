@@ -83,7 +83,18 @@ public class DBUtil {
         if (initError != null) {
             throw new SQLException(initError);
         }
-        return DriverManager.getConnection(url, username, password);
+        Connection connection = DriverManager.getConnection(url, username, password);
+        try (Statement statement = connection.createStatement()) {
+            statement.execute("SET time_zone = '+00:00'");
+            return connection;
+        } catch (SQLException setupError) {
+            try {
+                connection.close();
+            } catch (SQLException closeError) {
+                setupError.addSuppressed(closeError);
+            }
+            throw setupError;
+        }
     }
 
     /**
