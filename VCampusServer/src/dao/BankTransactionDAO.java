@@ -8,6 +8,12 @@ import java.util.List;
 
 /** 校园银行流水数据访问。 */
 public class BankTransactionDAO {
+    public BankTransaction findByRequestIdForUpdate(Connection conn, String requestId) throws SQLException {
+        try (PreparedStatement stmt = conn.prepareStatement("SELECT * FROM tbl_bank_transaction WHERE request_id=? FOR UPDATE")) {
+            stmt.setString(1, requestId);
+            try (ResultSet rows = stmt.executeQuery()) { return rows.next() ? map(rows) : null; }
+        }
+    }
     public void insert(Connection conn, BankTransaction tx, String requestId) throws SQLException {
         String sql = "INSERT INTO tbl_bank_transaction " +
                 "(transaction_no,account_id,counterparty_user_id,transaction_type,amount,balance_after," +

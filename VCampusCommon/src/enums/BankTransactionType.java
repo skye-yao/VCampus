@@ -15,7 +15,11 @@ public enum BankTransactionType {
     REIMBURSEMENT_PAYOUT("报销支出"),
     REIMBURSEMENT("报销入账"),
     GRANT("补助发放"),
-    AI_SERVICE_FEE("AI服务费");
+    AI_SERVICE_FEE("AI服务费"),
+    LIBRARY_PAYMENT("图书馆缴费"),
+    LIBRARY_INCOME("图书馆收费收入"),
+    LIBRARY_REFUND("图书馆退款"),
+    LIBRARY_REFUND_PAYOUT("图书馆退款支出");
 
     private final String description;
 

@@ -11,6 +11,9 @@ public class Book implements Serializable {
     private String name;
     private String author;
     private String publisher;
+    private java.math.BigDecimal price;
+    public java.math.BigDecimal getPrice() { return price; }
+    public void setPrice(java.math.BigDecimal price) { this.price = price; }
 
     /**
      * 图书状态：

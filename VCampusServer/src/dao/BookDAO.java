@@ -58,14 +58,22 @@ public class BookDAO {
                     try (ResultSet rows = stmt.executeQuery()) { active = rows.next(); }
                 }
                 if (active == report) { conn.rollback(); return false; }
+                if (!report) LibraryCirculationDAO.syncBook(conn,bookId,java.time.LocalDateTime.now());
                 try (PreparedStatement stmt = conn.prepareStatement(report
                         ? "INSERT INTO tblLossRecord(bookid,userid,lossTime,status) VALUES(?,?,CURRENT_TIMESTAMP,0)"
                         : "UPDATE tblLossRecord SET status=1 WHERE bookid=? AND userid=? AND status=0")) {
                     stmt.setInt(1, bookId); stmt.setString(2, userId); stmt.executeUpdate();
                 }
+                if (report) {
+                    try (PreparedStatement stmt = conn.prepareStatement("UPDATE tblBorrowRecord SET feeStopTime=COALESCE(feeStopTime,CURRENT_TIMESTAMP) " +
+                            "WHERE bookid=? AND userid=? AND status IN(0,2) AND returnTime IS NULL")) {
+                        stmt.setInt(1,bookId); stmt.setString(2,userId); stmt.executeUpdate();
+                    }
+                }
                 executeForBook(conn, "UPDATE tblBook SET status=CASE WHEN EXISTS " +
                         "(SELECT 1 FROM tblLossRecord l WHERE l.bookid=tblBook.id AND l.status=0) " +
                         "THEN 3 ELSE 1 END WHERE id=?", bookId);
+                LibraryCirculationDAO.syncBook(conn,bookId,java.time.LocalDateTime.now());
                 conn.commit();
                 return true;
             } catch (SQLException | RuntimeException e) { conn.rollback(); throw e; }
@@ -111,7 +119,7 @@ public class BookDAO {
             "WHEN status=1 OR EXISTS (SELECT 1 FROM tblBorrowRecord b WHERE b.bookid=tblBook.id AND b.status IN (0,2) AND b.returnTime IS NULL) THEN 1 " +
             "WHEN status=2 OR EXISTS (SELECT 1 FROM tblReservation r WHERE r.bookid=tblBook.id AND r.status=0) THEN 2 " +
             "ELSE status END";
-    private static final String BOOK_SELECT = "SELECT id,isbn,name,author,publisher," + EFFECTIVE_STATUS + " AS status FROM tblBook ";
+    private static final String BOOK_SELECT = "SELECT id,isbn,name,author,publisher,price," + EFFECTIVE_STATUS + " AS status FROM tblBook ";
 
     /** 锁住图书行后再次检查，并在一个事务内完成预约和状态更新。 */
     public boolean reserveAvailableBook(String userId, int bookId) throws SQLException {
@@ -273,8 +281,8 @@ public class BookDAO {
 
         String sql =
                 "INSERT INTO tblBook " +
-                        "(isbn, name, author, publisher, status) " +
-                        "VALUES (?, ?, ?, ?, ?)";
+                        "(isbn, name, author, publisher, status, price) " +
+                        "VALUES (?, ?, ?, ?, ?, ?)";
 
         Connection conn = null;
         PreparedStatement stmt = null;
@@ -293,6 +301,7 @@ public class BookDAO {
             stmt.setString(3, book.getAuthor());
             stmt.setString(4, book.getPublisher());
             stmt.setInt(5, book.getStatus());
+            stmt.setBigDecimal(6, book.getPrice());
 
             int rows = stmt.executeUpdate();
 
@@ -341,17 +350,13 @@ public class BookDAO {
                     throw new IllegalArgumentException("不合法的状态转换：管理员只能将遗失图书改为可借（找回入库），请刷新后重试");
                 }
                 if (recovered) {
-                    executeForBook(conn, "UPDATE tblLossRecord SET status=1 WHERE bookid=? AND status=0", id);
-                    executeForBook(conn, "UPDATE tblBorrowRecord SET status=1,returnTime=CURRENT_TIMESTAMP " +
-                            "WHERE bookid=? AND status IN(0,2) AND returnTime IS NULL", id);
-                    executeForBook(conn, "UPDATE tblReservation SET status=1 WHERE bookid=? AND status=0", id);
-                    executeForBook(conn, "UPDATE tblBook SET status=0 WHERE id=?", id);
+                    LibraryCirculationDAO.recoverBook(conn,id,java.time.LocalDateTime.now());
                 }
                 try (PreparedStatement stmt = conn.prepareStatement(
-                        "UPDATE tblBook SET isbn=?,name=?,author=?,publisher=? WHERE id=?")) {
+                        "UPDATE tblBook SET isbn=?,name=?,author=?,publisher=?,price=? WHERE id=?")) {
                     stmt.setString(1, book.getIsbn()); stmt.setString(2, book.getName());
                     stmt.setString(3, book.getAuthor()); stmt.setString(4, book.getPublisher());
-                    stmt.setInt(5, id); stmt.executeUpdate();
+                    stmt.setBigDecimal(5,book.getPrice()); stmt.setInt(6, id); stmt.executeUpdate();
                 }
                 conn.commit();
                 return true;
@@ -429,6 +434,7 @@ public class BookDAO {
         book.setName(rs.getString("name"));
         book.setAuthor(rs.getString("author"));
         book.setPublisher(rs.getString("publisher"));
+        book.setPrice(rs.getBigDecimal("price"));
         book.setStatus(rs.getInt("status"));
 
         return book;

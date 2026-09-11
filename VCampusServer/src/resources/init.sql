@@ -740,6 +740,7 @@ CREATE TABLE IF NOT EXISTS `tblBook` (
                                          `name` VARCHAR(100) NOT NULL COMMENT '图书名称',
                                          `author` VARCHAR(100) NOT NULL COMMENT '图书作者',
                                          `publisher` VARCHAR(100) DEFAULT '' COMMENT '出版社',
+                                         `price` DECIMAL(10,2) DEFAULT NULL COMMENT '图书赔偿价格，借出前录入',
                                          `status` INT NOT NULL DEFAULT 0 COMMENT '状态: 0-可借, 1-已借, 2-预约, 3-遗失',
                                          PRIMARY KEY (`id`),
                                          UNIQUE KEY `uk_isbn` (`isbn`)
@@ -755,6 +756,9 @@ CREATE TABLE IF NOT EXISTS `tblBorrowRecord` (
                                                  `borrowTime` DATETIME NOT NULL COMMENT '借阅时间',
                                                  `returnTime` DATETIME DEFAULT NULL COMMENT '实际归还时间',
                                                  `dueTime` DATETIME NOT NULL COMMENT '最迟归还时间',
+                                                 `bookPrice` DECIMAL(10,2) DEFAULT NULL COMMENT '借出时的书价',
+                                                 `feeStopTime` DATETIME DEFAULT NULL COMMENT '首次挂失时冻结逾期计费',
+                                                 `settledTime` DATETIME DEFAULT NULL COMMENT '遗失赔偿结清时间',
                                                  `status` INT NOT NULL DEFAULT 0 COMMENT '借阅状态: 0-借阅中, 1-已归还, 2-逾期',
                                                  PRIMARY KEY (`id`),
                                                  KEY `idx_userid` (`userid`),
@@ -822,12 +826,21 @@ CREATE TABLE IF NOT EXISTS `tblFineRecord` (
                                                `userid` VARCHAR(32) NOT NULL COMMENT '用户编号(关联tbl_user.uid)',
                                                `amount` DECIMAL(10,2) NOT NULL COMMENT '罚金金额',
                                                `reason` VARCHAR(200) NOT NULL COMMENT '违章原因',
+                                               `borrowId` INT DEFAULT NULL COMMENT '关联借阅，历史手工罚款为空',
+                                               `overdueAmount` DECIMAL(10,2) NOT NULL DEFAULT 0,
+                                               `lossAmount` DECIMAL(10,2) NOT NULL DEFAULT 0,
+                                               `paidAmount` DECIMAL(10,2) NOT NULL DEFAULT 0,
+                                               `refundedAmount` DECIMAL(10,2) NOT NULL DEFAULT 0,
+                                               `transactionNo` VARCHAR(64) DEFAULT NULL,
+                                               UNIQUE KEY `uk_library_fine_borrow` (`borrowId`),
                                                `status` INT NOT NULL DEFAULT 0 COMMENT '缴费状态: 0-未缴费, 1-已缴费',
                                                PRIMARY KEY (`id`),
                                                KEY `idx_userid` (`userid`),
                                                KEY `idx_status` (`status`),
                                                CONSTRAINT `fk_fine_user` FOREIGN KEY (`userid`) REFERENCES `tbl_user` (`uid`) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='罚款记录表';
+
+-- 旧库新增字段由 LibrarySchema 在图书馆首次请求时原地升级；不创建新数据库。
 
 -- 图书馆演示数据已移到 sample_library_data.sql。
 -- 正常启动或重新构建不需要重新导入演示数据。

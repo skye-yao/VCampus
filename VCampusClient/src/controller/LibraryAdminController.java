@@ -12,6 +12,10 @@ import util.AlertUtil;
 import java.util.concurrent.CompletionException;
 
 public class LibraryAdminController {
+    @FXML private void handleCirculation() {
+        new LibraryCirculationController().show(0);
+        handleAdminSearch();
+    }
     @FXML private void handleAdminRecords() {
         Dialog<Void> dialog = new Dialog<>();
         dialog.setTitle("图书馆业务名单（管理员）");
@@ -74,6 +78,7 @@ public class LibraryAdminController {
     @FXML private TextField nameField;
     @FXML private TextField authorField;
     @FXML private TextField publisherField;
+    @FXML private TextField priceField;
     @FXML private ComboBox<BookStatus> statusCombo;
 
     @FXML public void initialize() {
@@ -154,10 +159,18 @@ public class LibraryAdminController {
                 AlertUtil.showWarning("提示", "ISBN、书名和作者不能为空"); return null;
             }
             BookStatus status = statusCombo.getValue() == null ? BookStatus.AVAILABLE : statusCombo.getValue();
-            return new Book(id, isbnField.getText().trim(), nameField.getText().trim(), authorField.getText().trim(),
+            Book book = new Book(id, isbnField.getText().trim(), nameField.getText().trim(), authorField.getText().trim(),
                     publisherField.getText().trim(), status.getCode());
+            if (!priceField.getText().isBlank()) {
+                java.math.BigDecimal price=new java.math.BigDecimal(priceField.getText().trim());
+                if(price.signum()<=0||price.scale()>2||price.compareTo(new java.math.BigDecimal("99999999.99"))>0) {
+                    AlertUtil.showWarning("提示","书价须大于0，最多两位小数且不超过99999999.99元");return null;
+                }
+                book.setPrice(price);
+            }
+            return book;
         } catch (NumberFormatException e) {
-            AlertUtil.showWarning("提示", "图书编号格式不正确"); return null;
+            AlertUtil.showWarning("提示", "图书编号或书价格式不正确"); return null;
         }
     }
 
@@ -167,6 +180,7 @@ public class LibraryAdminController {
         nameField.setText(book == null ? "" : book.getName());
         authorField.setText(book == null ? "" : book.getAuthor());
         publisherField.setText(book == null ? "" : book.getPublisher());
+        priceField.setText(book==null||book.getPrice()==null?"":book.getPrice().toPlainString());
         statusCombo.getSelectionModel().select(book == null ? BookStatus.AVAILABLE : BookStatus.fromCode(book.getStatus()));
     }
 

@@ -16,6 +16,13 @@ import java.util.List;
  * 负责 tblFineRecord 表的数据访问。
  */
 public class FineRecordDAO {
+    private final BookDAO.ConnectionFactory connections;
+    public FineRecordDAO() { this(DBUtil::getConnection); }
+    FineRecordDAO(BookDAO.ConnectionFactory connections) { this.connections=connections; }
+    private static final String SELECT_FINE = "SELECT f.*,CASE WHEN f.status=0 AND f.amount>0 AND (f.borrowId IS NULL " +
+            "OR r.returnTime IS NOT NULL OR (COALESCE(r.bookPrice,b.price)>0 AND EXISTS(SELECT 1 FROM tblLossRecord l " +
+            "WHERE l.userid=r.userid AND l.bookid=r.bookid AND l.status=0))) THEN 1 ELSE 0 END payable " +
+            "FROM tblFineRecord f LEFT JOIN tblBorrowRecord r ON r.id=f.borrowId LEFT JOIN tblBook b ON b.id=r.bookid ";
 
     /**
      * 根据罚款记录编号查询
@@ -28,15 +35,15 @@ public class FineRecordDAO {
             throws SQLException {
 
         String sql =
-                "SELECT id, userid, amount, reason, status " +
-                        "FROM tblFineRecord WHERE id = ?";
+                SELECT_FINE +
+                        "WHERE f.id = ?";
 
         Connection conn = null;
         PreparedStatement stmt = null;
         ResultSet rs = null;
 
         try {
-            conn = DBUtil.getConnection();
+            conn = connections.open();
             stmt = conn.prepareStatement(sql);
             stmt.setInt(1, id);
 
@@ -64,10 +71,9 @@ public class FineRecordDAO {
             throws SQLException {
 
         String sql =
-                "SELECT id, userid, amount, reason, status " +
-                        "FROM tblFineRecord " +
-                        "WHERE userid = ? " +
-                        "ORDER BY id DESC";
+                SELECT_FINE +
+                        "WHERE f.userid = ? " +
+                        "ORDER BY f.id DESC";
 
         Connection conn = null;
         PreparedStatement stmt = null;
@@ -76,7 +82,7 @@ public class FineRecordDAO {
         List<FineRecord> records = new ArrayList<>();
 
         try {
-            conn = DBUtil.getConnection();
+            conn = connections.open();
             stmt = conn.prepareStatement(sql);
             stmt.setString(1, userId);
 
@@ -112,7 +118,7 @@ public class FineRecordDAO {
         PreparedStatement stmt = null;
 
         try {
-            conn = DBUtil.getConnection();
+            conn = connections.open();
             stmt = conn.prepareStatement(sql);
 
             stmt.setString(1, record.getUserId());
@@ -147,7 +153,7 @@ public class FineRecordDAO {
         PreparedStatement stmt = null;
 
         try {
-            conn = DBUtil.getConnection();
+            conn = connections.open();
             stmt = conn.prepareStatement(sql);
 
             stmt.setInt(1, status);
@@ -173,10 +179,9 @@ public class FineRecordDAO {
             throws SQLException {
 
         String sql =
-                "SELECT id, userid, amount, reason, status " +
-                        "FROM tblFineRecord " +
-                        "WHERE userid = ? AND status = 0 " +
-                        "ORDER BY id DESC";
+                SELECT_FINE +
+                        "WHERE f.userid = ? AND f.status = 0 " +
+                        "ORDER BY f.id DESC";
 
         Connection conn = null;
         PreparedStatement stmt = null;
@@ -185,7 +190,7 @@ public class FineRecordDAO {
         List<FineRecord> records = new ArrayList<>();
 
         try {
-            conn = DBUtil.getConnection();
+            conn = connections.open();
             stmt = conn.prepareStatement(sql);
             stmt.setString(1, userId);
 
@@ -215,6 +220,12 @@ public class FineRecordDAO {
         record.setAmount(rs.getBigDecimal("amount"));
         record.setReason(rs.getString("reason"));
         record.setStatus(rs.getInt("status"));
+        int borrowId=rs.getInt("borrowId"); record.setBorrowId(rs.wasNull()?null:borrowId);
+        record.setOverdueAmount(rs.getBigDecimal("overdueAmount"));
+        record.setLossAmount(rs.getBigDecimal("lossAmount"));
+        record.setPaidAmount(rs.getBigDecimal("paidAmount"));
+        record.setRefundedAmount(rs.getBigDecimal("refundedAmount"));
+        record.setPayable(rs.getBoolean("payable"));
 
         return record;
     }

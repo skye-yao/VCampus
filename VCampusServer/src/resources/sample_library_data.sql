@@ -89,17 +89,32 @@ DELIMITER ;
 
 -- BEGIN LIBRARY RECOVERY TEST DATA
 -- 已有数据时，只选中本节执行；上方原始样例仅适用于空白图书馆。
+-- 请先重启新服务端完成现有表字段升级，再导入本节。
 -- 找回入库测试数据：可在已有业务数据的数据库中执行，不删除或重置旧数据。
 -- 每次执行新增一批 5 本书；测试完后可再次执行获得新数据。
 -- 先选择 virtual_campus 数据库；将下面账号改为你实际登录的学生一卡通号。
 USE `virtual_campus`;
 SET @recovery_test_user = '213242789';
 
+-- 兼容旧数据库：测试数据使用书价，字段不存在时先补齐；已存在时不会重复添加。
+SET @price_column_missing = (
+    SELECT COUNT(*) = 0
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tblBook' AND COLUMN_NAME = 'price'
+);
+SET @price_upgrade_sql = IF(@price_column_missing,
+    'ALTER TABLE `tblBook` ADD COLUMN `price` DECIMAL(10,2) DEFAULT NULL COMMENT ''图书赔偿价格'' AFTER `publisher`',
+    'SELECT 1');
+PREPARE price_upgrade_stmt FROM @price_upgrade_sql;
+EXECUTE price_upgrade_stmt;
+DEALLOCATE PREPARE price_upgrade_stmt;
+
 DELIMITER $$
 DROP PROCEDURE IF EXISTS seed_library_recovery_test$$
 CREATE PROCEDURE seed_library_recovery_test()
 BEGIN
     DECLARE batch VARCHAR(12);
+    DECLARE seed_time DATETIME;
     DECLARE lost_normal INT;
     DECLARE lost_overdue INT;
     DECLARE borrowed_book INT;
@@ -107,39 +122,44 @@ BEGIN
     DECLARE available_book INT;
     DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
     START TRANSACTION;
+    SET seed_time=NOW();
     IF NOT EXISTS(SELECT 1 FROM tbl_user WHERE uid=@recovery_test_user AND role=2) THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Set recovery_test_user to an existing student UID first';
     END IF;
     SET batch = LEFT(REPLACE(UUID(), '-', ''),12);
 
-    INSERT INTO tblBook(isbn,name,author,publisher,status)
-    VALUES(CONCAT('REC-',batch,'-1'),'[找回测试] 遗失图书A（未逾期）','测试作者','测试出版社',3);
+    INSERT INTO tblBook(isbn,name,author,publisher,status,price)
+    VALUES(CONCAT('REC-',batch,'-1'),'[找回测试] 遗失图书A（未逾期）','测试作者','测试出版社',3,50.00);
     SET lost_normal = LAST_INSERT_ID();
-    INSERT INTO tblBook(isbn,name,author,publisher,status)
-    VALUES(CONCAT('REC-',batch,'-2'),'[找回测试] 遗失图书B（已逾期）','测试作者','测试出版社',3);
+    INSERT INTO tblBook(isbn,name,author,publisher,status,price)
+    VALUES(CONCAT('REC-',batch,'-2'),'[找回测试] 遗失图书B（已逾期）','测试作者','测试出版社',3,50.00);
     SET lost_overdue = LAST_INSERT_ID();
-    INSERT INTO tblBook(isbn,name,author,publisher,status)
-    VALUES(CONCAT('REC-',batch,'-3'),'[找回测试] 已借图书C（学生自行挂失）','测试作者','测试出版社',1);
+    INSERT INTO tblBook(isbn,name,author,publisher,status,price)
+    VALUES(CONCAT('REC-',batch,'-3'),'[找回测试] 已借图书C（学生自行挂失）','测试作者','测试出版社',1,45.00);
     SET borrowed_book = LAST_INSERT_ID();
-    INSERT INTO tblBook(isbn,name,author,publisher,status)
-    VALUES(CONCAT('REC-',batch,'-4'),'[找回测试] 预约图书D（非法转换对照）','测试作者','测试出版社',2);
+    INSERT INTO tblBook(isbn,name,author,publisher,status,price)
+    VALUES(CONCAT('REC-',batch,'-4'),'[找回测试] 预约图书D（非法转换对照）','测试作者','测试出版社',2,60.00);
     SET reserved_book = LAST_INSERT_ID();
-    INSERT INTO tblBook(isbn,name,author,publisher,status)
-    VALUES(CONCAT('REC-',batch,'-5'),'[找回测试] 可借图书E（非法转换对照）','测试作者','测试出版社',0);
+    INSERT INTO tblBook(isbn,name,author,publisher,status,price)
+    VALUES(CONCAT('REC-',batch,'-5'),'[找回测试] 可借图书E（非法转换对照）','测试作者','测试出版社',0,35.00);
     SET available_book = LAST_INSERT_ID();
 
     INSERT INTO tblBorrowRecord(userid,bookid,borrowTime,returnTime,dueTime,status) VALUES
-    (@recovery_test_user,lost_normal,DATE_SUB(NOW(),INTERVAL 5 DAY),NULL,DATE_ADD(NOW(),INTERVAL 25 DAY),0),
-    (@recovery_test_user,lost_overdue,DATE_SUB(NOW(),INTERVAL 40 DAY),NULL,DATE_SUB(NOW(),INTERVAL 10 DAY),2),
-    (@recovery_test_user,borrowed_book,DATE_SUB(NOW(),INTERVAL 2 DAY),NULL,DATE_ADD(NOW(),INTERVAL 28 DAY),0),
+    (@recovery_test_user,lost_normal,DATE_SUB(seed_time,INTERVAL 5 DAY),NULL,DATE_ADD(seed_time,INTERVAL 9 DAY),0),
+    (@recovery_test_user,lost_overdue,DATE_SUB(seed_time,INTERVAL 24 DAY),NULL,DATE_SUB(seed_time,INTERVAL 10 DAY),2),
+    (@recovery_test_user,borrowed_book,DATE_SUB(seed_time,INTERVAL 2 DAY),NULL,DATE_ADD(seed_time,INTERVAL 12 DAY),0),
     -- A 的旧借阅、旧挂失用于验证找回后保留历史，不覆盖旧归还时间。
-    (@recovery_test_user,lost_normal,DATE_SUB(NOW(),INTERVAL 90 DAY),DATE_SUB(NOW(),INTERVAL 70 DAY),DATE_SUB(NOW(),INTERVAL 60 DAY),1);
+    (@recovery_test_user,lost_normal,DATE_SUB(seed_time,INTERVAL 90 DAY),DATE_SUB(seed_time,INTERVAL 70 DAY),DATE_SUB(seed_time,INTERVAL 60 DAY),1);
     INSERT INTO tblLossRecord(userid,bookid,lossTime,status) VALUES
-    (@recovery_test_user,lost_normal,DATE_SUB(NOW(),INTERVAL 1 DAY),0),
-    (@recovery_test_user,lost_overdue,DATE_SUB(NOW(),INTERVAL 12 DAY),0),
-    (@recovery_test_user,lost_normal,DATE_SUB(NOW(),INTERVAL 75 DAY),1);
+    (@recovery_test_user,lost_normal,DATE_SUB(seed_time,INTERVAL 1 DAY),0),
+    (@recovery_test_user,lost_overdue,DATE_SUB(seed_time,INTERVAL 9 DAY),0),
+    (@recovery_test_user,lost_normal,DATE_SUB(seed_time,INTERVAL 75 DAY),1);
     INSERT INTO tblReservation(userid,bookid,reserveTime,status)
-    VALUES(@recovery_test_user,reserved_book,NOW(),0);
+    VALUES(@recovery_test_user,reserved_book,seed_time,0);
+    UPDATE tblBorrowRecord SET bookPrice=CASE WHEN bookid=borrowed_book THEN 45.00 ELSE 50.00 END
+    WHERE bookid IN(lost_normal,lost_overdue,borrowed_book);
+    UPDATE tblBorrowRecord SET feeStopTime=CASE WHEN bookid=lost_normal THEN DATE_SUB(seed_time,INTERVAL 1 DAY) ELSE DATE_SUB(seed_time,INTERVAL 9 DAY) END
+    WHERE bookid IN(lost_normal,lost_overdue) AND returnTime IS NULL;
     COMMIT;
     SELECT @recovery_test_user AS '测试学生账号',batch AS '本次批次';
     SELECT id AS '图书编号',isbn,name AS '书名',status AS '状态'
@@ -149,3 +169,12 @@ CALL seed_library_recovery_test()$$
 DROP PROCEDURE seed_library_recovery_test$$
 DELIMITER ;
 
+
+-- 借还与银行联动测试（沿用上面这一批数据，不另外创建数据库）：
+-- D：管理员在“借还与缴费 / 预约待借”点击借书，应生成从现在起14天的借阅。
+-- C：管理员办理正常还书；未逾期时不收费，恢复可借。
+-- A：挂失发生在到期前，冻结逾期费为0；遗失赔偿为50元，找回则不用缴费。
+-- B：到期10天，9天前挂失，冻结逾期费0.5元；赔偿结清共50.5元。
+-- B未缴费前找回：只需缴0.5元；先赔偿后找回：管理员可在“罚款缴费 / 退款”退50元。
+-- 学生缴费使用校园银行支付密码；管理员退款使用当前管理员的登录用户名和登录密码。
+-- 校园银行流水应出现图书馆缴费/退款，银行余额和个人资料余额同步变化。

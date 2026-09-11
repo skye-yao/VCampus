@@ -146,7 +146,7 @@ public class LibraryServerService {
      */
     public List<BorrowRecord> getBorrowHistory(String userId)
             throws SQLException {
-
+        new dao.LibraryCirculationDAO().refresh(userId);
         return withLossStatus(userId, borrowRecordDAO.findByUserId(userId));
     }
 
@@ -160,7 +160,7 @@ public class LibraryServerService {
      */
     public List<BorrowRecord> getCurrentBorrow(String userId)
             throws SQLException {
-
+        new dao.LibraryCirculationDAO().refresh(userId);
         return withLossStatus(userId, borrowRecordDAO.findActiveByUserId(userId));
     }
 
@@ -170,7 +170,7 @@ public class LibraryServerService {
             if (loss.getStatus() == 0) lostBooks.add(loss.getBookId());
         }
         for (BorrowRecord record : records) record.setLossReported(record.getReturnTime() == null
-                && record.getStatus() != 1 && lostBooks.contains(record.getBookId()));
+                && record.getStatus() != 1 && record.getStatus() != 3 && lostBooks.contains(record.getBookId()));
         return records;
     }
 
@@ -327,7 +327,7 @@ public class LibraryServerService {
      */
     public List<FineRecord> getFineRecords(String userId)
             throws SQLException {
-
+        new dao.LibraryCirculationDAO().refresh(userId);
         return fineRecordDAO.findByUserId(userId);
     }
 
@@ -337,55 +337,8 @@ public class LibraryServerService {
      */
     public List<FineRecord> getUnpaidFineRecords(String userId)
             throws SQLException {
-
+        new dao.LibraryCirculationDAO().refresh(userId);
         return fineRecordDAO.findUnpaidByUserId(userId);
-    }
-
-
-    /**
-     * 缴纳罚款。
-     *
-     * 当前图书馆模块只负责修改缴费状态。
-     * 如果后续需要真正扣除账户余额，
-     * 再与用户/银行模块进行组合。
-     *
-     * @param userId 当前用户
-     * @param fineId 罚款编号
-     */
-    public boolean payFine(
-            String userId,
-            Integer fineId
-    ) throws SQLException {
-
-        if (userId == null || userId.isBlank()
-                || fineId == null || fineId <= 0) {
-
-            return false;
-        }
-
-        FineRecord fine =
-                fineRecordDAO.findById(fineId);
-
-        if (fine == null) {
-            return false;
-        }
-
-        // 只能缴纳自己的罚款
-        if (!userId.equals(fine.getUserId())) {
-            return false;
-        }
-
-        // 已缴费不能重复缴费
-        if (fine.getStatus()
-                == FineStatus.PAID.getCode()) {
-
-            return false;
-        }
-
-        return fineRecordDAO.updateStatus(
-                fineId,
-                FineStatus.PAID.getCode()
-        );
     }
 
 
@@ -400,6 +353,7 @@ public class LibraryServerService {
      */
     public boolean addBook(Book book)
             throws SQLException {
+        validatePrice(book);
 
         if (book == null || book.getStatus() != BookStatus.AVAILABLE.getCode()) {
             return false;
@@ -437,6 +391,7 @@ public class LibraryServerService {
      */
     public boolean updateBook(Book book)
             throws SQLException {
+        validatePrice(book);
 
         if (book == null || book.getId() <= 0) {
             return false;
@@ -505,5 +460,10 @@ public class LibraryServerService {
 
     public List<vo.LostBookNotice> getPublicLossNotices() throws SQLException {
         return lossRecordDAO.findPublicNotices();
+    }
+    private void validatePrice(Book book) {
+        if(book!=null && book.getPrice()!=null && (book.getPrice().signum()<=0 || book.getPrice().scale()>2
+                || book.getPrice().compareTo(new java.math.BigDecimal("99999999.99"))>0))
+            throw new IllegalArgumentException("书价须大于0，最多两位小数且不超过99999999.99元");
     }
 }

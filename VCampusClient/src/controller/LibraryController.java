@@ -172,11 +172,24 @@ public class LibraryController {
     @FXML private TableColumn<FineRecord, String> fineAmountColumn;
     @FXML private TableColumn<FineRecord, String> fineReasonColumn;
     @FXML private TableColumn<FineRecord, String> fineStatusColumn;
+    @FXML private Label fineSummaryLabel;
+    @FXML private Label fineDetailLabel;
+    @FXML private Button adminRefundButton;
+    private boolean finePaymentBusy;
+    @FXML private void handleAdminRefund() { new LibraryCirculationController().show(2); refreshMyLibrary(); }
 
     @FXML
     public void initialize() {
         updateEbookButtons();
         configureTables();
+        boolean administrator="管理员".equals(ClientSession.getInstance().getRole());
+        adminRefundButton.setVisible(administrator);adminRefundButton.setManaged(administrator);
+        fineTable.getSelectionModel().selectedItemProperty().addListener((obs,old,fine)->showFine(fine));
+        fineTable.getItems().addListener((javafx.collections.ListChangeListener<FineRecord>) change->{
+            java.math.BigDecimal total=java.math.BigDecimal.ZERO;
+            for(FineRecord fine:fineTable.getItems())if(fine.getStatus()==0)total=total.add(fine.getAmount());
+            fineSummaryLabel.setText("待结算费用：¥ "+total.setScale(2));
+        });
         lossNoticeList.setPlaceholder(new Label("暂无挂失公告，点击刷新获取最新信息"));
         lossNoticeList.setCellFactory(view -> new ListCell<>() {
             @Override protected void updateItem(vo.LostBookNotice notice, boolean empty) {
@@ -221,13 +234,13 @@ public class LibraryController {
         currentBorrowTimeColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(time(c.getValue().getBorrowTime())));
         currentDueTimeColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(time(c.getValue().getDueTime())));
         currentStatusColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(c.getValue().isLossReported()
-                ? "挂失中" : borrowStatus(c.getValue().getStatus())));
+                ? (c.getValue().getStatus()==2?"挂失中 / 逾期":"挂失中") : borrowStatus(c.getValue().getStatus())));
 
         historyBookColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(c.getValue().getBookId()));
         historyBorrowTimeColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(time(c.getValue().getBorrowTime())));
         historyReturnTimeColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(time(c.getValue().getReturnTime())));
         historyStatusColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(c.getValue().isLossReported()
-                ? "挂失中" : borrowStatus(c.getValue().getStatus())));
+                ? (c.getValue().getStatus()==2?"挂失中 / 逾期":"挂失中") : borrowStatus(c.getValue().getStatus())));
 
         reservationBookColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(c.getValue().getBookId()));
         reservationTimeColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(time(c.getValue().getReserveTime())));
@@ -236,7 +249,8 @@ public class LibraryController {
         fineIdColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(c.getValue().getId()));
         fineAmountColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(c.getValue().getAmount() + " 元"));
         fineReasonColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(c.getValue().getReason()));
-        fineStatusColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(fineStatus(c.getValue().getStatus())));
+        fineStatusColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(c.getValue().getStatus()==0 && c.getValue().getAmount().signum()==0
+                ? "无需缴费" : c.getValue().getRefundedAmount().signum()>0?"已缴费 / 已退款":fineStatus(c.getValue().getStatus())));
 
         reviewList.setCellFactory(list -> new ListCell<>() {
             @Override protected void updateItem(BookReview review, boolean empty) {
@@ -352,10 +366,33 @@ public class LibraryController {
     }
 
     @FXML private void handlePayFine() {
+        if(finePaymentBusy)return;
         FineRecord fine = fineTable.getSelectionModel().getSelectedItem();
         if (fine == null) { AlertUtil.showWarning("提示", "请选择一条罚款记录"); return; }
         if (fine.getStatus() == FineStatus.PAID.getCode()) { AlertUtil.showInfo("提示", "该罚款已经缴纳"); return; }
-        runAction(service.payFine(fine.getId()), "缴费成功", this::refreshMyLibrary);
+        if(!fine.isPayable()) {AlertUtil.showInfo("暂不能缴费","无需缴费，或借阅尚未结束。普通逾期请还书后结算；挂失赔偿需管理员先录入书价。");return;}
+        Dialog<ButtonType> dialog=new Dialog<>();dialog.setTitle("校园银行支付");
+        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK,ButtonType.CANCEL);
+        PasswordField password=new PasswordField();password.setPromptText("6位校园银行支付密码");
+        Label amount=new Label("确认扣款 ¥ "+fine.getAmount()+"\n"+fine.getReason()+
+                (fine.getLossAmount().signum()>0?"\n赔偿缴清后结束本次借阅；以后找回可联系管理员退款。":""));
+        amount.setWrapText(true);
+        javafx.scene.layout.VBox content=new javafx.scene.layout.VBox(12,amount,password);content.setPrefWidth(410);
+        content.setPadding(new javafx.geometry.Insets(16));dialog.getDialogPane().setContent(content);
+        if(dialog.showAndWait().orElse(ButtonType.CANCEL)!=ButtonType.OK)return;
+        finePaymentBusy=true;
+        service.payFine(fine.getId(),password.getText(),fine.getAmount()).whenComplete((v,error)->Platform.runLater(()->{
+            finePaymentBusy=false;
+            if(error!=null)showError("缴费失败",error);else AlertUtil.showInfo("缴费成功","校园银行已扣款，可在银行交易流水中查看。");
+            refreshMyLibrary();handleSearch();
+        }));
+        password.clear();
+    }
+    private void showFine(FineRecord fine) {
+        if(fine==null) {fineDetailLabel.setText("选择一条记录查看费用明细并办理缴费。");return;}
+        fineDetailLabel.setText("账单 #"+fine.getId()+"  |  逾期费 ¥"+fine.getOverdueAmount()+"  |  赔偿价 ¥"+fine.getLossAmount()
+                +"\n实付 ¥"+fine.getPaidAmount()+"  |  已退款 ¥"+fine.getRefundedAmount()
+                +"\n"+fine.getReason());
     }
 
     private void loadReviews(int bookId) {

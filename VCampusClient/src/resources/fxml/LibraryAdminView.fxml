@@ -13,6 +13,7 @@
                 <TextField fx:id="adminSearchField" onAction="#handleAdminSearch" promptText="搜索馆藏" HBox.hgrow="ALWAYS"/>
                 <Button onAction="#handleAdminSearch" styleClass="btn-primary" text="搜索"/>
                 <Button onAction="#handleAdminRecords" styleClass="btn-secondary" text="业务名单"/>
+                <Button onAction="#handleCirculation" styleClass="btn-primary" text="借还与缴费"/>
             </HBox>
             <TableView fx:id="adminBookTable" VBox.vgrow="ALWAYS">
                 <columns>
@@ -34,6 +35,7 @@
             <Label text="书名 *"/><TextField fx:id="nameField"/>
             <Label text="作者 *"/><TextField fx:id="authorField"/>
             <Label text="出版社"/><TextField fx:id="publisherField"/>
+            <Label text="图书价格（元）"/><TextField fx:id="priceField" promptText="借出前必须录入，用于遗失赔偿"/>
             <Label text="状态"/><ComboBox fx:id="statusCombo" maxWidth="Infinity"/>
             <Label text="仅支持：遗失 → 可借（找回入库）" wrapText="true"/>
             <Region VBox.vgrow="ALWAYS"/>

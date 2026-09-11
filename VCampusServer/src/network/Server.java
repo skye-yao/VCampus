@@ -106,6 +106,14 @@ public class Server {
                 System.err.println("清理超时订单失败：" + e.getMessage());
             }
         }, 0, 1, TimeUnit.MINUTES);
+        maintenanceExecutor.scheduleWithFixedDelay(() -> {
+            try {
+                dao.LibrarySchema.ensure();
+                new dao.LibraryCirculationDAO().refresh(null);
+            } catch (Exception e) {
+                System.err.println("图书馆逾期状态更新失败：" + e.getMessage());
+            }
+        }, 0, 1, TimeUnit.MINUTES);
         System.out.println("VCampus Server 启动成功");
         System.out.println("服务器端口：" + serverSocket.getLocalPort());
         System.out.println("等待客户端连接...");

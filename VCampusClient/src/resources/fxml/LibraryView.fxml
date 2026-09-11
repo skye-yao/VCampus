@@ -127,10 +127,13 @@
                     <VBox spacing="10.0" styleClass="content-pane">
                         <padding><Insets bottom="14.0" left="14.0" right="14.0" top="14.0"/></padding>
                         <HBox alignment="CENTER_LEFT">
-                            <Label styleClass="panel-title" text="违章与罚款记录"/>
+                            <Label fx:id="fineSummaryLabel" styleClass="panel-title" text="待结算费用：¥ 0.00"/>
                             <Region HBox.hgrow="ALWAYS"/>
-                            <Button onAction="#handlePayFine" styleClass="btn-primary" text="缴纳选中罚款"/>
+                            <Button fx:id="adminRefundButton" onAction="#handleAdminRefund" styleClass="btn-secondary" text="管理员退款"/>
+                            <Button onAction="#refreshMyLibrary" styleClass="btn-secondary" text="刷新"/>
+                            <Button onAction="#handlePayFine" styleClass="btn-primary" text="校园银行缴费"/>
                         </HBox>
+                        <Label text="借期14天 · 逾期每天0.5元，不足一天按一天计 · 挂失时冻结逾期费。普通借阅归还后结算，挂失可赔偿结清。" wrapText="true"/>
                         <TableView fx:id="fineTable" VBox.vgrow="ALWAYS">
                             <columns>
                                 <TableColumn fx:id="fineIdColumn" maxWidth="70.0" text="编号"/>
@@ -139,6 +142,7 @@
                                 <TableColumn fx:id="fineStatusColumn" prefWidth="100.0" text="状态"/>
                             </columns>
                         </TableView>
+                        <Label fx:id="fineDetailLabel" text="选择一条记录查看费用明细并办理缴费。" wrapText="true"/>
                     </VBox>
                 </Tab>
                 <Tab text="公共挂失公告">

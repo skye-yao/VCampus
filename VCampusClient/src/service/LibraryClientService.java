@@ -110,8 +110,18 @@ public class LibraryClientService {
                 .thenApply(r -> list(r, "fineRecords", new TypeToken<List<FineRecord>>() {}.getType()));
     }
 
-    public CompletableFuture<Void> payFine(int fineId) {
-        return simpleRequest("payfine", "fineId", fineId).thenApply(r -> null);
+    public CompletableFuture<Void> payFine(int fineId,String password,java.math.BigDecimal amount) {
+        Message request=request("payfine");
+        request.putData("fineId",fineId);request.putData("paymentPassword",password);request.putData("expectedAmount",amount);
+        return send(request).thenApply(r -> null);
+    }
+    public CompletableFuture<Void> lendBook(int reservationId) { return simpleRequest("lendbook","reservationId",reservationId).thenApply(r->null); }
+    public CompletableFuture<Void> returnBook(int borrowId) { return simpleRequest("returnbook","borrowId",borrowId).thenApply(r->null); }
+    public CompletableFuture<Void> refundFine(int fineId,String target,String admin,String password,java.math.BigDecimal amount,String requestId) {
+        Message request=request("refundfine");
+        request.putData("fineId",fineId);request.putData("targetUserId",target);request.putData("adminUsername",admin);
+        request.putData("adminPassword",password);request.putData("amount",amount);request.putData("requestId",requestId);
+        return send(request).thenApply(r->null);
     }
 
     public CompletableFuture<Void> addBook(Book book) {

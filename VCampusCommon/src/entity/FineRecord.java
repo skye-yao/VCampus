@@ -11,6 +11,24 @@ public class FineRecord implements Serializable {
     private String userId;
     private BigDecimal amount;
     private String reason;
+    private Integer borrowId;
+    private BigDecimal overdueAmount = BigDecimal.ZERO;
+    private BigDecimal lossAmount = BigDecimal.ZERO;
+    private BigDecimal paidAmount = BigDecimal.ZERO;
+    private BigDecimal refundedAmount = BigDecimal.ZERO;
+    private boolean payable;
+    public Integer getBorrowId() { return borrowId; }
+    public void setBorrowId(Integer value) { borrowId = value; }
+    public BigDecimal getOverdueAmount() { return overdueAmount; }
+    public void setOverdueAmount(BigDecimal value) { overdueAmount = value; }
+    public BigDecimal getLossAmount() { return lossAmount; }
+    public void setLossAmount(BigDecimal value) { lossAmount = value; }
+    public BigDecimal getPaidAmount() { return paidAmount; }
+    public void setPaidAmount(BigDecimal value) { paidAmount = value; }
+    public BigDecimal getRefundedAmount() { return refundedAmount; }
+    public void setRefundedAmount(BigDecimal value) { refundedAmount = value; }
+    public boolean isPayable() { return payable; }
+    public void setPayable(boolean value) { payable = value; }
 
     /**
      * 缴费状态：
