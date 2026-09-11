@@ -17,6 +17,7 @@ import javafx.scene.layout.VBox;
 import entity.AdminPermission;
 import entity.Student;
 import entity.Teacher;
+import enums.ReservationStatus;
 import vo.StudentOverviewVO;
 import vo.TeacherOverviewVO;
 import network.SocketClient;
@@ -245,14 +246,17 @@ public class MainController {
             return null;
         });
 
-        // 2. 查询预约记录
+        // 2. 查询预约记录（仅统计状态为 0 - 预约中的有效记录）
         LibraryClientService.getInstance().getReservations().thenAccept(reservations -> {
             Platform.runLater(() -> {
                 if (libraryReservationNoticeLabel != null) {
-                    if (reservations == null || reservations.isEmpty()) {
+                    long activeCount = reservations != null ? reservations.stream()
+                            .filter(r -> r.getStatus() == ReservationStatus.RESERVING.getCode())
+                            .count() : 0;
+                    if (activeCount == 0) {
                         libraryReservationNoticeLabel.setText("暂无图书预约到馆提醒");
                     } else {
-                        libraryReservationNoticeLabel.setText("您有 " + reservations.size() + " 本图书预约记录");
+                        libraryReservationNoticeLabel.setText("您有 " + activeCount + " 本图书处于预约中");
                     }
                 }
             });

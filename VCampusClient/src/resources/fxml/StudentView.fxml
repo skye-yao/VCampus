@@ -2,6 +2,7 @@
 <?import javafx.geometry.Insets?>
 <?import util.control.InformationReviewStatusPane?>
 <?import javafx.scene.control.*?>
+<?import javafx.scene.image.ImageView?>
 <?import javafx.scene.layout.*?>
 <BorderPane xmlns="http://javafx.com/javafx/17" xmlns:fx="http://javafx.com/fxml/1" prefHeight="580" prefWidth="860" styleClass="main-window" stylesheets="@../css/style.css" fx:controller="controller.StudentController">
   <top>
@@ -26,7 +27,10 @@
               </padding>
               <HBox alignment="CENTER_LEFT" spacing="18" styleClass="student-hero">
                 <StackPane minHeight="82" minWidth="82" prefHeight="82" prefWidth="82" maxHeight="82" maxWidth="82" styleClass="student-avatar">
-                  <Label fx:id="avatarLabel" styleClass="avatar-text-xl" text="学"/>
+                  <children>
+                    <Label fx:id="avatarLabel" styleClass="avatar-text-xl" text="学"/>
+                    <ImageView fx:id="avatarImageView" fitHeight="82.0" fitWidth="82.0" pickOnBounds="true" preserveRatio="true"/>
+                  </children>
                 </StackPane>
                 <VBox spacing="7" HBox.hgrow="ALWAYS">
                   <Label fx:id="nameLabel" styleClass="profile-name-title" text="正在加载"/>
@@ -86,7 +90,10 @@
                     <Insets left="14" right="14" top="24"/>
                   </padding>
                   <StackPane minHeight="70" minWidth="70" prefHeight="70" prefWidth="70" maxHeight="70" maxWidth="70" styleClass="student-avatar">
-                    <Label fx:id="sidebarAvatarLabel" styleClass="avatar-text-lg" text="学"/>
+                    <children>
+                      <Label fx:id="sidebarAvatarLabel" styleClass="avatar-text-lg" text="学"/>
+                      <ImageView fx:id="sidebarAvatarImageView" fitHeight="70.0" fitWidth="70.0" pickOnBounds="true" preserveRatio="true"/>
+                    </children>
                   </StackPane>
                   <Label fx:id="sidebarNameLabel" styleClass="student-side-name" text="学生姓名"/>
                   <Label fx:id="sidebarMajorLabel" styleClass="hint-text" text="专业"/>
@@ -103,7 +110,10 @@
                     <Insets left="14" right="14" top="24"/>
                   </padding>
                   <StackPane minHeight="70" minWidth="70" prefHeight="70" prefWidth="70" maxHeight="70" maxWidth="70" styleClass="student-avatar">
-                    <Label styleClass="avatar-text-lg" text="管"/>
+                    <children>
+                      <Label styleClass="avatar-text-lg" text="管"/>
+                      <ImageView fx:id="adminAvatarImageView" fitHeight="70.0" fitWidth="70.0" pickOnBounds="true" preserveRatio="true"/>
+                    </children>
                   </StackPane>
                   <Label styleClass="student-side-name" text="管理员"/>
                   <Button fx:id="adminDetailManagementNavButton" maxWidth="Infinity" onAction="#handleShowStudentManagement" styleClass="student-side-button-active" text="学生信息管理"/>

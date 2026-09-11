@@ -9,6 +9,7 @@ import javafx.scene.Node;
 import javafx.scene.control.*;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
+import javafx.scene.text.Text;
 import javafx.stage.FileChooser;
 import network.SocketClient;
 import protocol.Message;
@@ -58,20 +59,15 @@ public class ProfileController {
     @FXML private ImageView updateAvatarView;
     @FXML private Label walletBalanceLabel;
     @FXML private Label walletAccountLabel;
+    @FXML private Text profileHintText;
 
     @FXML
     public void initialize() {
         // 加载当前登录用户数据
         loadUserData();
 
-        // 锁定只读：除手机号和头像之外的所有控件均为只读
-        if (profUIDField != null) profUIDField.setEditable(false);
-        if (profNameField != null) profNameField.setEditable(false);
-        if (profSexCombo != null) profSexCombo.setDisable(true);
-        if (profCollegeField != null) profCollegeField.setEditable(false);
-        if (profMajorField != null) profMajorField.setEditable(false);
-        if (profEmailField != null) profEmailField.setEditable(false);
-        if (profPhoneField != null) profPhoneField.setEditable(true);
+        // 设定表单只读与编辑权限（管理员解除除 UID 以外的只读）
+        applyFieldAccess();
 
         // 异步向服务端拉取最新用户信息（确保学籍、校园账户余额同步最新）
         fetchLatestUserInfo();
@@ -148,6 +144,67 @@ public class ProfileController {
                 collegeOrDepartment.setText("部门");
             }
         }
+
+        applyFieldAccess();
+    }
+
+    private boolean isAdmin() {
+        User user = ClientSession.getInstance().getCurrentUser();
+        enums.Role role = (user != null) ? user.getRole() : null;
+        String roleStr = ClientSession.getInstance().getRole();
+        return (role == enums.Role.ADMIN) || "ADMIN".equalsIgnoreCase(roleStr) || "管理员".equals(roleStr);
+    }
+
+    private void applyFieldAccess() {
+        boolean admin = isAdmin();
+
+        // 锁定只读：UID（一卡通号）始终只读不可编辑
+        if (profUIDField != null) {
+            profUIDField.setEditable(false);
+            setReadonlyStyle(profUIDField, true);
+        }
+
+        // 手机号对所有角色开放编辑
+        if (profPhoneField != null) {
+            profPhoneField.setEditable(true);
+            setReadonlyStyle(profPhoneField, false);
+        }
+
+        // 管理员解除除 UID 以外所有字段的只读限制；非管理员（学生/教师）除手机号外保持只读
+        if (profNameField != null) {
+            profNameField.setEditable(admin);
+            setReadonlyStyle(profNameField, !admin);
+        }
+        if (profSexCombo != null) {
+            profSexCombo.setDisable(!admin);
+            setReadonlyStyle(profSexCombo, !admin);
+        }
+        if (profCollegeField != null) {
+            profCollegeField.setEditable(admin);
+            setReadonlyStyle(profCollegeField, !admin);
+        }
+        if (profMajorField != null) {
+            profMajorField.setEditable(admin);
+            setReadonlyStyle(profMajorField, !admin);
+        }
+        if (profEmailField != null) {
+            profEmailField.setEditable(admin);
+            setReadonlyStyle(profEmailField, !admin);
+        }
+
+        if (profileHintText != null) {
+            profileHintText.setText(admin
+                    ? "提示：管理员可修改除一卡通号外的个人基本信息"
+                    : "提示：新版本中信息修改已移至学籍模块（除手机号）");
+        }
+    }
+
+    private void setReadonlyStyle(Control control, boolean isReadonly) {
+        if (control == null) return;
+        control.getStyleClass().remove("readonly-input");
+        if (isReadonly) {
+            control.getStyleClass().add("readonly-input");
+        }
     }
 
     private void showAvatar(ImageView view, String base64) {
@@ -215,11 +272,31 @@ public class ProfileController {
         }
 
         User currentUser = ClientSession.getInstance().getCurrentUser();
-        String name = currentUser != null ? currentUser.getName() : (profNameField != null ? profNameField.getText() : "");
-        String gender = currentUser != null ? currentUser.getGender() : "男";
-        String college = currentUser != null ? currentUser.getCollege() : "";
-        String major = currentUser != null ? currentUser.getMajor() : "";
-        String email = currentUser != null ? currentUser.getEmail() : "";
+        boolean admin = isAdmin();
+
+        String name = (admin && profNameField != null)
+                ? profNameField.getText().trim()
+                : (currentUser != null && currentUser.getName() != null ? currentUser.getName() : "");
+        if (admin && name.isEmpty()) {
+            AlertUtil.showWarning("提示", "姓名不能为空！");
+            return;
+        }
+
+        String gender = (admin && profSexCombo != null && profSexCombo.getValue() != null)
+                ? profSexCombo.getValue()
+                : (currentUser != null && currentUser.getGender() != null ? currentUser.getGender() : "男");
+
+        String college = (admin && profCollegeField != null)
+                ? profCollegeField.getText().trim()
+                : (currentUser != null && currentUser.getCollege() != null ? currentUser.getCollege() : "");
+
+        String major = (admin && profMajorField != null)
+                ? profMajorField.getText().trim()
+                : (currentUser != null && currentUser.getMajor() != null ? currentUser.getMajor() : "");
+
+        String email = (admin && profEmailField != null)
+                ? profEmailField.getText().trim()
+                : (currentUser != null && currentUser.getEmail() != null ? currentUser.getEmail() : "");
 
         Message request = new Message(MessageType.REQUEST, "user", "updateprofile");
         request.putData("name", name);
@@ -234,8 +311,21 @@ public class ProfileController {
                     if (response.getCode() == MessageCode.SUCCESS) {
                         if (currentUser != null) {
                             currentUser.setPhone(phone);
+                            if (admin) {
+                                currentUser.setName(name);
+                                currentUser.setGender(gender);
+                                currentUser.setCollege(college);
+                                currentUser.setMajor(major);
+                                currentUser.setEmail(email);
+                            }
                         }
-                        AlertUtil.showInfo("操作提示", "手机号修改已保存成功！");
+                        if (headerNameLabel != null) headerNameLabel.setText(name);
+                        if (headerTagLabel != null) {
+                            String roleStr = ClientSession.getInstance().getRole();
+                            if (roleStr == null) roleStr = admin ? "管理员" : "学生";
+                            headerTagLabel.setText(college.isEmpty() ? roleStr : (college + " · " + roleStr));
+                        }
+                        AlertUtil.showInfo("操作提示", admin ? "个人资料已保存成功！" : "手机号修改已保存成功！");
                     } else {
                         AlertUtil.showError("保存失败", response.getMessage());
                     }
