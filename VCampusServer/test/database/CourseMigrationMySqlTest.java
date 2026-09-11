@@ -91,8 +91,10 @@ public final class CourseMigrationMySqlTest {
                 "seed requires a conflict matrix row");
         require(queryInt(connection,
                 "SELECT COUNT(*) FROM course_selection_window "
-                        + "WHERE selection_open_at < UTC_TIMESTAMP(6) AND drop_deadline > UTC_TIMESTAMP(6)") >= 1,
-                "seed requires open selection and drop windows");
+                        + "WHERE selection_open_at < UTC_TIMESTAMP(6) "
+                        + "AND selection_close_at > UTC_TIMESTAMP(6) "
+                        + "AND drop_deadline > UTC_TIMESTAMP(6)") >= 1,
+                "seed requires open selection and drop windows, including an unclosed selection window");
         require(queryInt(connection, "SELECT COUNT(*) FROM grade") >= 1,
                 "seed requires grades");
         require(queryInt(connection,
@@ -109,6 +111,7 @@ public final class CourseMigrationMySqlTest {
         assertColumn(connection, "student_academic_profile", "uid", "varchar", 32L, null);
         assertColumn(connection, "course_plan_item", "uid", "varchar", 32L, null);
         assertColumn(connection, "course_waitlist", "uid", "varchar", 32L, null);
+        assertColumn(connection, "course_notice", "created_by", "varchar", 32L, null);
         assertColumn(connection, "course_operation_log", "uid", "varchar", 32L, null);
         assertColumn(connection, "course_event_outbox", "uid", "varchar", 32L, null);
 
@@ -131,6 +134,7 @@ public final class CourseMigrationMySqlTest {
                 "INSERT INTO enrollment "
                         + "(offering_id, course_id, academic_year, semester, uid, status) "
                         + "VALUES (2002, 1001, 2026, 2, 'student-alpha', 2)",
+                "23", "uk_enrollment_active_course",
                 "same-term same-course enrollment must be rejected");
 
         execute(connection,
@@ -145,11 +149,13 @@ public final class CourseMigrationMySqlTest {
                 "INSERT INTO enrollment "
                         + "(offering_id, course_id, academic_year, semester, uid, status) "
                         + "VALUES (2002, 1001, 2026, 2, 'student-beta', 1)",
+                "HY", "chk_enrollment_drop_time",
                 "enrollment status 1 must be rejected");
         expectSqlRejected(connection,
                 "INSERT INTO enrollment "
                         + "(offering_id, course_id, academic_year, semester, uid, status) "
                         + "VALUES (2002, 1001, 2026, 2, 'student-beta', 4)",
+                "HY", "chk_enrollment_drop_time",
                 "enrollment status 4 must be rejected");
 
         execute(connection,
@@ -160,18 +166,57 @@ public final class CourseMigrationMySqlTest {
                 "INSERT INTO enrollment "
                         + "(offering_id, course_id, academic_year, semester, uid, status, drop_time) "
                         + "VALUES (2002, 1001, 2026, 2, 'student-beta', 3, UTC_TIMESTAMP(6))",
+                "23", "uk_enrollment_uid_offering",
                 "student and offering enrollment key must be unique");
 
         expectSqlRejected(connection,
                 "INSERT INTO enrollment "
                         + "(offering_id, course_id, academic_year, semester, uid, status) "
                         + "VALUES (2003, 1002, 2027, 3, 'student-beta', 2)",
+                "23", "fk_enrollment_offering_identity",
                 "enrollment course and term must match its offering");
         expectSqlRejected(connection,
                 "INSERT INTO enrollment "
                         + "(offering_id, course_id, academic_year, semester, uid, status) "
-                        + "VALUES (2003, 1001, 2027, 3, 'missing-user', 2)",
+                        + "VALUES (2003, 1001, 2027, 3, 'missingenrollment01', 2)",
+                "23", "fk_enrollment_uid",
                 "enrollment UID foreign key must be enforced");
+
+        expectSqlRejected(connection,
+                "INSERT INTO student_academic_profile (uid, major_id, cohort_year) "
+                        + "VALUES ('missingprofile01', 10, 2026)",
+                "23", "fk_student_academic_profile_user",
+                "academic-profile UID foreign key must be enforced");
+        expectSqlRejected(connection,
+                "INSERT INTO course_plan_item (uid, offering_id, status) "
+                        + "VALUES ('missingplan01', 2003, 'PLANNED')",
+                "23", "fk_course_plan_item_user",
+                "plan UID foreign key must be enforced");
+        expectSqlRejected(connection,
+                "INSERT INTO course_waitlist (uid, offering_id, status) "
+                        + "VALUES ('missingwaitlist01', 2003, 'WAITING')",
+                "23", "fk_course_waitlist_user",
+                "waitlist UID foreign key must be enforced");
+        expectSqlRejected(connection,
+                "INSERT INTO course_notice "
+                        + "(offering_id, title, content, notice_type, status, created_by) "
+                        + "VALUES (2003, 'Missing creator', 'FK contract test', 'GENERAL', "
+                        + "'DRAFT', 'missingnotice01')",
+                "23", "fk_course_notice_creator",
+                "notice creator UID foreign key must be enforced");
+        expectSqlRejected(connection,
+                "INSERT INTO course_operation_log "
+                        + "(uid, operation_id, action, request_digest, result_code, response_json) "
+                        + "VALUES ('missingoperation01', '00000000-0000-0000-0000-000000000002', "
+                        + "'addToPlan', REPEAT('c', 64), 'OK', JSON_OBJECT())",
+                "23", "fk_course_operation_user",
+                "operation UID foreign key must be enforced");
+        expectSqlRejected(connection,
+                "INSERT INTO course_event_outbox "
+                        + "(uid, event_type, academic_year, semester, payload) "
+                        + "VALUES ('missingoutbox01', 'WAITLIST_OFFERED', 2026, 2, JSON_OBJECT())",
+                "23", "fk_course_event_outbox_user",
+                "outbox UID foreign key must be enforced");
 
         require(queryInt(connection,
                 "SELECT COUNT(*) FROM course_offering_teacher WHERE uid LIKE 'teacher-%'") == 2,
@@ -183,18 +228,22 @@ public final class CourseMigrationMySqlTest {
         expectSqlRejected(connection,
                 "INSERT INTO course_plan_item (uid, offering_id, status) "
                         + "VALUES ('student-alpha', 2002, 'PLANNED')",
+                "23", "uk_course_plan_item_uid_offering",
                 "student and offering plan key must be unique");
         expectSqlRejected(connection,
                 "INSERT INTO course_plan_item (uid, offering_id, status) "
                         + "VALUES ('student-beta', 2003, 'UNKNOWN')",
+                "HY", "chk_course_plan_item_status",
                 "plan status must be PLANNED or FULL");
         expectSqlRejected(connection,
                 "INSERT INTO course_waitlist (uid, offering_id, status) "
                         + "VALUES ('student-beta', 2002, 'WAITING')",
+                "23", "uk_course_waitlist_uid_offering",
                 "student and offering waitlist key must be unique");
         expectSqlRejected(connection,
                 "INSERT INTO course_waitlist (uid, offering_id, status) "
                         + "VALUES ('student-beta', 2003, 'UNKNOWN')",
+                "HY", "chk_course_waitlist_status",
                 "waitlist status domain must be enforced");
 
         expectSqlRejected(connection,
@@ -202,6 +251,7 @@ public final class CourseMigrationMySqlTest {
                         + "(uid, operation_id, action, request_digest, result_code, response_json) "
                         + "VALUES ('student-alpha', '00000000-0000-0000-0000-000000000001', "
                         + "'addToPlan', REPEAT('b', 64), 'OK', JSON_OBJECT())",
+                "23", "PRIMARY",
                 "operation IDs must be unique per student");
         execute(connection,
                 "INSERT INTO course_operation_log "
@@ -215,6 +265,7 @@ public final class CourseMigrationMySqlTest {
                         + "selection_open_at, selection_close_at, drop_deadline) VALUES "
                         + "(2099, 1, 999999, '2098-01-01', '2098-02-01', "
                         + "'2098-03-01', '2098-04-01', '2098-05-01')",
+                "23", "fk_selection_window_schedule_plan",
                 "selection window must reference a schedule plan");
 
         execute(connection,
@@ -496,12 +547,30 @@ public final class CourseMigrationMySqlTest {
         return queryString(connection, "SELECT DATABASE()");
     }
 
-    private static void expectSqlRejected(Connection connection, String sql, String message)
-            throws SQLException {
+    private static void expectSqlRejected(Connection connection, String sql,
+                                          String expectedSqlStateClass,
+                                          String expectedDatabaseObject,
+                                          String message) throws SQLException {
         try {
             execute(connection, sql);
-        } catch (SQLException expected) {
-            return;
+        } catch (SQLException failure) {
+            for (SQLException candidate = failure; candidate != null;
+                 candidate = candidate.getNextException()) {
+                String sqlState = candidate.getSQLState();
+                String errorMessage = candidate.getMessage();
+                boolean expectedState = sqlState != null
+                        && sqlState.startsWith(expectedSqlStateClass);
+                boolean expectedObject = errorMessage != null
+                        && errorMessage.toLowerCase().contains(
+                        expectedDatabaseObject.toLowerCase());
+                if (expectedState && expectedObject) {
+                    return;
+                }
+            }
+            throw new AssertionError(message + ": expected SQLState class "
+                    + expectedSqlStateClass + " naming " + expectedDatabaseObject
+                    + ", but got SQLState " + failure.getSQLState()
+                    + " with message: " + failure.getMessage(), failure);
         }
         throw new AssertionError(message);
     }

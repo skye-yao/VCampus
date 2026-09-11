@@ -43,6 +43,7 @@ public final class CourseMigrationContractTest {
         for (String table : coreTables) {
             require(countCreate(v001, table) == 1, "V001 must create " + table + " exactly once");
             require(countCreate(v002, table) == 0, "V002 must not create " + table);
+            require(countCreate(v003, table) == 0, "V003 must not create " + table);
         }
 
         String[] scheduleTables = {
