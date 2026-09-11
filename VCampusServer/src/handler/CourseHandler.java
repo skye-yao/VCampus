@@ -7,6 +7,7 @@ import exception.DatabaseException;
 import protocol.Message;
 import protocol.MessageCode;
 import protocol.MessageType;
+import service.CourseEventDispatcher;
 import service.CourseQueryService;
 import service.CourseSelectionService;
 import service.CourseWaitlistService;
@@ -19,28 +20,46 @@ public class CourseHandler {
     private final CourseQueryService service;
     private final CourseSelectionService selectionService;
     private final CourseWaitlistService waitlistService;
+    private final CourseEventDispatcher eventDispatcher;
 
     public CourseHandler() {
-        this(defaultServices());
+        this(defaultServices(), null);
     }
 
-    private CourseHandler(DefaultServices services) {
-        this(services.queryService, services.selectionService, services.waitlistService);
+    public CourseHandler(CourseEventDispatcher eventDispatcher) {
+        this(defaultServices(), eventDispatcher);
+    }
+
+    public CourseHandler(CourseWaitlistService waitlistService,
+                         CourseEventDispatcher eventDispatcher) {
+        this(new CourseQueryService(), waitlistService.newSelectionService(),
+                waitlistService, eventDispatcher);
+    }
+
+    private CourseHandler(DefaultServices services, CourseEventDispatcher eventDispatcher) {
+        this(services.queryService, services.selectionService, services.waitlistService,
+                eventDispatcher);
     }
 
     CourseHandler(CourseQueryService service) {
-        this(service, new CourseSelectionService(), new CourseWaitlistService());
+        this(service, new CourseSelectionService(), new CourseWaitlistService(), null);
     }
 
     CourseHandler(CourseQueryService service, CourseSelectionService selectionService) {
-        this(service, selectionService, new CourseWaitlistService());
+        this(service, selectionService, new CourseWaitlistService(), null);
     }
 
     CourseHandler(CourseQueryService service, CourseSelectionService selectionService,
                   CourseWaitlistService waitlistService) {
+        this(service, selectionService, waitlistService, null);
+    }
+
+    CourseHandler(CourseQueryService service, CourseSelectionService selectionService,
+                  CourseWaitlistService waitlistService, CourseEventDispatcher eventDispatcher) {
         this.service = service;
         this.selectionService = selectionService;
         this.waitlistService = waitlistService;
+        this.eventDispatcher = eventDispatcher;
     }
 
     public Message handle(Message request) {
@@ -137,6 +156,17 @@ public class CourseHandler {
                     return mutationResponse(response, waitlistService.resolveWaitlistOffer(uid,
                             term.dto(), decimalId(request, "offeringId"),
                             text(request, "operationId"), text(request, "decision")));
+                }
+                case CourseActions.ACK_COURSE_EVENT -> {
+                    if (eventDispatcher == null) {
+                        return failure(response, MessageCode.ERROR, "课程事件确认服务不可用");
+                    }
+                    long eventId = decimalId(request, "eventId");
+                    boolean acked = eventDispatcher.acknowledge(uid, eventId);
+                    response.putData("acked", acked);
+                    response.setCode(MessageCode.SUCCESS);
+                    response.setMessage(acked ? "已确认课程事件" : "未找到可确认的课程事件");
+                    return response;
                 }
                 default -> {
                     return failure(response, MessageCode.BAD_REQUEST, "不支持的课程操作");

@@ -21,8 +21,12 @@ public class MessageDispatcher {
     private final CourseHandler courseHandler;
 
     public MessageDispatcher() {
+        this(new CourseHandler());
+    }
+
+    public MessageDispatcher(CourseHandler courseHandler) {
         this.userHandler = new UserHandler();
-        this.courseHandler = new CourseHandler();
+        this.courseHandler = courseHandler == null ? new CourseHandler() : courseHandler;
     }
 
     /**
