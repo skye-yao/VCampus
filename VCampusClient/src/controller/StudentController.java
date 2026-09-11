@@ -15,6 +15,9 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.*;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
+import javafx.scene.shape.Circle;
 import javafx.scene.layout.*;
 import javafx.stage.FileChooser;
 import service.StudentClientService; import service.IStudentClientService;
@@ -24,13 +27,16 @@ import util.AlertUtil;
 import util.pdf.StudentPdfExport;
 import util.spreadsheet.StudentExcelExport;
 import vo.*;
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.lang.reflect.*;
 import java.sql.Date;
 import java.util.*;
+import java.util.Base64;
 
 public class StudentController {
     @FXML private Label titleLabel,statusBarLabel,avatarLabel,sidebarAvatarLabel,sidebarNameLabel,sidebarMajorLabel,nameLabel,studentMetaLabel,pendingHintLabel,categoryValue,statusValue,gradeValue,inSchoolValue;
+    @FXML private ImageView avatarImageView,sidebarAvatarImageView,adminAvatarImageView;
     @FXML private TabPane studentTabs;
     @FXML private Tab overviewTab,detailTab,experienceTab,adminListTab,reviewTab;
     @FXML private util.control.InformationReviewStatusPane reviewStatusPane;
@@ -103,6 +109,7 @@ public class StudentController {
         service.onEditLeaseLost(()->{if(!disposed){resetEditState();if(overview!=null)render(overview);setStatus("编辑占用已失效，请重新进入编辑页面");}});
         setupTables();
         setupRole();
+        initAvatar();
         reviewStatusPane.setVisible(!isAdmin());
         reviewStatusPane.setManaged(!isAdmin());
         reviewStatusPane.setOnCancel(this::cancelPendingRequest);//方法引用，需要执行撤销时，调用当前对象的这个方法
@@ -533,6 +540,10 @@ public class StudentController {
             adminDetailSidebar.setManaged(true);
             detailReturnButton.setText("← 返回");
             studentTabs.getSelectionModel().select(adminListTab);
+            User u = ClientSession.getInstance().getCurrentUser();
+            if (u != null && u.getAvatar() != null && !u.getAvatar().isBlank()) {
+                showAvatar(adminAvatarImageView, null, u.getAvatar());
+            }
         }
         else {
             studentTabs.getTabs().removeAll(adminListTab,reviewTab);
@@ -1093,6 +1104,8 @@ public class StudentController {
         Student s=displayStudent(v);
         if(s==null) {
             nameLabel.setText("暂无学籍信息");
+            showAvatar(avatarImageView, avatarLabel, null);
+            showAvatar(sidebarAvatarImageView, sidebarAvatarLabel, null);
             return;
         }
         nameLabel.setText(safe(s.getName()));
@@ -1120,6 +1133,78 @@ public class StudentController {
         renderExperienceCards(displayExperiences(v));
         renderFamilyCards(displayFamilyMembers(v));
         renderAdminReadOnlyInfo(v);
+
+        String uid = (s.getUID() != null && !s.getUID().isBlank()) ? s.getUID() : s.getStudentId();
+        loadAvatar(uid);
+    }
+
+    private void initAvatar() {
+        User u = ClientSession.getInstance().getCurrentUser();
+        if (u != null && u.getAvatar() != null && !u.getAvatar().isBlank()) {
+            if (isAdmin()) {
+                showAvatar(adminAvatarImageView, null, u.getAvatar());
+            } else {
+                showAvatar(avatarImageView, avatarLabel, u.getAvatar());
+                showAvatar(sidebarAvatarImageView, sidebarAvatarLabel, u.getAvatar());
+            }
+        }
+    }
+
+    private void showAvatar(ImageView view, Label fallbackLabel, String base64) {
+        if (view == null) return;
+        if (base64 == null || base64.isBlank()) {
+            view.setImage(null);
+            view.setVisible(false);
+            if (fallbackLabel != null) fallbackLabel.setVisible(true);
+            return;
+        }
+        try {
+            byte[] bytes = Base64.getDecoder().decode(base64);
+            Image img = new Image(new ByteArrayInputStream(bytes));
+            view.setImage(img);
+            view.setVisible(true);
+            view.toFront();
+            if (fallbackLabel != null) fallbackLabel.setVisible(false);
+        } catch (Exception e) {
+            view.setImage(null);
+            view.setVisible(false);
+            if (fallbackLabel != null) fallbackLabel.setVisible(true);
+        }
+    }
+
+    private void loadAvatar(String uid) {
+        User currentUser = ClientSession.getInstance().getCurrentUser();
+        if (currentUser != null && (uid == null || uid.isBlank() || uid.equals(currentUser.getUID()) || uid.equals(ClientSession.getInstance().getUsername()))) {
+            if (currentUser.getAvatar() != null && !currentUser.getAvatar().isBlank()) {
+                showAvatar(avatarImageView, avatarLabel, currentUser.getAvatar());
+                showAvatar(sidebarAvatarImageView, sidebarAvatarLabel, currentUser.getAvatar());
+                return;
+            }
+        }
+        if (uid == null || uid.isBlank()) {
+            showAvatar(avatarImageView, avatarLabel, null);
+            showAvatar(sidebarAvatarImageView, sidebarAvatarLabel, null);
+            return;
+        }
+        Message request = new Message(MessageType.REQUEST, "user", "getuserinfo");
+        request.putData("cardNo", uid);
+        network.SocketClient.getInstance().sendAsync(request).thenAccept(response -> {
+            if (response != null && response.getCode() == MessageCode.SUCCESS) {
+                Object userObj = response.getData("user");
+                if (userObj != null) {
+                    User user = gson.fromJson(gson.toJson(userObj), User.class);
+                    if (user != null) {
+                        if (currentUser != null && uid.equals(currentUser.getUID())) {
+                            currentUser.setAvatar(user.getAvatar());
+                        }
+                        runOnPage(() -> {
+                            showAvatar(avatarImageView, avatarLabel, user.getAvatar());
+                            showAvatar(sidebarAvatarImageView, sidebarAvatarLabel, user.getAvatar());
+                        });
+                    }
+                }
+            }
+        }).exceptionally(e -> null);
     }
     private Student displayStudent(StudentOverviewVO value){
         if(value==null||value.getStudent()==null)return null;
