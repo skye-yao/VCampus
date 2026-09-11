@@ -300,10 +300,20 @@ public final class CourseDtoJsonTest {
                         "2026-09-10T03:00:00Z", "2026-09-10T04:40:00Z"));
     }
 
-    private static void requireUnmodifiable(List<?> values, String message) {
+    private static <T> void requireUnmodifiable(List<T> values, String message) {
         try {
             values.clear();
             throw new AssertionError(message);
+        } catch (UnsupportedOperationException expected) {
+            // Expected contract.
+        }
+
+        if (values.isEmpty()) {
+            return;
+        }
+        try {
+            values.set(0, values.get(0));
+            throw new AssertionError(message + " (element replacement allowed)");
         } catch (UnsupportedOperationException expected) {
             // Expected contract.
         }
