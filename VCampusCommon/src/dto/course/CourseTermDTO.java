@@ -1,17 +1,17 @@
 package dto.course;
 
 public final class CourseTermDTO {
-    private final String academicYear;
+    private final int academicYear;
     private final int semester;
     private final String displayName;
 
-    public CourseTermDTO(String academicYear, int semester, String displayName) {
+    public CourseTermDTO(int academicYear, int semester, String displayName) {
         this.academicYear = academicYear;
         this.semester = semester;
         this.displayName = displayName;
     }
 
-    public String getAcademicYear() {
+    public int getAcademicYear() {
         return academicYear;
     }
 
