@@ -7,7 +7,8 @@ public enum BorrowStatus {
 
     BORROWING(0, "借阅中"),
     RETURNED(1, "已归还"),
-    OVERDUE(2, "逾期");
+    OVERDUE(2, "逾期"),
+    COMPENSATED(3, "遗失已赔偿");
 
     private final int code;
     private final String description;

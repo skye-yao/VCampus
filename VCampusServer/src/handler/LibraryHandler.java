@@ -65,8 +65,29 @@ public class LibraryHandler {
         String role = session.getRole();
 
         try {
+            dao.LibrarySchema.ensure();
 
             switch (action.toLowerCase()) {
+                case "lendbook":
+                case "returnbook":
+                    if (!isAdmin(role)) return forbidden(response);
+                    Integer operationId = getIntegerData(request, action.equalsIgnoreCase("lendbook") ? "reservationId" : "borrowId");
+                    if (operationId==null || operationId<=0) throw new IllegalArgumentException("记录编号无效");
+                    if (action.equalsIgnoreCase("lendbook")) new dao.LibraryCirculationDAO().lend(operationId);
+                    else new dao.LibraryCirculationDAO().returnLoan(operationId);
+                    response.setCode(MessageCode.SUCCESS);
+                    response.setMessage("办理成功");
+                    return response;
+                case "refundfine":
+                    if (!isAdmin(role)) return forbidden(response);
+                    Integer refundId=getIntegerData(request,"fineId");
+                    if(refundId==null || refundId<=0) throw new IllegalArgumentException("请选择缴费记录");
+                    new dao.LibraryCirculationDAO().refund(userId,refundId,request.getData("targetUserId"),
+                            request.getData("adminUsername"),request.getData("adminPassword"),
+                            new java.math.BigDecimal(String.valueOf((Object)request.getData("amount"))),request.getData("requestId"));
+                    response.setCode(MessageCode.SUCCESS);
+                    response.setMessage("退款已入校园银行账户");
+                    return response;
                 case "getbookfile":
                     Integer fileBookId = getIntegerData(request, "bookId");
                     if (fileBookId == null || fileBookId <= 0) {
@@ -88,6 +109,7 @@ public class LibraryHandler {
                     return response;
                 case "getadminrecords":
                     if (!isAdmin(role)) return forbidden(response);
+                    new dao.LibraryCirculationDAO().refresh(null);
                     String kind = request.getData("kind");
                     response.putData("records", new dao.LibraryAdminDAO().findRecords(kind));
                     response.setCode(MessageCode.SUCCESS);
@@ -557,16 +579,8 @@ public class LibraryHandler {
             return response;
         }
 
-        boolean success = libraryService.payFine(
-                userId,
-                fineId
-        );
-
-        if (!success) {
-            response.setCode(MessageCode.CONFLICT);
-            response.setMessage("缴费失败，罚款不存在、已缴费或不属于当前用户");
-            return response;
-        }
+        new dao.LibraryCirculationDAO().pay(userId,fineId,request.getData("paymentPassword"),
+                new java.math.BigDecimal(String.valueOf((Object)request.getData("expectedAmount"))));
 
         response.setCode(MessageCode.SUCCESS);
         response.setMessage("缴费成功");

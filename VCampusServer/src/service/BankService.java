@@ -464,6 +464,44 @@ public class BankService implements IBankPaymentService {
         }
     }
 
+    /** 图书馆事务内资金划转；调用方负责账单权限、退款授权及提交/回滚。 */
+    public String libraryTransfer(Connection conn, String userId, BigDecimal actualAmount,
+                                  String paymentPassword, String requestId, boolean refund, int fineId) throws SQLException {
+        if (FINANCE_ACCOUNT_USER_ID.equals(userId)) throw new BusinessException("财务账户不能向自身缴费或退款");
+        requireRequestId(requestId);
+        BigDecimal amount = normalizeAmount(actualAmount);
+        BankAccount userPreview = requireAccount(conn, userId, false);
+        BankAccount financePreview = requireAccount(conn, FINANCE_ACCOUNT_USER_ID, false);
+        String firstId = userPreview.getAccountId() < financePreview.getAccountId() ? userId : FINANCE_ACCOUNT_USER_ID;
+        String secondId = firstId.equals(userId) ? FINANCE_ACCOUNT_USER_ID : userId;
+        BankAccount first = requireAccount(conn, firstId, true);
+        BankAccount second = requireAccount(conn, secondId, true);
+        BankAccount user = firstId.equals(userId) ? first : second;
+        BankAccount finance = firstId.equals(userId) ? second : first;
+        BankTransactionType type = refund ? BankTransactionType.LIBRARY_REFUND : BankTransactionType.LIBRARY_PAYMENT;
+        BankTransaction duplicate = transactionDAO.findByRequestIdForUpdate(conn, requestId);
+        if (duplicate != null) {
+            validateDuplicate(duplicate, user.getAccountId(), type, refund ? amount : amount.negate(), null);
+            return duplicate.getTransactionNo();
+        }
+        requireActive(user); requireActive(finance);
+        if (!refund) verifyPaymentPassword(conn, user, paymentPassword);
+        BankAccount source = refund ? finance : user;
+        BankAccount target = refund ? user : finance;
+        if (source.getBalance().compareTo(amount) < 0) throw new BusinessException(refund ? "财务账户余额不足，无法退款" : "校园银行余额不足");
+        if (!accountDAO.changeBalance(conn, source.getAccountId(), amount.negate())
+                || !accountDAO.changeBalance(conn, target.getAccountId(), amount)) throw new BusinessException("图书馆资金划转失败");
+        String txNo = newTransactionNo();
+        insertTransaction(conn, txNo, user, finance.getUserId(), type, refund ? amount : amount.negate(),
+                refund ? user.getBalance().add(amount) : user.getBalance().subtract(amount), null, requestId,
+                "图书馆账单 #" + fineId + (refund ? " 退款" : " 缴费"));
+        insertTransaction(conn, newTransactionNo(), finance, userId,
+                refund ? BankTransactionType.LIBRARY_REFUND_PAYOUT : BankTransactionType.LIBRARY_INCOME,
+                refund ? amount.negate() : amount, refund ? finance.getBalance().subtract(amount) : finance.getBalance().add(amount),
+                null, null, "图书馆账单 #" + fineId + " 用户 " + userId);
+        return txNo;
+    }
+
     private BankAccount requireAccount(Connection conn, String userId, boolean lock) throws SQLException {
         BankAccount account = accountDAO.findByUserId(conn, userId, lock);
         if (account == null) throw new BusinessException("校园银行账户不存在：" + userId);
