@@ -1,5 +1,7 @@
 package handler;
 
+import entity.AdminPermission;
+import dao.AdminPermissionDAO;
 import entity.User;
 import exception.BusinessException;
 import exception.DatabaseException;
@@ -10,6 +12,8 @@ import service.UserService;
 import session.SessionManager;
 import session.UserSession;
 
+import java.sql.SQLException;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -18,6 +22,7 @@ import java.util.Map;
 public class UserHandler {
 
     private final UserService userService = new UserService();
+    private final AdminPermissionDAO adminPermissionDAO = new AdminPermissionDAO();
 
     public Message handle(Message request) {
         String action = request.getAction();
@@ -55,6 +60,13 @@ public class UserHandler {
                     return handleUpdateAvatar(request,response);
                 case "logout":
                     return handleLogout(request, response);
+                case "list_admin_permissions":
+                case "get_admin_permissions":
+                    return handleListAdminPermissions(request, response);
+                case "update_admin_permissions":
+                    return handleUpdateAdminPermissions(request, response);
+                case "get_my_permissions":
+                    return handleGetMyPermissions(request, response);
                 default:
                     response.setCode(MessageCode.BAD_REQUEST);
                     response.setMessage("不支持的操作: " + action);
@@ -96,6 +108,15 @@ public class UserHandler {
         response.putData("username", session.getUsername());
         response.putData("role", session.getRole());
         response.putData("user", userInfo);
+
+        if (userInfo != null && (userInfo.getRole() == enums.Role.ADMIN || "管理员".equals(session.getRole()))) {
+            try {
+                AdminPermission perm = adminPermissionDAO.findByUid(cardNo);
+                response.putData("adminPermission", perm);
+            } catch (Exception e) {
+                System.err.println("获取管理员权限失败: " + e.getMessage());
+            }
+        }
 
         return response;
     }
@@ -233,6 +254,47 @@ public class UserHandler {
         }
         response.setCode(MessageCode.SUCCESS);
         response.setMessage("已安全退出");
+        return response;
+    }
+
+    private Message handleListAdminPermissions(Message request, Message response) throws SQLException {
+        List<AdminPermission> list = adminPermissionDAO.getAllAdminPermissions();
+        response.setCode(MessageCode.SUCCESS);
+        response.setMessage("获取管理员权限列表成功");
+        response.putData("permissions", list);
+        return response;
+    }
+
+    private Message handleUpdateAdminPermissions(Message request, Message response) throws SQLException {
+        Object permObj = request.getData("permissions");
+        if (permObj != null) {
+            com.google.gson.Gson gson = new com.google.gson.Gson();
+            String json = gson.toJson(permObj);
+            java.lang.reflect.Type type = new com.google.gson.reflect.TypeToken<List<AdminPermission>>(){}.getType();
+            List<AdminPermission> list = gson.fromJson(json, type);
+            adminPermissionDAO.updatePermissions(list);
+        }
+        response.setCode(MessageCode.SUCCESS);
+        response.setMessage("管理员权限更新成功");
+        return response;
+    }
+
+    private Message handleGetMyPermissions(Message request, Message response) throws SQLException {
+        String uid = request.getData("uid");
+        if (uid == null || uid.isBlank()) {
+            uid = request.getSender();
+        }
+        if (uid == null || uid.isBlank()) {
+            String token = request.getToken();
+            UserSession session = SessionManager.getInstance().getSession(token);
+            if (session != null) {
+                uid = session.getUsername();
+            }
+        }
+        AdminPermission perm = adminPermissionDAO.findByUid(uid);
+        response.setCode(MessageCode.SUCCESS);
+        response.setMessage("获取当前权限成功");
+        response.putData("adminPermission", perm);
         return response;
     }
 }

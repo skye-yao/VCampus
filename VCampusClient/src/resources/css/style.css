@@ -946,3 +946,41 @@
     -fx-border-color: #e5e7eb;
     -fx-border-width: 0 1px 1px 0;
 }
+
+/* ================= 6. 权限管理表格样式 ================= */
+.perm-table {
+    -fx-background-color: #ffffff;
+    -fx-background-radius: 8px;
+    -fx-border-color: #e2e8f0;
+    -fx-border-radius: 8px;
+}
+
+.perm-table .column-header-background {
+    -fx-background-color: #f1f5f9;
+}
+
+.perm-table .column-header {
+    -fx-background-color: transparent;
+    -fx-size: 38px;
+    -fx-border-color: transparent #e2e8f0 #e2e8f0 transparent;
+}
+
+.perm-table .column-header .label {
+    -fx-font-weight: bold;
+    -fx-text-fill: #151E49;
+    -fx-font-size: 13px;
+    -fx-alignment: CENTER;
+}
+
+.perm-table .table-row-cell {
+    -fx-cell-size: 44px;
+    -fx-border-color: transparent transparent #f1f5f9 transparent;
+}
+
+.perm-table .table-row-cell:hover {
+    -fx-background-color: #f8fafc;
+}
+
+.perm-table .table-row-cell:selected {
+    -fx-background-color: #eaf0ea;
+}

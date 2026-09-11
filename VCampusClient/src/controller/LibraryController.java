@@ -199,7 +199,10 @@ public class LibraryController {
                         + "\n如有发现，请交至图书馆服务台。");
             }
         });
-        if (adminTab != null && !"管理员".equals(ClientSession.getInstance().getRole())) {
+        boolean canManageLibrary = ("管理员".equals(ClientSession.getInstance().getRole())
+                || "ADMIN".equalsIgnoreCase(ClientSession.getInstance().getRole()))
+                && ClientSession.getInstance().hasLibraryPermission();
+        if (adminTab != null && !canManageLibrary) {
             adminTab.setDisable(true);
         }
         bookTable.getSelectionModel().selectedItemProperty().addListener((obs, oldBook, newBook) -> showBook(newBook));

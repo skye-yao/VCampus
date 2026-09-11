@@ -68,6 +68,8 @@
                         <Button fx:id="navBankBtn" maxWidth="1.7976931348623157E308" onAction="#openBank" styleClass="main-nav-btn" text="💳   银行" />
                         <!-- 8. AI助手 -->
                         <Button fx:id="navAiBtn" maxWidth="1.7976931348623157E308" onAction="#openAI" styleClass="main-nav-btn" text="🤖   AI助手" />
+                        <!-- 权限管理 (仅管理员且UID==admin时显示) -->
+                        <Button fx:id="permissionNavBtn" maxWidth="1.7976931348623157E308" onAction="#handleNavigatePermission" styleClass="main-nav-btn" text="🛡   权限管理" visible="false" managed="false" />
                     </children>
                 </VBox>
 
@@ -103,53 +105,152 @@
                                 <RowConstraints valignment="TOP" />
                             </rowConstraints>
                             <children>
-                                <!-- ① 个人信息卡片 (左上方) -->
-                                <VBox spacing="14.0" styleClass="dashboard-card" GridPane.columnIndex="0" GridPane.rowIndex="0">
+                                <!-- 左侧容器：个人信息卡片 + 我的权限卡片（管理员展示） -->
+                                <VBox spacing="18.0" GridPane.columnIndex="0" GridPane.rowIndex="0">
                                     <children>
-                                        <HBox alignment="CENTER_LEFT" spacing="8.0">
+                                        <!-- ① 个人信息卡片 (左上方) -->
+                                        <VBox spacing="14.0" styleClass="dashboard-card">
                                             <children>
-                                                <Label styleClass="dashboard-card-title" text="👤  个人信息" />
-                                            </children>
-                                        </HBox>
+                                                <HBox alignment="CENTER_LEFT" spacing="8.0">
+                                                    <children>
+                                                        <Label styleClass="dashboard-card-title" text="👤  个人信息" />
+                                                    </children>
+                                                </HBox>
 
-                                        <!-- 个人信息表格属性 -->
-                                        <GridPane hgap="12.0" vgap="12.0" VBox.vgrow="ALWAYS">
-                                            <columnConstraints>
-                                                <ColumnConstraints minWidth="80.0" prefWidth="90.0" />
-                                                <ColumnConstraints percentWidth="38.0" />
-                                                <ColumnConstraints minWidth="60.0" prefWidth="70.0" />
-                                                <ColumnConstraints percentWidth="42.0" />
-                                            </columnConstraints>
+                                                <!-- 个人信息表格属性 -->
+                                                <GridPane hgap="12.0" vgap="12.0" VBox.vgrow="ALWAYS">
+                                                    <columnConstraints>
+                                                        <ColumnConstraints minWidth="80.0" prefWidth="90.0" />
+                                                        <ColumnConstraints percentWidth="38.0" />
+                                                        <ColumnConstraints minWidth="60.0" prefWidth="70.0" />
+                                                        <ColumnConstraints percentWidth="42.0" />
+                                                    </columnConstraints>
+                                                    <children>
+                                                        <Label styleClass="dash-info-key" text="姓名" GridPane.columnIndex="0" GridPane.rowIndex="0" />
+                                                        <Label fx:id="infoNameLabel" styleClass="dash-info-val" text="—" GridPane.columnIndex="1" GridPane.rowIndex="0" />
+
+                                                        <Label styleClass="dash-info-key" text="一卡通号" GridPane.columnIndex="2" GridPane.rowIndex="0" />
+                                                        <Label fx:id="infoUIDLabel" styleClass="dash-info-val" text="—" GridPane.columnIndex="3" GridPane.rowIndex="0" />
+
+                                                        <Label styleClass="dash-info-key" text="性别" GridPane.columnIndex="0" GridPane.rowIndex="1" />
+                                                        <Label fx:id="infoGenderLabel" styleClass="dash-info-val" text="—" GridPane.columnIndex="1" GridPane.rowIndex="1" />
+
+                                                        <Label fx:id="infoCollegeTitle" styleClass="dash-info-key" text="学院" GridPane.columnIndex="2" GridPane.rowIndex="1" />
+                                                        <Label fx:id="infoCollegeLabel" styleClass="dash-info-val" text="—" GridPane.columnIndex="3" GridPane.rowIndex="1" />
+
+                                                        <Label fx:id="infoMajorTitle" styleClass="dash-info-key" text="专业" GridPane.columnIndex="0" GridPane.rowIndex="2" />
+                                                        <Label fx:id="infoMajorLabel" styleClass="dash-info-val" text="—" GridPane.columnIndex="1" GridPane.rowIndex="2" />
+
+                                                        <Label styleClass="dash-info-key" text="手机号" GridPane.columnIndex="2" GridPane.rowIndex="2" />
+                                                        <Label fx:id="infoPhoneLabel" styleClass="dash-info-val" text="—" GridPane.columnIndex="3" GridPane.rowIndex="2" />
+
+                                                        <Label styleClass="dash-info-key" text="邮箱" GridPane.columnIndex="0" GridPane.rowIndex="3" />
+                                                        <Label fx:id="infoEmailLabel" styleClass="dash-info-val" text="—" GridPane.columnIndex="1" GridPane.columnSpan="3" GridPane.rowIndex="3" />
+                                                    </children>
+                                                </GridPane>
+
+                                                <!-- 右下角跳转超链接 -->
+                                                <HBox alignment="CENTER_RIGHT">
+                                                    <children>
+                                                        <Hyperlink onAction="#handleNavigateProfile" styleClass="dash-card-link" text="修改个人信息 &gt;" />
+                                                    </children>
+                                                </HBox>
+                                            </children>
+                                        </VBox>
+
+                                        <!-- ⑤ 管理员“我的权限”卡片 (与个人信息等宽，仅管理员显示) -->
+                                        <VBox fx:id="adminPermissionCard" spacing="12.0" styleClass="dashboard-card" visible="false" managed="false">
                                             <children>
-                                                <Label styleClass="dash-info-key" text="姓名" GridPane.columnIndex="0" GridPane.rowIndex="0" />
-                                                <Label fx:id="infoNameLabel" styleClass="dash-info-val" text="—" GridPane.columnIndex="1" GridPane.rowIndex="0" />
+                                                <HBox alignment="CENTER_LEFT" spacing="8.0">
+                                                    <children>
+                                                        <Label styleClass="dashboard-card-title" text="🛡  我的权限" />
+                                                        <Region HBox.hgrow="ALWAYS" />
+                                                        <Label fx:id="myPermTagLabel" style="-fx-font-size: 12px; -fx-text-fill: #587558; -fx-font-weight: bold;" text="" />
+                                                    </children>
+                                                </HBox>
 
-                                                <Label styleClass="dash-info-key" text="一卡通号" GridPane.columnIndex="2" GridPane.rowIndex="0" />
-                                                <Label fx:id="infoUIDLabel" styleClass="dash-info-val" text="—" GridPane.columnIndex="3" GridPane.rowIndex="0" />
+                                                <!-- 两行内容网格：第一行是模块名称，第二行是只读状态 -->
+                                                <GridPane hgap="8.0" style="-fx-background-color: #f8fafc; -fx-background-radius: 8px; -fx-padding: 12px 10px; -fx-border-color: #e2e8f0; -fx-border-radius: 8px;">
+                                                    <columnConstraints>
+                                                        <ColumnConstraints percentWidth="20.0" halignment="CENTER" />
+                                                        <ColumnConstraints percentWidth="20.0" halignment="CENTER" />
+                                                        <ColumnConstraints percentWidth="20.0" halignment="CENTER" />
+                                                        <ColumnConstraints percentWidth="20.0" halignment="CENTER" />
+                                                        <ColumnConstraints percentWidth="20.0" halignment="CENTER" />
+                                                    </columnConstraints>
+                                                    <rowConstraints>
+                                                        <RowConstraints minHeight="28.0" valignment="CENTER" />
+                                                        <RowConstraints minHeight="34.0" valignment="CENTER" />
+                                                    </rowConstraints>
+                                                    <children>
+                                                        <!-- 第一行：模块名称 -->
+                                                        <Label style="-fx-font-weight: bold; -fx-font-size: 12.5px; -fx-text-fill: #151E49;" text="🎓 学籍信息" GridPane.columnIndex="0" GridPane.rowIndex="0" />
+                                                        <Label style="-fx-font-weight: bold; -fx-font-size: 12.5px; -fx-text-fill: #151E49;" text="📚 图书馆" GridPane.columnIndex="1" GridPane.rowIndex="0" />
+                                                        <Label style="-fx-font-weight: bold; -fx-font-size: 12.5px; -fx-text-fill: #151E49;" text="📝 选课" GridPane.columnIndex="2" GridPane.rowIndex="0" />
+                                                        <Label style="-fx-font-weight: bold; -fx-font-size: 12.5px; -fx-text-fill: #151E49;" text="🛒 商店" GridPane.columnIndex="3" GridPane.rowIndex="0" />
+                                                        <Label style="-fx-font-weight: bold; -fx-font-size: 12.5px; -fx-text-fill: #151E49;" text="💳 银行" GridPane.columnIndex="4" GridPane.rowIndex="0" />
 
-                                                <Label styleClass="dash-info-key" text="性别" GridPane.columnIndex="0" GridPane.rowIndex="1" />
-                                                <Label fx:id="infoGenderLabel" styleClass="dash-info-val" text="—" GridPane.columnIndex="1" GridPane.rowIndex="1" />
+                                                        <!-- 第二行：只读，显示哪些模块有权限 -->
+                                                        <Label fx:id="permStatusAcademic" text="—" GridPane.columnIndex="0" GridPane.rowIndex="1" />
+                                                        <Label fx:id="permStatusLibrary" text="—" GridPane.columnIndex="1" GridPane.rowIndex="1" />
+                                                        <Label fx:id="permStatusCourse" text="—" GridPane.columnIndex="2" GridPane.rowIndex="1" />
+                                                        <Label fx:id="permStatusShop" text="—" GridPane.columnIndex="3" GridPane.rowIndex="1" />
+                                                        <Label fx:id="permStatusBank" text="—" GridPane.columnIndex="4" GridPane.rowIndex="1" />
+                                                    </children>
+                                                </GridPane>
 
-                                                <Label fx:id="infoCollegeTitle" styleClass="dash-info-key" text="学院" GridPane.columnIndex="2" GridPane.rowIndex="1" />
-                                                <Label fx:id="infoCollegeLabel" styleClass="dash-info-val" text="—" GridPane.columnIndex="3" GridPane.rowIndex="1" />
-
-                                                <Label fx:id="infoMajorTitle" styleClass="dash-info-key" text="专业" GridPane.columnIndex="0" GridPane.rowIndex="2" />
-                                                <Label fx:id="infoMajorLabel" styleClass="dash-info-val" text="—" GridPane.columnIndex="1" GridPane.rowIndex="2" />
-
-                                                <Label styleClass="dash-info-key" text="手机号" GridPane.columnIndex="2" GridPane.rowIndex="2" />
-                                                <Label fx:id="infoPhoneLabel" styleClass="dash-info-val" text="—" GridPane.columnIndex="3" GridPane.rowIndex="2" />
-
-                                                <Label styleClass="dash-info-key" text="邮箱" GridPane.columnIndex="0" GridPane.rowIndex="3" />
-                                                <Label fx:id="infoEmailLabel" styleClass="dash-info-val" text="—" GridPane.columnIndex="1" GridPane.columnSpan="3" GridPane.rowIndex="3" />
+                                                <!-- 只读说明行：显示哪些模块有权限 -->
+                                                <HBox alignment="CENTER_LEFT" spacing="8.0" style="-fx-padding: 2 4 2 4;">
+                                                    <children>
+                                                        <Label styleClass="dash-info-key" text="拥有权限：" />
+                                                        <Label fx:id="myPermDetailText" styleClass="dash-info-val" text="—" HBox.hgrow="ALWAYS" />
+                                                    </children>
+                                                </HBox>
                                             </children>
-                                        </GridPane>
+                                        </VBox>
 
-                                        <!-- 右下角跳转超链接 -->
-                                        <HBox alignment="CENTER_RIGHT">
+                                        <!-- ⑥ 学生与教师“学籍信息”卡片 (与个人信息等宽，仅学生与教师展示) -->
+                                        <VBox fx:id="studentAcademicCard" spacing="14.0" styleClass="dashboard-card" visible="false" managed="false">
                                             <children>
-                                                <Hyperlink onAction="#handleNavigateProfile" styleClass="dash-card-link" text="修改个人信息 &gt;" />
+                                                <HBox alignment="CENTER_LEFT" spacing="8.0">
+                                                    <children>
+                                                        <Label fx:id="academicCardTitle" styleClass="dashboard-card-title" text="🎓  学籍信息" />
+                                                        <Region HBox.hgrow="ALWAYS" />
+                                                        <Label fx:id="academicCardTag" style="-fx-font-size: 12px; -fx-text-fill: #587558; -fx-font-weight: bold;" text="正式档案" />
+                                                    </children>
+                                                </HBox>
+
+                                                <!-- 学籍信息表格属性 (民族、籍贯、政治面貌等) -->
+                                                <GridPane hgap="12.0" vgap="12.0" VBox.vgrow="ALWAYS">
+                                                    <columnConstraints>
+                                                        <ColumnConstraints minWidth="80.0" prefWidth="90.0" />
+                                                        <ColumnConstraints percentWidth="38.0" />
+                                                        <ColumnConstraints minWidth="60.0" prefWidth="70.0" />
+                                                        <ColumnConstraints percentWidth="42.0" />
+                                                    </columnConstraints>
+                                                    <children>
+                                                        <Label styleClass="dash-info-key" text="民族" GridPane.columnIndex="0" GridPane.rowIndex="0" />
+                                                        <Label fx:id="academicNationalityLabel" styleClass="dash-info-val" text="—" GridPane.columnIndex="1" GridPane.rowIndex="0" />
+
+                                                        <Label styleClass="dash-info-key" text="政治面貌" GridPane.columnIndex="2" GridPane.rowIndex="0" />
+                                                        <Label fx:id="academicPoliticalStatusLabel" styleClass="dash-info-val" text="—" GridPane.columnIndex="3" GridPane.rowIndex="0" />
+
+                                                        <Label styleClass="dash-info-key" text="籍贯" GridPane.columnIndex="0" GridPane.rowIndex="1" />
+                                                        <Label fx:id="academicNativePlaceLabel" styleClass="dash-info-val" text="—" GridPane.columnIndex="1" GridPane.rowIndex="1" />
+
+                                                        <Label fx:id="academicStatusKeyLabel" styleClass="dash-info-key" text="学籍状态" GridPane.columnIndex="2" GridPane.rowIndex="1" />
+                                                        <Label fx:id="academicStatusValLabel" styleClass="dash-info-val" text="—" GridPane.columnIndex="3" GridPane.rowIndex="1" />
+                                                    </children>
+                                                </GridPane>
+
+                                                <!-- 右下角跳转超链接 -->
+                                                <HBox alignment="CENTER_RIGHT">
+                                                    <children>
+                                                        <Hyperlink onAction="#openStudentAffairs" styleClass="dash-card-link" text="查看完整档案 &gt;" />
+                                                    </children>
+                                                </HBox>
                                             </children>
-                                        </HBox>
+                                        </VBox>
                                     </children>
                                 </VBox>
 
@@ -221,7 +322,7 @@
                         </GridPane>
 
                         <!-- ④ 课表卡片 (下方全宽) -->
-                        <VBox spacing="12.0" styleClass="dashboard-card">
+                        <VBox fx:id="scheduleCard" spacing="12.0" styleClass="dashboard-card">
                             <children>
                                 <HBox alignment="CENTER_LEFT" spacing="10.0">
                                     <children>

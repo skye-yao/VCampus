@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<BorderPane prefHeight="720.0" prefWidth="1024.0" style="-fx-background-color: #f4f6f8;"
+            stylesheets="@../css/style.css"
+            xmlns="http://javafx.com/javafx/17" xmlns:fx="http://javafx.com/fxml/1"
+            fx:controller="controller.PermissionController">
+    <!-- 顶部导航条 -->
+    <top>
+        <HBox alignment="CENTER_LEFT" prefHeight="64.0" spacing="14.0"
+              style="-fx-background-color: #ffffff; -fx-border-color: #e5e7eb; -fx-border-width: 0 0 1 0; -fx-padding: 0 24 0 24;">
+            <children>
+                <Button onAction="#handleBack" styleClass="btn-secondary" text="← 退出至主页" />
+                <Separator orientation="VERTICAL" maxHeight="24.0" />
+                <VBox alignment="CENTER_LEFT" spacing="2.0">
+                    <children>
+                        <Label style="-fx-font-size: 17px; -fx-font-weight: bold; -fx-text-fill: #151E49;" text="管理员权限管理" />
+                        <Label style="-fx-font-size: 11px; -fx-text-fill: #6b7280; -fx-font-weight: bold;" text="ADMINISTRATOR PERMISSION MANAGEMENT · 业务子系统分权控制" />
+                    </children>
+                </VBox>
+                <Region HBox.hgrow="ALWAYS" />
+                <Button onAction="#loadAdminPermissions" styleClass="btn-secondary" text="🔄 刷新列表" />
+            </children>
+        </HBox>
+    </top>
+
+    <!-- 中心内容区域 -->
+    <center>
+        <ScrollPane fitToWidth="true" styleClass="content-scroll-pane">
+            <content>
+                <VBox spacing="18.0" styleClass="dash-content-pane">
+                    <padding>
+                        <Insets top="24.0" left="30.0" right="30.0" bottom="30.0" />
+                    </padding>
+                    <children>
+                        <!-- 卡片容器 -->
+                        <VBox spacing="16.0" styleClass="dashboard-card">
+                            <children>
+                                <HBox alignment="CENTER_LEFT">
+                                    <children>
+                                        <Label styleClass="dashboard-card-title" text="🛡  管理员分权配置列表" />
+                                        <Region HBox.hgrow="ALWAYS" />
+                                        <Label fx:id="statusLabel" style="-fx-font-size: 12px; -fx-text-fill: #587558;" text="" />
+                                    </children>
+                                </HBox>
+
+                                <!-- 提示信息框 -->
+                                <HBox alignment="CENTER_LEFT" spacing="8.0"
+                                      style="-fx-background-color: #f0fdf4; -fx-border-color: #bbf7d0; -fx-border-radius: 6px; -fx-background-radius: 6px; -fx-padding: 10 14 10 14;">
+                                    <children>
+                                        <Label style="-fx-font-size: 13px; -fx-text-fill: #166534;"
+                                               text="💡 提示：主管理员（admin）与各普通管理员均可根据职责勾选对应业务模块管理权限，勾选后点击右下方“确认保存权限”即可保存至数据库实时生效。"
+                                               wrapText="true" />
+                                    </children>
+                                </HBox>
+
+                                <!-- 权限表格 -->
+                                <TableView fx:id="permissionTable" minHeight="380.0" prefHeight="440.0" styleClass="perm-table">
+                                    <columns>
+                                        <TableColumn fx:id="colUid" prefWidth="120.0" text="管理员UID" />
+                                        <TableColumn fx:id="colName" prefWidth="120.0" text="姓名" />
+                                        <TableColumn fx:id="colAcademic" prefWidth="110.0" text="学籍权限" />
+                                        <TableColumn fx:id="colLibrary" prefWidth="110.0" text="图书馆权限" />
+                                        <TableColumn fx:id="colCourse" prefWidth="110.0" text="选课权限" />
+                                        <TableColumn fx:id="colShop" prefWidth="110.0" text="商店权限" />
+                                        <TableColumn fx:id="colBank" prefWidth="110.0" text="银行权限" />
+                                    </columns>
+                                    <columnResizePolicy>
+                                        <TableView fx:constant="CONSTRAINED_RESIZE_POLICY" />
+                                    </columnResizePolicy>
+                                </TableView>
+
+                                <!-- 底部操作按钮 -->
+                                <HBox alignment="CENTER_RIGHT" spacing="14.0">
+                                    <children>
+                                        <Button onAction="#handleBack" prefHeight="38.0" styleClass="btn-secondary" text="退出至主页" />
+                                        <Button onAction="#handleConfirm" prefHeight="38.0" styleClass="btn-primary" text="✔  确认保存权限" />
+                                    </children>
+                                </HBox>
+                            </children>
+                        </VBox>
+                    </children>
+                </VBox>
+            </content>
+        </ScrollPane>
+    </center>
+</BorderPane>
