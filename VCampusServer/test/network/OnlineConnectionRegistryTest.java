@@ -12,8 +12,36 @@ public final class OnlineConnectionRegistryTest {
 
     public static void main(String[] args) throws Exception {
         verifyBindUnbindSnapshot();
+        verifyOnlineUidSnapshot();
         verifyCloseAndBindInvariantUnderStress();
         System.out.println("Online connection registry test passed.");
+    }
+
+    private static void verifyOnlineUidSnapshot() {
+        OnlineConnectionRegistry registry = new OnlineConnectionRegistry();
+        ClientConnection first = connection();
+        ClientConnection second = connection();
+        require(registry.onlineUids().isEmpty(), "a fresh registry must report no online UIDs");
+        registry.bind("student-alpha", first);
+        registry.bind("student-beta", second);
+        List<String> snapshot = registry.onlineUids();
+        require(snapshot.size() == 2 && snapshot.contains("student-alpha")
+                        && snapshot.contains("student-beta"),
+                "the online UID snapshot must list every bound account once");
+        registry.unbind("student-alpha", first);
+        require(registry.onlineUids().equals(List.of("student-beta")),
+                "unbinding an account's last connection must drop it from the snapshot");
+        try {
+            snapshot.add("student-gamma");
+            throw new AssertionError("the online UID snapshot must be immutable");
+        } catch (UnsupportedOperationException expected) {
+            // 返回的是脱离内部状态的不可变副本
+        }
+        registry.bind("student-gamma", connection());
+        require(!snapshot.contains("student-gamma"),
+                "a later bind must not mutate an already returned snapshot");
+        registry.close();
+        require(registry.onlineUids().isEmpty(), "close must clear the online UID snapshot");
     }
 
     private static void verifyBindUnbindSnapshot() {

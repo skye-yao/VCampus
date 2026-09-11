@@ -67,6 +67,15 @@ public final class OnlineConnectionRegistry implements AutoCloseable {
         }
     }
 
+    /**
+     * 返回当前在线 UID 的不可变快照，脱离注册表内部可变状态。调用方可在锁外使用。
+     */
+    public List<String> onlineUids() {
+        synchronized (lock) {
+            return List.copyOf(connections.keySet());
+        }
+    }
+
     @Override
     public void close() {
         List<ClientConnection> bound;

@@ -86,7 +86,8 @@ public final class CourseEventDispatcher implements AutoCloseable {
         Connection connection = null;
         try {
             connection = connectionFactory.get();
-            for (OutboxEvent event : dao.pending(connection, batchLimit)) {
+            List<String> onlineUids = registry.onlineUids();
+            for (OutboxEvent event : dao.pending(connection, onlineUids, batchLimit)) {
                 deliver(connection, event, now);
             }
         } catch (SQLException | RuntimeException failure) {

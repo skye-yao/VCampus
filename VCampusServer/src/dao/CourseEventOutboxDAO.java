@@ -12,6 +12,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -23,16 +24,35 @@ public class CourseEventOutboxDAO {
             int semester, Long offeringId, String payload, Instant createdAt) {
     }
 
-    public List<OutboxEvent> pending(Connection connection, int limit) throws SQLException {
+    /**
+     * 仅返回 {@code onlineUids} 中账号的未 ACK 事件，按 event_id 升序有界返回。
+     *
+     * <p>空集合直接返回空列表，避免生成 {@code IN ()} 这类非法 SQL；离线账号的事件不会占用
+     * 批次名额，因此离线积压不会饿死后续在线账号的事件。
+     */
+    public List<OutboxEvent> pending(Connection connection, Collection<String> onlineUids, int limit)
+            throws SQLException {
         if (limit <= 0) {
             throw new IllegalArgumentException("limit must be positive");
         }
-        String sql = "SELECT event_id, uid, event_type, academic_year, semester, offering_id, "
+        if (onlineUids == null || onlineUids.isEmpty()) {
+            return List.of();
+        }
+        StringBuilder sql = new StringBuilder(
+                "SELECT event_id, uid, event_type, academic_year, semester, offering_id, "
                 + "payload, created_at FROM course_event_outbox WHERE acked_at IS NULL "
-                + "ORDER BY event_id ASC LIMIT ?";
+                + "AND uid IN (");
+        for (int index = 0; index < onlineUids.size(); index++) {
+            sql.append(index == 0 ? "?" : ",?");
+        }
+        sql.append(") ORDER BY event_id ASC LIMIT ?");
         List<OutboxEvent> events = new ArrayList<>();
-        try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setInt(1, limit);
+        try (PreparedStatement statement = connection.prepareStatement(sql.toString())) {
+            int index = 1;
+            for (String uid : onlineUids) {
+                statement.setString(index++, uid);
+            }
+            statement.setInt(index, limit);
             try (ResultSet rs = statement.executeQuery()) {
                 while (rs.next()) {
                     long offeringId = rs.getLong("offering_id");
@@ -63,15 +83,39 @@ public class CourseEventOutboxDAO {
         }
     }
 
+    /**
+     * 事件所有者的 ACK 幂等：首次与重复 ACK 均返回 true；非所有者或不存在的行返回 false。
+     *
+     * <p>先按 (event_id, uid) 判定归属，再仅在 {@code acked_at IS NULL} 时写入时间戳；重复
+     * ACK 保留首次确认时间且仍视为成功，避免同账号多连接竞争时第二个客户端收到失败响应。
+     */
     public boolean acknowledge(Connection connection, String uid, long eventId, Instant now)
             throws SQLException {
-        String sql = "UPDATE course_event_outbox SET acked_at = ? "
+        if (uid == null) {
+            return false;
+        }
+        String ownerSql = "SELECT acked_at FROM course_event_outbox "
+                + "WHERE event_id = ? AND uid = ?";
+        try (PreparedStatement statement = connection.prepareStatement(ownerSql)) {
+            statement.setLong(1, eventId);
+            statement.setString(2, uid);
+            try (ResultSet rs = statement.executeQuery()) {
+                if (!rs.next()) {
+                    return false;
+                }
+                if (rs.getTimestamp("acked_at") != null) {
+                    return true;
+                }
+            }
+        }
+        String updateSql = "UPDATE course_event_outbox SET acked_at = ? "
                 + "WHERE event_id = ? AND uid = ? AND acked_at IS NULL";
-        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        try (PreparedStatement statement = connection.prepareStatement(updateSql)) {
             statement.setTimestamp(1, timestamp(now));
             statement.setLong(2, eventId);
             statement.setString(3, uid);
-            return statement.executeUpdate() > 0;
+            statement.executeUpdate();
+            return true;
         }
     }
 
