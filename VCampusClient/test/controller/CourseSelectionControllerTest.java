@@ -42,7 +42,7 @@ public final class CourseSelectionControllerTest {
         testSameOfferingDisablesEveryCopyAndStartsOneMutation();
         testFailureReconcilesBeforeReenable();
         testFailedReconciliationStaysDisabledUntilLaterSnapshot();
-        testWaitlistOfferSupportsAcceptAndAbandon();
+        testWaitlistOfferSupportsAcceptAbandonAndDismiss();
         testStaleMutationCannotReplaceCurrentTermSnapshot();
         testOutOfOrderMutationResultsUseAuthoritativeSnapshot();
         testOfferingLoadFailureCanRetryOnNextExpansion();
@@ -173,13 +173,25 @@ public final class CourseSelectionControllerTest {
                 "a later authoritative snapshot must release the pending offering");
     }
 
-    private static void testWaitlistOfferSupportsAcceptAndAbandon() {
-        require(CourseSelectionController.waitlistDecision(ButtonType.OK)
-                        == WaitlistDecision.ACCEPT,
-                "confirming an offered seat must accept it");
-        require(CourseSelectionController.waitlistDecision(ButtonType.CANCEL)
-                        == WaitlistDecision.ABANDON,
-                "cancelling an offered seat must explicitly abandon it");
+    private static void testWaitlistOfferSupportsAcceptAbandonAndDismiss() {
+        ControlledCourseService abandonService = new ControlledCourseService();
+        CourseSelectionController abandonController = testController(abandonService);
+        abandonController.executeWaitlistOfferDecision(
+                TERM, 1001L, null, () -> { });
+        require(abandonService.waitlistDecision.get() == null,
+                "dismissing the decision dialog must not mutate the offered seat");
+
+        abandonController.executeWaitlistOfferDecision(
+                TERM, 1001L, WaitlistDecision.ABANDON, () -> { });
+        require(abandonService.waitlistDecision.get() == WaitlistDecision.ABANDON,
+                "the explicit abandon choice must be sent to the service");
+
+        ControlledCourseService acceptService = new ControlledCourseService();
+        CourseSelectionController acceptController = testController(acceptService);
+        acceptController.executeWaitlistOfferDecision(
+                TERM, 1002L, WaitlistDecision.ACCEPT, () -> { });
+        require(acceptService.waitlistDecision.get() == WaitlistDecision.ACCEPT,
+                "the explicit accept choice must be sent to the service");
     }
 
     private static void testStaleMutationCannotReplaceCurrentTermSnapshot()
@@ -343,6 +355,10 @@ public final class CourseSelectionControllerTest {
                 new ArrayDeque<>();
         private final AtomicInteger offeringLoads = new AtomicInteger();
         private final AtomicInteger snapshotLoads = new AtomicInteger();
+        private final AtomicReference<WaitlistDecision> waitlistDecision =
+                new AtomicReference<>();
+        private final CompletableFuture<CourseMutationResultView> pendingWaitlistDecision =
+                new CompletableFuture<>();
 
         @Override public CompletableFuture<List<CourseTermView>> loadTerms() {
             return CompletableFuture.completedFuture(List.of(TERM));
@@ -383,7 +399,8 @@ public final class CourseSelectionControllerTest {
         @Override public CompletableFuture<CourseMutationResultView> resolveWaitlistOffer(
                 CourseTermView term, long offeringId, String operationId,
                 WaitlistDecision decision) {
-            return CompletableFuture.completedFuture(null);
+            waitlistDecision.set(decision);
+            return pendingWaitlistDecision;
         }
         @Override public CompletableFuture<CourseMutationResultView> dropOffering(
                 CourseTermView term, long offeringId, String operationId) {

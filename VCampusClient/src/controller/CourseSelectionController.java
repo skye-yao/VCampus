@@ -50,6 +50,7 @@ public final class CourseSelectionController {
 
     private final CourseService service;
     private final BiFunction<String, String, ButtonType> confirmation;
+    private final BiFunction<String, String, WaitlistDecision> waitlistDecisionPrompt;
     private final BiConsumer<String, String> errorReporter;
     private final Consumer<Runnable> fxExecutor;
     private final Set<Long> pendingOfferingIds = new HashSet<>();
@@ -83,7 +84,8 @@ public final class CourseSelectionController {
     @FXML private Label generalCountLabel;
 
     public CourseSelectionController() {
-        this(CourseServices.current(), AlertUtil::showConfirm, AlertUtil::showError,
+        this(CourseServices.current(), AlertUtil::showConfirm,
+                AlertUtil::showWaitlistDecision, AlertUtil::showError,
                 CourseSelectionController::runOnFxThread);
     }
 
@@ -91,8 +93,18 @@ public final class CourseSelectionController {
             BiFunction<String, String, ButtonType> confirmation,
             BiConsumer<String, String> errorReporter,
             Consumer<Runnable> fxExecutor) {
+        this(service, confirmation, (title, message) -> null,
+                errorReporter, fxExecutor);
+    }
+
+    CourseSelectionController(CourseService service,
+            BiFunction<String, String, ButtonType> confirmation,
+            BiFunction<String, String, WaitlistDecision> waitlistDecisionPrompt,
+            BiConsumer<String, String> errorReporter,
+            Consumer<Runnable> fxExecutor) {
         this.service = service;
         this.confirmation = confirmation;
+        this.waitlistDecisionPrompt = waitlistDecisionPrompt;
         this.errorReporter = errorReporter;
         this.fxExecutor = fxExecutor;
     }
@@ -524,17 +536,11 @@ public final class CourseSelectionController {
             button.getStyleClass().add("course-row-action");
             registerOfferingAction(offering.getOfferingId(), button::setDisable);
             button.setOnAction(event -> {
-                ButtonType choice = confirmation.apply("处理候补席位",
+                WaitlistDecision decision = waitlistDecisionPrompt.apply("处理候补席位",
                         "确定接受“" + course.getCourseName()
-                                + "”的候补席位；取消则放弃该席位。");
-                WaitlistDecision decision = waitlistDecision(choice);
-                if (decision != null) {
-                    executeMutation(currentTerm, offering.getOfferingId(),
-                            this::renderCourses,
-                            operationId -> service.resolveWaitlistOffer(
-                                    currentTerm, offering.getOfferingId(), operationId,
-                                    decision));
-                }
+                                + "”的候补席位，或明确放弃该席位。");
+                executeWaitlistOfferDecision(currentTerm, offering.getOfferingId(),
+                        decision, this::renderCourses);
             });
             actions.getChildren().add(button);
         } else if (status == SelectionStatus.ENROLLED) {
@@ -581,10 +587,12 @@ public final class CourseSelectionController {
         return button;
     }
 
-    static WaitlistDecision waitlistDecision(ButtonType choice) {
-        if (choice == ButtonType.OK) return WaitlistDecision.ACCEPT;
-        if (choice == ButtonType.CANCEL) return WaitlistDecision.ABANDON;
-        return null;
+    void executeWaitlistOfferDecision(CourseTermView term, long offeringId,
+            WaitlistDecision decision, Runnable rerender) {
+        if (decision == null) return;
+        executeMutation(term, offeringId, rerender,
+                operationId -> service.resolveWaitlistOffer(
+                        term, offeringId, operationId, decision));
     }
 
     private void reconcileFailure(CourseTermView term, long offeringId,
