@@ -1,5 +1,5 @@
 -- Deterministic fixtures for virtual_campus_course_test only.
--- Application login password for all four accounts: course-test-only
+-- Application login password for all five accounts: course-test-only
 -- Test-only salt: Y291cnNlLXRlc3Qtc2FsdC12MQ==
 -- PasswordUtil.hashPassword result: J38xndyip6HSrAYWERZsw0nzctYaMzc2lGgKFxrORJo=
 -- Never reuse these application credentials outside the dedicated test schema.
@@ -17,7 +17,10 @@ VALUES
      'Engineering', 'Professor'),
     ('teacher-beta', 'Course Test Teacher B',
      'J38xndyip6HSrAYWERZsw0nzctYaMzc2lGgKFxrORJo=', 'Y291cnNlLXRlc3Qtc2FsdC12MQ==', 1,
-     'Engineering', 'Lecturer');
+     'Engineering', 'Lecturer'),
+    ('admin-alpha', 'Course Test Administrator',
+     'J38xndyip6HSrAYWERZsw0nzctYaMzc2lGgKFxrORJo=', 'Y291cnNlLXRlc3Qtc2FsdC12MQ==', 0,
+     'Administration', 'Registrar');
 
 INSERT INTO `major` (`major_id`, `major_code`, `major_name`, `college`)
 VALUES (10, 'CS', 'Computer Science', 'Engineering');
@@ -80,13 +83,28 @@ VALUES
     (4001, 'Course test published plan', 3001, 1, 'PUBLISHED',
      '2026-08-01 00:00:00', '2026-08-01 00:00:00');
 
-INSERT INTO `course_schedule_rule`
-    (`id`, `plan_id`, `course_offering_id`, `weekday`, `start_period`, `end_period`, `status`)
-VALUES
-    (4101, 4001, 2001, 2, 1, 2, 'ACTIVE'),
-    (4102, 4001, 2001, 4, 3, 4, 'ACTIVE'),
-    (4103, 4001, 2002, 2, 1, 2, 'ACTIVE'),
-    (4104, 4001, 2004, 4, 1, 2, 'ACTIVE');
+-- V004 adds a NOT NULL course_schedule_rule.arrangement_id constrained to one
+-- course_schedule_arrangement row per rule. This seed must stay executable both before V004
+-- (legacy column set, the order the existing socket end-to-end test uses) and after V004 (the
+-- fresh-install order). Detect the column and prepare the matching INSERT.
+SET @seed_has_arrangement = (
+    SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'course_schedule_rule'
+      AND COLUMN_NAME = 'arrangement_id'
+);
+SET @seed_arrangement_sql = IF(@seed_has_arrangement > 0,
+    'INSERT INTO `course_schedule_arrangement` (`arrangement_id`, `plan_id`, `offering_id`) VALUES (4101,4001,2001),(4102,4001,2001),(4103,4001,2002),(4104,4001,2004)',
+    'SELECT 1');
+PREPARE seed_arrangement FROM @seed_arrangement_sql;
+EXECUTE seed_arrangement;
+DEALLOCATE PREPARE seed_arrangement;
+SET @seed_rule_sql = IF(@seed_has_arrangement > 0,
+    'INSERT INTO `course_schedule_rule` (`id`, `plan_id`, `course_offering_id`, `weekday`, `start_period`, `end_period`, `arrangement_id`) VALUES (4101,4001,2001,2,1,2,4101),(4102,4001,2001,4,3,4,4102),(4103,4001,2002,2,1,2,4103),(4104,4001,2004,4,1,2,4104)',
+    'INSERT INTO `course_schedule_rule` (`id`, `plan_id`, `course_offering_id`, `weekday`, `start_period`, `end_period`, `status`) VALUES (4101,4001,2001,2,1,2,''ACTIVE''),(4102,4001,2001,4,3,4,''ACTIVE''),(4103,4001,2002,2,1,2,''ACTIVE''),(4104,4001,2004,4,1,2,''ACTIVE'')');
+PREPARE seed_rule FROM @seed_rule_sql;
+EXECUTE seed_rule;
+DEALLOCATE PREPARE seed_rule;
 
 INSERT INTO `course_schedule_rule_week` (`rule_id`, `week_no`)
 VALUES (4101, 1), (4102, 1), (4103, 1), (4104, 1);
