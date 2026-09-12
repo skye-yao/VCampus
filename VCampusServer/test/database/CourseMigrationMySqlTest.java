@@ -56,11 +56,16 @@ public final class CourseMigrationMySqlTest {
                     "VCampusServer/src/resources/migrations/V002_create_schedule_tables.sql"));
             applyScript(connection, root.resolve(
                     "VCampusServer/src/resources/migrations/V003_extend_course_management.sql"));
+            // V004 backfills course_schedule_rule.arrangement_id for existing rules and then
+            // tightens it to NOT NULL, so the legacy seed must be loaded before the migration.
             applyScript(connection, seed);
+            applyScript(connection, root.resolve(
+                    "VCampusServer/src/resources/migrations/V004_admin_course_management.sql"));
 
             verifySeedCoverage(connection);
             verifyMetadataContracts(connection);
             verifyGeneratedConstraints(connection);
+            verifyV004AdminCourseContracts(connection);
         }
 
         verifyDbUtilUtcConnections(testUrl);
@@ -277,6 +282,168 @@ public final class CourseMigrationMySqlTest {
                 "SELECT DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s.%f') "
                         + "FROM course_event_outbox ORDER BY event_id DESC LIMIT 1")),
                 "outbox timestamps must retain microseconds");
+    }
+
+    private static void verifyV004AdminCourseContracts(Connection connection) throws SQLException {
+        assertColumn(connection, "course", "status", "varchar", 16L, null);
+        assertColumn(connection, "course", "version", "int", null, null);
+        assertColumn(connection, "course", "archived_by", "varchar", 32L, null);
+        assertDatetimePrecision(connection, "course", "archived_at");
+        assertColumnDefault(connection, "course", "status", "ACTIVE");
+        assertColumnDefault(connection, "course", "version", "1");
+        require("ACTIVE".equals(queryString(connection,
+                "SELECT `status` FROM course WHERE course_id = 1001")),
+                "existing courses must default to ACTIVE");
+        require(queryInt(connection, "SELECT `version` FROM course WHERE course_id = 1001") == 1,
+                "existing courses must default to version 1");
+
+        assertColumn(connection, "course_offering", "version", "int", null, null);
+        assertColumn(connection, "course_offering", "created_by", "varchar", 32L, null);
+        assertColumn(connection, "course_offering", "cancelled_by", "varchar", 32L, null);
+        assertDatetimePrecision(connection, "course_offering", "cancelled_at");
+        assertColumnDefault(connection, "course_offering", "version", "1");
+        require(queryInt(connection,
+                "SELECT `version` FROM course_offering WHERE offering_id = 2001") == 1,
+                "existing offerings must default to version 1");
+
+        assertCheckExists(connection, "chk_course_offering_enrolled_count", false);
+        assertCheckExists(connection, "chk_course_offering_enrolled_nonnegative", true);
+        int capacity = queryInt(connection,
+                "SELECT capacity FROM course_offering WHERE offering_id = 2003");
+        execute(connection, "UPDATE course_offering SET enrolled_count = " + (capacity + 5)
+                + " WHERE offering_id = 2003");
+        require(queryInt(connection,
+                "SELECT enrolled_count FROM course_offering WHERE offering_id = 2003") == capacity + 5,
+                "over-capacity enrollment must be accepted after the check is relaxed");
+        execute(connection, "UPDATE course_offering SET enrolled_count = 0 WHERE offering_id = 2003");
+        expectSqlRejected(connection,
+                "UPDATE course_offering SET enrolled_count = -1 WHERE offering_id = 2003",
+                "HY", "chk_course_offering_enrolled_nonnegative",
+                "negative enrollment counts must still be rejected");
+
+        assertColumn(connection, "schedule_plan", "created_by", "varchar", 32L, null);
+        assertColumn(connection, "schedule_plan", "published_by", "varchar", 32L, null);
+        assertDatetimePrecision(connection, "schedule_plan", "published_at");
+        assertColumn(connection, "teaching_calendar", "current_schedule_plan_id", "bigint", null, null);
+        assertColumn(connection, "course_notice", "adjustment_request_id", "bigint", null, null);
+
+        String[] newTables = {
+                "course_schedule_arrangement", "course_schedule_adjustment_request",
+                "course_schedule_adjustment_target", "course_schedule_adjustment",
+                "grade_submission", "grade_submission_item", "admin_course_operation_log"
+        };
+        for (String table : newTables) {
+            assertTableExists(connection, table);
+        }
+        assertDatetimePrecision(connection, "course_schedule_arrangement", "created_at", "updated_at");
+        assertIndexColumns(connection, "course_schedule_arrangement",
+                "uk_course_schedule_arrangement_plan", "arrangement_id", "plan_id");
+        assertIndexColumns(connection, "course_schedule_adjustment_target",
+                "uk_course_schedule_adjustment_target", "request_id", "original_occurrence_id");
+        assertIndexColumns(connection, "course_schedule_adjustment",
+                "uk_active_adjustment_occurrence", "active_original_occurrence_id");
+        assertIndexColumns(connection, "grade_submission",
+                "uk_grade_submission_offering_version", "offering_id", "version");
+        assertIndexColumns(connection, "grade_submission_item",
+                "uk_grade_submission_item", "submission_id", "enrollment_id");
+        assertIndexColumns(connection, "admin_course_operation_log", "PRIMARY",
+                "admin_uid", "operation_id");
+
+        assertColumnNullable(connection, "course_schedule_rule", "arrangement_id", false);
+        require(queryInt(connection,
+                "SELECT COUNT(*) FROM information_schema.KEY_COLUMN_USAGE "
+                        + "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'course_schedule_rule' "
+                        + "AND REFERENCED_TABLE_NAME = 'course_schedule_arrangement'") == 2,
+                "course_schedule_rule must reference course_schedule_arrangement");
+        require(queryInt(connection,
+                "SELECT COUNT(*) FROM course_schedule_rule WHERE arrangement_id = id") == 4,
+                "legacy rules must backfill arrangement_id = rule id");
+        require(queryInt(connection, "SELECT COUNT(*) FROM course_schedule_arrangement") == 4,
+                "legacy backfill must create exactly one arrangement per rule");
+        require(queryInt(connection,
+                "SELECT COUNT(*) FROM course_schedule_rule r "
+                        + "JOIN course_schedule_arrangement a ON a.arrangement_id = r.arrangement_id "
+                        + "WHERE a.plan_id = r.plan_id AND a.offering_id = r.course_offering_id") == 4,
+                "backfilled arrangements must mirror their rule plan and offering");
+
+        execute(connection, "INSERT INTO course_schedule_adjustment_request "
+                + "(request_id, offering_id, requested_by, reason, new_weekday, "
+                + "new_start_period, new_end_period, new_teacher_uid) "
+                + "VALUES (7001, 2001, 'teacher-alpha', 'V004 contract', 3, 5, 6, 'teacher-beta')");
+        execute(connection, "INSERT INTO course_schedule_adjustment "
+                + "(request_id, original_occurrence_id, start_at_utc, end_at_utc, teacher_uid) "
+                + "VALUES (7001, 4201, '2026-09-09 00:00:00', '2026-09-09 01:35:00', 'teacher-beta')");
+        expectSqlRejected(connection,
+                "INSERT INTO course_schedule_adjustment "
+                        + "(request_id, original_occurrence_id, start_at_utc, end_at_utc, teacher_uid) "
+                        + "VALUES (7001, 4201, '2026-09-09 02:00:00', '2026-09-09 03:35:00', "
+                        + "'teacher-beta')",
+                "23", "uk_active_adjustment_occurrence",
+                "at most one active adjustment per original occurrence");
+        execute(connection, "INSERT INTO course_schedule_adjustment "
+                + "(request_id, original_occurrence_id, start_at_utc, end_at_utc, teacher_uid, status) "
+                + "VALUES (7001, 4201, '2026-09-09 04:00:00', '2026-09-09 05:35:00', "
+                + "'teacher-beta', 'CANCELLED')");
+        require(queryInt(connection, "SELECT COUNT(*) FROM course_schedule_adjustment "
+                + "WHERE status = 'ACTIVE'") == 1,
+                "cancelled adjustment history must remain insertable");
+    }
+
+    private static void assertTableExists(Connection connection, String table) throws SQLException {
+        String sql = "SELECT COUNT(*) FROM information_schema.TABLES "
+                + "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, table);
+            try (ResultSet result = statement.executeQuery()) {
+                require(result.next() && result.getInt(1) == 1, "Missing V004 table: " + table);
+            }
+        }
+    }
+
+    private static void assertCheckExists(Connection connection, String name, boolean expected)
+            throws SQLException {
+        String sql = "SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS "
+                + "WHERE CONSTRAINT_SCHEMA = DATABASE() AND CONSTRAINT_TYPE = 'CHECK' "
+                + "AND CONSTRAINT_NAME = ?";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, name);
+            try (ResultSet result = statement.executeQuery()) {
+                require(result.next(), "Check-constraint probe returned no row");
+                boolean present = result.getInt(1) > 0;
+                require(present == expected, (expected ? "Missing" : "Unexpected")
+                        + " check constraint: " + name);
+            }
+        }
+    }
+
+    private static void assertColumnDefault(Connection connection, String table, String column,
+                                            String expectedDefault) throws SQLException {
+        String sql = "SELECT COLUMN_DEFAULT FROM information_schema.COLUMNS "
+                + "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, table);
+            statement.setString(2, column);
+            try (ResultSet result = statement.executeQuery()) {
+                require(result.next(), "Missing column " + table + "." + column);
+                require(expectedDefault.equals(result.getString(1)),
+                        "Unexpected default for " + table + "." + column);
+            }
+        }
+    }
+
+    private static void assertColumnNullable(Connection connection, String table, String column,
+                                             boolean nullable) throws SQLException {
+        String sql = "SELECT IS_NULLABLE FROM information_schema.COLUMNS "
+                + "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, table);
+            statement.setString(2, column);
+            try (ResultSet result = statement.executeQuery()) {
+                require(result.next(), "Missing column " + table + "." + column);
+                boolean actual = "YES".equalsIgnoreCase(result.getString(1));
+                require(actual == nullable, "Unexpected nullability for " + table + "." + column);
+            }
+        }
     }
 
     private static void verifyDbUtilUtcConnections(String testUrl) throws Exception {

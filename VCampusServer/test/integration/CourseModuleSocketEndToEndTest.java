@@ -806,8 +806,12 @@ public final class CourseModuleSocketEndToEndTest {
                     "VCampusServer/src/resources/migrations/V002_create_schedule_tables.sql"));
             applyScript(connection, root.resolve(
                     "VCampusServer/src/resources/migrations/V003_extend_course_management.sql"));
+            // V004 backfills course_schedule_rule.arrangement_id for existing rules and then
+            // tightens it to NOT NULL, so the legacy seed must be loaded before the migration.
             applyScript(connection, root.resolve(
                     "VCampusServer/src/resources/seed-course-test.sql"));
+            applyScript(connection, root.resolve(
+                    "VCampusServer/src/resources/migrations/V004_admin_course_management.sql"));
         }
     }
 
