@@ -81,6 +81,11 @@ public final class CourseHandlerTest {
             require(routed.getCode() == MessageCode.UNAUTHORIZED,
                     "server dispatcher must route the course module");
 
+            Message admin = new Message(MessageType.REQUEST, "courseAdmin", "listCourses");
+            admin.setToken("invalid-token");
+            require(new MessageDispatcher().dispatch(admin).getCode() == MessageCode.UNAUTHORIZED,
+                    "server dispatcher must route the courseAdmin module");
+
             Message unsupported = handler.handle(request("unknownRead", student.getToken()));
             require(unsupported.getCode() == MessageCode.BAD_REQUEST,
                     "unknown action must be bad request");

@@ -1,6 +1,7 @@
 package main;
 
 import dao.CourseEventOutboxDAO;
+import handler.AdminCourseHandler;
 import handler.CourseHandler;
 import network.MessageDispatcher;
 import network.OnlineConnectionRegistry;
@@ -50,7 +51,8 @@ public class ServerMain {
         CourseEventDispatcher eventDispatcher = new CourseEventDispatcher(
                 registry, new CourseEventOutboxDAO(), ServerMain::openConnection);
         CourseHandler courseHandler = new CourseHandler(waitlistService, eventDispatcher);
-        MessageDispatcher dispatcher = new MessageDispatcher(courseHandler);
+        MessageDispatcher dispatcher = new MessageDispatcher(courseHandler,
+                new AdminCourseHandler());
 
         Server server = new Server(registry, dispatcher, eventDispatcher, waitlistScheduler);
         Runtime.getRuntime().addShutdownHook(new Thread(server::stop, "vcampus-shutdown"));
