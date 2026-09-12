@@ -373,7 +373,7 @@ public final class AdminCourseCatalogController {
                 styledLabel("正在加载教学班...", "course-admin-loading-text"));
         service.listOfferings(course.getCourseId()).whenComplete((loaded, failure) ->
                 fxExecutor.accept(() -> {
-                    if (!container.isVisible()) return;
+                    if (container.getScene() == null) return;
                     if (failure != null) {
                         failedOfferingCourses.add(course.getCourseId());
                         container.getChildren().setAll(styledLabel(

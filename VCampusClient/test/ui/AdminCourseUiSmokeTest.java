@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.UUID;
@@ -26,6 +27,7 @@ import javafx.scene.control.MenuButton;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextField;
 import javafx.scene.image.WritableImage;
+import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 import javafx.stage.Window;
 import javafx.util.Duration;
@@ -103,6 +105,13 @@ public final class AdminCourseUiSmokeTest {
         private int confirmationAttempts;
         private int mutationCallsBefore;
         private int listCallsBeforeEdit;
+        private int offeringCallsBefore;
+        private int alertAttempts;
+        private boolean alertSeen;
+        private String alertContentText;
+        private VBox detachedOfferingPanel;
+        private int expectedOfferingRows = -1;
+        private final List<String> variantFailures = new ArrayList<>();
         private int captures;
 
         @Override
@@ -131,6 +140,25 @@ public final class AdminCourseUiSmokeTest {
             steps.add(this::verifyAuthoritativeReloadAfterEdit);
             steps.add(this::openArchiveConfirmation);
             steps.add(this::verifyCancelledArchiveMutation);
+            steps.add(this::refreshCatalog);
+            steps.add(this::startCollapseRaceOfferingLoad);
+            steps.add(this::collapseOfferingPanel);
+            steps.add(this::completeHiddenOfferingLoad);
+            steps.add(this::requireOfferingResultAfterReExpand);
+            steps.add(this::refreshCatalog);
+            steps.add(this::startFailureRaceOfferingLoad);
+            steps.add(this::collapseOfferingPanel);
+            steps.add(this::failHiddenOfferingLoad);
+            steps.add(this::requireNewOfferingLoadAfterReExpand);
+            steps.add(this::requireOfferingRowsAfterRetry);
+            steps.add(this::refreshCatalog);
+            steps.add(this::startDetachedRaceOfferingLoad);
+            steps.add(this::refreshCatalog);
+            steps.add(this::requireDetachedOfferingPanel);
+            steps.add(this::failDetachedOfferingLoad);
+            steps.add(this::requireDetachedResponseIgnored);
+            steps.add(this::requireCurrentRowStillLoads);
+            steps.add(this::requireCurrentRowRendered);
             steps.add(this::showStandaloneOfferingEditor);
             steps.add(this::captureStandaloneOfferingEditor);
             steps.add(this::verifyMainViewRoleTitles);
@@ -468,6 +496,205 @@ public final class AdminCourseUiSmokeTest {
             button.fire();
         }
 
+        /**
+         * 记录失败但不立即中断，便于一次 RED 运行收集全部三个场景的证据。
+         */
+        private void requireVariant(boolean condition, String message) {
+            if (!condition) variantFailures.add(message);
+        }
+
+        private Button offeringToggle() {
+            Node node = root.lookup(".course-admin-details-button");
+            return node instanceof Button button ? button : null;
+        }
+
+        private VBox offeringPanel() {
+            Node node = root.lookup(".course-admin-offering-list");
+            return node instanceof VBox box ? box : null;
+        }
+
+        private boolean panelStuckLoading(VBox panel) {
+            return panel != null && panel.lookup(".course-admin-loading-text") != null;
+        }
+
+        private int panelOfferingRows(VBox panel) {
+            return panel == null ? -1 : panel.lookupAll(".course-admin-offering-row").size();
+        }
+
+        private void refreshCatalog() {
+            ((Button) requireNode("#refreshButton", "refresh button")).fire();
+        }
+
+        /** 展开第一门课程的详情，并让它的教学班加载停在进行中。 */
+        private void startOfferingLoad() {
+            service.holdNextOfferingLoad();
+            offeringCallsBefore = service.offeringCalls();
+            Button toggle = offeringToggle();
+            requireVariant(toggle != null, "the catalog must render a course details toggle");
+            if (toggle != null) toggle.fire();
+            VBox panel = offeringPanel();
+            requireVariant(panel != null && panel.isVisible(),
+                    "expanding a course must show its offering panel");
+            requireVariant(panelStuckLoading(panel),
+                    "expanding a course must show 正在加载教学班... while the load is in flight");
+        }
+
+        private void collapseOfferingPanel() {
+            Button toggle = offeringToggle();
+            if (toggle != null) toggle.fire();
+            VBox panel = offeringPanel();
+            requireVariant(panel != null && !panel.isVisible(),
+                    "collapsing a course must hide its offering panel");
+        }
+
+        private void startCollapseRaceOfferingLoad() {
+            startOfferingLoad();
+        }
+
+        private void startFailureRaceOfferingLoad() {
+            startOfferingLoad();
+        }
+
+        private void completeHiddenOfferingLoad() {
+            if (service.pendingOfferingLoad == null) {
+                requireVariant(false, "an offering load must be pending before it can complete");
+                return;
+            }
+            List<AdminOfferingView> loaded =
+                    service.authoritativeOfferings(service.pendingOfferingCourseId);
+            expectedOfferingRows = loaded.size();
+            service.pendingOfferingLoad.complete(loaded);
+        }
+
+        /**
+         * 收起状态下完成的响应必须被采纳：再展开应直接显示权威结果，而不是卡在加载占位。
+         */
+        private void requireOfferingResultAfterReExpand() {
+            Button toggle = offeringToggle();
+            if (toggle != null) toggle.fire();
+            VBox panel = offeringPanel();
+            requireVariant(panel != null && panel.isVisible(),
+                    "re-expanding a course must show its offering panel");
+            requireVariant(!panelStuckLoading(panel),
+                    "a load that completed while collapsed must not leave 正在加载教学班... on"
+                            + " re-expansion");
+            requireVariant(panelOfferingRows(panel) == expectedOfferingRows,
+                    "re-expansion must show the completed authoritative offering result, expected "
+                            + expectedOfferingRows + " offering rows but saw "
+                            + panelOfferingRows(panel));
+            requireVariant(service.offeringCalls() == offeringCallsBefore + 1,
+                    "re-expansion must not re-request a load that already completed, saw "
+                            + (service.offeringCalls() - offeringCallsBefore - 1) + " extra calls");
+        }
+
+        private void failHiddenOfferingLoad() {
+            if (service.pendingOfferingLoad == null) {
+                requireVariant(false, "an offering load must be pending before it can fail");
+                return;
+            }
+            resetAlertProbe();
+            Platform.runLater(this::dismissRenderedAlert);
+            service.pendingOfferingLoad.completeExceptionally(
+                    new IllegalStateException("模拟教学班加载失败"));
+        }
+
+        /**
+         * 收起状态下失败的响应也必须留下可用的重试路径：再展开应发出新的加载请求。
+         */
+        private void requireNewOfferingLoadAfterReExpand() {
+            Button toggle = offeringToggle();
+            if (toggle != null) toggle.fire();
+            requireVariant(service.offeringCalls() == offeringCallsBefore + 2,
+                    "re-expansion after a failed in-flight load must issue a new offering load, saw "
+                            + (service.offeringCalls() - offeringCallsBefore - 1) + " new calls");
+        }
+
+        private void requireOfferingRowsAfterRetry() {
+            VBox panel = offeringPanel();
+            requireVariant(!panelStuckLoading(panel),
+                    "the retried offering load must not stay on 正在加载教学班...");
+            requireVariant(panelOfferingRows(panel) > 0,
+                    "the retried offering load must render the authoritative offerings, saw "
+                            + panelOfferingRows(panel) + " offering rows");
+        }
+
+        /** 展开详情、记住该面板，随后整体重渲染把它变成脱离场景的旧行。 */
+        private void startDetachedRaceOfferingLoad() {
+            service.holdNextOfferingLoad();
+            Button toggle = offeringToggle();
+            if (toggle != null) toggle.fire();
+            detachedOfferingPanel = offeringPanel();
+            requireVariant(detachedOfferingPanel != null && detachedOfferingPanel.isVisible(),
+                    "expanding a course must show its offering panel");
+        }
+
+        private void requireDetachedOfferingPanel() {
+            requireVariant(detachedOfferingPanel != null
+                            && detachedOfferingPanel.getScene() == null,
+                    "a full catalog re-render must detach the previous offering panel");
+            requireVariant(detachedOfferingPanel != null && detachedOfferingPanel.isVisible(),
+                    "the detached panel is the regression case: it is still flagged visible");
+        }
+
+        private void failDetachedOfferingLoad() {
+            if (service.pendingOfferingLoad == null) {
+                requireVariant(false, "an offering load must be pending before it can fail");
+                return;
+            }
+            resetAlertProbe();
+            Platform.runLater(this::dismissRenderedAlert);
+            service.pendingOfferingLoad.completeExceptionally(
+                    new IllegalStateException("模拟已脱离场景面板的教学班加载失败"));
+        }
+
+        private void requireDetachedResponseIgnored() {
+            requireVariant(!alertSeen,
+                    "a detached row's failed offering load must not reach the user, saw alert "
+                            + alertContentText);
+        }
+
+        /** 旧行的响应被丢弃后，当前行仍必须能正常加载教学班。 */
+        private void requireCurrentRowStillLoads() {
+            Button toggle = offeringToggle();
+            if (toggle != null) toggle.fire();
+            VBox panel = offeringPanel();
+            requireVariant(panel != null && panel.isVisible(),
+                    "the current row must still expand after a detached row's response");
+        }
+
+        private void requireCurrentRowRendered() {
+            VBox panel = offeringPanel();
+            requireVariant(!panelStuckLoading(panel),
+                    "the current row must not stay on 正在加载教学班... after a detached"
+                            + " row's response");
+            requireVariant(panelOfferingRows(panel) == expectedOfferingRows,
+                    "the current row must still render its offerings, expected "
+                            + expectedOfferingRows + " rows but saw "
+                            + panelOfferingRows(panel));
+        }
+
+        private void resetAlertProbe() {
+            alertAttempts = 0;
+            alertSeen = false;
+            alertContentText = null;
+        }
+
+        /**
+         * 反复排队，直到捕获到真实弹出的模态提示框并关闭它；最多重试 60 次。
+         */
+        private void dismissRenderedAlert() {
+            DialogPane pane = renderedConfirmationPane();
+            if (pane == null) {
+                if (++alertAttempts > 60) return;
+                Platform.runLater(this::dismissRenderedAlert);
+                return;
+            }
+            alertSeen = true;
+            alertContentText = pane.getContentText();
+            Node ok = pane.lookupButton(ButtonType.OK);
+            if (ok instanceof Button button) button.fire();
+        }
+
         private void showStandaloneOfferingEditor() throws Exception {
             FXMLLoader loader = new FXMLLoader(getClass().getResource(OFFERING_EDITOR_PATH));
             Parent dialogRoot = loader.load();
@@ -494,6 +721,10 @@ public final class AdminCourseUiSmokeTest {
         }
 
         private void verifyMainViewRoleTitles() throws Exception {
+            if (!variantFailures.isEmpty()) {
+                throw new IllegalStateException("offering collapse-race variants failed: "
+                        + String.join(" | ", variantFailures));
+            }
             ClientSession.getInstance().logout();
             requireLabelText(loadMainView(), "#courseCardTitle", "选课");
             ClientSession.getInstance().login("admin", "管理员", "token", null);
@@ -655,10 +886,15 @@ public final class AdminCourseUiSmokeTest {
      */
     static final class TogglableAdminCourseService implements AdminCourseService {
         private final MockAdminCourseService delegate = new MockAdminCourseService();
+        private final Deque<CompletableFuture<List<AdminOfferingView>>> heldOfferingLoads =
+                new ArrayDeque<>();
         private boolean failListing;
         private int listCoursesCalls;
         private int mutationCalls;
+        private int offeringCalls;
         private CourseEditorRequestDTO lastCourseUpdate;
+        private CompletableFuture<List<AdminOfferingView>> pendingOfferingLoad;
+        private String pendingOfferingCourseId;
 
         void setFailListing(boolean value) {
             failListing = value;
@@ -670,6 +906,19 @@ public final class AdminCourseUiSmokeTest {
 
         int mutationCalls() {
             return mutationCalls;
+        }
+
+        int offeringCalls() {
+            return offeringCalls;
+        }
+
+        /** 让下一次教学班加载停在进行中，由测试显式完成或失败。 */
+        void holdNextOfferingLoad() {
+            heldOfferingLoads.add(new CompletableFuture<>());
+        }
+
+        List<AdminOfferingView> authoritativeOfferings(String courseId) {
+            return delegate.listOfferings(courseId).join();
         }
 
         CourseEditorRequestDTO lastCourseUpdate() {
@@ -692,6 +941,13 @@ public final class AdminCourseUiSmokeTest {
 
         @Override
         public CompletableFuture<List<AdminOfferingView>> listOfferings(String courseId) {
+            offeringCalls++;
+            CompletableFuture<List<AdminOfferingView>> held = heldOfferingLoads.poll();
+            if (held != null) {
+                pendingOfferingLoad = held;
+                pendingOfferingCourseId = courseId;
+                return held;
+            }
             return listing(() -> delegate.listOfferings(courseId));
         }
 
