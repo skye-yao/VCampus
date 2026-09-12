@@ -1,9 +1,12 @@
 package controller;
 
+import java.util.Objects;
+import java.util.function.BiConsumer;
 import app.ClientMain;
 import entity.User;
 import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
+import javafx.scene.control.Label;
 import javafx.scene.control.MenuButton;
 import javafx.scene.input.MouseEvent;
 import network.SocketClient;
@@ -14,7 +17,20 @@ import util.AlertUtil;
 
 public class MainController {
 
+    static final String ADMIN_COURSE_VIEW = "/resources/fxml/AdminCourseManagementView.fxml";
+    static final String STUDENT_COURSE_VIEW = "/resources/fxml/CourseManagementView.fxml";
+    static final String TEACHER_NOTICE_TITLE = "系统提示";
+    static final String TEACHER_NOTICE_MESSAGE = "教师端教务功能暂未开放";
+
+    interface SceneSwitcher {
+        void switchTo(String fxmlPath);
+    }
+
+    private SceneSwitcher sceneSwitcher = ClientMain::switchScene;
+    private BiConsumer<String, String> infoReporter = AlertUtil::showInfo;
+
     @FXML private MenuButton userMenuButton;
+    @FXML private Label courseCardTitle;
 
     @FXML
     public void initialize() {
@@ -26,6 +42,24 @@ public class MainController {
                 userMenuButton.setText("你好，" + displayName);
             }
         }
+        if (courseCardTitle != null) {
+            courseCardTitle.setText(courseCardTitleText(session.getRole()));
+        }
+    }
+
+    /**
+     * 教务入口卡片标题：管理员进入教务管理，其余角色保持选课。
+     */
+    static String courseCardTitleText(String role) {
+        return "管理员".equals(role) ? "教务管理" : "选课";
+    }
+
+    void setSceneSwitcher(SceneSwitcher switcher) {
+        this.sceneSwitcher = Objects.requireNonNull(switcher, "Scene switcher is required");
+    }
+
+    void setInfoReporter(BiConsumer<String, String> reporter) {
+        this.infoReporter = Objects.requireNonNull(reporter, "Info reporter is required");
     }
 
     @FXML
@@ -57,8 +91,14 @@ public class MainController {
     }
 
     @FXML
-    private void openCourseSelection(MouseEvent event) {
-        ClientMain.switchScene("/resources/fxml/CourseManagementView.fxml");
+    void openCourseSelection(MouseEvent event) {
+        if ("管理员".equals(ClientSession.getInstance().getRole())) {
+            sceneSwitcher.switchTo(ADMIN_COURSE_VIEW);
+        } else if ("学生".equals(ClientSession.getInstance().getRole())) {
+            sceneSwitcher.switchTo(STUDENT_COURSE_VIEW);
+        } else {
+            infoReporter.accept(TEACHER_NOTICE_TITLE, TEACHER_NOTICE_MESSAGE);
+        }
     }
 
     @FXML

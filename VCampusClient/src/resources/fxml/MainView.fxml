@@ -113,7 +113,7 @@
                                         <StackPane prefHeight="54.0" prefWidth="54.0" styleClass="app-icon, icon-course">
                                             <children><Label styleClass="icon-text" text="📝" /></children>
                                         </StackPane>
-                                        <Label styleClass="app-card-title" text="选课" />
+                                        <Label fx:id="courseCardTitle" styleClass="app-card-title" text="选课" />
                                     </children>
                                 </VBox>
 

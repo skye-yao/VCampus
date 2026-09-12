@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ToggleButton?>
+<?import javafx.scene.layout.BorderPane?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.layout.StackPane?>
+<?import javafx.scene.layout.VBox?>
+
+<BorderPane prefHeight="580.0" prefWidth="860.0" styleClass="course-admin-shell" stylesheets="@../css/style.css" xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.AdminCourseManagementController">
+    <top>
+        <HBox alignment="CENTER_LEFT" maxHeight="64.0" minHeight="64.0" prefHeight="64.0" spacing="12.0" styleClass="course-admin-topbar" BorderPane.alignment="CENTER">
+            <padding>
+                <Insets left="20.0" right="20.0" top="1.0" />
+            </padding>
+            <children>
+                <Button onAction="#handleBack" prefHeight="64.0" styleClass="course-admin-nav-button" text="返回主菜单" />
+                <Label styleClass="course-admin-title" text="管理员后台" />
+                <Region HBox.hgrow="ALWAYS" />
+                <ToggleButton fx:id="courseNavButton" onAction="#showCourses" prefHeight="64.0" selected="true" styleClass="course-admin-nav-button" text="课程" />
+                <ToggleButton fx:id="approvalNavButton" onAction="#showApproval" prefHeight="64.0" styleClass="course-admin-nav-button" text="审批" />
+            </children>
+        </HBox>
+    </top>
+    <center>
+        <StackPane styleClass="course-admin-content" BorderPane.alignment="CENTER">
+            <children>
+                <fx:include fx:id="coursePage" source="AdminCourseCatalogView.fxml" />
+                <VBox fx:id="approvalPage" alignment="CENTER" managed="false" spacing="10.0" styleClass="course-admin-placeholder" visible="false">
+                    <children>
+                        <Label styleClass="course-admin-placeholder-title" text="审批" />
+                        <Label styleClass="course-admin-placeholder-text" text="审批功能将在后续阶段开放" />
+                    </children>
+                </VBox>
+            </children>
+        </StackPane>
+    </center>
+</BorderPane>
