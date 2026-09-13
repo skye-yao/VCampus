@@ -5,15 +5,20 @@ import java.util.concurrent.CompletableFuture;
 
 import dto.course.admin.catalog.CourseEditorRequestDTO;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
+import dto.course.admin.enrollment.AdminEnrollmentPreviewDTO;
+import dto.course.admin.enrollment.AdminEnrollmentRequestDTO;
 import dto.course.admin.schedule.SaveArrangementRequestDTO;
 import dto.course.admin.schedule.ScheduleConflictDTO;
 import dto.course.admin.schedule.SchedulePlanDTO;
 import dto.course.admin.schedule.ScheduleResourceDTO;
 import model.course.admin.AdminCourseView;
+import model.course.admin.AdminEnrollmentPageView;
 import model.course.admin.AdminOfferingView;
 import model.course.admin.AdminOperationResultView;
+import model.course.admin.OfferingStudentView;
 import model.course.admin.ScheduleArrangementView;
 import model.course.admin.SchedulePlanView;
+import model.course.admin.StudentSearchResultView;
 
 public interface AdminCourseService {
     CompletableFuture<List<AdminCourseView>> listCourses(String query, String status);
@@ -43,6 +48,43 @@ public interface AdminCourseService {
 
     CompletableFuture<AdminOperationResultView<Void>> deleteDraftOffering(
             String offeringId, int expectedVersion, String operationId);
+
+    default CompletableFuture<List<StudentSearchResultView>> searchStudents(
+            String query, int page, int size) {
+        return searchStudentsPage(query, page, size).thenApply(AdminEnrollmentPageView::getItems);
+    }
+
+    default CompletableFuture<List<OfferingStudentView>> listOfferingStudents(
+            String offeringId, String query, int page, int size) {
+        return listOfferingStudentsPage(offeringId, query, page, size)
+                .thenApply(AdminEnrollmentPageView::getItems);
+    }
+
+    // Defaults keep existing implementations compatible until enrollment transport is provided.
+    default CompletableFuture<AdminEnrollmentPageView<StudentSearchResultView>> searchStudentsPage(
+            String query, int page, int size) {
+        throw new UnsupportedOperationException("searchStudentsPage");
+    }
+
+    default CompletableFuture<AdminEnrollmentPageView<OfferingStudentView>> listOfferingStudentsPage(
+            String offeringId, String query, int page, int size) {
+        throw new UnsupportedOperationException("listOfferingStudentsPage");
+    }
+
+    default CompletableFuture<AdminEnrollmentPreviewDTO> previewAdminEnrollment(
+            String offeringId, String studentUid) {
+        throw new UnsupportedOperationException("previewAdminEnrollment");
+    }
+
+    default CompletableFuture<AdminOperationResultView<OfferingStudentView>> addStudentToOffering(
+            AdminEnrollmentRequestDTO request) {
+        throw new UnsupportedOperationException("addStudentToOffering");
+    }
+
+    default CompletableFuture<AdminOperationResultView<OfferingStudentView>> removeStudentFromOffering(
+            AdminEnrollmentRequestDTO request) {
+        throw new UnsupportedOperationException("removeStudentFromOffering");
+    }
 
     // Declared as defaults so the existing final implementations keep compiling until the
     // scheduling transport task wires them to the server.
