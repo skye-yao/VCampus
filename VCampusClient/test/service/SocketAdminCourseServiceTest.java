@@ -7,7 +7,15 @@ import dto.course.admin.catalog.AdminOfferingDTO;
 import dto.course.admin.catalog.CourseEditorRequestDTO;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
 import dto.course.admin.result.AdminOperationResultDTO;
+import dto.course.admin.schedule.SaveArrangementRequestDTO;
+import dto.course.admin.schedule.ScheduleArrangementDTO;
+import dto.course.admin.schedule.ScheduleConflictDTO;
+import dto.course.admin.schedule.ScheduleConflictSeverityDTO;
+import dto.course.admin.schedule.SchedulePlanDTO;
+import dto.course.admin.schedule.ScheduleResourceDTO;
+import dto.course.admin.schedule.ScheduleSlotDTO;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -17,6 +25,8 @@ import java.util.function.Function;
 import model.course.admin.AdminCourseView;
 import model.course.admin.AdminOfferingView;
 import model.course.admin.AdminOperationResultView;
+import model.course.admin.ScheduleArrangementView;
+import model.course.admin.SchedulePlanView;
 import protocol.Message;
 import protocol.MessageCode;
 import protocol.MessageType;
@@ -43,6 +53,15 @@ public final class SocketAdminCourseServiceTest {
             catalogConflictMapsLatestCourse();
             offeringConflictMapsLatestOffering();
             nullResponseBecomesError();
+            schedulingMethodsAreDeclaredInTheService();
+            listScheduleResourcesSendsFiltersAndMapsResources();
+            loadSchedulePlanMapsTermAndNestedConflicts();
+            loadOfferingArrangementsMapsViewsAndOmitsNullOffering();
+            checkArrangementSendsRequestInstanceAndMapsConflicts();
+            saveArrangementSendsRequestInstanceAndMapsView();
+            deleteArrangementSendsTargetKeysAndMapsNullEntity();
+            publishSchedulePlanSendsTargetKeysAndMapsPlanView();
+            schedulingConflictMapsLatestArrangement();
         } finally {
             ClientSession.getInstance().logout();
         }
@@ -375,6 +394,279 @@ public final class SocketAdminCourseServiceTest {
             }
         }
         require(thrown, "a null response must fail with AdminCourseServiceException");
+    }
+
+    private static void schedulingMethodsAreDeclaredInTheService() {
+        declared("listScheduleResources", String.class, String.class);
+        declared("loadSchedulePlan", int.class, int.class);
+        declared("loadOfferingArrangements", String.class, String.class);
+        declared("checkArrangement", SaveArrangementRequestDTO.class);
+        declared("saveArrangement", SaveArrangementRequestDTO.class);
+        declared("deleteArrangement", String.class, int.class, String.class);
+        declared("publishSchedulePlan", String.class, int.class, String.class, boolean.class,
+                String.class);
+    }
+
+    private static void declared(String name, Class<?>... parameters) {
+        try {
+            SocketAdminCourseService.class.getDeclaredMethod(name, parameters);
+        } catch (NoSuchMethodException failure) {
+            throw new AssertionError("SocketAdminCourseService must override " + name
+                    + "; an inherited throwing default must not remain");
+        }
+    }
+
+    private static void listScheduleResourcesSendsFiltersAndMapsResources() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("resources",
+                List.of(wireShaped(resource()))));
+        SocketAdminCourseService service = new SocketAdminCourseService(transport);
+
+        List<ScheduleResourceDTO> resources = service.listScheduleResources("teacher", "张").join();
+        requireEnvelope(transport, AdminCourseActions.LIST_SCHEDULE_RESOURCES);
+        require("teacher".equals(transport.lastRequest.getData("type")),
+                "the resource type filter must travel unchanged");
+        require("张".equals(transport.lastRequest.getData("query")),
+                "the resource query filter must travel unchanged");
+        require(resources.size() == 1, "one resource expected");
+        ScheduleResourceDTO resource = resources.get(0);
+        require("8001".equals(resource.getResourceId())
+                        && "T1001".equals(resource.getBusinessId())
+                        && "张老师".equals(resource.getName())
+                        && "teacher".equals(resource.getResourceType())
+                        && resource.getCapacity() == 0,
+                "rescheduling resource fields must map");
+
+        transport.respond(message -> message.putData("resources", List.of()));
+        service.listScheduleResources(null, null).join();
+        require(transport.lastRequest.getData("type") == null
+                        && transport.lastRequest.getData("query") == null,
+                "null resource filters must be omitted");
+    }
+
+    private static void loadSchedulePlanMapsTermAndNestedConflicts() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("plan", wireShaped(planDto())));
+        SocketAdminCourseService service = new SocketAdminCourseService(transport);
+
+        SchedulePlanDTO plan = service.loadSchedulePlan(2026, 1).join();
+        requireEnvelope(transport, AdminCourseActions.LOAD_SCHEDULE_PLAN);
+        require(Integer.valueOf(2026).equals(transport.lastRequest.getData("academicYear"))
+                        && Integer.valueOf(1).equals(transport.lastRequest.getData("semester")),
+                "the term must travel as ints");
+        require("7001".equals(plan.getPlanId()) && "2026 秋排课方案".equals(plan.getName()),
+                "plan identity must map");
+        require(plan.getRevision() == 1 && "DRAFT".equals(plan.getStatus()) && !plan.isCurrent(),
+                "plan revision, status and current flag must map");
+        require(plan.getConflicts().size() == 1
+                        && plan.getConflicts().get(0).getSeverity()
+                                == ScheduleConflictSeverityDTO.BLOCKING,
+                "nested conflicts must map through the plan with their severity");
+    }
+
+    private static void loadOfferingArrangementsMapsViewsAndOmitsNullOffering() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("arrangements",
+                List.of(wireShaped(arrangementDto()))));
+        SocketAdminCourseService service = new SocketAdminCourseService(transport);
+
+        List<ScheduleArrangementView> views =
+                service.loadOfferingArrangements("7001", "1001").join();
+        requireEnvelope(transport, AdminCourseActions.LOAD_OFFERING_ARRANGEMENTS);
+        require("7001".equals(transport.lastRequest.getData("planId"))
+                        && "1001".equals(transport.lastRequest.getData("offeringId")),
+                "plan and offering ids must travel as decimal strings");
+        require(views.size() == 1, "one arrangement expected");
+        ScheduleArrangementView view = views.get(0);
+        require("9001".equals(view.getArrangementId()) && "7001".equals(view.getPlanId())
+                        && "1001".equals(view.getOfferingId()),
+                "arrangement identity must map");
+        require(view.getSlots().size() == 2
+                        && view.getSlots().get(0).getDayOfWeek() == 1
+                        && view.getSlots().get(1).getEndPeriod() == 4,
+                "both typed slots must map");
+        require(view.getStartWeek() == 1 && view.getEndWeek() == 16
+                        && "DRAFT".equals(view.getStatus()) && view.getVersion() == 3,
+                "week range, status and version must map");
+        require(view.getTeacher() != null
+                        && "T1001".equals(view.getTeacher().getBusinessId())
+                        && view.getAssistant() == null
+                        && "3001".equals(view.getClassroom().getBusinessId()),
+                "resources must map, keeping a null assistant");
+
+        transport.respond(message -> message.putData("arrangements", List.of()));
+        service.loadOfferingArrangements("7001", null).join();
+        require(transport.lastRequest.getData("offeringId") == null,
+                "a null offering id must be omitted so all offering arrangements load");
+    }
+
+    private static void checkArrangementSendsRequestInstanceAndMapsConflicts() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("conflicts",
+                List.of(wireShaped(conflict()))));
+        SocketAdminCourseService service = new SocketAdminCourseService(transport);
+
+        SaveArrangementRequestDTO request = arrangementRequest("op-check", null, 0, false, null);
+        List<ScheduleConflictDTO> conflicts = service.checkArrangement(request).join();
+        requireEnvelope(transport, AdminCourseActions.CHECK_ARRANGEMENT);
+        require(transport.lastRequest.getData("request") == request,
+                "the check payload must be the DTO instance itself");
+        require(conflicts.size() == 1, "one conflict expected");
+        ScheduleConflictDTO conflict = conflicts.get(0);
+        require("TEACHER".equals(conflict.getType())
+                        && conflict.getSeverity() == ScheduleConflictSeverityDTO.OVERRIDABLE,
+                "conflict type and severity must map");
+        require(conflict.getWeek() == 1 && conflict.getDayOfWeek() == 1
+                        && conflict.getStartPeriod() == 1 && conflict.getEndPeriod() == 2,
+                "conflict window must map");
+        require("2001".equals(conflict.getRelatedOfferingId())
+                        && "教师时间冲突".equals(conflict.getMessage()),
+                "conflict relation and message must map");
+    }
+
+    private static void saveArrangementSendsRequestInstanceAndMapsView() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("result",
+                wireShaped(arrangementResult("op-save"))));
+        SocketAdminCourseService service = new SocketAdminCourseService(transport);
+
+        SaveArrangementRequestDTO request = arrangementRequest("op-save", null, 0, false, null);
+        AdminOperationResultView<ScheduleArrangementView> result =
+                service.saveArrangement(request).join();
+        requireEnvelope(transport, AdminCourseActions.SAVE_ARRANGEMENT);
+        require(transport.lastRequest.getData("request") == request,
+                "the save payload must be the DTO instance itself");
+        require("op-save".equals(result.getOperationId())
+                        && "OK".equals(result.getOutcomeCode())
+                        && "教学安排已保存".equals(result.getMessage()),
+                "save result envelope must map");
+        require(result.getEntity() != null
+                        && "9001".equals(result.getEntity().getArrangementId())
+                        && result.getEntity().getSlots().size() == 2,
+                "the saved arrangement must map to a view with both slots");
+    }
+
+    private static void deleteArrangementSendsTargetKeysAndMapsNullEntity() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("result", wireShaped(voidResult())));
+        SocketAdminCourseService service = new SocketAdminCourseService(transport);
+
+        AdminOperationResultView<Void> result =
+                service.deleteArrangement("9001", 3, "op-delete").join();
+        requireEnvelope(transport, AdminCourseActions.DELETE_ARRANGEMENT);
+        require("9001".equals(transport.lastRequest.getData("arrangementId")),
+                "arrangementId must travel as the decimal string");
+        require(Integer.valueOf(3).equals(transport.lastRequest.getData("expectedVersion")),
+                "expectedVersion must travel as an Integer");
+        require("op-delete".equals(transport.lastRequest.getData("operationId")),
+                "operationId must travel unchanged");
+        require(result.getEntity() == null, "a delete result must map a null entity");
+        require("op-delete".equals(result.getOperationId())
+                        && "教学安排已删除".equals(result.getMessage()),
+                "delete result fields must map");
+    }
+
+    private static void publishSchedulePlanSendsTargetKeysAndMapsPlanView() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("result", wireShaped(planResult())));
+        SocketAdminCourseService service = new SocketAdminCourseService(transport);
+
+        AdminOperationResultView<SchedulePlanView> result = service.publishSchedulePlan(
+                "7001", 1, "op-publish", true, "教室临时调整").join();
+        requireEnvelope(transport, AdminCourseActions.PUBLISH_SCHEDULE_PLAN);
+        require("7001".equals(transport.lastRequest.getData("planId"))
+                        && Integer.valueOf(1).equals(transport.lastRequest.getData("expectedRevision")),
+                "planId and expectedRevision must travel");
+        require("op-publish".equals(transport.lastRequest.getData("operationId")),
+                "operationId must travel unchanged");
+        require(Boolean.TRUE.equals(transport.lastRequest.getData("force"))
+                        && "教室临时调整".equals(transport.lastRequest.getData("overrideReason")),
+                "force intent and reason must travel for server-side trimming");
+        require(result.getEntity() != null
+                        && "7001".equals(result.getEntity().getPlanId())
+                        && "PUBLISHED".equals(result.getEntity().getStatus())
+                        && result.getEntity().getRevision() == 2,
+                "the published plan must map to a view");
+    }
+
+    private static void schedulingConflictMapsLatestArrangement() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> {
+            message.setCode(MessageCode.CONFLICT);
+            message.setMessage("存在阻断性冲突，无法保存");
+            message.putData("conflicts", List.of(wireShaped(conflict())));
+            message.putData("latest", wireShaped(arrangementDto()));
+        });
+        SocketAdminCourseService service = new SocketAdminCourseService(transport);
+
+        boolean thrown = false;
+        try {
+            service.saveArrangement(arrangementRequest("op-save", null, 0, false, null)).join();
+        } catch (CompletionException failure) {
+            if (failure.getCause()
+                    instanceof SocketAdminCourseService.AdminCourseServiceException error) {
+                thrown = true;
+                require(error.getCode() == MessageCode.CONFLICT,
+                        "a scheduling conflict must keep the CONFLICT code");
+                require(error.getLatest() instanceof ScheduleArrangementView,
+                        "a scheduling conflict must map latest to a ScheduleArrangementView, "
+                                + "not a raw map");
+                ScheduleArrangementView latest = (ScheduleArrangementView) error.getLatest();
+                require("9001".equals(latest.getArrangementId())
+                                && latest.getVersion() == 3,
+                        "the mapped latest arrangement must keep its id and version");
+            }
+        }
+        require(thrown, "a scheduling conflict must fail with AdminCourseServiceException");
+    }
+
+    private static ScheduleResourceDTO resource() {
+        return new ScheduleResourceDTO("8001", "T1001", "张老师", "teacher", 0);
+    }
+
+    private static ScheduleConflictDTO conflict() {
+        return new ScheduleConflictDTO("TEACHER", ScheduleConflictSeverityDTO.OVERRIDABLE,
+                "8001", "2001", 1, 1, 1, 2, "教师时间冲突");
+    }
+
+    private static SchedulePlanDTO planDto() {
+        return new SchedulePlanDTO("7001", "2026 秋排课方案", 1, "DRAFT", false,
+                List.of(new ScheduleConflictDTO("TEACHER", ScheduleConflictSeverityDTO.BLOCKING,
+                        "8001", "2001", 1, 1, 1, 2, "教师时间冲突")));
+    }
+
+    private static ScheduleArrangementDTO arrangementDto() {
+        List<ScheduleSlotDTO> slots = new ArrayList<>();
+        slots.add(new ScheduleSlotDTO(1, 1, 2));
+        slots.add(new ScheduleSlotDTO(3, 3, 4));
+        return new ScheduleArrangementDTO("9001", "7001", "1001", resource(), null,
+                new ScheduleResourceDTO("8101", "3001", "A-101", "classroom", 120), slots,
+                1, 16, "DRAFT", 3);
+    }
+
+    private static SaveArrangementRequestDTO arrangementRequest(String operationId,
+            String arrangementId, int expectedVersion, boolean force, String reason) {
+        List<ScheduleSlotDTO> slots = new ArrayList<>();
+        slots.add(new ScheduleSlotDTO(1, 1, 2));
+        slots.add(new ScheduleSlotDTO(3, 3, 4));
+        return new SaveArrangementRequestDTO(operationId, arrangementId, expectedVersion,
+                "7001", "1001", "T1001", null, "3001", slots, 1, 16, force, reason);
+    }
+
+    private static AdminOperationResultDTO<ScheduleArrangementDTO> arrangementResult(
+            String operationId) {
+        return new AdminOperationResultDTO<>(operationId, "OK", "教学安排已保存",
+                arrangementDto(), List.of(conflict()));
+    }
+
+    private static AdminOperationResultDTO<SchedulePlanDTO> planResult() {
+        return new AdminOperationResultDTO<>("op-publish", "OK", "排课方案已发布",
+                new SchedulePlanDTO("7001", "2026 秋排课方案", 2, "PUBLISHED", true, List.of()),
+                List.of());
+    }
+
+    private static AdminOperationResultDTO<Void> voidResult() {
+        return new AdminOperationResultDTO<>("op-delete", "OK", "教学安排已删除", null, List.of());
     }
 
     private static void requireResult(AdminOperationResultView<AdminCourseView> result,

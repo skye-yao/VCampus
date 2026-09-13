@@ -5,12 +5,14 @@ import dto.course.admin.AdminCourseActions;
 import dto.course.admin.catalog.CourseEditorRequestDTO;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
 import dto.course.admin.result.AdminOperationResultDTO;
+import dto.course.admin.schedule.SaveArrangementRequestDTO;
 import exception.DatabaseException;
 import protocol.Message;
 import protocol.MessageCode;
 import protocol.MessageType;
 import service.AdminCourseCatalogService;
 import service.AdminOfferingService;
+import service.ScheduleManagementService;
 import session.SessionManager;
 import session.UserSession;
 
@@ -22,13 +24,6 @@ public class AdminCourseHandler {
 
     /** 动作登记表里已定义、但由后续计划开放的管理员操作。 */
     private static final Set<String> UNAVAILABLE_ACTIONS = Set.of(
-            AdminCourseActions.LIST_SCHEDULE_RESOURCES,
-            AdminCourseActions.LOAD_SCHEDULE_PLAN,
-            AdminCourseActions.LOAD_OFFERING_ARRANGEMENTS,
-            AdminCourseActions.CHECK_ARRANGEMENT,
-            AdminCourseActions.SAVE_ARRANGEMENT,
-            AdminCourseActions.DELETE_ARRANGEMENT,
-            AdminCourseActions.PUBLISH_SCHEDULE_PLAN,
             AdminCourseActions.SEARCH_STUDENTS,
             AdminCourseActions.LIST_OFFERING_STUDENTS,
             AdminCourseActions.PREVIEW_ADMIN_ENROLLMENT,
@@ -43,16 +38,30 @@ public class AdminCourseHandler {
 
     private final AdminCourseCatalogService catalog;
     private final AdminOfferingService offerings;
+    private final ScheduleManagementService scheduling;
     private final Gson gson = new Gson();
 
     public AdminCourseHandler() {
-        this(new AdminCourseCatalogService(), new AdminOfferingService());
+        this(new AdminCourseCatalogService(), new AdminOfferingService(),
+                new ScheduleManagementService());
+    }
+
+    /**
+     * Catalog-only handler. Scheduling stays unavailable here so the Task 1 regression that
+     * pins "该管理员操作尚未开放" for a scheduling action remains valid; production uses the
+     * no-argument constructor, which wires the real scheduling service.
+     */
+    public AdminCourseHandler(AdminCourseCatalogService catalog,
+                              AdminOfferingService offerings) {
+        this(catalog, offerings, null);
     }
 
     public AdminCourseHandler(AdminCourseCatalogService catalog,
-                              AdminOfferingService offerings) {
+                              AdminOfferingService offerings,
+                              ScheduleManagementService scheduling) {
         this.catalog = catalog;
         this.offerings = offerings;
+        this.scheduling = scheduling;
     }
 
     public Message handle(Message request) {
@@ -96,6 +105,27 @@ public class AdminCourseHandler {
                 case AdminCourseActions.DELETE_DRAFT_OFFERING -> mutation(response,
                         offerings.deleteDraft(uid, decimalId(request, "offeringId"),
                                 integer(request, "expectedVersion"), text(request, "operationId")));
+                case AdminCourseActions.LIST_SCHEDULE_RESOURCES -> response.putData("resources",
+                        scheduling().listResources(optionalText(request, "type"),
+                                optionalText(request, "query")));
+                case AdminCourseActions.LOAD_SCHEDULE_PLAN -> response.putData("plan",
+                        scheduling().loadPlan(integer(request, "academicYear"),
+                                integer(request, "semester")));
+                case AdminCourseActions.LOAD_OFFERING_ARRANGEMENTS -> response.putData(
+                        "arrangements", scheduling().listArrangements(
+                                decimalId(request, "planId"),
+                                optionalText(request, "offeringId")));
+                case AdminCourseActions.CHECK_ARRANGEMENT -> response.putData("conflicts",
+                        scheduling().checkArrangement(arrangementRequest(request)));
+                case AdminCourseActions.SAVE_ARRANGEMENT -> mutation(response,
+                        scheduling().save(uid, arrangementRequest(request)));
+                case AdminCourseActions.DELETE_ARRANGEMENT -> mutation(response,
+                        scheduling().delete(uid, decimalId(request, "arrangementId"),
+                                integer(request, "expectedVersion"), text(request, "operationId")));
+                case AdminCourseActions.PUBLISH_SCHEDULE_PLAN -> mutation(response,
+                        scheduling().publish(uid, decimalId(request, "planId"),
+                                integer(request, "expectedRevision"), text(request, "operationId"),
+                                flag(request, "force"), optionalText(request, "overrideReason")));
                 default -> {
                     return failure(response, MessageCode.BAD_REQUEST,
                             UNAVAILABLE_ACTIONS.contains(action)
@@ -113,6 +143,10 @@ public class AdminCourseHandler {
             return conflict(response, failure.getMessage(), failure.getLatest());
         } catch (AdminOfferingService.ConflictException failure) {
             return conflict(response, failure.getMessage(), failure.getLatest());
+        } catch (ScheduleManagementService.NotFoundException failure) {
+            return failure(response, MessageCode.NOT_FOUND, failure.getMessage());
+        } catch (ScheduleManagementService.ConflictException failure) {
+            return scheduleConflict(response, failure);
         } catch (DatabaseException failure) {
             return failure(response, MessageCode.ERROR, "课程管理服务暂不可用");
         } catch (RuntimeException failure) {
@@ -144,6 +178,38 @@ public class AdminCourseHandler {
         response.setMessage(message);
         if (latest != null) response.putData("latest", latest);
         return response;
+    }
+
+    private static Message scheduleConflict(Message response,
+                                            ScheduleManagementService.ConflictException failure) {
+        response.setCode(MessageCode.CONFLICT);
+        response.setMessage(failure.getMessage());
+        response.putData("conflicts", failure.getConflicts());
+        if (failure.getEntity() != null) response.putData("latest", failure.getEntity());
+        return response;
+    }
+
+    private ScheduleManagementService scheduling() {
+        if (scheduling == null) {
+            throw new IllegalArgumentException("该管理员操作尚未开放");
+        }
+        return scheduling;
+    }
+
+    private SaveArrangementRequestDTO arrangementRequest(Message request) {
+        return payload(request, SaveArrangementRequestDTO.class);
+    }
+
+    private static boolean flag(Message request, String key) {
+        Map<String, Object> data = request.getData();
+        Object value = data == null ? null : data.get(key);
+        if (value == null) return false;
+        if (value instanceof Boolean flag) return flag;
+        if (value instanceof String text) {
+            if ("true".equalsIgnoreCase(text)) return true;
+            if ("false".equalsIgnoreCase(text)) return false;
+        }
+        throw new IllegalArgumentException(key + " 必须为布尔值");
     }
 
     private <T> T payload(Message request, Class<T> type) {

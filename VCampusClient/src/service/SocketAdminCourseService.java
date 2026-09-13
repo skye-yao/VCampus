@@ -15,9 +15,16 @@ import dto.course.admin.catalog.AdminOfferingDTO;
 import dto.course.admin.catalog.CourseEditorRequestDTO;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
 import dto.course.admin.result.AdminOperationResultDTO;
+import dto.course.admin.schedule.SaveArrangementRequestDTO;
+import dto.course.admin.schedule.ScheduleArrangementDTO;
+import dto.course.admin.schedule.ScheduleConflictDTO;
+import dto.course.admin.schedule.SchedulePlanDTO;
+import dto.course.admin.schedule.ScheduleResourceDTO;
 import model.course.admin.AdminCourseView;
 import model.course.admin.AdminOfferingView;
 import model.course.admin.AdminOperationResultView;
+import model.course.admin.ScheduleArrangementView;
+import model.course.admin.SchedulePlanView;
 import protocol.Message;
 import protocol.MessageCode;
 import protocol.MessageType;
@@ -32,6 +39,10 @@ public final class SocketAdminCourseService implements AdminCourseService {
             AdminOperationResultDTO.class, AdminOfferingDTO.class).getType();
     private static final Type VOID_RESULT_TYPE = TypeToken.getParameterized(
             AdminOperationResultDTO.class, Void.class).getType();
+    private static final Type ARRANGEMENT_RESULT_TYPE = TypeToken.getParameterized(
+            AdminOperationResultDTO.class, ScheduleArrangementDTO.class).getType();
+    private static final Type PLAN_RESULT_TYPE = TypeToken.getParameterized(
+            AdminOperationResultDTO.class, SchedulePlanDTO.class).getType();
 
     private final AdminCourseTransport transport;
     private final Gson gson = new Gson();
@@ -138,6 +149,120 @@ public final class SocketAdminCourseService implements AdminCourseService {
         return map(request,
                 response -> courseResult(read(response, "result", COURSE_RESULT_TYPE)),
                 this::latestCourse);
+    }
+
+    @Override
+    public CompletableFuture<List<ScheduleResourceDTO>> listScheduleResources(
+            String type, String query) {
+        Message request = request(AdminCourseActions.LIST_SCHEDULE_RESOURCES);
+        if (type != null) request.putData("type", type);
+        if (query != null) request.putData("query", query);
+        return map(request, response -> List.copyOf(
+                list(response, "resources", ScheduleResourceDTO.class)));
+    }
+
+    @Override
+    public CompletableFuture<SchedulePlanDTO> loadSchedulePlan(int academicYear, int semester) {
+        Message request = request(AdminCourseActions.LOAD_SCHEDULE_PLAN);
+        request.putData("academicYear", academicYear);
+        request.putData("semester", semester);
+        return map(request, response -> read(response, "plan", SchedulePlanDTO.class));
+    }
+
+    @Override
+    public CompletableFuture<List<ScheduleArrangementView>> loadOfferingArrangements(
+            String planId, String offeringId) {
+        Message request = request(AdminCourseActions.LOAD_OFFERING_ARRANGEMENTS);
+        request.putData("planId", planId);
+        if (offeringId != null) request.putData("offeringId", offeringId);
+        return map(request, response -> {
+            List<ScheduleArrangementView> arrangements = new ArrayList<>();
+            for (ScheduleArrangementDTO dto : list(response, "arrangements",
+                    ScheduleArrangementDTO.class)) {
+                arrangements.add(arrangement(dto));
+            }
+            return List.copyOf(arrangements);
+        });
+    }
+
+    @Override
+    public CompletableFuture<List<ScheduleConflictDTO>> checkArrangement(
+            SaveArrangementRequestDTO request) {
+        Message message = request(AdminCourseActions.CHECK_ARRANGEMENT);
+        message.putData("request", request);
+        return map(message, response -> List.copyOf(
+                list(response, "conflicts", ScheduleConflictDTO.class)));
+    }
+
+    @Override
+    public CompletableFuture<AdminOperationResultView<ScheduleArrangementView>> saveArrangement(
+            SaveArrangementRequestDTO request) {
+        Message message = request(AdminCourseActions.SAVE_ARRANGEMENT);
+        message.putData("request", request);
+        return map(message,
+                response -> arrangementResult(read(response, "result", ARRANGEMENT_RESULT_TYPE)),
+                this::latestArrangement);
+    }
+
+    @Override
+    public CompletableFuture<AdminOperationResultView<Void>> deleteArrangement(
+            String arrangementId, int expectedVersion, String operationId) {
+        Message request = request(AdminCourseActions.DELETE_ARRANGEMENT);
+        request.putData("arrangementId", arrangementId);
+        request.putData("expectedVersion", expectedVersion);
+        request.putData("operationId", operationId);
+        return map(request, response -> {
+            AdminOperationResultDTO<Void> dto = read(response, "result", VOID_RESULT_TYPE);
+            return new AdminOperationResultView<>(dto.getOperationId(), dto.getOutcomeCode(),
+                    dto.getMessage(), null);
+        }, this::latestArrangement);
+    }
+
+    @Override
+    public CompletableFuture<AdminOperationResultView<SchedulePlanView>> publishSchedulePlan(
+            String planId, int expectedRevision, String operationId,
+            boolean force, String overrideReason) {
+        Message request = request(AdminCourseActions.PUBLISH_SCHEDULE_PLAN);
+        request.putData("planId", planId);
+        request.putData("expectedRevision", expectedRevision);
+        request.putData("operationId", operationId);
+        request.putData("force", force);
+        request.putData("overrideReason", overrideReason);
+        return map(request,
+                response -> planResult(read(response, "result", PLAN_RESULT_TYPE)),
+                this::latestPlan);
+    }
+
+    private ScheduleArrangementView latestArrangement(Object value) {
+        return arrangement(gson.fromJson(gson.toJson(value), ScheduleArrangementDTO.class));
+    }
+
+    private SchedulePlanView latestPlan(Object value) {
+        return plan(gson.fromJson(gson.toJson(value), SchedulePlanDTO.class));
+    }
+
+    private static ScheduleArrangementView arrangement(ScheduleArrangementDTO dto) {
+        return new ScheduleArrangementView(dto.getArrangementId(), dto.getPlanId(),
+                dto.getOfferingId(), dto.getTeacher(), dto.getAssistant(), dto.getClassroom(),
+                dto.getSlots(), dto.getStartWeek(), dto.getEndWeek(), dto.getStatus(),
+                dto.getVersion());
+    }
+
+    private static SchedulePlanView plan(SchedulePlanDTO dto) {
+        return new SchedulePlanView(dto.getPlanId(), dto.getName(), dto.getRevision(),
+                dto.getStatus(), dto.isCurrent(), dto.getConflicts());
+    }
+
+    private static AdminOperationResultView<ScheduleArrangementView> arrangementResult(
+            AdminOperationResultDTO<ScheduleArrangementDTO> dto) {
+        return new AdminOperationResultView<>(dto.getOperationId(), dto.getOutcomeCode(),
+                dto.getMessage(), dto.getEntity() == null ? null : arrangement(dto.getEntity()));
+    }
+
+    private static AdminOperationResultView<SchedulePlanView> planResult(
+            AdminOperationResultDTO<SchedulePlanDTO> dto) {
+        return new AdminOperationResultView<>(dto.getOperationId(), dto.getOutcomeCode(),
+                dto.getMessage(), dto.getEntity() == null ? null : plan(dto.getEntity()));
     }
 
     private CompletableFuture<AdminOperationResultView<AdminCourseView>> courseTargetMutation(

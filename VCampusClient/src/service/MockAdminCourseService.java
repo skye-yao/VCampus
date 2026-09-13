@@ -8,9 +8,17 @@ import java.util.concurrent.CompletableFuture;
 
 import dto.course.admin.catalog.CourseEditorRequestDTO;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
+import dto.course.admin.schedule.SaveArrangementRequestDTO;
+import dto.course.admin.schedule.ScheduleConflictDTO;
+import dto.course.admin.schedule.ScheduleConflictSeverityDTO;
+import dto.course.admin.schedule.SchedulePlanDTO;
+import dto.course.admin.schedule.ScheduleResourceDTO;
+import dto.course.admin.schedule.ScheduleSlotDTO;
 import model.course.admin.AdminCourseView;
 import model.course.admin.AdminOfferingView;
 import model.course.admin.AdminOperationResultView;
+import model.course.admin.ScheduleArrangementView;
+import model.course.admin.SchedulePlanView;
 import protocol.MessageCode;
 import service.SocketAdminCourseService.AdminCourseServiceException;
 
@@ -22,14 +30,26 @@ import service.SocketAdminCourseService.AdminCourseServiceException;
 public final class MockAdminCourseService implements AdminCourseService {
     private static final String ACTIVE = "ACTIVE";
     private static final String ARCHIVED = "ARCHIVED";
+    private static final String PLAN_ID = "7001";
+    private static final String PLAN_NAME = "2026-2027 学年第一学期排课方案";
+    private static final int PLAN_YEAR = 2026;
+    private static final int PLAN_SEMESTER = 1;
+    private static final String DRAFT = "DRAFT";
+    private static final String PUBLISHED = "PUBLISHED";
+    private static final String TEACHER_RESOURCE = "teacher";
+    private static final String CLASSROOM_RESOURCE = "classroom";
 
     private final Map<String, AdminCourseView> courses = new LinkedHashMap<>();
     private final Map<String, AdminOfferingView> offerings = new LinkedHashMap<>();
+    private final Map<String, ScheduleArrangementView> arrangements = new LinkedHashMap<>();
     private final Map<String, AdminOperationResultView<?>> operationResults =
             new LinkedHashMap<>();
 
     private long nextCourseId = 401;
     private long nextOfferingId = 4001;
+    private long nextArrangementId = 9002;
+    private PlanState plan = new PlanState(PLAN_ID, PLAN_NAME, PLAN_YEAR, PLAN_SEMESTER, 1,
+            DRAFT, false);
 
     public MockAdminCourseService() {
         addCourse(new AdminCourseView("101", "CS203", "数据结构", "必修", 4.0, 64,
@@ -47,6 +67,13 @@ public final class MockAdminCourseService implements AdminCourseService {
                 "NOT_OPEN", "T2003", "王老师", null, null, "UNSCHEDULED", 1));
         addOffering(new AdminOfferingView("3001", "OFF-3001", "301", 2026, 1, 80, 0,
                 "CANCELLED", "T3001", "赵老师", null, null, "SCHEDULED", 1));
+
+        addArrangement(new ScheduleArrangementView("9001", PLAN_ID, "1001",
+                new ScheduleResourceDTO("8001", "T1001", "张老师", TEACHER_RESOURCE, 0),
+                null,
+                new ScheduleResourceDTO("8101", "3001", "A-101", CLASSROOM_RESOURCE, 120),
+                List.of(new ScheduleSlotDTO(1, 1, 2), new ScheduleSlotDTO(3, 3, 4)),
+                1, 16, DRAFT, 1));
     }
 
     @Override
@@ -267,6 +294,322 @@ public final class MockAdminCourseService implements AdminCourseService {
             return CompletableFuture.completedFuture(result);
         } catch (RuntimeException failure) {
             return failed(failure);
+        }
+    }
+
+    @Override
+    public CompletableFuture<List<ScheduleResourceDTO>> listScheduleResources(
+            String type, String query) {
+        String typeFilter = blankToNull(type);
+        if (typeFilter != null && !TEACHER_RESOURCE.equals(typeFilter)
+                && !CLASSROOM_RESOURCE.equals(typeFilter)) {
+            return failed(badRequest("未知的排课资源类型"));
+        }
+        String queryFilter = blankToNull(query);
+        List<ScheduleResourceDTO> result = new ArrayList<>();
+        if (typeFilter == null || TEACHER_RESOURCE.equals(typeFilter)) {
+            collectResources(result, teacherResources(), queryFilter);
+        }
+        if (typeFilter == null || CLASSROOM_RESOURCE.equals(typeFilter)) {
+            collectResources(result, classroomResources(), queryFilter);
+        }
+        return CompletableFuture.completedFuture(List.copyOf(result));
+    }
+
+    @Override
+    public CompletableFuture<SchedulePlanDTO> loadSchedulePlan(int academicYear, int semester) {
+        if (academicYear <= 0) return failed(badRequest("学年无效"));
+        if (semester < 1 || semester > 3) return failed(badRequest("学期无效"));
+        PlanState current = plan;
+        if (current.academicYear != academicYear || current.semester != semester) {
+            return failed(notFound("该学期尚未创建排课方案"));
+        }
+        return CompletableFuture.completedFuture(new SchedulePlanDTO(current.planId,
+                current.name, current.revision, current.status, current.current, List.of()));
+    }
+
+    @Override
+    public CompletableFuture<List<ScheduleArrangementView>> loadOfferingArrangements(
+            String planId, String offeringId) {
+        if (!PLAN_ID.equals(planId)) return failed(notFound("排课方案不存在"));
+        List<ScheduleArrangementView> result = new ArrayList<>();
+        for (ScheduleArrangementView arrangement : arrangements.values()) {
+            if (offeringId == null || offeringId.equals(arrangement.getOfferingId())) {
+                result.add(arrangement);
+            }
+        }
+        return CompletableFuture.completedFuture(List.copyOf(result));
+    }
+
+    @Override
+    public CompletableFuture<List<ScheduleConflictDTO>> checkArrangement(
+            SaveArrangementRequestDTO request) {
+        try {
+            return CompletableFuture.completedFuture(conflicts(request));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    @Override
+    public CompletableFuture<AdminOperationResultView<ScheduleArrangementView>> saveArrangement(
+            SaveArrangementRequestDTO request) {
+        AdminOperationResultView<ScheduleArrangementView> replay =
+                replay(request == null ? null : request.getOperationId());
+        if (replay != null) return CompletableFuture.completedFuture(replay);
+        try {
+            requireArrangementRequest(request);
+            if (!PLAN_ID.equals(request.getPlanId())) throw notFound("排课方案不存在");
+            List<ScheduleConflictDTO> found = conflicts(request);
+            for (ScheduleConflictDTO entry : found) {
+                if (ScheduleConflictSeverityDTO.BLOCKING == entry.getSeverity()) {
+                    throw conflict("存在阻断性冲突，无法保存");
+                }
+            }
+            if (!request.isForce() && !found.isEmpty()) {
+                throw conflict("存在可绕过冲突，请确认后强制保存");
+            }
+            if (request.isForce() && blankToNull(request.getOverrideReason()) == null) {
+                throw badRequest("强制保存必须填写原因");
+            }
+            ScheduleArrangementView saved = applyArrangement(request);
+            return CompletableFuture.completedFuture(
+                    remember(request.getOperationId(), "教学安排已保存", saved));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    @Override
+    public CompletableFuture<AdminOperationResultView<Void>> deleteArrangement(
+            String arrangementId, int expectedVersion, String operationId) {
+        AdminOperationResultView<Void> replay = replay(operationId);
+        if (replay != null) return CompletableFuture.completedFuture(replay);
+        try {
+            requireOperationId(operationId);
+            ScheduleArrangementView current = requireArrangement(arrangementId);
+            requireVersion(current.getVersion(), expectedVersion);
+            arrangements.remove(current.getArrangementId());
+            AdminOperationResultView<Void> result =
+                    new AdminOperationResultView<>(operationId, "OK", "教学安排已删除", null);
+            operationResults.put(operationId, result);
+            return CompletableFuture.completedFuture(result);
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    @Override
+    public CompletableFuture<AdminOperationResultView<SchedulePlanView>> publishSchedulePlan(
+            String planId, int expectedRevision, String operationId,
+            boolean force, String overrideReason) {
+        AdminOperationResultView<SchedulePlanView> replay = replay(operationId);
+        if (replay != null) return CompletableFuture.completedFuture(replay);
+        try {
+            requireOperationId(operationId);
+            PlanState current = requirePlan(planId);
+            if (current.revision != expectedRevision) {
+                throw conflict("方案修订号已变化，请刷新后重试");
+            }
+            if (!DRAFT.equals(current.status)) throw conflict("只有草稿方案可以发布");
+            if (force && blankToNull(overrideReason) == null) {
+                throw badRequest("强制发布必须填写原因");
+            }
+            current.revision += 1;
+            current.status = PUBLISHED;
+            current.current = true;
+            return CompletableFuture.completedFuture(
+                    remember(operationId, "排课方案已发布", planView(current)));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    private ScheduleArrangementView applyArrangement(SaveArrangementRequestDTO request) {
+        String arrangementId = blankToNull(request.getArrangementId());
+        List<ScheduleSlotDTO> slots = List.copyOf(request.getSlots());
+        if (arrangementId == null) {
+            ScheduleArrangementView created = new ScheduleArrangementView(
+                    Long.toString(nextArrangementId++), PLAN_ID, request.getOfferingId(),
+                    teacherResource(request.getTeacherUid()),
+                    assistantResource(request.getAssistantUid()),
+                    classroomResource(request.getClassroomId()), slots,
+                    request.getStartWeek(), request.getEndWeek(), DRAFT, 1);
+            addArrangement(created);
+            return created;
+        }
+        ScheduleArrangementView current = requireArrangement(arrangementId);
+        requireVersion(current.getVersion(), request.getExpectedVersion());
+        ScheduleArrangementView updated = new ScheduleArrangementView(current.getArrangementId(),
+                PLAN_ID, request.getOfferingId(), teacherResource(request.getTeacherUid()),
+                assistantResource(request.getAssistantUid()),
+                classroomResource(request.getClassroomId()), slots,
+                request.getStartWeek(), request.getEndWeek(), current.getStatus(),
+                current.getVersion() + 1);
+        addArrangement(updated);
+        return updated;
+    }
+
+    private List<ScheduleConflictDTO> conflicts(SaveArrangementRequestDTO request) {
+        requireArrangementRequest(request);
+        if (!PLAN_ID.equals(request.getPlanId())) throw notFound("排课方案不存在");
+        boolean selfOverlap = false;
+        ScheduleSlotDTO selfOverlapSlot = null;
+        ScheduleConflictDTO teacherWarning = null;
+        String requestedArrangementId = blankToNull(request.getArrangementId());
+        for (ScheduleArrangementView existing : arrangements.values()) {
+            if (existing.getArrangementId().equals(requestedArrangementId)) continue;
+            ScheduleSlotDTO overlap = overlappingSlot(existing.getSlots(), request.getSlots());
+            if (overlap == null) continue;
+            if (existing.getOfferingId().equals(request.getOfferingId())) {
+                selfOverlap = true;
+                if (selfOverlapSlot == null) selfOverlapSlot = overlap;
+                continue;
+            }
+            if (teacherWarning == null && sameTeacher(existing, request)) {
+                teacherWarning = new ScheduleConflictDTO("TEACHER",
+                        ScheduleConflictSeverityDTO.OVERRIDABLE,
+                        existing.getTeacher().getResourceId(), existing.getOfferingId(),
+                        request.getStartWeek(), overlap.getDayOfWeek(),
+                        overlap.getStartPeriod(), overlap.getEndPeriod(),
+                        "任课教师在该时间段已有教学安排");
+            }
+        }
+        if (selfOverlap) {
+            return List.of(new ScheduleConflictDTO("OFFERING_SELF_OVERLAP",
+                    ScheduleConflictSeverityDTO.BLOCKING, request.getOfferingId(),
+                    request.getOfferingId(), request.getStartWeek(),
+                    selfOverlapSlot.getDayOfWeek(), selfOverlapSlot.getStartPeriod(),
+                    selfOverlapSlot.getEndPeriod(), "同一教学班的时间段与现有安排重叠"));
+        }
+        if (teacherWarning != null) return List.of(teacherWarning);
+        return List.of();
+    }
+
+    private static ScheduleSlotDTO overlappingSlot(List<ScheduleSlotDTO> existing,
+            List<ScheduleSlotDTO> requested) {
+        for (ScheduleSlotDTO left : existing) {
+            for (ScheduleSlotDTO right : requested) {
+                if (left.getDayOfWeek() == right.getDayOfWeek()
+                        && left.getStartPeriod() <= right.getEndPeriod()
+                        && right.getStartPeriod() <= left.getEndPeriod()) {
+                    return right;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static boolean sameTeacher(ScheduleArrangementView existing,
+            SaveArrangementRequestDTO request) {
+        boolean teacher = existing.getTeacher() != null
+                && existing.getTeacher().getBusinessId().equals(request.getTeacherUid());
+        boolean assistant = existing.getAssistant() != null
+                && existing.getAssistant().getBusinessId().equals(request.getAssistantUid());
+        return teacher || assistant;
+    }
+
+    private ScheduleArrangementView requireArrangement(String arrangementId) {
+        ScheduleArrangementView arrangement =
+                arrangementId == null ? null : arrangements.get(arrangementId);
+        if (arrangement == null) throw notFound("教学安排不存在");
+        return arrangement;
+    }
+
+    private PlanState requirePlan(String planId) {
+        if (!PLAN_ID.equals(planId)) throw notFound("排课方案不存在");
+        return plan;
+    }
+
+    private static SchedulePlanView planView(PlanState state) {
+        return new SchedulePlanView(state.planId, state.name, state.revision, state.status,
+                state.current, List.of());
+    }
+
+    private void addArrangement(ScheduleArrangementView arrangement) {
+        arrangements.put(arrangement.getArrangementId(), arrangement);
+    }
+
+    private static void collectResources(List<ScheduleResourceDTO> result,
+            List<ScheduleResourceDTO> candidates, String query) {
+        for (ScheduleResourceDTO resource : candidates) {
+            if (query == null || matches(resource.getName(), query)
+                    || matches(resource.getBusinessId(), query)) {
+                result.add(resource);
+            }
+        }
+    }
+
+    private static List<ScheduleResourceDTO> teacherResources() {
+        return List.of(new ScheduleResourceDTO("8001", "T1001", "张老师", TEACHER_RESOURCE, 0),
+                new ScheduleResourceDTO("8002", "T2001", "李老师", TEACHER_RESOURCE, 0));
+    }
+
+    private static List<ScheduleResourceDTO> classroomResources() {
+        return List.of(
+                new ScheduleResourceDTO("8101", "3001", "A-101", CLASSROOM_RESOURCE, 120),
+                new ScheduleResourceDTO("8102", "3002", "A-102", CLASSROOM_RESOURCE, 60));
+    }
+
+    private static ScheduleResourceDTO teacherResource(String uid) {
+        for (ScheduleResourceDTO resource : teacherResources()) {
+            if (resource.getBusinessId().equals(uid)) return resource;
+        }
+        return new ScheduleResourceDTO(uid, uid, uid, TEACHER_RESOURCE, 0);
+    }
+
+    private static ScheduleResourceDTO assistantResource(String uid) {
+        String assistant = blankToNull(uid);
+        return assistant == null ? null : teacherResource(assistant);
+    }
+
+    private static ScheduleResourceDTO classroomResource(String classroomId) {
+        for (ScheduleResourceDTO resource : classroomResources()) {
+            if (resource.getBusinessId().equals(classroomId)) return resource;
+        }
+        return new ScheduleResourceDTO(classroomId, classroomId, classroomId,
+                CLASSROOM_RESOURCE, 0);
+    }
+
+    private static void requireArrangementRequest(SaveArrangementRequestDTO request) {
+        if (request == null) throw badRequest("请求不能为空");
+        requireOperationId(request.getOperationId());
+        requireId(request.getPlanId(), "planId");
+        requireId(request.getOfferingId(), "offeringId");
+        requireId(request.getClassroomId(), "classroomId");
+        requireText(request.getTeacherUid(), "任课教师");
+        if (request.getSlots() == null || request.getSlots().isEmpty()) {
+            throw badRequest("时间段不能为空");
+        }
+        if (request.getStartWeek() < 1 || request.getEndWeek() < request.getStartWeek()) {
+            throw badRequest("周次范围无效");
+        }
+    }
+
+    private static void requireId(String value, String field) {
+        if (value == null || !value.matches("[0-9]+")) {
+            throw badRequest(field + "必须为十进制字符串");
+        }
+    }
+
+    private static final class PlanState {
+        private final String planId;
+        private final String name;
+        private final int academicYear;
+        private final int semester;
+        private int revision;
+        private String status;
+        private boolean current;
+
+        private PlanState(String planId, String name, int academicYear, int semester,
+                int revision, String status, boolean current) {
+            this.planId = planId;
+            this.name = name;
+            this.academicYear = academicYear;
+            this.semester = semester;
+            this.revision = revision;
+            this.status = status;
+            this.current = current;
         }
     }
 
