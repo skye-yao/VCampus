@@ -107,6 +107,24 @@ public class CourseScheduleDAO {
 
     private static long publishedPlanId(Connection connection, int academicYear, int semester)
             throws SQLException {
+        String current = "SELECT sp.id FROM teaching_calendar cal"
+                + " LEFT JOIN schedule_plan sp ON sp.id = cal.current_schedule_plan_id"
+                + " AND sp.calendar_id = cal.id AND sp.status = 'PUBLISHED'"
+                + " WHERE cal.academic_year = ? AND cal.semester = ?"
+                + " AND cal.current_schedule_plan_id IS NOT NULL"
+                + " ORDER BY cal.version DESC, cal.id DESC LIMIT 1";
+        try (PreparedStatement statement = connection.prepareStatement(current)) {
+            statement.setInt(1, academicYear);
+            statement.setInt(2, semester);
+            try (ResultSet rows = statement.executeQuery()) {
+                if (rows.next()) {
+                    long planId = rows.getLong(1);
+                    if (rows.wasNull()) throw new SQLException("Current schedule plan is unavailable");
+                    return planId;
+                }
+            }
+        }
+        // Pre-V004 data has no current pointer and still uses the selection-window binding.
         String sql = "SELECT win.schedule_plan_id FROM course_selection_window win"
                 + " JOIN schedule_plan sp ON sp.id = win.schedule_plan_id"
                 + " WHERE win.academic_year = ? AND win.semester = ?"
