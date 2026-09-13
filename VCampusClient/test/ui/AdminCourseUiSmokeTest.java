@@ -15,29 +15,41 @@ import javafx.animation.PauseTransition;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.embed.swing.SwingFXUtils;
+import javafx.event.Event;
 import javafx.fxml.FXMLLoader;
+import javafx.geometry.Bounds;
 import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonType;
+import javafx.scene.control.ComboBox;
 import javafx.scene.control.DialogPane;
 import javafx.scene.control.Label;
 import javafx.scene.control.MenuButton;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextField;
 import javafx.scene.image.WritableImage;
+import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 import javafx.stage.Window;
+import javafx.stage.WindowEvent;
 import javafx.util.Duration;
 import controller.CourseEditorDialogController;
 import controller.OfferingEditorDialogController;
 import dto.course.admin.catalog.CourseEditorRequestDTO;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
+import dto.course.admin.schedule.SaveArrangementRequestDTO;
+import dto.course.admin.schedule.ScheduleConflictDTO;
+import dto.course.admin.schedule.ScheduleConflictSeverityDTO;
+import dto.course.admin.schedule.SchedulePlanDTO;
+import dto.course.admin.schedule.ScheduleResourceDTO;
 import model.course.admin.AdminCourseView;
 import model.course.admin.AdminOfferingView;
 import model.course.admin.AdminOperationResultView;
+import model.course.admin.ScheduleArrangementView;
+import model.course.admin.SchedulePlanView;
 import service.AdminCourseService;
 import service.AdminCourseServices;
 import service.MockAdminCourseService;
@@ -56,10 +68,14 @@ public final class AdminCourseUiSmokeTest {
     private static final String OFFERING_EDITOR_PATH =
             "/resources/fxml/OfferingEditorDialog.fxml";
     private static final String MAIN_VIEW_PATH = "/resources/fxml/MainView.fxml";
+    private static final String SCHEDULE_PATH =
+            "/resources/fxml/ScheduleArrangementDialog.fxml";
     private static final String[] FILES = {
             "catalog-populated.png", "catalog-expanded.png", "catalog-empty.png",
             "catalog-error.png", "course-editor.png", "offering-editor.png",
-            "destroy-confirm.png"
+            "destroy-confirm.png", "schedule-normal.png", "schedule-blocking.png",
+            "schedule-overridable.png", "schedule-two-slot.png", "schedule-force-publish.png",
+            "schedule-many-conflicts.png"
     };
     private static final Path OUTPUT =
             Path.of(".codex-tmp", "admin-course-ui-snapshots");
@@ -94,6 +110,462 @@ public final class AdminCourseUiSmokeTest {
     }
 
     public static final class SnapshotApplication extends Application {
+        /**
+         * 可见入口：教学班行上的“排课”必须打开控制器渲染的排课对话框。
+         */
+        private void openScheduleDialogFromOfferingRow() {
+            Node node = root.lookup(".course-admin-schedule-button");
+            if (!(node instanceof Button scheduleButton)) {
+                throw new IllegalStateException(
+                        "an eligible offering row must expose a visible 排课 action");
+            }
+            if (scheduleButton.isDisabled() || !scheduleButton.isVisible()) {
+                throw new IllegalStateException("the 排课 action on an OPEN offering must be usable");
+            }
+            service.installPreviewConflicts(List.of());
+            service.installArrangements(null);
+            scheduleButton.fire();
+
+            scheduleDialog = findAppDialogWindow("course-admin-schedule-dialog");
+            if (scheduleDialog == null) {
+                throw new IllegalStateException("排课 must open the scheduling dialog");
+            }
+            scheduleScene = scheduleDialog.getScene();
+            requireScheduleNode("#dialogRoot", "scheduling dialog root");
+            requireScheduleNode("#teacherField", "teacher selector");
+            requireScheduleNode("#assistantField", "assistant selector");
+            requireScheduleNode("#classroomField", "classroom selector");
+            requireScheduleNode("#slotEditorList", "dynamic slot list");
+            requireScheduleNode("#addSlotButton", "add slot button");
+            requireScheduleNode("#arrangementList", "authoritative arrangement list");
+            requireScheduleNode("#conflictArea", "conflict area");
+            requireScheduleNode("#overrideReasonField", "override reason field");
+            requireScheduleNode("#previewButton", "preview button");
+            requireScheduleNode("#publishButton", "publish button");
+            requireScheduleNode("#cancelButton", "cancel button");
+        }
+
+        /**
+         * 普通状态：加载完成后应显示教学班上下文、预选教师与既有的多时间段安排卡片。
+         */
+        private void prepareScheduleNormalPreview() {
+            ComboBox<ScheduleResourceDTO> teacher = scheduleCombo("#teacherField");
+            if (teacher.getValue() == null) {
+                throw new IllegalStateException(
+                        "the dialog must preselect the offering's teacher, saw " + teacher.getValue());
+            }
+            if (scheduleSlotRowCount() != 1) {
+                throw new IllegalStateException(
+                        "a fresh dialog must show exactly one slot row, saw " + scheduleSlotRowCount());
+            }
+            if (scheduleCardCount() != 1) {
+                throw new IllegalStateException(
+                        "the authoritative arrangement must render one card, saw "
+                                + scheduleCardCount());
+            }
+            Label context = (Label) requireScheduleNode("#offeringContextLabel", "context label");
+            if (!context.getText().contains("OFF-1001")) {
+                throw new IllegalStateException(
+                        "the dialog must show the offering context, saw " + context.getText());
+            }
+            selectClassroom("3001");
+            fireSchedule("#previewButton");
+        }
+
+        private void captureScheduleNormal() throws Exception {
+            if (scheduleConflictCount(".course-admin-conflict-blocking") != 0
+                    || scheduleConflictCount(".course-admin-conflict-overridable") != 0) {
+                throw new IllegalStateException("a conflict-free preview must show no conflicts");
+            }
+            layoutScheduleDialog();
+            requireImage(captureWindow(scheduleDialog, "schedule-normal.png"), "schedule-normal.png");
+        }
+
+        /**
+         * 阻断性冲突：保留返回修改的路径，移除强制保存。
+         */
+        private void prepareScheduleBlockingPreview() {
+            service.installPreviewConflicts(List.of(blockingConflict()));
+            fireSchedule("#previewButton");
+        }
+
+        private void captureScheduleBlockingConflict() throws Exception {
+            if (scheduleConflictCount(".course-admin-conflict-blocking") != 1) {
+                throw new IllegalStateException(
+                        "a BLOCKING conflict must render in the blocking group, saw "
+                                + scheduleConflictCount(".course-admin-conflict-blocking"));
+            }
+            Node force = requireScheduleNode("#forceSaveButton", "force save button");
+            if (force.isVisible() || force.isManaged()) {
+                throw new IllegalStateException(
+                        "a BLOCKING conflict must remove the force save path");
+            }
+            Button save = (Button) requireScheduleNode("#saveButton", "save button");
+            if (!save.isDisabled()) {
+                throw new IllegalStateException(
+                        "a BLOCKING conflict must not leave saving enabled");
+            }
+            layoutScheduleDialog();
+            requireImage(captureWindow(scheduleDialog, "schedule-blocking.png"),
+                    "schedule-blocking.png");
+        }
+
+        /**
+         * 可绕过冲突：暴露“填写原因并保存”，并在填写原因后仍保持可保存。
+         */
+        private void prepareScheduleOverridablePreview() {
+            service.installPreviewConflicts(List.of(overridableConflict()));
+            fireSchedule("#previewButton");
+        }
+
+        private void captureScheduleOverridableConflict() throws Exception {
+            if (scheduleConflictCount(".course-admin-conflict-overridable") != 1) {
+                throw new IllegalStateException(
+                        "an OVERRIDABLE conflict must render in the overridable group, saw "
+                                + scheduleConflictCount(".course-admin-conflict-overridable"));
+            }
+            Node force = requireScheduleNode("#forceSaveButton", "force save button");
+            if (!force.isVisible() || !force.isManaged()) {
+                throw new IllegalStateException(
+                        "an OVERRIDABLE conflict must expose 填写原因并保存");
+            }
+            if (!"填写原因并保存".equals(((Button) force).getText())) {
+                throw new IllegalStateException(
+                        "the force action must read 填写原因并保存, saw " + ((Button) force).getText());
+            }
+            ((TextField) requireScheduleNode("#overrideReasonField", "override reason field"))
+                    .setText("教师冲突已确认");
+            layoutScheduleDialog();
+            requireImage(captureWindow(scheduleDialog, "schedule-overridable.png"),
+                    "schedule-overridable.png");
+        }
+
+        private void prepareManyScheduleConflicts() {
+            List<ScheduleConflictDTO> conflicts = new ArrayList<>();
+            for (int week = 1; week <= 16; week++) {
+                for (int day : List.of(1, 3)) {
+                    conflicts.add(new ScheduleConflictDTO("TEACHER",
+                            ScheduleConflictSeverityDTO.OVERRIDABLE, "8001", "1001",
+                            week, day, 1, 2, "任课教师在该时间段已有教学安排"));
+                }
+            }
+            service.installPreviewConflicts(conflicts);
+            fireSchedule("#previewButton");
+        }
+
+        private void captureManyScheduleConflicts() throws IOException {
+            layoutScheduleDialog();
+            if (scheduleConflictCount(".course-admin-conflict-overridable") != 32) {
+                throw new IllegalStateException("all 32 week/slot conflicts must be available");
+            }
+            requireScheduleActionVisible("#cancelButton");
+            requireScheduleActionVisible("#previewButton");
+            requireScheduleActionVisible("#publishButton");
+            requireScheduleActionVisible("#forceSaveButton");
+            ScrollPane scroll = (ScrollPane) requireScheduleNode(
+                    "#scheduleContentScroll", "scrollable schedule content");
+            if (scroll.getContent().getBoundsInLocal().getHeight()
+                    <= scroll.getViewportBounds().getHeight()) {
+                throw new IllegalStateException("many conflicts must scroll within the dialog");
+            }
+            scroll.setVvalue(scroll.getVmax());
+            layoutScheduleDialog();
+            Node reason = requireScheduleNode("#overrideReasonField", "override reason");
+            Node viewport = scroll.lookup(".viewport");
+            Bounds visible = viewport.localToScene(viewport.getBoundsInLocal());
+            Bounds field = reason.localToScene(reason.getBoundsInLocal());
+            if (field.getMinY() < visible.getMinY() - 1
+                    || field.getMaxY() > visible.getMaxY() + 1) {
+                throw new IllegalStateException("scrolling must make the force reason field reachable");
+            }
+            requireScheduleActionVisible("#forceSaveButton");
+            requireImage(captureWindow(scheduleDialog, "schedule-many-conflicts.png"),
+                    "schedule-many-conflicts.png");
+            scroll.setVvalue(scroll.getVmin());
+        }
+
+        private void verifyAssistantCanBeCleared() {
+            ComboBox<ScheduleResourceDTO> assistant = scheduleCombo("#assistantField");
+            ScheduleResourceDTO selected = assistant.getItems().stream()
+                    .filter(resource -> "T2001".equals(resource.getBusinessId()))
+                    .findFirst().orElseThrow();
+            assistant.setValue(selected);
+            fireSchedule("#previewButton");
+            if (!"T2001".equals(service.lastArrangementPreview.getAssistantUid())) {
+                throw new IllegalStateException("the selected assistant must reach the preview request");
+            }
+            fireSchedule("#clearAssistantButton");
+            if (assistant.getValue() != null) {
+                throw new IllegalStateException("clearing an assistant must clear the visible selection");
+            }
+            fireSchedule("#previewButton");
+            if (service.lastArrangementPreview.getAssistantUid() != null) {
+                throw new IllegalStateException("clearing an assistant must send assistantUid=null");
+            }
+        }
+
+        /**
+         * 两个时间段都避开既有安排，使随后的保存能真正落到服务端。
+         */
+        private void prepareScheduleTwoSlotPreview() {
+            service.installPreviewConflicts(List.of());
+            fireSchedule("#addSlotButton");
+            if (scheduleSlotRowCount() != 2) {
+                throw new IllegalStateException(
+                        "adding a slot row must keep both rows, saw " + scheduleSlotRowCount());
+            }
+            fillSlotRow(0, 2, 5, 6);
+            fillSlotRow(1, 4, 7, 8);
+            fireSchedule("#previewButton");
+        }
+
+        private void captureScheduleTwoSlotArrangement() throws Exception {
+            if (scheduleSlotRowCount() != 2) {
+                throw new IllegalStateException(
+                        "both slot rows must survive the preview, saw " + scheduleSlotRowCount());
+            }
+            if (scheduleCardCount() != 1) {
+                throw new IllegalStateException(
+                        "the loaded arrangement card must stay rendered, saw " + scheduleCardCount());
+            }
+            layoutScheduleDialog();
+            requireImage(captureWindow(scheduleDialog, "schedule-two-slot.png"),
+                    "schedule-two-slot.png");
+        }
+
+        /**
+         * 保存只在预检查结果匹配当前表单时生效，并权威重载安排列表。
+         */
+        private void saveScheduleFromDialog() {
+            Button save = (Button) requireScheduleNode("#saveButton", "save button");
+            if (save.isDisabled()) {
+                throw new IllegalStateException("a conflict-free current preview must enable saving");
+            }
+            scheduleMutationsBefore = service.mutationCalls();
+            service.holdNextArrangementSave();
+            service.injectedPlanConflicts = List.of(overridableConflict());
+            // 保存失败会经 AlertUtil 打开模态提示并阻塞事件循环，先排队关闭它。
+            resetAlertProbe();
+            Platform.runLater(this::dismissRenderedAlert);
+            save.fire();
+            for (String selector : List.of("#saveButton", "#previewButton", "#publishButton",
+                    "#teacherField", "#classroomField", "#slotEditorList")) {
+                if (!requireScheduleNode(selector, "pending write control").isDisabled()) {
+                    throw new IllegalStateException(selector + " must be disabled during a save");
+                }
+            }
+        }
+
+        private void verifyScheduleSaved() {
+            if (alertSeen) {
+                throw new IllegalStateException(
+                        "saving a valid arrangement must not raise an alert, saw " + alertContentText);
+            }
+            if (service.mutationCalls() <= scheduleMutationsBefore) {
+                throw new IllegalStateException("保存安排 must reach the Service");
+            }
+            SaveArrangementRequestDTO request = service.lastArrangementSave();
+            if (request == null) {
+                throw new IllegalStateException("the saved request must be collected");
+            }
+            if (request.getSlots().size() != 2) {
+                throw new IllegalStateException(
+                        "the saved request must carry both slot rows, saw " + request.getSlots());
+            }
+            if (!"1001".equals(request.getOfferingId()) || request.getStartWeek() != 1
+                    || request.getEndWeek() != 16) {
+                throw new IllegalStateException(
+                        "the saved request must carry the offering and shared weeks, saw "
+                                + request.getOfferingId() + " " + request.getStartWeek() + "-"
+                                + request.getEndWeek());
+            }
+            if (scheduleCardCount() != 2) {
+                throw new IllegalStateException(
+                        "a successful save must reload the authoritative arrangements, saw "
+                                + scheduleCardCount() + " cards");
+            }
+            if (!requireScheduleNode("#saveButton", "save button").isDisabled()) {
+                throw new IllegalStateException("a successful save must consume its preview");
+            }
+        }
+
+        private void verifyNewArrangementAction() {
+            Button edit = (Button) requireScheduleNode(".course-admin-arrangement-edit", "edit action");
+            edit.fire();
+            fireSchedule("#newArrangementButton");
+            if (scheduleCombo("#classroomField").getValue() != null || scheduleSlotRowCount() != 1) {
+                throw new IllegalStateException("新增安排 must reset the editor after editing an existing card");
+            }
+        }
+
+        private void publishScheduleWithForce() throws IOException {
+            Button publish = (Button) requireScheduleNode("#publishButton", "publish action");
+            if (publish.isDisabled() || !publish.getText().contains("原因")
+                    || !requireScheduleNode("#planConflictArea", "whole-plan conflicts").isVisible()) {
+                throw new IllegalStateException("whole-plan warnings must expose the force-publish action");
+            }
+            TextField reason = (TextField) requireScheduleNode("#overrideReasonField", "force reason");
+            reason.setText("   ");
+            publish.fire();
+            if (service.publishCalls != 0) {
+                throw new IllegalStateException("blank force reason must not reach publication");
+            }
+            reason.setText("  已核实教室使用  ");
+            layoutScheduleDialog();
+            requireImage(captureWindow(scheduleDialog, "schedule-force-publish.png"),
+                    "schedule-force-publish.png");
+            resetAlertProbe();
+            Platform.runLater(this::dismissRenderedAlert);
+            publish.fire();
+        }
+
+        private void verifyForcedPublication() {
+            if (!alertSeen || service.publishCalls != 1 || !service.lastPublishForce
+                    || !"已核实教室使用".equals(service.lastPublishReason)) {
+                throw new IllegalStateException(
+                        "confirmed publication must send force=true with a trimmed reason");
+            }
+            if (!requireScheduleNode("#publishButton", "publish action").isDisabled()
+                    || !requireScheduleNode("#teacherField", "published editor").isDisabled()) {
+                throw new IllegalStateException("a published plan must leave the dialog read-only");
+            }
+        }
+
+        /**
+         * 原生窗口关闭发生在写入之后：不做额外写入，且必须刷新目录。
+         */
+        private void closeScheduleDialogAfterSave() {
+            int mutationsBefore = service.mutationCalls();
+            int listCallsBefore = service.listCoursesCalls();
+            Event.fireEvent(scheduleDialog,
+                    new WindowEvent(scheduleDialog, WindowEvent.WINDOW_CLOSE_REQUEST));
+            if (scheduleDialog != null && scheduleDialog.isShowing()) {
+                throw new IllegalStateException("the native close request must close the scheduling dialog");
+            }
+            if (service.mutationCalls() != mutationsBefore) {
+                throw new IllegalStateException("cancelling the dialog must not write");
+            }
+            if (service.listCoursesCalls() <= listCallsBefore) {
+                throw new IllegalStateException(
+                        "closing after a mutation must refresh the catalog");
+            }
+            scheduleScene = null;
+        }
+
+        private void layoutScheduleDialog() {
+            scheduleScene.getRoot().applyCss();
+            scheduleScene.getRoot().layout();
+        }
+
+        private void requireScheduleActionVisible(String selector) {
+            Node action = requireScheduleNode(selector, "accessible schedule action");
+            Bounds bounds = action.localToScene(action.getBoundsInLocal());
+            if (!action.isVisible() || bounds.getMinX() < 0 || bounds.getMinY() < 0
+                    || bounds.getMaxX() > scheduleScene.getWidth() + 1
+                    || bounds.getMaxY() > scheduleScene.getHeight() + 1) {
+                throw new IllegalStateException(selector + " must stay inside the dialog without resizing: "
+                        + bounds + ", scene=" + scheduleScene.getWidth() + "x" + scheduleScene.getHeight());
+            }
+        }
+
+        private void fireSchedule(String selector) {
+            Node node = requireScheduleNode(selector, "schedule control " + selector);
+            if (!(node instanceof Button button)) {
+                throw new IllegalStateException(selector + " must be a button");
+            }
+            button.fire();
+        }
+
+        private Node requireScheduleNode(String selector, String description) {
+            if (scheduleScene == null) {
+                throw new IllegalStateException(
+                        "No scheduling dialog open while looking for " + description);
+            }
+            Node node = scheduleScene.lookup(selector);
+            if (node == null) {
+                if ("#dialogRoot".equals(selector)) {
+                    node = scheduleScene.getRoot();
+                }
+            }
+            if (node == null) {
+                throw new IllegalStateException(
+                        "Missing " + description + " for schedule selector " + selector);
+            }
+            return node;
+        }
+
+        private int scheduleSlotRowCount() {
+            Node node = requireScheduleNode("#slotEditorList", "dynamic slot list");
+            return node instanceof VBox box ? box.getChildren().size() : -1;
+        }
+
+        private int scheduleCardCount() {
+            Node node = requireScheduleNode("#arrangementList", "arrangement list");
+            return node instanceof VBox box
+                    ? box.lookupAll(".course-admin-arrangement-card").size() : -1;
+        }
+
+        private int scheduleConflictCount(String styleClass) {
+            Node node = requireScheduleNode("#conflictArea", "conflict area");
+            int count = 0;
+            for (Node child : node.lookupAll(styleClass)) {
+                if (child.isVisible() && child.isManaged()) count++;
+            }
+            return count;
+        }
+
+        @SuppressWarnings("unchecked")
+        private ComboBox<ScheduleResourceDTO> scheduleCombo(String selector) {
+            Node node = requireScheduleNode(selector, "schedule selector " + selector);
+            if (!(node instanceof ComboBox<?> combo)) {
+                throw new IllegalStateException(selector + " must be a selector");
+            }
+            return (ComboBox<ScheduleResourceDTO>) combo;
+        }
+
+        private void selectClassroom(String businessId) {
+            ComboBox<ScheduleResourceDTO> classroom = scheduleCombo("#classroomField");
+            for (ScheduleResourceDTO resource : classroom.getItems()) {
+                if (businessId.equals(resource.getBusinessId())) {
+                    classroom.setValue(resource);
+                    return;
+                }
+            }
+            throw new IllegalStateException("classroom " + businessId + " must be selectable");
+        }
+
+        private void fillSlotRow(int index, int weekday, int startPeriod, int endPeriod) {
+            Node node = requireScheduleNode("#slotEditorList", "dynamic slot list");
+            if (!(node instanceof VBox list) || list.getChildren().size() <= index) {
+                throw new IllegalStateException("slot row " + index + " must exist");
+            }
+            Node row = list.getChildren().get(index);
+            if (!(row instanceof HBox cells) || cells.getChildren().size() < 3) {
+                throw new IllegalStateException("slot row " + index + " must expose three selectors");
+            }
+            setPeriodCombo(cells.getChildren().get(0), weekday);
+            setPeriodCombo(cells.getChildren().get(1), startPeriod);
+            setPeriodCombo(cells.getChildren().get(2), endPeriod);
+        }
+
+        @SuppressWarnings("unchecked")
+        private void setPeriodCombo(Node node, int value) {
+            if (node instanceof ComboBox<?> combo) {
+                ((ComboBox<Integer>) combo).setValue(value);
+            }
+        }
+
+        private static ScheduleConflictDTO blockingConflict() {
+            return new ScheduleConflictDTO("OFFERING_SELF_OVERLAP",
+                    ScheduleConflictSeverityDTO.BLOCKING, "1001", "1001", 1, 1, 1, 2,
+                    "同一教学班的时间段与现有安排重叠");
+        }
+
+        private static ScheduleConflictDTO overridableConflict() {
+            return new ScheduleConflictDTO("TEACHER", ScheduleConflictSeverityDTO.OVERRIDABLE,
+                    "8001", "1001", 1, 3, 3, 4, "任课教师在该时间段已有教学安排");
+        }
+
         private final Deque<SmokeStep> steps = new ArrayDeque<>();
         private Parent root;
         private TogglableAdminCourseService service;
@@ -110,6 +582,9 @@ public final class AdminCourseUiSmokeTest {
         private boolean alertSeen;
         private String alertContentText;
         private VBox detachedOfferingPanel;
+        private Window scheduleDialog;
+        private Scene scheduleScene;
+        private int scheduleMutationsBefore;
         private int expectedOfferingRows = -1;
         private final List<String> variantFailures = new ArrayList<>();
         private int captures;
@@ -161,6 +636,25 @@ public final class AdminCourseUiSmokeTest {
             steps.add(this::requireCurrentRowRendered);
             steps.add(this::showStandaloneOfferingEditor);
             steps.add(this::captureStandaloneOfferingEditor);
+            steps.add(this::openScheduleDialogFromOfferingRow);
+            steps.add(this::verifyNewArrangementAction);
+            steps.add(this::prepareScheduleNormalPreview);
+            steps.add(this::captureScheduleNormal);
+            steps.add(this::prepareScheduleBlockingPreview);
+            steps.add(this::captureScheduleBlockingConflict);
+            steps.add(this::prepareScheduleOverridablePreview);
+            steps.add(this::captureScheduleOverridableConflict);
+            steps.add(this::prepareManyScheduleConflicts);
+            steps.add(this::captureManyScheduleConflicts);
+            steps.add(this::verifyAssistantCanBeCleared);
+            steps.add(this::prepareScheduleTwoSlotPreview);
+            steps.add(this::captureScheduleTwoSlotArrangement);
+            steps.add(this::saveScheduleFromDialog);
+            steps.add(service::completeHeldArrangementSave);
+            steps.add(this::verifyScheduleSaved);
+            steps.add(this::publishScheduleWithForce);
+            steps.add(this::verifyForcedPublication);
+            steps.add(this::closeScheduleDialogAfterSave);
             steps.add(this::verifyMainViewRoleTitles);
             runNextStep();
         }
@@ -731,6 +1225,7 @@ public final class AdminCourseUiSmokeTest {
             requireLabelText(loadMainView(), "#courseCardTitle", "教务管理");
             ClientSession.getInstance().logout();
             FXMLLoader.load(getClass().getResource(CATALOG_PATH));
+            FXMLLoader.load(getClass().getResource(SCHEDULE_PATH));
             System.out.println("AdminCourseUiSmokeTest: PASS (" + captures + " captures)");
         }
 
@@ -802,7 +1297,10 @@ public final class AdminCourseUiSmokeTest {
             double availableWidth = window.getScene().getWidth();
             if (content.getBoundsInLocal().getHeight() > availableHeight + 0.5
                     || content.getBoundsInLocal().getWidth() > availableWidth + 0.5) {
-                throw new IllegalStateException(file + " content is clipped by its window");
+                throw new IllegalStateException(file + " content is clipped by its window: content "
+                        + content.getBoundsInLocal().getWidth() + "x"
+                        + content.getBoundsInLocal().getHeight() + " window "
+                        + availableWidth + "x" + availableHeight);
             }
             return content.snapshot(null, null);
         }
@@ -895,9 +1393,45 @@ public final class AdminCourseUiSmokeTest {
         private CourseEditorRequestDTO lastCourseUpdate;
         private CompletableFuture<List<AdminOfferingView>> pendingOfferingLoad;
         private String pendingOfferingCourseId;
+        private List<ScheduleConflictDTO> injectedConflicts;
+        private List<ScheduleArrangementView> injectedArrangements;
+        private SaveArrangementRequestDTO lastArrangementSave;
+        private SaveArrangementRequestDTO lastArrangementPreview;
+        private List<ScheduleConflictDTO> injectedPlanConflicts;
+        private CompletableFuture<AdminOperationResultView<ScheduleArrangementView>> heldArrangementSave;
+        private int publishCalls;
+        private boolean lastPublishForce;
+        private String lastPublishReason;
+
+        void holdNextArrangementSave() {
+            heldArrangementSave = new CompletableFuture<>();
+        }
+
+        void completeHeldArrangementSave() {
+            CompletableFuture<AdminOperationResultView<ScheduleArrangementView>> pending = heldArrangementSave;
+            heldArrangementSave = null;
+            delegate.saveArrangement(lastArrangementSave).whenComplete((result, failure) -> {
+                if (failure == null) pending.complete(result);
+                else pending.completeExceptionally(failure);
+            });
+        }
 
         void setFailListing(boolean value) {
             failListing = value;
+        }
+
+        /** 注入预检查冲突；传 {@code null} 恢复为委托给 MockAdminCourseService。 */
+        void installPreviewConflicts(List<ScheduleConflictDTO> conflicts) {
+            injectedConflicts = conflicts == null ? null : List.copyOf(conflicts);
+        }
+
+        /** 注入权威安排列表；传 {@code null} 恢复为委托给 MockAdminCourseService。 */
+        void installArrangements(List<ScheduleArrangementView> arrangements) {
+            injectedArrangements = arrangements == null ? null : List.copyOf(arrangements);
+        }
+
+        SaveArrangementRequestDTO lastArrangementSave() {
+            return lastArrangementSave;
         }
 
         int listCoursesCalls() {
@@ -1006,6 +1540,67 @@ public final class AdminCourseUiSmokeTest {
                 String offeringId, int expectedVersion, String operationId) {
             mutationCalls++;
             return delegate.deleteDraftOffering(offeringId, expectedVersion, operationId);
+        }
+
+        @Override
+        public CompletableFuture<List<ScheduleResourceDTO>> listScheduleResources(
+                String type, String query) {
+            return delegate.listScheduleResources(type, query);
+        }
+
+        @Override
+        public CompletableFuture<SchedulePlanDTO> loadSchedulePlan(int academicYear, int semester) {
+            return delegate.loadSchedulePlan(academicYear, semester).thenApply(plan ->
+                    injectedPlanConflicts == null ? plan
+                            : new SchedulePlanDTO(plan.getPlanId(), plan.getName(), plan.getRevision(),
+                                    plan.getStatus(), plan.isCurrent(), injectedPlanConflicts));
+        }
+
+        @Override
+        public CompletableFuture<List<ScheduleArrangementView>> loadOfferingArrangements(
+                String planId, String offeringId) {
+            if (injectedArrangements != null) {
+                return CompletableFuture.completedFuture(injectedArrangements);
+            }
+            return delegate.loadOfferingArrangements(planId, offeringId);
+        }
+
+        @Override
+        public CompletableFuture<List<ScheduleConflictDTO>> checkArrangement(
+                SaveArrangementRequestDTO request) {
+            lastArrangementPreview = request;
+            if (injectedConflicts != null) {
+                return CompletableFuture.completedFuture(injectedConflicts);
+            }
+            return delegate.checkArrangement(request);
+        }
+
+        @Override
+        public CompletableFuture<AdminOperationResultView<ScheduleArrangementView>> saveArrangement(
+                SaveArrangementRequestDTO request) {
+            lastArrangementSave = request;
+            mutationCalls++;
+            if (heldArrangementSave != null) return heldArrangementSave;
+            return delegate.saveArrangement(request);
+        }
+
+        @Override
+        public CompletableFuture<AdminOperationResultView<Void>> deleteArrangement(
+                String arrangementId, int expectedVersion, String operationId) {
+            mutationCalls++;
+            return delegate.deleteArrangement(arrangementId, expectedVersion, operationId);
+        }
+
+        @Override
+        public CompletableFuture<AdminOperationResultView<SchedulePlanView>> publishSchedulePlan(
+                String planId, int expectedRevision, String operationId, boolean force,
+                String overrideReason) {
+            mutationCalls++;
+            publishCalls++;
+            lastPublishForce = force;
+            lastPublishReason = overrideReason;
+            return delegate.publishSchedulePlan(planId, expectedRevision, operationId, force,
+                    overrideReason);
         }
     }
 }

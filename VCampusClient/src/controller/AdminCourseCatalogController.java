@@ -428,7 +428,11 @@ public final class AdminCourseCatalogController {
                 operationId -> service.cancelOffering(
                         offering.getOfferingId(), offering.getVersion(), operationId)));
 
-        HBox actions = new HBox(6.0, spacer(), editButton, cancelButton,
+        Button scheduleButton = actionButton("排课", "course-admin-schedule-button");
+        scheduleButton.setDisable(CANCELLED.equals(offering.getStatus()));
+        scheduleButton.setOnAction(event -> openScheduleDialog(offering));
+
+        HBox actions = new HBox(6.0, spacer(), scheduleButton, editButton, cancelButton,
                 offeringMenu(offering));
         actions.setAlignment(Pos.CENTER_RIGHT);
         actions.getStyleClass().add("course-admin-offering-actions");
@@ -511,7 +515,31 @@ public final class AdminCourseCatalogController {
         showDialog(root, offering == null ? "新增教学班" : "编辑教学班");
     }
 
+    /**
+     * 打开排课对话框。对话框自行加载方案、资源与权威安排；关闭时若发生过写入，
+     * 回调 {@link #refresh()} 让课程行的排课状态重新来自服务端。
+     */
+    private void openScheduleDialog(AdminOfferingView offering) {
+        FXMLLoader loader = new FXMLLoader(AdminCourseCatalogController.class.getResource(
+                "/resources/fxml/ScheduleArrangementDialog.fxml"));
+        Parent root;
+        try {
+            root = loader.load();
+        } catch (IOException | RuntimeException failure) {
+            errorReporter.accept("打开失败", "无法打开排课窗口：" + errorMessage(failure));
+            return;
+        }
+        ScheduleArrangementDialogController dialogController = loader.getController();
+        dialogController.setOnChanged(this::refresh);
+        dialogController.prepareForOffering(offering);
+        showDialog(root, "排课", dialogController::dispose);
+    }
+
     private void showDialog(Parent root, String title) {
+        showDialog(root, title, () -> { });
+    }
+
+    private void showDialog(Parent root, String title, Runnable onHidden) {
         Stage stage = new Stage();
         stage.initModality(Modality.WINDOW_MODAL);
         Window owner = courseList == null || courseList.getScene() == null
@@ -519,6 +547,7 @@ public final class AdminCourseCatalogController {
         if (owner != null) stage.initOwner(owner);
         stage.setTitle(title);
         stage.setScene(new Scene(root));
+        stage.setOnHidden(event -> onHidden.run());
         stage.show();
     }
 
