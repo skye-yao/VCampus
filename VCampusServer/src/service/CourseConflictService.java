@@ -102,6 +102,32 @@ public class CourseConflictService {
         return List.copyOf(conflicts);
     }
 
+
+    /** Student enrollment uses effective timestamps, including adjustments on either offering. */
+    public List<ScheduleConflictDTO> checkStudent(Connection connection, String studentUid,
+            long offeringId, int academicYear, int semester, List<Long> enrolledOfferingIds)
+            throws SQLException {
+        Long planId = conflictDAO.publishedPlanId(connection, academicYear, semester);
+        if (planId == null) return List.of();
+        Set<Long> enrolled = new LinkedHashSet<>(enrolledOfferingIds);
+        enrolled.remove(offeringId);
+        if (enrolled.isEmpty()) return List.of();
+        List<ScheduleConflictDTO> conflicts = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
+        for (AdminScheduleConflictDAO.StudentWindow window
+                : conflictDAO.offeringWindows(connection, planId, offeringId)) {
+            for (AdminScheduleConflictDAO.EffectiveOccurrence other : conflictDAO.overlapping(
+                    connection, planId, window.startAt(), window.endAt(), null)) {
+                if (enrolled.contains(other.offeringId())) {
+                    add(conflicts, seen, new ScheduleConflictDTO("STUDENT_SCHEDULE", OVERRIDABLE,
+                            studentUid, Long.toString(other.offeringId()), window.week(), window.dayOfWeek(),
+                            window.startPeriod(), window.endPeriod(), "与该学生已选教学班的有效课表时间冲突"));
+                }
+            }
+        }
+        return List.copyOf(conflicts);
+    }
+
     /** Full-plan effective check used before publication. */
     public List<ScheduleConflictDTO> checkPlan(long planId) {
         try (Connection connection = DBUtil.getConnection()) {

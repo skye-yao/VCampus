@@ -37,10 +37,19 @@ public class AdminCourseOperationDAO {
                        String targetType, String targetId, String digest, Object request,
                        String resultCode, Object response, Instant completedAt)
             throws SQLException {
+        insert(connection, adminUid, operationId, action, targetType, targetId, digest, request,
+                resultCode, response, completedAt, null, false, null);
+    }
+
+    /** Compatible audit overload for mutations that permit explicit conflict overrides. */
+    public void insert(Connection connection, String adminUid, String operationId, String action,
+                       String targetType, String targetId, String digest, Object request,
+                       String resultCode, Object response, Instant completedAt,
+                       Object conflicts, boolean forced, String overrideReason) throws SQLException {
         String sql = "INSERT INTO admin_course_operation_log"
                 + "(admin_uid,operation_id,action,target_type,target_id,request_digest,"
                 + "request_json,conflict_snapshot_json,forced,override_reason,result_code,"
-                + "response_json,completed_at) VALUES(?,?,?,?,?,?,?,NULL,0,NULL,?,?,?)";
+                + "response_json,completed_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)";
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, adminUid);
             statement.setString(2, operationId);
@@ -49,9 +58,12 @@ public class AdminCourseOperationDAO {
             statement.setString(5, targetId);
             statement.setString(6, digest);
             statement.setString(7, GSON.toJson(request));
-            statement.setString(8, resultCode);
-            statement.setString(9, GSON.toJson(response));
-            statement.setTimestamp(10, Timestamp.valueOf(
+            statement.setString(8, conflicts == null ? null : GSON.toJson(conflicts));
+            statement.setBoolean(9, forced);
+            statement.setString(10, overrideReason);
+            statement.setString(11, resultCode);
+            statement.setString(12, GSON.toJson(response));
+            statement.setTimestamp(13, Timestamp.valueOf(
                     completedAt.atOffset(ZoneOffset.UTC).toLocalDateTime()));
             statement.executeUpdate();
         }

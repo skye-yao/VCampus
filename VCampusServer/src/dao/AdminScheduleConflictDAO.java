@@ -66,6 +66,77 @@ public class AdminScheduleConflictDAO {
         return occurrences;
     }
 
+
+    /** Uses the same current-plan priority as CourseScheduleDAO, including its legacy fallback. */
+    public Long publishedPlanId(Connection connection, int academicYear, int semester) throws SQLException {
+        String current = "SELECT sp.id FROM teaching_calendar cal"
+                + " LEFT JOIN schedule_plan sp ON sp.id=cal.current_schedule_plan_id"
+                + " AND sp.calendar_id=cal.id AND sp.status='PUBLISHED'"
+                + " WHERE cal.academic_year=? AND cal.semester=?"
+                + " AND cal.current_schedule_plan_id IS NOT NULL"
+                + " ORDER BY cal.version DESC,cal.id DESC LIMIT 1";
+        try (PreparedStatement statement = connection.prepareStatement(current)) {
+            statement.setInt(1, academicYear);
+            statement.setInt(2, semester);
+            try (ResultSet rows = statement.executeQuery()) {
+                if (rows.next()) {
+                    long id = rows.getLong(1);
+                    if (rows.wasNull()) throw new PublishedPlanUnavailableException();
+                    return id;
+                }
+            }
+        }
+        String legacy = "SELECT sp.id FROM course_selection_window win"
+                + " LEFT JOIN schedule_plan sp ON sp.id=win.schedule_plan_id AND sp.status='PUBLISHED'"
+                + " WHERE win.academic_year=? AND win.semester=?";
+        try (PreparedStatement statement = connection.prepareStatement(legacy)) {
+            statement.setInt(1, academicYear);
+            statement.setInt(2, semester);
+            try (ResultSet rows = statement.executeQuery()) {
+                if (!rows.next()) return null;
+                long id = rows.getLong(1);
+                if (rows.wasNull()) throw new PublishedPlanUnavailableException();
+                return id;
+            }
+        }
+    }
+
+    /** Effective target windows feed the existing overlapping() engine for student checks. */
+    public List<StudentWindow> offeringWindows(Connection connection, long planId, long offeringId)
+            throws SQLException {
+        String sql = "SELECT o.week_no,COALESCE(q.new_weekday,r.weekday) AS weekday,"
+                + "COALESCE(q.new_start_period,r.start_period) AS start_period,"
+                + "COALESCE(q.new_end_period,r.end_period) AS end_period,"
+                + "COALESCE(j.start_at_utc,o.start_at) AS start_at,"
+                + "COALESCE(j.end_at_utc,o.end_at) AS end_at"
+                + " FROM course_occurrence o"
+                + " JOIN course_schedule_rule r ON r.id=o.rule_id"
+                + " JOIN course_schedule_arrangement a ON a.arrangement_id=r.arrangement_id"
+                + " LEFT JOIN course_schedule_adjustment j"
+                + " ON j.original_occurrence_id=o.id AND j.status='ACTIVE'"
+                + " LEFT JOIN course_schedule_adjustment_request q ON q.request_id=j.request_id"
+                + " WHERE o.plan_id=? AND a.offering_id=? AND r.status='ACTIVE' AND a.status='ACTIVE'"
+                + " ORDER BY start_at,o.id";
+        List<StudentWindow> result = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, planId);
+            statement.setLong(2, offeringId);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) result.add(new StudentWindow(rows.getInt("week_no"),
+                        rows.getInt("weekday"), rows.getInt("start_period"), rows.getInt("end_period"),
+                        rows.getTimestamp("start_at"), rows.getTimestamp("end_at")));
+            }
+        }
+        return List.copyOf(result);
+    }
+
+    public record StudentWindow(int week, int dayOfWeek, int startPeriod, int endPeriod,
+                                Timestamp startAt, Timestamp endAt) { }
+
+    public static class PublishedPlanUnavailableException extends SQLException {
+        public PublishedPlanUnavailableException() { super("Current published schedule plan is unavailable"); }
+    }
+
     private static EffectiveOccurrence map(ResultSet rows) throws SQLException {
         long classroomId = rows.getLong("classroom_id");
         Long classroom = rows.wasNull() ? null : classroomId;
