@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.ComboBox?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.control.TextArea?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.layout.VBox?>
+
+<!--
+  教师调课表单（设计 §5.3）：从一个具体课次打开，选择新日期、开始/结束节次、教室并填写原因。
+  教师不修改任课教师与助教，因此表单没有这两个输入；教室选项来自教师受限查询。
+  预检查随日期/节次/教室变化自动触发，字段变化使旧结果立即失效；提交按钮只在“最新检查通过 +
+  原因非空 + 不在提交中”时可用。所有控件都是可写的 disable 占位（JavaFX 的 disabled 只读）。
+-->
+<VBox fx:id="dialogRoot" prefWidth="560.0" spacing="12.0" styleClass="teacher-course-dialog" stylesheets="@../css/style.css, @../css/teacher-course.css" xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.TeacherAdjustmentDialogController">
+    <children>
+        <Label fx:id="dialogTitleLabel" styleClass="teacher-course-dialog-title" text="申请调课" />
+        <VBox spacing="6.0" styleClass="teacher-schedule-dialog-section">
+            <children>
+                <Label fx:id="originalLine" styleClass="teacher-schedule-dialog-line" text="" wrapText="true" />
+                <Label fx:id="targetWeekLine" styleClass="teacher-schedule-dialog-hint" text="" wrapText="true" />
+            </children>
+        </VBox>
+        <VBox spacing="8.0" styleClass="teacher-schedule-dialog-section">
+            <children>
+                <HBox alignment="CENTER_LEFT" spacing="8.0">
+                    <children>
+                        <Label styleClass="teacher-course-field-label" text="新日期" />
+                        <ComboBox fx:id="dateCombo" prefWidth="240.0" promptText="请选择目标日期" styleClass="teacher-course-term-filter" HBox.hgrow="ALWAYS" />
+                    </children>
+                </HBox>
+                <HBox alignment="CENTER_LEFT" spacing="8.0">
+                    <children>
+                        <Label styleClass="teacher-course-field-label" text="开始节次" />
+                        <ComboBox fx:id="startPeriodCombo" prefWidth="110.0" promptText="开始" styleClass="teacher-course-term-filter" />
+                        <Label styleClass="teacher-course-field-label" text="结束节次" />
+                        <ComboBox fx:id="endPeriodCombo" prefWidth="110.0" promptText="结束" styleClass="teacher-course-term-filter" />
+                    </children>
+                </HBox>
+                <HBox alignment="CENTER_LEFT" spacing="8.0">
+                    <children>
+                        <Label styleClass="teacher-course-field-label" text="教室" />
+                        <ComboBox fx:id="classroomCombo" prefWidth="240.0" styleClass="teacher-course-term-filter" />
+                    </children>
+                </HBox>
+                <Label styleClass="teacher-course-field-label" text="调课原因" />
+                <TextArea fx:id="reasonArea" prefRowCount="3" styleClass="teacher-course-reason-area" wrapText="true" />
+            </children>
+        </VBox>
+        <VBox spacing="6.0" styleClass="teacher-schedule-dialog-adjustment">
+            <children>
+                <Label fx:id="previewStatusLabel" styleClass="teacher-schedule-dialog-adjustment-line" text="" wrapText="true" />
+                <!-- 冲突行放在 fitToWidth 的滚动容器里：宽度确定后换行标签才会按真实行数排版；
+                     冲突很多时滚动而不是把弹窗撑出屏幕。固定高度让一条冲突时也不出现滚动条。 -->
+                <ScrollPane fitToWidth="true" hbarPolicy="NEVER" maxHeight="120.0" minHeight="44.0" prefHeight="96.0" styleClass="teacher-course-tab-scroll">
+                    <content>
+                        <VBox fx:id="previewConflictRows" spacing="4.0" />
+                    </content>
+                </ScrollPane>
+            </children>
+        </VBox>
+        <Label fx:id="errorLabel" managed="false" styleClass="teacher-course-error-text" text="" visible="false" wrapText="true" />
+        <HBox alignment="CENTER_RIGHT" spacing="10.0">
+            <children>
+                <Button fx:id="retryOptionsButton" managed="false" onAction="#retryOptions" styleClass="teacher-course-retry-button" text="重试" visible="false" />
+                <Region HBox.hgrow="ALWAYS" />
+                <Button fx:id="submitButton" disable="true" onAction="#handleSubmit" styleClass="teacher-course-page-button" text="提交申请" />
+                <Button fx:id="cancelButton" onAction="#handleCancel" styleClass="teacher-course-back-button" text="取消" />
+            </children>
+        </HBox>
+    </children>
+    <padding>
+        <Insets bottom="16.0" left="20.0" right="20.0" top="16.0" />
+    </padding>
+</VBox>

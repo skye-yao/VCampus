@@ -17,6 +17,8 @@ import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
 import dto.course.CourseTermDTO;
+import dto.course.AdjustmentRequestStatusDTO;
+import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
 import dto.course.admin.schedule.ScheduleArrangementDTO;
 import dto.course.admin.schedule.ScheduleResourceDTO;
 import dto.course.admin.schedule.ScheduleSlotDTO;
@@ -47,12 +49,13 @@ public final class TeacherCourseManagementControllerTest {
     private static final String VIEW = "/resources/fxml/TeacherCourseManagementView.fxml";
     private static final String CSS = "/resources/css/teacher-course.css";
     private static final String STAGING_NOTICE = "该功能将在后续阶段接入";
-    private static final String HOME_NOTICE = "教学班、教学课程表已接入；成绩录入、我的申请将在后续阶段接入。";
+    private static final String HOME_NOTICE = "教学班、教学课程表、我的申请已接入；成绩录入将在后续阶段接入。";
     private static final String HOME_VIEW = "/resources/fxml/MainView.fxml";
     private static final String OFFERING = "9007199254740993";
     private static final String APP_STYLESHEET = "@../css/style.css";
     private static final String VIEW_STYLESHEET = "@../css/teacher-course.css";
-    private static final List<String> STAGED_ENTRIES = List.of("成绩录入", "我的申请");
+    /** 仅剩成绩录入仍是分阶段占位；我的申请自 T5 起真正打开子页。 */
+    private static final List<String> STAGED_ENTRIES = List.of("成绩录入");
 
     private TeacherCourseManagementControllerTest() {
     }
@@ -69,10 +72,11 @@ public final class TeacherCourseManagementControllerTest {
         openingTheOfferingsEntryActivatesTheListPage();
         openingADetailReleasesTheListAndReturnsToIt();
         openingTheTimetableEntryActivatesTheSchedulePage();
+        openingTheApplicationsEntryActivatesTheApplicationsPage();
         stagedEntriesOnlyShowTheStagingNotice();
 
         viewIsTheTeacherWorkspaceShell(view);
-        entriesAreWiredAndOnlyTheOfferingsAndTimetableEntriesAreEnabled(view);
+        entriesAreWiredAndOnlyTheGradeEntryStaysStaged(view);
         noElementUsesTheReadOnlyDisabledAttribute(view);
         everyFxIdAndOnActionResolvesOnTheController(view);
         everyStyleClassExistsInTheStylesheet(view, readResource(CSS));
@@ -133,7 +137,7 @@ public final class TeacherCourseManagementControllerTest {
         TeacherOfferingController offerings = offerings(service);
         TeacherOfferingDetailController detail = detail(service);
         TeacherCourseManagementController controller = controller(service);
-        controller.wire(null, null, offerings, null, detail, null, null);
+        controller.wire(null, null, offerings, null, detail, null, null, null, null);
 
         controller.openOfferings();
 
@@ -152,7 +156,7 @@ public final class TeacherCourseManagementControllerTest {
         TeacherOfferingController offerings = offerings(service);
         TeacherOfferingDetailController detail = detail(service);
         TeacherCourseManagementController controller = controller(service);
-        controller.wire(null, null, offerings, null, detail, null, null);
+        controller.wire(null, null, offerings, null, detail, null, null, null, null);
 
         controller.openOfferings();
         offerings.applyFilters("CS");
@@ -187,7 +191,7 @@ public final class TeacherCourseManagementControllerTest {
         TeacherOfferingDetailController detail = detail(service);
         TeacherScheduleController schedule = schedule(service);
         TeacherCourseManagementController controller = controller(service);
-        controller.wire(null, null, offerings, null, detail, null, schedule);
+        controller.wire(null, null, offerings, null, detail, null, schedule, null, null);
         controller.openOfferings();
 
         controller.openTimetable();
@@ -205,27 +209,54 @@ public final class TeacherCourseManagementControllerTest {
                 "opening the timetable must not load an offering, saw " + service.detailCalls);
     }
 
+    /** 我的申请入口自 T5 起打开真实子页，并卸下其它子页。 */
+    private static void openingTheApplicationsEntryActivatesTheApplicationsPage() {
+        FakeService service = new FakeService();
+        TeacherOfferingController offerings = offerings(service);
+        TeacherOfferingDetailController detail = detail(service);
+        TeacherScheduleController schedule = schedule(service);
+        TeacherApplicationsController applications = applications(service);
+        TeacherCourseManagementController controller = controller(service);
+        controller.wire(null, null, offerings, null, detail, null, schedule, null, applications);
+        controller.openOfferings();
+
+        controller.openApplications();
+
+        require(TeacherCourseManagementController.PAGE_APPLICATIONS
+                        .equals(controller.currentPage()),
+                "the applications entry must show the applications page, saw "
+                        + controller.currentPage());
+        require(applications.active() && !offerings.active() && !detail.active()
+                        && !schedule.active(),
+                "only the applications page may be active after opening 我的申请");
+        require(service.applicationCalls == 1,
+                "the applications page must load its own first page, saw "
+                        + service.applicationCalls + " calls");
+        require(controller.noticeText().equals(HOME_NOTICE),
+                "opening the applications page must not change the home notice, saw "
+                        + controller.noticeText());
+    }
+
     private static void stagedEntriesOnlyShowTheStagingNotice() {
         FakeService service = new FakeService();
         TeacherOfferingController offerings = offerings(service);
         TeacherOfferingDetailController detail = detail(service);
         TeacherScheduleController schedule = schedule(service);
+        TeacherApplicationsController applications = applications(service);
         TeacherCourseManagementController controller = controller(service);
-        controller.wire(null, null, offerings, null, detail, null, schedule);
+        controller.wire(null, null, offerings, null, detail, null, schedule, null, applications);
         controller.openOfferings();
-
-        controller.openApplications();
-        requireStaging(controller, "我的申请");
 
         controller.openGrades(OFFERING);
         requireStaging(controller, "成绩录入");
-        require(!offerings.active() && !detail.active() && !schedule.active(),
+        require(!offerings.active() && !detail.active() && !schedule.active()
+                        && !applications.active(),
                 "a staged entry must leave no hidden page active");
         require(service.detailCalls.isEmpty() && service.rosterCalls.isEmpty()
-                        && service.scheduleCalls == 0,
+                        && service.scheduleCalls == 0 && service.applicationCalls == 0,
                 "the staged grade route must not start any read or write request, saw details "
                         + service.detailCalls + " rosters " + service.rosterCalls + " schedules "
-                        + service.scheduleCalls);
+                        + service.scheduleCalls + " applications " + service.applicationCalls);
     }
 
     private static void requireStaging(TeacherCourseManagementController controller,
@@ -278,11 +309,11 @@ public final class TeacherCourseManagementControllerTest {
     }
 
     /**
-     * 教学班与教学课程表入口必须可用且接到各自的处理函数；其余两个仍是带 {@code disable="true"}
-     * 的占位。按 {@code text} 定位元素，因此注释或被注释掉的元素块都无法满足断言。
+     * 教学班、教学课程表与我的申请入口必须可用且接到各自的处理函数；只剩成绩录入仍是带
+     * {@code disable="true"} 的占位。按 {@code text} 定位元素，因此注释或被注释掉的元素块都无法
+     * 满足断言。
      */
-    private static void entriesAreWiredAndOnlyTheOfferingsAndTimetableEntriesAreEnabled(
-            Document view) {
+    private static void entriesAreWiredAndOnlyTheGradeEntryStaysStaged(Document view) {
         Element offerings = buttonWithText(view, "教学班");
         require(offerings != null, "the top-right entries must include 教学班");
         require(!offerings.hasAttribute("disable") || "false".equals(
@@ -302,6 +333,16 @@ public final class TeacherCourseManagementControllerTest {
         require("#handleOpenTimetable".equals(timetable.getAttribute("onAction")),
                 "教学课程表 must be wired to #handleOpenTimetable, saw "
                         + timetable.getAttribute("onAction"));
+
+        Element applications = buttonWithText(view, "我的申请");
+        require(applications != null, "the top-right entries must include 我的申请");
+        require(!applications.hasAttribute("disable") || "false".equals(
+                        applications.getAttribute("disable")),
+                "我的申请 must be enabled now that the page exists, saw disable=\""
+                        + applications.getAttribute("disable") + "\"");
+        require("#handleOpenApplications".equals(applications.getAttribute("onAction")),
+                "我的申请 must be wired to #handleOpenApplications, saw "
+                        + applications.getAttribute("onAction"));
 
         for (String entry : STAGED_ENTRIES) {
             Element button = buttonWithText(view, entry);
@@ -399,6 +440,10 @@ public final class TeacherCourseManagementControllerTest {
         return new TeacherScheduleController(service, Runnable::run);
     }
 
+    private static TeacherApplicationsController applications(TeacherCourseService service) {
+        return new TeacherApplicationsController(service, Runnable::run);
+    }
+
     private static Document parseView() throws Exception {
         DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
         factory.setNamespaceAware(false);
@@ -479,6 +524,7 @@ public final class TeacherCourseManagementControllerTest {
         private final List<String> detailCalls = new ArrayList<>();
         private final List<String> rosterCalls = new ArrayList<>();
         private int scheduleCalls;
+        private int applicationCalls;
 
         @Override
         public CompletableFuture<List<CourseTermDTO>> listTerms() {
@@ -536,6 +582,14 @@ public final class TeacherCourseManagementControllerTest {
             return CompletableFuture.completedFuture(new TeacherScheduleWeekDTO(
                     "9007199254740991", "Asia/Shanghai", week == null ? 1 : week, 1, 16, 1,
                     List.of(), List.of(), List.of()));
+        }
+
+        @Override
+        public CompletableFuture<TeacherPageDTO<AdjustmentRequestSummaryDTO>>
+                listMyAdjustmentRequests(AdjustmentRequestStatusDTO status, int page, int size) {
+            applicationCalls++;
+            return CompletableFuture.completedFuture(
+                    new TeacherPageDTO<>(List.of(), 0, page, size));
         }
     }
 }

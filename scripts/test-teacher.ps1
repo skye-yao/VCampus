@@ -110,10 +110,17 @@ $suites = @(
         # T4 的教师调课客户端契约：Socket 服务的六个调课方法、泛型 applications 页、CONFLICT 形状，
         # 以及 MockTeacherCourseService 的四态夹具/提交/撤销快照。管理员客户端测试（Socket/Mock）
         # 在 T4 增加了 listAdjustmentRequestsByStatus 主名与旧名别名、WITHDRAWN 夹具，一起登记。
+        # T5 的调课表单与“我的申请”两个控制器测试（无工具包）同样登记；管理员审批页与详情弹窗的
+        # 无工具包测试在 T1 迁移到四态后一直没有套件保护，T5 正好改动它们（已撤销筛选、目标日期显示），
+        # 一并登记，避免“写了测试却永不执行”。
         Client = @('service.SocketTeacherCourseServiceTest',
             'service.MockTeacherCourseServiceTest',
             'service.SocketAdminCourseServiceTest',
-            'service.MockAdminCourseServiceTest')
+            'service.MockAdminCourseServiceTest',
+            'controller.TeacherAdjustmentDialogControllerTest',
+            'controller.TeacherApplicationsControllerTest',
+            'controller.AdminApprovalControllerTest',
+            'controller.AdjustmentApprovalDialogControllerTest')
         # TeacherAdjustmentConflictMySqlTest 自带 `mysql` 开关（-WithMySql 才跑真实库）。
         # CourseConflictMySqlTest 是既有排课冲突引擎的回归：它不解析 `mysql` 参数，只按
         # db.properties 指向受保护测试库来运行，登记它是为了证明共用检查没有改动旧行为。
@@ -131,7 +138,10 @@ $suites = @(
             'service.ScheduleAdjustmentApprovalMySqlTest',
             'service.TeacherAdjustmentApplicationMySqlTest',
             'service.CourseConflictMySqlTest')
-        Tcp = @(); Gui = @() }
+        # GUI 冒烟：真实 JavaFX 工具包装入教师外壳，走调课表单与“我的申请”并产出四张主题截图
+        # （跨周 / 冲突 / 撤销 / 长原因）。同一个冒烟类也登记在 Foundation.Gui 与 Timetable.Gui，
+        # 跨套件重复有先例（各套件跑各自的入口，冒烟内部覆盖全部教师页面）。
+        Tcp = @(); Gui = @('ui.TeacherCourseUiSmokeTest') }
     [pscustomobject]@{ Name = 'GradeBook'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }
     [pscustomobject]@{ Name = 'ImportExport'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }
     [pscustomobject]@{ Name = 'Applications'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }

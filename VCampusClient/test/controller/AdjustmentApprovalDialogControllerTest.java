@@ -16,7 +16,25 @@ public final class AdjustmentApprovalDialogControllerTest {
         showsEveryTargetWeekSideBySide();
         reusesTheApprovalControllerText();
         coversMissingResourcesAndReasons();
+        showsTheRealTargetDateWhenPresent();
         System.out.println("AdjustmentApprovalDialogControllerTest: PASS");
+    }
+
+    /** T5：有明确目标日期的申请必须在弹窗里显示日期，教师申请回落到目标原快照。 */
+    private static void showsTheRealTargetDateWhenPresent() {
+        AdjustmentRequestDetailDTO detail = new AdjustmentRequestDetailDTO("970703", "2001", "T1001",
+                "教师出差", AdjustmentRequestStatusDTO.PENDING, 1, 5, 5, 6, null, null, null,
+                List.of(new AdjustmentTargetDTO("8005", 8, "2026-10-27T00:00:00Z",
+                        "2026-10-27T01:35:00Z", "陈老师", "王助教", "A-101", "2026-10-30")),
+                List.of(), "2026-09-10T02:00:00Z", null, null, null);
+
+        List<AdminApprovalController.ArrangementRow> rows =
+                AdminApprovalController.arrangementRows(detail);
+        String adjusted = AdjustmentApprovalDialogController.adjustedColumn(rows.get(0));
+        require(adjusted.startsWith("调课后：2026-10-30 周五 第 5-6 节"),
+                "the dialog must show the real target date, saw " + adjusted);
+        require(adjusted.contains("陈老师, 王助教") && adjusted.contains("A-101"),
+                "a teacher request must fall back to the target snapshot, saw " + adjusted);
     }
 
     private static void showsEveryTargetWeekSideBySide() {
@@ -75,9 +93,15 @@ public final class AdjustmentApprovalDialogControllerTest {
         require(rows.get(0).original().contains("—"),
                 "missing snapshot resources must render as a placeholder, saw "
                         + rows.get(0).original());
-        require(rows.get(0).adjusted().contains("沿用原安排"),
-                "a null proposed resource must read as inheriting the original, saw "
+        // T5 起每个目标的新安排显示该目标原快照里的教师/教室；目标快照也为空时只留占位符，
+        // 请求级的“新安排”行才用 沿用原安排 表示没有替换资源。
+        require(rows.get(0).adjusted().contains("—"),
+                "missing snapshot resources must render as a placeholder, saw "
                         + rows.get(0).adjusted());
+        require(AdminApprovalController.detailLines(bare).stream()
+                        .anyMatch(line -> line.startsWith("新安排：") && line.contains("沿用原安排")),
+                "the request level line must read a null proposed resource as inheriting the "
+                        + "original, saw " + AdminApprovalController.detailLines(bare));
         require(AdminApprovalController.detailLines(bare).contains("冲突：无"),
                 "a request without conflicts must say so explicitly");
     }

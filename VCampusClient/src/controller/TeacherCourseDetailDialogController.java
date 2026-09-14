@@ -1,5 +1,6 @@
 package controller;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -11,13 +12,20 @@ import dto.course.teacher.TeacherScheduleWeekDTO;
 import javafx.application.Platform;
 import javafx.event.Event;
 import javafx.fxml.FXML;
+import javafx.fxml.FXMLLoader;
 import javafx.scene.Node;
+import javafx.scene.Parent;
+import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.layout.VBox;
+import javafx.stage.Modality;
 import javafx.stage.Stage;
+import javafx.stage.Window;
 import service.TeacherCourseService;
 import service.TeacherCourseServices;
+import util.AlertUtil;
+import util.FXMLUtil;
 
 /**
  * 课次详情弹窗（设计 §3）：一个课次的完整信息，加上权威教学班快照里的人数。
@@ -28,7 +36,8 @@ import service.TeacherCourseServices;
  * 教学班与人数来自 {@code service.getOffering(offeringId)} 的权威快照——人数不从周表数据推算；
  * 加载中显示占位，失败显示重试并保留已经显示出来的条目字段。
  *
- * <p>“申请调课”本阶段保持禁用（调课申请由后续阶段接通），点击不会发起任何写请求。
+ * <p>“申请调课”按课次自己的能力位启用：{@code canRequestAdjustment} 为 false（已有生效调课）时禁用
+ * 并说明原因；可用时打开独立的调课表单弹窗，提交成功后在本弹窗里显示内联提示。
  *
  * <p>关闭语义：{@link #dispose()} 置 {@code closed} 并递增 generation，弹窗被关掉后（用户关闭、
  * 点“查看教学班”或 {@code Stage.setOnHidden}）在途的教学班快照回调一律直接返回，绝不写已经关闭的
@@ -37,8 +46,12 @@ import service.TeacherCourseServices;
 public final class TeacherCourseDetailDialogController {
     /** 弹窗 Stage 的标题；GUI 冒烟测试靠它在窗口列表里认出弹窗，因此不做成动态标题。 */
     static final String TITLE = "课程详情";
-    /** 尚未接通的调课入口提示。 */
-    static final String ADJUSTMENT_STAGING_TEXT = "申请调课将在后续阶段接入";
+    /** 已有生效调课的课次本期不再次申请，入口禁用并说明原因。 */
+    static final String ADJUSTMENT_BLOCKED_TEXT = "该课次已有生效调课，本期不再接受新的调课申请";
+    /** 提交成功后显示在弹窗里的内联提示（不弹模态框，冒烟测试可无人值守继续）。 */
+    static final String ADJUSTMENT_SUBMITTED_TEXT = "调课申请已提交，可在“我的申请”里查看处理进度";
+    /** 调课表单的资源路径；标题由 {@link TeacherAdjustmentDialogController#TITLE} 固定。 */
+    static final String ADJUSTMENT_VIEW = "/resources/fxml/TeacherAdjustmentDialog.fxml";
     static final String SNAPSHOT_LOADING_TEXT = "教学班：加载中...";
     static final String SNAPSHOT_PLACEHOLDER_TEXT = "教学班：—";
     static final String SNAPSHOT_FAILURE_TEXT = "教学班信息加载失败，请重试";
@@ -47,6 +60,8 @@ public final class TeacherCourseDetailDialogController {
     private final Consumer<Runnable> fxExecutor;
 
     private Consumer<String> openOffering = offeringId -> { };
+    private Consumer<TeacherScheduleEntryDTO> adjustmentOpener = this::openAdjustmentDialog;
+    private boolean adjustmentSubmitted;
 
     private TeacherScheduleEntryDTO entry;
     private TeacherScheduleWeekDTO week;
@@ -103,6 +118,7 @@ public final class TeacherCourseDetailDialogController {
         this.offering = null;
         this.loadingSnapshot = false;
         this.snapshotErrorText = null;
+        this.adjustmentSubmitted = false;
         this.closed = false;
         this.generation++;
         render();
@@ -112,6 +128,12 @@ public final class TeacherCourseDetailDialogController {
     /** 接住工作台的教学班导航（查看教学班 → {@code showOffering(offeringId)}）。 */
     void setOpenOffering(Consumer<String> openOffering) {
         this.openOffering = openOffering == null ? offeringId -> { } : openOffering;
+    }
+
+    /** 测试注入点：默认打开真实的调课表单弹窗。 */
+    void setAdjustmentOpener(Consumer<TeacherScheduleEntryDTO> adjustmentOpener) {
+        this.adjustmentOpener = adjustmentOpener == null ? this::openAdjustmentDialog
+                : adjustmentOpener;
     }
 
     void loadSnapshot() {
@@ -151,11 +173,44 @@ public final class TeacherCourseDetailDialogController {
     }
 
     /**
-     * 申请调课入口：本阶段只保留位置并保持禁用，不发起任何写请求，由后续阶段接通。
+     * 申请调课入口：只有当前课次可以申请时可用（已有生效调课的课次禁用并说明原因）；
+     * 打开独立的调课表单弹窗，提交成功后由表单回调把内联提示写回本弹窗。
      */
     @FXML
     void handleRequestAdjustment(Event event) {
-        if (closed) return;
+        if (closed || entry == null || !entry.isCanRequestAdjustment()) return;
+        adjustmentOpener.accept(entry);
+    }
+
+    /**
+     * 用独立 {@code WINDOW_MODAL} Stage 打开调课表单。表单持有同一个教师课程服务实例
+     * （生产路径上是共享单例，冒烟测试里是 Mock），提交成功后只更新本弹窗的内联提示。
+     */
+    private void openAdjustmentDialog(TeacherScheduleEntryDTO value) {
+        FXMLLoader loader = FXMLUtil.getLoader(ADJUSTMENT_VIEW);
+        Parent root;
+        try {
+            root = loader.load();
+        } catch (IOException | RuntimeException failure) {
+            AlertUtil.showError("打开失败", "无法打开调课表单窗口：" + errorMessage(failure));
+            return;
+        }
+        TeacherAdjustmentDialogController dialog = loader.getController();
+        dialog.setOnSubmitted(application -> {
+            adjustmentSubmitted = true;
+            render();
+        });
+        dialog.prepare(value);
+
+        Stage stage = new Stage();
+        stage.initModality(Modality.WINDOW_MODAL);
+        Window owner = dialogRoot == null || dialogRoot.getScene() == null
+                ? null : dialogRoot.getScene().getWindow();
+        if (owner != null) stage.initOwner(owner);
+        stage.setTitle(TeacherAdjustmentDialogController.TITLE);
+        stage.setScene(new Scene(root));
+        stage.setOnHidden(event -> dialog.dispose());
+        stage.show();
     }
 
     @FXML
@@ -209,15 +264,28 @@ public final class TeacherCourseDetailDialogController {
 
         renderSnapshot();
 
+        String hint = adjustmentHintText();
         if (adjustmentHintLabel != null) {
-            adjustmentHintLabel.setText(ADJUSTMENT_STAGING_TEXT);
+            adjustmentHintLabel.setText(hint == null ? "" : hint);
         }
+        setActive(adjustmentHintLabel, hint != null);
         if (requestAdjustmentButton != null) {
-            requestAdjustmentButton.setDisable(true);
+            requestAdjustmentButton.setDisable(entry == null || !entry.isCanRequestAdjustment()
+                    || adjustmentSubmitted);
         }
         if (openOfferingButton != null) {
             openOfferingButton.setDisable(entry == null || entry.getOfferingId() == null);
         }
+    }
+
+    /**
+     * 调课入口的说明文案：提交过后显示成功提示（入口同时禁用，同一课次不再重复申请）；
+     * 已有生效调课的课次显示不能申请的原因；其余情况没有提示。
+     */
+    private String adjustmentHintText() {
+        if (adjustmentSubmitted) return ADJUSTMENT_SUBMITTED_TEXT;
+        if (entry != null && !entry.isCanRequestAdjustment()) return ADJUSTMENT_BLOCKED_TEXT;
+        return null;
     }
 
     private void renderSnapshot() {
@@ -313,6 +381,11 @@ public final class TeacherCourseDetailDialogController {
 
     private static String orDash(String value) {
         return value == null || value.isBlank() ? "—" : value;
+    }
+
+    private static String errorMessage(Throwable failure) {
+        return failure == null || failure.getMessage() == null
+                ? "未知错误" : failure.getMessage();
     }
 
     // -------------------------------------------------------------- 测试访问器

@@ -413,10 +413,18 @@ public final class TeacherScheduleControllerTest {
         require("课程详情".equals(TeacherCourseDetailDialogController.TITLE),
                 "the dialog stage title is the anchor the GUI smoke test finds the window by, saw "
                         + TeacherCourseDetailDialogController.TITLE);
-        require("申请调课将在后续阶段接入".equals(
-                        TeacherCourseDetailDialogController.ADJUSTMENT_STAGING_TEXT),
-                "the disabled 申请调课 entry must state when it arrives, saw "
-                        + TeacherCourseDetailDialogController.ADJUSTMENT_STAGING_TEXT);
+        require("该课次已有生效调课，本期不再接受新的调课申请".equals(
+                        TeacherCourseDetailDialogController.ADJUSTMENT_BLOCKED_TEXT),
+                "a course occurrence with an effective adjustment must explain why 申请调课 stays "
+                        + "disabled, saw " + TeacherCourseDetailDialogController.ADJUSTMENT_BLOCKED_TEXT);
+        require("调课申请已提交，可在“我的申请”里查看处理进度".equals(
+                        TeacherCourseDetailDialogController.ADJUSTMENT_SUBMITTED_TEXT),
+                "a submitted adjustment must leave an inline confirmation on the detail dialog, saw "
+                        + TeacherCourseDetailDialogController.ADJUSTMENT_SUBMITTED_TEXT);
+        require("/resources/fxml/TeacherAdjustmentDialog.fxml".equals(
+                        TeacherCourseDetailDialogController.ADJUSTMENT_VIEW),
+                "the detail dialog must open the real adjustment form, saw "
+                        + TeacherCourseDetailDialogController.ADJUSTMENT_VIEW);
     }
 
     // ------------------------------------------------------------------ 视图契约

@@ -19,12 +19,14 @@ import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
+import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
 import javafx.scene.control.TableRow;
 import javafx.scene.control.TableView;
+import javafx.scene.control.TextArea;
 import javafx.scene.image.WritableImage;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.VBox;
@@ -60,20 +62,42 @@ public final class TeacherCourseUiSmokeTest {
     private static final String LONG_NAME_FRAGMENT = "欧阳阿依古丽";
     /** 课次详情弹窗的 Stage 标题（= TeacherCourseDetailDialogController.TITLE）。 */
     private static final String DIALOG_TITLE = "课程详情";
+    /** 调课表单弹窗的 Stage 标题（= TeacherAdjustmentDialogController.TITLE）。 */
+    private static final String ADJUSTMENT_TITLE = "申请调课";
     /** Mock 周 8 的跨周原位置卡片对应的课程；点它打开详情再“查看教学班”。 */
     private static final String CROSS_WEEK_COURSE_NAME = "数据结构与算法基础";
     private static final String CROSS_WEEK_LOCATION = "A-101";
+    /** Mock 周 8 里唯一还能申请调课的课次（9203，未调整的周六第 12-13 节）。 */
+    private static final String ADJUSTABLE_COURSE_NAME = "操作系统原理";
+    private static final String CROSS_WEEK_TARGET_DATE = "2026-11-02";
+    private static final String SAME_WEEK_TARGET_DATE = "2026-10-26";
+    private static final String CONFLICT_MESSAGE_FRAGMENT = "任课教师在该时间已有其他课程";
+    private static final String SUBMITTED_HINT_FRAGMENT = "调课申请已提交";
+    private static final String WITHDRAWN_STATUS_FRAGMENT = "已撤销";
+    /** 待撤销的 PENDING 夹具（MockTeacherCourseService 的 9405）。 */
+    private static final String PENDING_REQUEST_ID = "9405";
+    private static final String WITHDRAWN_REQUEST_ID = "9404";
     private static final String WEEK_EIGHT_LABEL = "第 8 周（1-16）";
     private static final String WEEK_NINE_LABEL = "第 9 周（1-16）";
     private static final String WEEK_FIVE_LABEL = "第 5 周（1-16）";
     private static final String EMPTY_WEEK_TEXT = "本周没有课程";
     private static final int WEEK_EIGHT_CARDS = 4;
     private static final int WEEK_NINE_CARDS = 1;
+    /** Mock 日历：16 周 × 6 个教学日；周 1 起自 2026-09-07。 */
+    private static final int CALENDAR_CHOICES = 96;
+    /** 调课原因上限 500 字符；长原因用例要证明多行文本完整保留。 */
+    private static final String LONG_REASON =
+            "教师因参加全国课程建设研讨会需要出差，随行还有两位助教；会议日程与本周课程冲突，"
+            + "已与教学班学生代表协商改期，并确认目标教室在没有其他课程占用，"
+            + "希望教务处审批后把本次课次调整到新的教学日，后续如有变动会第一时间重新提交申请。";
     private static final String[] FILES = {
             "offering-list.png", "detail-basic-info.png", "detail-roster-page1.png",
             "roster-page2.png", "detail-schedule.png", "detail-grades.png", "roster-empty.png",
             "schedule-week8.png", "schedule-card-detail.png", "schedule-week9.png",
-            "schedule-empty-week.png"
+            "schedule-empty-week.png",
+            // T5 的四张主题截图（跨周 / 冲突 / 撤销 / 长原因）。
+            "adjustment-dialog-cross-week.png", "adjustment-dialog-conflict.png",
+            "adjustment-dialog-long-reason.png", "adjustment-applications-withdrawn.png"
     };
     private static final Path OUTPUT = Path.of(".codex-tmp", "teacher");
 
@@ -126,7 +150,9 @@ public final class TeacherCourseUiSmokeTest {
                         "教学班入口在 T5 接通后必须可用");
                 require(!entryButton("教学课程表").isDisabled(),
                         "教学课程表入口在 T4 接通后必须可用");
-                for (String staging : List.of("成绩录入", "我的申请")) {
+                require(!entryButton("我的申请").isDisabled(),
+                        "我的申请入口在 T5 接通后必须可用");
+                for (String staging : List.of("成绩录入")) {
                     require(entryButton(staging).isDisabled(),
                             staging + "仍属于后续阶段，入口必须保持禁用");
                 }
@@ -211,7 +237,10 @@ public final class TeacherCourseUiSmokeTest {
                 Button request = requireIn(dialogRoot, "#requestAdjustmentButton", Button.class,
                         "申请调课按钮");
                 require(request.isDisabled(),
-                        "申请调课属于 T3，本阶段必须保持禁用");
+                        "已有生效调课的课次不能再申请调课（该卡片是跨周原位置提示）");
+                require(labelIn(dialogRoot, "#adjustmentHintLabel").contains("已有生效调课"),
+                        "禁用的调课入口必须说明原因，实际 "
+                                + labelIn(dialogRoot, "#adjustmentHintLabel"));
                 Button openOffering = requireIn(dialogRoot, "#openOfferingButton", Button.class,
                         "查看教学班按钮");
                 require(!openOffering.isDisabled(), "查看教学班必须可用");
@@ -359,6 +388,203 @@ public final class TeacherCourseUiSmokeTest {
                 snapshot("roster-empty.png");
             });
 
+            // ------------------------------------------------------------ T5：调课表单
+            // 从周 8 里唯一未调整的课次（9203 操作系统原理）打开调课表单：跨周无冲突 → 长原因 →
+            // 同周冲突，最后真的提交一次，验证表单与课次详情弹窗的内联提示。
+            steps.add(() -> entryButton("教学课程表").fire());
+            steps.add(() -> {
+                require(labelText("#weekLabel").equals(WEEK_EIGHT_LABEL),
+                        "回到课表后应恢复 " + WEEK_EIGHT_LABEL + "，实际 "
+                                + labelText("#weekLabel"));
+            });
+            steps.add(() -> cardForCourse(ADJUSTABLE_COURSE_NAME).fire());
+            steps.add(() -> {
+                Parent dialogRoot = dialogStageRoot();
+                Button request = requireIn(dialogRoot, "#requestAdjustmentButton", Button.class,
+                        "申请调课按钮");
+                require(!request.isDisabled(),
+                        "未调整的课次必须可以申请调课，实际按钮被禁用");
+                request.fire();
+            });
+            steps.add(() -> {
+                Parent adjustmentRoot = adjustmentStageRoot();
+                require(labelIn(adjustmentRoot, "#originalLine").contains("第 8 周")
+                                && labelIn(adjustmentRoot, "#originalLine").contains("第 12-13 节")
+                                && labelIn(adjustmentRoot, "#originalLine").contains("C-301"),
+                        "调课表单必须写清原安排，实际 "
+                                + labelIn(adjustmentRoot, "#originalLine"));
+                ComboBox<?> dateCombo = requireIn(adjustmentRoot, "#dateCombo", ComboBox.class,
+                        "新日期下拉");
+                require(dateCombo.getItems().size() == CALENDAR_CHOICES,
+                        "日期选项必须来自教学日历（" + CALENDAR_CHOICES + " 个教学日），实际 "
+                                + dateCombo.getItems().size());
+                require(requireIn(adjustmentRoot, "#submitButton", Button.class, "提交按钮")
+                                .isDisabled(),
+                        "未选择目标前提交必须禁用");
+            });
+            steps.add(() -> selectAdjustmentDate(CROSS_WEEK_TARGET_DATE));
+            steps.add(() -> {
+                Parent adjustmentRoot = adjustmentStageRoot();
+                require(labelIn(adjustmentRoot, "#previewStatusLabel").contains("选择完整"),
+                        "只选日期时表单不完整，必须提示先选节次，实际 "
+                                + labelIn(adjustmentRoot, "#previewStatusLabel"));
+            });
+            steps.add(() -> selectAdjustmentPeriods(1, 2));
+            steps.add(() -> {
+                Parent adjustmentRoot = adjustmentStageRoot();
+                require(labelIn(adjustmentRoot, "#targetWeekLine").contains("第 9 周")
+                                && labelIn(adjustmentRoot, "#targetWeekLine").contains("跨周"),
+                        "目标周行必须写出目标周与跨周关系，实际 "
+                                + labelIn(adjustmentRoot, "#targetWeekLine"));
+                Label status = requireIn(adjustmentRoot, "#previewStatusLabel", Label.class,
+                        "预检查结果");
+                require(status.getText().contains("没有冲突"),
+                        "跨周空闲目标必须预检查通过，实际 " + status.getText());
+                require(requireIn(adjustmentRoot, "#submitButton", Button.class, "提交按钮")
+                                .isDisabled(),
+                        "预检查通过但原因还是空的时候提交必须禁用");
+            });
+            steps.add(() -> {
+                TextArea reason = requireIn(adjustmentStageRoot(), "#reasonArea", TextArea.class,
+                        "调课原因");
+                reason.setText("教师出差");
+            });
+            steps.add(() -> {
+                Parent adjustmentRoot = adjustmentStageRoot();
+                require(!requireIn(adjustmentRoot, "#submitButton", Button.class, "提交按钮")
+                                .isDisabled(),
+                        "预检查通过且原因非空时必须可以提交");
+                snapshotNode(adjustmentRoot, "adjustment-dialog-cross-week.png");
+            });
+            steps.add(() -> {
+                TextArea reason = requireIn(adjustmentStageRoot(), "#reasonArea", TextArea.class,
+                        "调课原因");
+                reason.setText(LONG_REASON);
+            });
+            steps.add(() -> {
+                Parent adjustmentRoot = adjustmentStageRoot();
+                TextArea reason = requireIn(adjustmentRoot, "#reasonArea", TextArea.class,
+                        "调课原因");
+                require(LONG_REASON.equals(reason.getText()),
+                        "长原因必须完整保留，实际长度 " + reason.getText().length());
+                require(!requireIn(adjustmentRoot, "#submitButton", Button.class, "提交按钮")
+                                .isDisabled(),
+                        "编辑原因不会使预检查失效，提交保持可用");
+                snapshotNode(adjustmentRoot, "adjustment-dialog-long-reason.png");
+            });
+            steps.add(() -> selectAdjustmentDate(SAME_WEEK_TARGET_DATE));
+            steps.add(() -> {
+                Parent adjustmentRoot = adjustmentStageRoot();
+                require(labelIn(adjustmentRoot, "#targetWeekLine").contains("同周"),
+                        "同周目标必须标出同周关系，实际 "
+                                + labelIn(adjustmentRoot, "#targetWeekLine"));
+                VBox conflicts = requireIn(adjustmentRoot, "#previewConflictRows", VBox.class,
+                        "冲突列表");
+                require(!conflicts.getChildren().isEmpty(),
+                        "Mock 的同周目标与 9201 冲突，必须显示冲突行");
+                require(nodeTextsIn(adjustmentRoot, ".teacher-schedule-dialog-adjustment-line")
+                                .stream().anyMatch(text -> text.contains(CONFLICT_MESSAGE_FRAGMENT)),
+                        "冲突行必须以服务端文案说明冲突原因");
+                Node conflictRow = conflicts.getChildren().get(0);
+                require(conflictRow instanceof Label conflictLabel
+                                && conflictLabel.getHeight()
+                                        >= conflictLabel.prefHeight(480.0) - 1.0,
+                        "冲突行必须按换行后的高度完整显示，不能被裁成省略号，实际高度 "
+                                + conflictRow.getLayoutBounds().getHeight() + "，需要 "
+                                + ((Label) conflictRow).prefHeight(480.0));
+                require(requireIn(adjustmentRoot, "#submitButton", Button.class, "提交按钮")
+                                .isDisabled(),
+                        "存在冲突时提交必须禁用");
+                snapshotNode(adjustmentRoot, "adjustment-dialog-conflict.png");
+            });
+            // 改回跨周目标 → 无冲突 → 真正提交一次（Mock 会写入一条 PENDING 申请）。
+            steps.add(() -> selectAdjustmentDate(CROSS_WEEK_TARGET_DATE));
+            steps.add(() -> {
+                Button submit = requireIn(adjustmentStageRoot(), "#submitButton", Button.class,
+                        "提交按钮");
+                require(!submit.isDisabled(), "跨周目标必须重新变为可提交");
+                submit.fire();
+            });
+            steps.add(() -> {
+                require(adjustmentStageOrNull() == null, "提交成功后调课表单必须关闭");
+                Parent dialogRoot = dialogStageRoot();
+                require(labelIn(dialogRoot, "#adjustmentHintLabel").contains(SUBMITTED_HINT_FRAGMENT),
+                        "课次详情必须给出提交成功的内联提示，实际 "
+                                + labelIn(dialogRoot, "#adjustmentHintLabel"));
+                require(requireIn(dialogRoot, "#requestAdjustmentButton", Button.class,
+                                "申请调课按钮").isDisabled(),
+                        "提交过的课次不能再重复申请调课");
+            });
+            steps.add(() -> requireIn(dialogStageRoot(), "#closeButton", Button.class, "关闭按钮")
+                    .fire());
+            steps.add(() -> {
+                require(dialogStageOrNull() == null, "关闭课次详情后弹窗必须消失");
+                require(Window.getWindows().size() == 1, "调课流程结束后不能留下任何弹窗");
+            });
+
+            // ------------------------------------------------------------ T5：我的申请
+            // 进入“我的申请”：列表里有刚提交的申请与 Mock 的 PENDING 夹具；撤销 9405 后详情立即
+            // 显示已撤销，PENDING 列表不再包含它，切到已撤销筛选能查到它。
+            steps.add(() -> entryButton("我的申请").fire());
+            steps.add(() -> {
+                require(effectivelyVisible(applicationsScope()),
+                        "进入我的申请后子页必须可见");
+                ComboBox<?> statusFilter = requireIn(applicationsScope(),
+                        "#applicationStatusFilter", ComboBox.class, "状态筛选");
+                require(statusFilter.getItems().equals(List.of("待审批", "已通过", "已驳回", "已撤销")),
+                        "我的申请必须支持四态筛选，实际 " + statusFilter.getItems());
+                VBox list = requireIn(applicationsScope(), "#applicationList", VBox.class,
+                        "申请列表");
+                require(list.getChildren().size() == 2,
+                        "PENDING 列表应包含刚提交的申请与 Mock 夹具（2 条），实际 "
+                                + list.getChildren().size());
+                require(list.getChildren().get(0).getLayoutBounds().getHeight() < 140
+                                && list.getChildren().get(0).getLayoutBounds().getHeight() > 0,
+                        "列表行必须按内容排版，不能被换行标签撑成整屏，实际行高 "
+                                + list.getChildren().get(0).getLayoutBounds().getHeight());
+            });
+            steps.add(() -> applicationRow(PENDING_REQUEST_ID).fire());
+            steps.add(() -> {
+                String title = labelIn(applicationsScope(), "#applicationDetailTitleLabel");
+                require(title.contains(PENDING_REQUEST_ID) && title.contains("待审批"),
+                        "选中的申请必须加载详情，实际 " + title);
+                Button withdraw = requireIn(applicationsScope(), "#applicationWithdrawButton",
+                        Button.class, "撤销按钮");
+                require(withdraw.isVisible() && !withdraw.isDisabled(),
+                        "PENDING 申请必须提供可用的撤销入口");
+            });
+            steps.add(() -> requireIn(applicationsScope(), "#applicationWithdrawButton",
+                    Button.class, "撤销按钮").fire());
+            steps.add(() -> {
+                Button confirm = requireIn(applicationsScope(), "#applicationConfirmWithdrawButton",
+                        Button.class, "确认撤销按钮");
+                require(confirm.isVisible(), "第一次点击撤销必须只进入确认态");
+                confirm.fire();
+            });
+            steps.add(() -> {
+                String title = labelIn(applicationsScope(), "#applicationDetailTitleLabel");
+                require(title.contains(WITHDRAWN_STATUS_FRAGMENT),
+                        "撤销成功后详情必须显示已撤销，实际 " + title);
+                String feedback = labelIn(applicationsScope(), "#applicationFeedbackLabel");
+                require(feedback.contains(WITHDRAWN_STATUS_FRAGMENT),
+                        "撤销成功必须给出内联提示，实际 " + feedback);
+                require(!requireIn(applicationsScope(), "#applicationWithdrawButton", Button.class,
+                                "撤销按钮").isVisible(),
+                        "终态申请必须只读，不能再撤销");
+                snapshot("adjustment-applications-withdrawn.png");
+            });
+            steps.add(() -> selectComboValue(applicationsScope(), "#applicationStatusFilter",
+                    "已撤销"));
+            steps.add(() -> {
+                VBox list = requireIn(applicationsScope(), "#applicationList", VBox.class,
+                        "申请列表");
+                require(list.getChildren().size() == 2,
+                        "已撤销列表应包含 9404 与刚撤销的 9405，实际 " + list.getChildren().size());
+                require(applicationRowOrNull(WITHDRAWN_REQUEST_ID) != null
+                                && applicationRowOrNull(PENDING_REQUEST_ID) != null,
+                        "撤销必须真实改变查询快照（已撤销列表里出现 9404 与 9405）");
+            });
+
             // 收尾：课次详情弹窗是 WINDOW_MODAL + show()（不阻塞），结束时不能有遗留窗口。
             steps.add(() -> {
                 require(Window.getWindows().size() == 1,
@@ -456,6 +682,122 @@ public final class TeacherCourseUiSmokeTest {
         private Parent dialogStageRoot() {
             Stage dialog = requireDialogStage();
             return dialog.getScene().getRoot();
+        }
+
+        /** 调课表单窗口（标题“申请调课”）；打开时主窗口 + 课次详情 + 表单恰好三个窗口。 */
+        private Stage adjustmentStageOrNull() {
+            Stage found = null;
+            for (Window window : Window.getWindows()) {
+                if (window instanceof Stage stage && ADJUSTMENT_TITLE.equals(stage.getTitle())) {
+                    if (found != null) {
+                        throw new IllegalStateException("出现了多个 " + ADJUSTMENT_TITLE + " 窗口");
+                    }
+                    found = stage;
+                }
+            }
+            return found;
+        }
+
+        private Parent adjustmentStageRoot() {
+            Stage stage = adjustmentStageOrNull();
+            if (stage == null) {
+                throw new IllegalStateException("找不到标题为 " + ADJUSTMENT_TITLE + " 的调课表单窗口");
+            }
+            require(Window.getWindows().size() == 3,
+                    "打开调课表单后应恰好有三个窗口（主窗口 + 课次详情 + 调课表单），实际 "
+                            + Window.getWindows().size());
+            return stage.getScene().getRoot();
+        }
+
+        /** 在调课表单里按 ISO 日期选择目标日期（下拉项以日期结尾），值变化即触发预检查。 */
+        private void selectAdjustmentDate(String isoDate) {
+            Parent scope = adjustmentStageRoot();
+            Node node = requireIn(scope, "#dateCombo", Node.class, "新日期下拉");
+            if (!(node instanceof ComboBox<?> combo)) {
+                throw new IllegalStateException("#dateCombo 不是下拉框");
+            }
+            for (Object item : combo.getItems()) {
+                if (item instanceof String label && label.endsWith(isoDate)) {
+                    selectComboValue(scope, "#dateCombo", label);
+                    return;
+                }
+            }
+            throw new IllegalStateException("日期下拉里没有 " + isoDate);
+        }
+
+        /** 在调课表单里选择开始/结束节次；两个值都选中后表单才完整并自动预检查。 */
+        private void selectAdjustmentPeriods(int start, int end) {
+            Parent scope = adjustmentStageRoot();
+            selectComboValue(scope, "#startPeriodCombo", start);
+            selectComboValue(scope, "#endPeriodCombo", end);
+        }
+
+        /** 给下拉框赋一个值；值监听器按用户选择处理（冒烟不模拟鼠标，但走的是同一条监听路径）。 */
+        @SuppressWarnings("unchecked")
+        private void selectComboValue(Parent scope, String selector, Object value) {
+            Node node = requireIn(scope, selector, Node.class, "下拉 " + selector);
+            if (!(node instanceof ComboBox<?>)) {
+                throw new IllegalStateException(selector + " 不是下拉框");
+            }
+            ((ComboBox<Object>) node).setValue(value);
+        }
+
+        /** 我的申请子页的根节点：里面的 fx:id 带 application 前缀，但仍按子页作用域查找。 */
+        private Parent applicationsScope() {
+            return requireNode("#applicationsPage", Parent.class, "我的申请子页");
+        }
+
+        /** 我的申请列表里按申请编号反查那一行的“查看”按钮（真实点击）。 */
+        private Button applicationRow(String requestId) {
+            Button row = applicationRowOrNull(requestId);
+            if (row == null) {
+                throw new IllegalStateException("找不到申请 " + requestId + " 的列表行");
+            }
+            return row;
+        }
+
+        private Button applicationRowOrNull(String requestId) {
+            Node node = applicationsScope().lookup("#applicationList");
+            if (!(node instanceof VBox list)) {
+                throw new IllegalStateException("找不到申请列表");
+            }
+            for (Node child : list.getChildren()) {
+                if (rowText(child).contains(requestId)) {
+                    Node open = child.lookup(".teacher-course-row-detail-button");
+                    if (open instanceof Button button) return button;
+                }
+            }
+            return null;
+        }
+
+        /** 列表行的可读文本：行内所有标签拼在一起（标题、副标题）。 */
+        private static String rowText(Node row) {
+            StringBuilder text = new StringBuilder();
+            collectLabelText(row, text);
+            return text.toString();
+        }
+
+        private static void collectLabelText(Node node, StringBuilder text) {
+            if (node == null) return;
+            if (node instanceof Label label) {
+                text.append(label.getText() == null ? "" : label.getText()).append('\n');
+            }
+            if (node instanceof Parent parent) {
+                for (Node child : parent.getChildrenUnmodifiable()) {
+                    collectLabelText(child, text);
+                }
+            }
+        }
+
+        /** 某个作用域内某种样式类的全部标签文本。 */
+        private static List<String> nodeTextsIn(Parent scope, String selector) {
+            List<String> texts = new ArrayList<>();
+            for (Node node : scope.lookupAll(selector)) {
+                if (node instanceof Label label) {
+                    texts.add(label.getText() == null ? "" : label.getText());
+                }
+            }
+            return texts;
         }
 
         /**

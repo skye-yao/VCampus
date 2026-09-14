@@ -30,7 +30,7 @@ public final class TeacherCourseManagementController {
     /** 供未交付入口使用的阶段性提示文案。 */
     static final String STAGING_NOTICE = "该功能将在后续阶段接入";
     /** 首页默认文案：说明已接入与待接入的功能。 */
-    static final String HOME_NOTICE = "教学班、教学课程表已接入；成绩录入、我的申请将在后续阶段接入。";
+    static final String HOME_NOTICE = "教学班、教学课程表、我的申请已接入；成绩录入将在后续阶段接入。";
     /** “返回首页”的目标视图。 */
     static final String HOME_VIEW = "/resources/fxml/MainView.fxml";
     /** 当前显示的子页。 */
@@ -38,6 +38,7 @@ public final class TeacherCourseManagementController {
     static final String PAGE_OFFERINGS = "offerings";
     static final String PAGE_DETAIL = "detail";
     static final String PAGE_SCHEDULE = "schedule";
+    static final String PAGE_APPLICATIONS = "applications";
 
     private final TeacherCourseService service;
     private Runnable backAction = () -> ClientMain.switchScene(HOME_VIEW);
@@ -51,6 +52,8 @@ public final class TeacherCourseManagementController {
     @FXML private TeacherOfferingDetailController detailPageController;
     @FXML private Node schedulePage;
     @FXML private TeacherScheduleController schedulePageController;
+    @FXML private Node applicationsPage;
+    @FXML private TeacherApplicationsController applicationsPageController;
     @FXML private Label statusLabel;
 
     public TeacherCourseManagementController() {
@@ -64,7 +67,7 @@ public final class TeacherCourseManagementController {
     @FXML
     public void initialize() {
         wire(homePanel, offeringsPage, offeringsPageController, detailPage, detailPageController,
-                schedulePage, schedulePageController);
+                schedulePage, schedulePageController, applicationsPage, applicationsPageController);
     }
 
     /**
@@ -76,7 +79,8 @@ public final class TeacherCourseManagementController {
      */
     void wire(Node homePanel, Node offeringsPage, TeacherOfferingController offeringsPageController,
             Node detailPage, TeacherOfferingDetailController detailPageController,
-            Node schedulePage, TeacherScheduleController schedulePageController) {
+            Node schedulePage, TeacherScheduleController schedulePageController,
+            Node applicationsPage, TeacherApplicationsController applicationsPageController) {
         this.homePanel = homePanel;
         this.offeringsPage = offeringsPage;
         this.offeringsPageController = offeringsPageController;
@@ -84,6 +88,8 @@ public final class TeacherCourseManagementController {
         this.detailPageController = detailPageController;
         this.schedulePage = schedulePage;
         this.schedulePageController = schedulePageController;
+        this.applicationsPage = applicationsPage;
+        this.applicationsPageController = applicationsPageController;
         if (offeringsPageController != null) {
             offeringsPageController.setOnShowOffering(this::showOffering);
         }
@@ -180,6 +186,9 @@ public final class TeacherCourseManagementController {
         if (detailPageController != null) {
             detailPageController.release();
         }
+        if (applicationsPageController != null) {
+            applicationsPageController.unload();
+        }
         if (schedulePageController != null) {
             schedulePageController.activate();
         }
@@ -195,12 +204,25 @@ public final class TeacherCourseManagementController {
         showStagingNotice();
     }
 
+    /** 打开我的申请：卸下其它子页并激活申请页，进入即重新查询（写操作后的状态才最新）。 */
     void openApplications() {
-        showHome();
-        showStagingNotice();
+        if (offeringsPageController != null) {
+            offeringsPageController.unload();
+        }
+        if (detailPageController != null) {
+            detailPageController.release();
+        }
+        if (schedulePageController != null) {
+            schedulePageController.unload();
+        }
+        if (applicationsPageController != null) {
+            applicationsPageController.activate();
+        }
+        currentPage = PAGE_APPLICATIONS;
+        render();
     }
 
-    /** 回到工作台首页，同时卸下三个子页。 */
+    /** 回到工作台首页，同时卸下四个子页。 */
     void showHome() {
         if (offeringsPageController != null) {
             offeringsPageController.unload();
@@ -210,6 +232,9 @@ public final class TeacherCourseManagementController {
         }
         if (schedulePageController != null) {
             schedulePageController.unload();
+        }
+        if (applicationsPageController != null) {
+            applicationsPageController.unload();
         }
         currentPage = PAGE_HOME;
         render();
@@ -225,6 +250,7 @@ public final class TeacherCourseManagementController {
         setPageState(offeringsPage, PAGE_OFFERINGS.equals(currentPage));
         setPageState(detailPage, PAGE_DETAIL.equals(currentPage));
         setPageState(schedulePage, PAGE_SCHEDULE.equals(currentPage));
+        setPageState(applicationsPage, PAGE_APPLICATIONS.equals(currentPage));
         if (statusLabel != null) {
             statusLabel.setText(noticeText);
         }

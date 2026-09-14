@@ -419,3 +419,59 @@
     -fx-text-fill: #8a6d1f;
 }
 
+/* ================= 9. 调课表单与我的申请 ================= */
+
+.teacher-course-field-label {
+    -fx-font-size: 13px;
+    -fx-text-fill: #3f553f;
+    -fx-font-weight: bold;
+}
+
+.teacher-course-reason-area {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #cfd8cf;
+    -fx-border-radius: 4px;
+    -fx-background-radius: 4px;
+    -fx-font-size: 13px;
+}
+
+.teacher-course-reason-area:focused {
+    -fx-border-color: #587558;
+}
+
+/* 已经过去的目标日期保留在下拉里，只灰显——客户端不替服务端过滤日期。 */
+.teacher-adjustment-past-date {
+    -fx-text-fill: #9aa39a;
+}
+
+.teacher-course-application-row {
+    -fx-background-color: #ffffff;
+    -fx-background-radius: 6px;
+    -fx-border-color: #dce4dc;
+    -fx-border-radius: 6px;
+    -fx-padding: 8px 10px 8px 10px;
+    -fx-alignment: center-left;
+    -fx-cursor: hand;
+}
+
+.teacher-course-application-row:hover {
+    -fx-background-color: #eaf0ea;
+    -fx-border-color: #587558;
+}
+
+.teacher-course-application-row-title {
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #151E49;
+}
+
+.teacher-course-application-row-meta {
+    -fx-font-size: 12px;
+    -fx-text-fill: #657067;
+}
+
+.teacher-course-feedback-text {
+    -fx-font-size: 12px;
+    -fx-text-fill: #456045;
+}
+

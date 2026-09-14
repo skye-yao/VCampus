@@ -11,8 +11,8 @@
 
 <!--
   教师工作台外壳：左上“返回首页”，右上四入口。沿用 860x580 主窗口。
-  教学班与教学课程表已接入；成绩录入、我的申请仍属于后续阶段，保持可写的 disable="true" 占位
-  （JavaFX 的 disabled 是只读属性，写进 FXML 要到加载期才抛 PropertyNotFoundException）。
+  教学班、教学课程表与我的申请已接入；只有成绩录入仍属于后续阶段，保持可写的 disable="true"
+  占位（JavaFX 的 disabled 是只读属性，写进 FXML 要到加载期才抛 PropertyNotFoundException）。
   子页与外壳共用一套 fx:include + visible/managed 的托管机制，与管理员后台一致。
 -->
 <BorderPane prefHeight="580.0" prefWidth="860.0" styleClass="teacher-course-shell" stylesheets="@../css/style.css, @../css/teacher-course.css" xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.TeacherCourseManagementController">
@@ -28,7 +28,7 @@
                 <Button onAction="#handleOpenTimetable" prefHeight="64.0" styleClass="teacher-course-entry" text="教学课程表" />
                 <Button onAction="#handleOpenOfferings" prefHeight="64.0" styleClass="teacher-course-entry" text="教学班" />
                 <Button disable="true" onAction="#handleOpenGrades" prefHeight="64.0" styleClass="teacher-course-entry" text="成绩录入" />
-                <Button disable="true" onAction="#handleOpenApplications" prefHeight="64.0" styleClass="teacher-course-entry" text="我的申请" />
+                <Button onAction="#handleOpenApplications" prefHeight="64.0" styleClass="teacher-course-entry" text="我的申请" />
             </children>
         </HBox>
     </top>
@@ -38,12 +38,13 @@
                 <VBox fx:id="homePanel" alignment="CENTER" spacing="8.0" styleClass="teacher-course-placeholder">
                     <children>
                         <Label styleClass="teacher-course-placeholder-title" text="教师课程管理" />
-                        <Label fx:id="statusLabel" styleClass="teacher-course-placeholder-text" text="教学班、教学课程表已接入；成绩录入、我的申请将在后续阶段接入。" wrapText="true" />
+                        <Label fx:id="statusLabel" styleClass="teacher-course-placeholder-text" text="教学班、教学课程表、我的申请已接入；成绩录入将在后续阶段接入。" wrapText="true" />
                     </children>
                 </VBox>
                 <fx:include fx:id="offeringsPage" managed="false" source="TeacherOfferingView.fxml" visible="false" />
                 <fx:include fx:id="detailPage" managed="false" source="TeacherOfferingDetailView.fxml" visible="false" />
                 <fx:include fx:id="schedulePage" managed="false" source="TeacherScheduleView.fxml" visible="false" />
+                <fx:include fx:id="applicationsPage" managed="false" source="TeacherApplicationsView.fxml" visible="false" />
             </children>
         </StackPane>
     </center>

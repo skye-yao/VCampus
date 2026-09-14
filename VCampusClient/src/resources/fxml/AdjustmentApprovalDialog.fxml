@@ -28,6 +28,7 @@
                     <children>
                         <VBox fx:id="arrangementRows" spacing="6.0" />
                         <Separator />
+                        <Label styleClass="course-approval-dialog-meta" text="目标日期为具体教学日；历史申请没有日期时按原周与星期显示。不再接受新调课申请的终态只读。" wrapText="true" />
                         <Label styleClass="course-approval-dialog-header" text="冲突检查" />
                         <Label fx:id="emptyConflictsLabel" styleClass="course-approval-dialog-meta" text="无冲突" />
                         <VBox fx:id="conflictRows" spacing="4.0" />

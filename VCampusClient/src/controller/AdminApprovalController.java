@@ -107,7 +107,8 @@ public final class AdminApprovalController {
 
     @FXML
     public void initialize() {
-        statusFilter.getItems().setAll(PENDING_LABEL, APPROVED_LABEL, REJECTED_LABEL);
+        statusFilter.getItems().setAll(PENDING_LABEL, APPROVED_LABEL, REJECTED_LABEL,
+                WITHDRAWN_LABEL);
         statusFilter.setValue(PENDING_LABEL);
         statusFilter.valueProperty().addListener(
                 (observable, oldValue, newValue) -> applyStatus(newValue));
@@ -219,7 +220,7 @@ public final class AdminApprovalController {
         loading = true;
         errorText = null;
         render();
-        service.listAdjustmentRequestsPage(status, page, PAGE_SIZE)
+        service.listAdjustmentRequestsByStatus(status, page, PAGE_SIZE)
                 .whenComplete((result, error) -> fxExecutor.accept(() -> {
                     if (generation != listGeneration) return; // 忽略过期请求
                     loading = false;
@@ -319,10 +320,15 @@ public final class AdminApprovalController {
                 detailBody.getChildren().add(label);
             }
         }
-        boolean actionable = value.getStatus() == AdjustmentRequestStatusDTO.PENDING;
+        boolean actionable = actionable(value);
         enable(approveButton, actionable);
         enable(rejectButton, actionable);
         enable(forceApproveButton, actionable);
+    }
+
+    /** 只有 PENDING 可以审批；APPROVED/REJECTED/WITHDRAWN 都是终态，详情只读。 */
+    static boolean actionable(AdjustmentRequestDetailDTO detail) {
+        return detail != null && detail.getStatus() == AdjustmentRequestStatusDTO.PENDING;
     }
 
     private static void enable(Button button, boolean enabled) {
@@ -381,16 +387,18 @@ public final class AdminApprovalController {
         return List.copyOf(lines);
     }
 
-    /** 每个目标周一行：左侧原安排、右侧新安排。 */
+    /**
+     * 每个目标一行：左侧原安排、右侧新安排。新安排显示该目标自己的实际日期（V006 之前的旧行
+     * 没有日期，退回原来的“星期 + 节次”显示）；教师申请没有新教师/新教室，显示目标原快照。
+     */
     static List<ArrangementRow> arrangementRows(AdjustmentRequestDetailDTO detail) {
-        String adjusted = describeAdjusted(detail);
         List<ArrangementRow> rows = new ArrayList<>();
         for (AdjustmentTargetDTO target : detail.getTargets()) {
             rows.add(new ArrangementRow("第 " + target.getWeek() + " 周",
                     target.getOriginalStartAt() + "~" + target.getOriginalEndAt() + "　"
-                            + orDash(target.getOriginalTeacher()) + "　"
+                            + originalPersons(target) + "　"
                             + orDash(target.getOriginalClassroom()),
-                    adjusted));
+                    describeAdjusted(detail, target)));
         }
         return List.copyOf(rows);
     }
@@ -408,10 +416,46 @@ public final class AdminApprovalController {
                 + "　[" + conflict.getType() + "/" + conflict.getSeverity() + "]";
     }
 
+    /** 请求级的新安排说明；目标日期能确定时一并列出（多目标按行显示各自日期）。 */
     private static String describeAdjusted(AdjustmentRequestDetailDTO detail) {
-        return weekdayName(detail.getNewDayOfWeek()) + " 第 " + detail.getNewStartPeriod() + "-"
-                + detail.getNewEndPeriod() + " 节　" + resourceName(detail.getNewTeacher())
+        String text = weekdayName(detail.getNewDayOfWeek()) + " 第 " + detail.getNewStartPeriod()
+                + "-" + detail.getNewEndPeriod() + " 节　" + resourceName(detail.getNewTeacher())
                 + "　" + resourceName(detail.getNewClassroom());
+        List<String> dates = targetDates(detail);
+        return dates.isEmpty() ? text : text + "　目标日期：" + String.join("、", dates);
+    }
+
+    /**
+     * 单个目标的新安排：目标日期是显式的 ISO 本地日期；教师申请（newTeacher/newClassroom 为 null）
+     * 回落到该目标的原快照，管理员替换过人员/教室时显示新资源。
+     */
+    static String describeAdjusted(AdjustmentRequestDetailDTO detail, AdjustmentTargetDTO target) {
+        String date = target.getTargetDate() == null ? "" : target.getTargetDate() + " ";
+        String teacher = detail.getNewTeacher() == null
+                ? originalPersons(target) : resourceName(detail.getNewTeacher());
+        String classroom = detail.getNewClassroom() == null
+                ? orDash(target.getOriginalClassroom()) : resourceName(detail.getNewClassroom());
+        return date + weekdayName(detail.getNewDayOfWeek()) + " 第 " + detail.getNewStartPeriod()
+                + "-" + detail.getNewEndPeriod() + " 节　" + teacher + "　" + classroom;
+    }
+
+    /** 原课次的任课教师与助教；教师申请的新安排沿用这份快照。 */
+    private static String originalPersons(AdjustmentTargetDTO target) {
+        String teacher = orDash(target.getOriginalTeacher());
+        return target.getOriginalAssistant() == null || target.getOriginalAssistant().isBlank()
+                ? teacher : teacher + ", " + target.getOriginalAssistant();
+    }
+
+    /** 请求里出现过的目标日期（去重、保持目标顺序）；旧行没有日期时为空。 */
+    static List<String> targetDates(AdjustmentRequestDetailDTO detail) {
+        List<String> dates = new ArrayList<>();
+        for (AdjustmentTargetDTO target : detail.getTargets()) {
+            String date = target.getTargetDate();
+            if (date != null && !date.isBlank() && !dates.contains(date)) {
+                dates.add(date);
+            }
+        }
+        return List.copyOf(dates);
     }
 
     private static String resourceName(ScheduleResourceDTO resource) {
@@ -425,6 +469,7 @@ public final class AdminApprovalController {
     static AdjustmentRequestStatusDTO toStatus(String label) {
         if (APPROVED_LABEL.equals(label)) return AdjustmentRequestStatusDTO.APPROVED;
         if (REJECTED_LABEL.equals(label)) return AdjustmentRequestStatusDTO.REJECTED;
+        if (WITHDRAWN_LABEL.equals(label)) return AdjustmentRequestStatusDTO.WITHDRAWN;
         return AdjustmentRequestStatusDTO.PENDING;
     }
 
@@ -445,12 +490,16 @@ public final class AdminApprovalController {
         return statusLabel(status == null ? null : AdjustmentRequestStatusDTO.valueOf(status.name()));
     }
 
-    /** 共享筛选只可能落在两个枚举共有的三个状态上，按枚举名交给成绩页。 */
-    private static ApprovalStatusDTO gradeStatus(AdjustmentRequestStatusDTO status) {
-        return status == null ? null : ApprovalStatusDTO.valueOf(status.name());
+    /**
+     * 共享筛选交给成绩页：三态枚举没有 WITHDRAWN，教师撤销只影响调课页，切到成绩页时回落到它的
+     * 默认状态（{@code activate(null)} 按 PENDING 处理），而不是在 {@code valueOf} 上抛异常。
+     */
+    static ApprovalStatusDTO gradeStatus(AdjustmentRequestStatusDTO status) {
+        if (status == null || status == AdjustmentRequestStatusDTO.WITHDRAWN) return null;
+        return ApprovalStatusDTO.valueOf(status.name());
     }
 
-    private static String weekdayName(int dayOfWeek) {
+    static String weekdayName(int dayOfWeek) {
         String[] weekdays = {"", "周一", "周二", "周三", "周四", "周五", "周六", "周日"};
         return dayOfWeek >= 1 && dayOfWeek <= 7 ? weekdays[dayOfWeek] : "周" + dayOfWeek;
     }

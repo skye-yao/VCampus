@@ -13,6 +13,7 @@ import dto.course.admin.approval.AdjustmentRequestPageDTO;
 import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
 import dto.course.admin.approval.AdjustmentTargetDTO;
 import dto.course.admin.approval.ApprovalDecisionRequestDTO;
+import dto.course.admin.approval.ApprovalStatusDTO;
 import dto.course.AdjustmentRequestStatusDTO;
 import dto.course.admin.catalog.CourseEditorRequestDTO;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
@@ -39,6 +40,9 @@ public final class AdminApprovalControllerTest {
         testCancelledConfirmationDoesNotCallTheService();
         testForceApprovalRequiresAReason();
         testConflictKeepsTheLatestDetail();
+        testWithdrawnFilterIsQueryableAndReadOnly();
+        testDetailShowsTheRealTargetDateAndFallsBackForLegacyTargets();
+        testGradeTabFallsBackInsteadOfThrowingOnWithdrawn();
         System.out.println("AdminApprovalControllerTest: PASS");
     }
 
@@ -196,6 +200,69 @@ public final class AdminApprovalControllerTest {
                 "a conflict must also refresh the list");
     }
 
+    /**
+     * T5：调课筛选必须能查 WITHDRAWN（教师撤销是终态、不是管理员驳回），且终态只读。
+     */
+    private static void testWithdrawnFilterIsQueryableAndReadOnly() {
+        ControlledService service = new ControlledService();
+        service.page = page(AdjustmentRequestStatusDTO.WITHDRAWN, 1, 20, summary("9005"));
+        AdminApprovalController controller = controller(service, new Recorder(), null);
+
+        controller.applyStatus(AdminApprovalController.WITHDRAWN_LABEL);
+
+        require("WITHDRAWN|1|20".equals(service.listCalls.get(0)),
+                "choosing 已撤销 must query the withdraw status, saw " + service.listCalls);
+        require(controller.status() == AdjustmentRequestStatusDTO.WITHDRAWN,
+                "the controller must remember the withdraw filter");
+        require(!AdminApprovalController.actionable(detail(AdjustmentRequestStatusDTO.WITHDRAWN,
+                        List.of())),
+                "a withdrawn request is read-only and must not offer approval buttons");
+        require(AdminApprovalController.actionable(detail(AdjustmentRequestStatusDTO.PENDING,
+                        List.of())),
+                "only a pending request may offer approval buttons");
+    }
+
+    /**
+     * T5：详情必须显示实际目标日期；历史 NULL 目标日期保持旧显示，教师申请（无新教师/教室）
+     * 回落到目标原快照。
+     */
+    private static void testDetailShowsTheRealTargetDateAndFallsBackForLegacyTargets() {
+        AdjustmentRequestDetailDTO dated = new AdjustmentRequestDetailDTO("970703", "2001", "T1001",
+                "教师出差", AdjustmentRequestStatusDTO.PENDING, 1, 5, 5, 6, null, null, null,
+                List.of(new AdjustmentTargetDTO("8005", 8, "2026-10-27T00:00:00Z",
+                        "2026-10-27T01:35:00Z", "陈老师", "王助教", "A-101", "2026-10-30")),
+                List.of(), "2026-09-10T02:00:00Z", null, null, null);
+
+        List<AdminApprovalController.ArrangementRow> rows = AdminApprovalController.arrangementRows(
+                dated);
+        String adjusted = rows.get(0).adjusted();
+        require(adjusted.startsWith("2026-10-30 周五 第 5-6 节"),
+                "the adjusted column must start with the real target date, saw " + adjusted);
+        require(adjusted.contains("陈老师, 王助教") && adjusted.contains("A-101"),
+                "a teacher request carries no new resources, so the target snapshot must be "
+                        + "shown, saw " + adjusted);
+        require(AdminApprovalController.detailLines(dated).stream()
+                        .anyMatch(line -> line.startsWith("新安排：")
+                                && line.contains("目标日期：2026-10-30")),
+                "the detail lines must carry the target date, saw "
+                        + AdminApprovalController.detailLines(dated));
+
+        List<AdminApprovalController.ArrangementRow> legacy = AdminApprovalController
+                .arrangementRows(detail(AdjustmentRequestStatusDTO.PENDING, List.of()));
+        require(legacy.get(0).adjusted().startsWith("周五 第 3-4 节"),
+                "a legacy target without a date must keep the weekday-first display, saw "
+                        + legacy.get(0).adjusted());
+    }
+
+    /** T5：共享筛选切到成绩页时 WITHDRAWN 没有三态对应项，必须回落而不是抛异常。 */
+    private static void testGradeTabFallsBackInsteadOfThrowingOnWithdrawn() {
+        require(AdminApprovalController.gradeStatus(AdjustmentRequestStatusDTO.WITHDRAWN) == null,
+                "the grade tab has no withdraw state; it must fall back to its own default");
+        require(AdminApprovalController.gradeStatus(AdjustmentRequestStatusDTO.APPROVED)
+                        == ApprovalStatusDTO.APPROVED,
+                "the shared three states must still map by name");
+    }
+
     // ------------------------------------------------------------------ 夹具
 
     private static AdminApprovalController controller(ControlledService service, Recorder recorder,
@@ -321,8 +388,12 @@ public final class AdminApprovalControllerTest {
             throw new UnsupportedOperationException();
         }
 
+        /**
+         * T5 起审批页调用四态主名 {@code listAdjustmentRequestsByStatus}；替身必须覆写主名，
+         * 只覆写旧别名会让调用落到默认实现上直接抛 {@code UnsupportedOperationException}。
+         */
         @Override
-        public CompletableFuture<AdjustmentRequestPageDTO> listAdjustmentRequestsPage(
+        public CompletableFuture<AdjustmentRequestPageDTO> listAdjustmentRequestsByStatus(
                 AdjustmentRequestStatusDTO status, int pageNumber, int size) {
             listCalls.add(status + "|" + pageNumber + "|" + size);
             if (!pages.isEmpty()) return pages.removeFirst();
