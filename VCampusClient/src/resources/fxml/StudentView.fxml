@@ -6,12 +6,11 @@
 <?import javafx.scene.layout.*?>
 <BorderPane xmlns="http://javafx.com/javafx/17" xmlns:fx="http://javafx.com/fxml/1" prefHeight="580" prefWidth="860" styleClass="main-window" stylesheets="@../css/style.css" fx:controller="controller.StudentController">
   <top>
-    <HBox alignment="CENTER_LEFT" prefHeight="56" spacing="12" styleClass="app-topbar">
+    <HBox alignment="CENTER_LEFT" prefHeight="58" spacing="12" styleClass="app-topbar">
       <padding>
-        <Insets left="22" right="22"/>
+        <Insets left="24" right="24"/>
       </padding>
-      <Button onAction="#handleBack" styleClass="btn-back" text="← 返回"/>
-      <Label fx:id="titleLabel" styleClass="brand-title" text="我的学籍"/>
+      <Label fx:id="titleLabel" styleClass="dash-main-title" text="我的学籍"/>
       <Region HBox.hgrow="ALWAYS"/>
       <Button onAction="#handleRefresh" styleClass="btn-secondary" text="刷新"/>
     </HBox>

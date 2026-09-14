@@ -10,15 +10,12 @@
             fx:controller="controller.PermissionController">
     <!-- 顶部导航条 -->
     <top>
-        <HBox alignment="CENTER_LEFT" prefHeight="64.0" spacing="14.0"
+        <HBox alignment="CENTER_LEFT" prefHeight="58.0" spacing="14.0"
               style="-fx-background-color: #ffffff; -fx-border-color: #e5e7eb; -fx-border-width: 0 0 1 0; -fx-padding: 0 24 0 24;">
             <children>
-                <Button onAction="#handleBack" styleClass="btn-secondary" text="← 退出至主页" />
-                <Separator orientation="VERTICAL" maxHeight="24.0" />
                 <VBox alignment="CENTER_LEFT" spacing="2.0">
                     <children>
-                        <Label style="-fx-font-size: 17px; -fx-font-weight: bold; -fx-text-fill: #151E49;" text="管理员权限管理" />
-                        <Label style="-fx-font-size: 11px; -fx-text-fill: #6b7280; -fx-font-weight: bold;" text="ADMINISTRATOR PERMISSION MANAGEMENT · 业务子系统分权控制" />
+                        <Label styleClass="dash-main-title" text="管理员权限管理" />
                     </children>
                 </VBox>
                 <Region HBox.hgrow="ALWAYS" />
@@ -77,7 +74,6 @@
                                 <!-- 底部操作按钮 -->
                                 <HBox alignment="CENTER_RIGHT" spacing="14.0">
                                     <children>
-                                        <Button onAction="#handleBack" prefHeight="38.0" styleClass="btn-secondary" text="退出至主页" />
                                         <Button onAction="#handleConfirm" prefHeight="38.0" styleClass="btn-primary" text="✔  确认保存权限" />
                                     </children>
                                 </HBox>

@@ -10,8 +10,7 @@
             fx:controller="controller.LibraryController">
     <top>
         <HBox alignment="CENTER_LEFT" prefHeight="58.0" spacing="14.0" styleClass="library-header">
-            <padding><Insets left="20.0" right="20.0"/></padding>
-            <Button onAction="#handleBack" styleClass="btn-secondary" text="← 返回"/>
+            <padding><Insets left="24.0" right="24.0"/></padding>
             <VBox spacing="2.0">
                 <Label styleClass="library-title" text="校园图书馆"/>
                 <Label styleClass="library-subtitle" text="CAMPUS LIBRARY · 阅读与发现"/>
