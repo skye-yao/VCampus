@@ -50,17 +50,20 @@ $suites = @(
     [pscustomobject]@{
         Name = 'Foundation'
         Common = @('dto.course.teacher.TeacherQueryDtoJsonTest')
+        # Client 测试用假 Transport 离屏运行，不需要真实服务器。
+        Client = @('service.SocketTeacherCourseServiceTest')
         # TeacherCourseQueryMySqlTest self-gates on the `mysql` argument, so it runs as a real
         # MySQL test only with -WithMySql and prints SKIP otherwise.
-        Server = @('database.TeacherFoundationMigrationTest', 'service.TeacherCourseQueryMySqlTest')
+        Server = @('database.TeacherFoundationMigrationTest', 'service.TeacherCourseQueryMySqlTest',
+            'handler.TeacherCourseHandlerTest')
         Tcp = @()
         Gui = @()
     }
-    [pscustomobject]@{ Name = 'Timetable'; Common = @(); Server = @(); Tcp = @(); Gui = @() }
-    [pscustomobject]@{ Name = 'Adjustment'; Common = @(); Server = @(); Tcp = @(); Gui = @() }
-    [pscustomobject]@{ Name = 'GradeBook'; Common = @(); Server = @(); Tcp = @(); Gui = @() }
-    [pscustomobject]@{ Name = 'ImportExport'; Common = @(); Server = @(); Tcp = @(); Gui = @() }
-    [pscustomobject]@{ Name = 'Applications'; Common = @(); Server = @(); Tcp = @(); Gui = @() }
+    [pscustomobject]@{ Name = 'Timetable'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }
+    [pscustomobject]@{ Name = 'Adjustment'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }
+    [pscustomobject]@{ Name = 'GradeBook'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }
+    [pscustomobject]@{ Name = 'ImportExport'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }
+    [pscustomobject]@{ Name = 'Applications'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }
 )
 
 function Get-SourceFiles {
@@ -107,8 +110,9 @@ if ($WithTcp -and $selected.Tcp.Count -eq 0) {
 if ($WithGui -and $selected.Gui.Count -eq 0) {
     throw "Suite $Suite declares no GUI tests; -WithGui would silently pass."
 }
-if ($selected.Common.Count -eq 0 -and $selected.Server.Count -eq 0 -and
-        $selected.Tcp.Count -eq 0 -and $selected.Gui.Count -eq 0) {
+if ($selected.Common.Count -eq 0 -and $selected.Client.Count -eq 0 -and
+        $selected.Server.Count -eq 0 -and $selected.Tcp.Count -eq 0 -and
+        $selected.Gui.Count -eq 0) {
     throw "Suite $Suite is declared but has no tests yet; nothing was run."
 }
 
@@ -197,6 +201,10 @@ foreach ($stage in $stages) {
 $commonTestClasspath = @(
     $commonTestOutput, $commonOutput, $clientOutput, $clientLibPattern
 ) -join ';'
+# 客户端测试与 Client 主源码同目录编译，运行期只需 Common 主输出、Client 输出与客户端 lib。
+$clientTestClasspath = @(
+    $clientOutput, $commonOutput, $clientLibPattern
+) -join ';'
 $serverTestClasspath = @(
     $serverOutput, $commonOutput, $serverLibPattern, (Join-Path $repoRoot 'VCampusServer/src')
 ) -join ';'
@@ -218,6 +226,11 @@ $runs = @()
 foreach ($testClass in $selected.Common) {
     $runs += [pscustomobject]@{
         Class = $testClass; Classpath = $commonTestClasspath; Gui = $false; Arguments = @()
+    }
+}
+foreach ($testClass in $selected.Client) {
+    $runs += [pscustomobject]@{
+        Class = $testClass; Classpath = $clientTestClasspath; Gui = $false; Arguments = @()
     }
 }
 foreach ($testClass in ($selected.Server + $selected.Tcp + $selected.Gui)) {

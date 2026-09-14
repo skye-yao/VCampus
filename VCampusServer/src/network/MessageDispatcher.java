@@ -5,6 +5,7 @@ import protocol.MessageCode;
 import protocol.MessageType;
 import handler.AdminCourseHandler;
 import handler.CourseHandler;
+import handler.TeacherCourseHandler;
 import handler.UserHandler;
 
 /**
@@ -21,21 +22,35 @@ public class MessageDispatcher {
     private final UserHandler userHandler;
     private final CourseHandler courseHandler;
     private final AdminCourseHandler adminCourseHandler;
+    private final TeacherCourseHandler teacherCourseHandler;
 
     public MessageDispatcher() {
-        this(new CourseHandler(), new AdminCourseHandler());
+        this(new CourseHandler(), new AdminCourseHandler(), new TeacherCourseHandler());
     }
 
     public MessageDispatcher(CourseHandler courseHandler) {
-        this(courseHandler, new AdminCourseHandler());
+        this(courseHandler, new AdminCourseHandler(), new TeacherCourseHandler());
     }
 
     public MessageDispatcher(CourseHandler courseHandler,
                              AdminCourseHandler adminCourseHandler) {
+        this(courseHandler, adminCourseHandler, new TeacherCourseHandler());
+    }
+
+    /** 注入教师端 Handler 的构造方法；其余模块仍按默认实现装配。 */
+    public MessageDispatcher(TeacherCourseHandler teacherCourseHandler) {
+        this(new CourseHandler(), new AdminCourseHandler(), teacherCourseHandler);
+    }
+
+    public MessageDispatcher(CourseHandler courseHandler,
+                             AdminCourseHandler adminCourseHandler,
+                             TeacherCourseHandler teacherCourseHandler) {
         this.userHandler = new UserHandler();
         this.courseHandler = courseHandler == null ? new CourseHandler() : courseHandler;
         this.adminCourseHandler = adminCourseHandler == null
                 ? new AdminCourseHandler() : adminCourseHandler;
+        this.teacherCourseHandler = teacherCourseHandler == null
+                ? new TeacherCourseHandler() : teacherCourseHandler;
     }
 
     /**
@@ -61,6 +76,8 @@ public class MessageDispatcher {
             return courseHandler.handle(request);
         } else if ("courseAdmin".equalsIgnoreCase(module)) {
             return adminCourseHandler.handle(request);
+        } else if ("courseTeacher".equalsIgnoreCase(module)) {
+            return teacherCourseHandler.handle(request);
         } else {
             // 未知模块或未实现的模块
             Message response = new Message(MessageType.RESPONSE, module, request.getAction());
