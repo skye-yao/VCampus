@@ -2,7 +2,9 @@ package service;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.function.Supplier;
@@ -45,6 +47,7 @@ public final class MockTeacherCourseServiceTest {
         knownOfferingWithoutArrangementsReturnsEmptyList();
         emptyClassReturnsEmptyRosterAndEmptySchedules();
         capabilityFieldsMatchTheServerContract();
+        offeringStatusesStayWithinTheServerDomain();
         filtersAndPagingSurfaceAsFailedFutures();
         System.out.println("MockTeacherCourseServiceTest: PASS");
     }
@@ -185,6 +188,41 @@ public final class MockTeacherCourseServiceTest {
                 service.listOfferingSchedules(empty.getOfferingId()).join();
         require(arrangements != null && arrangements.isEmpty(),
                 "a known offering without arrangements must return an empty list, never NOT_FOUND");
+    }
+
+    /**
+     * 教学班状态必须落在服务端真实能给出的取值域内。
+     *
+     * <p>{@code course_offering.status} 是 TINYINT 1..4，服务端经 {@code AdminOfferingDAO.statusLabel}
+     * 映射为 {@code NOT_OPEN|OPEN|STOPPED|CANCELLED}（{@code TeacherCourseQueryDAO.mapOffering} 用的就是
+     * 它）。这里对照**字面量集合**断言，而不是对照客户端的标签映射——否则 mock 与客户端可能一起漂移出
+     * 真实域而不被发现（客户端对未知值只能回显原值，预览就会显示服务端不可能发出的英文）。
+     */
+    private static void offeringStatusesStayWithinTheServerDomain() {
+        Set<String> realStatuses =
+                Set.of("NOT_OPEN", "OPEN", "STOPPED", "CANCELLED");
+        MockTeacherCourseService service = new MockTeacherCourseService();
+        Set<String> seen = new LinkedHashSet<>();
+
+        for (int semester : new int[] {SPRING, AUTUMN}) {
+            for (TeacherOfferingDTO offering : service
+                    .listOfferings(ACADEMIC_YEAR, semester, null, 1, PAGE_SIZE).join()
+                    .getItems()) {
+                require(realStatuses.contains(offering.getStatus()),
+                        "offering " + offering.getOfferingCode() + " must carry a status the server"
+                                + " can actually emit " + realStatuses + ", saw "
+                                + offering.getStatus());
+                seen.add(offering.getStatus());
+            }
+        }
+
+        TeacherOfferingDTO detail = service.getOffering(FULL_ROSTER_ID).join().getOffering();
+        require(realStatuses.contains(detail.getStatus()),
+                "the detail payload must carry a real offering status, saw " + detail.getStatus());
+
+        require(seen.size() >= 2,
+                "the mock must exercise more than one real status so the client's label mapping is"
+                        + " covered on more than one value, saw " + seen);
     }
 
     private static void capabilityFieldsMatchTheServerContract() {

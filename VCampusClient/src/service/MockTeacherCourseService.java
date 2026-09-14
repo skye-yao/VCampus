@@ -30,7 +30,15 @@ import service.SocketTeacherCourseService.TeacherCourseServiceException;
  * <p>仅供单一线程（预览界面线程）调用，内部状态不做并发保护。
  */
 public final class MockTeacherCourseService implements TeacherCourseService {
+    /** 排课方案状态：`course_schedule_arrangement.status` 的真实取值。 */
     private static final String ACTIVE = "ACTIVE";
+    /**
+     * 教学班状态：`course_offering.status` 的真实取值，由 {@code AdminOfferingDAO.statusLabel}
+     * 把 TINYINT 1..4 映射而来。mock 只能用这四个之一，否则预览会显示服务端不可能发出的英文原值。
+     */
+    private static final String OFFERING_STATUS_OPEN = "OPEN";
+    private static final String OFFERING_STATUS_NOT_OPEN = "NOT_OPEN";
+    private static final String OFFERING_STATUS_STOPPED = "STOPPED";
     private static final String ENROLLED = "ENROLLED";
     private static final String DROPPED = "DROPPED";
     private static final int ENROLLED_CODE = 2;
@@ -153,20 +161,24 @@ public final class MockTeacherCourseService implements TeacherCourseService {
 
     private void seedOfferings() {
         add(new TeacherOfferingDTO(FULL_ROSTER_OFFERING, "CS203-01", "数据结构 CS203-01",
-                "2001", "CS203", "数据结构与算法基础", 4.0, 2025, 3, ROSTER_LENGTH, 30, ACTIVE,
-                true, true));
+                "2001", "CS203", "数据结构与算法基础", 4.0, 2025, 3, ROSTER_LENGTH, 30,
+                OFFERING_STATUS_OPEN, true, true));
         add(new TeacherOfferingDTO("9007199254740997", "CS352-01", "人机交互 CS352-01",
-                "2003", "CS352", "人机交互导论", 2.0, 2025, 2, 12, 30, ACTIVE, false, true));
+                "2003", "CS352", "人机交互导论", 2.0, 2025, 2, 12, 30,
+                OFFERING_STATUS_OPEN, false, true));
     }
 
     private void seedEmptyOffering() {
+        // 空班的叙事是“尚未开放选课”，因此用真实状态 NOT_OPEN 而不是 OPEN。
         add(new TeacherOfferingDTO("9007199254740995", "CS301-01", "操作系统 CS301-01",
-                "2002", "CS301", "操作系统原理", 3.5, 2025, 3, 0, 40, ACTIVE, true, true));
+                "2002", "CS301", "操作系统原理", 3.5, 2025, 3, 0, 40,
+                OFFERING_STATUS_NOT_OPEN, true, true));
     }
 
     private void seedAutumnOffering() {
         add(new TeacherOfferingDTO("9007199254740999", "CS204-01", "离散数学 CS204-01",
-                "2004", "CS204", "离散数学", 3.0, 2025, 2, 12, 60, ACTIVE, true, true));
+                "2004", "CS204", "离散数学", 3.0, 2025, 2, 12, 60,
+                OFFERING_STATUS_STOPPED, true, true));
     }
 
     private void seedFullRoster() {
