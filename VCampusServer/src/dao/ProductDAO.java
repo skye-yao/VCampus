@@ -116,6 +116,16 @@ public class ProductDAO {
         }
     }
 
+    /** 用现有乐观锁版本保护并发商品图片替换。 */
+    public boolean bumpVersionForImage(Connection conn, long productId, int expectedVersion) throws SQLException {
+        String sql = "UPDATE tbl_product SET version=version+1 WHERE product_id=? AND version=?";
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setLong(1, productId);
+            stmt.setInt(2, expectedVersion);
+            return stmt.executeUpdate() == 1;
+        }
+    }
+
     public boolean changeStatus(long productId, ProductStatus status, int expectedVersion) throws SQLException {
         try (Connection conn = DBUtil.getConnection()) {
             return changeStatus(conn, productId, status, expectedVersion);

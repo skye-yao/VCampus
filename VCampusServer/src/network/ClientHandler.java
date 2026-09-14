@@ -3,6 +3,7 @@ package network;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
+import java.io.IOException;
 import java.net.Socket;
 
 import com.google.gson.Gson;
@@ -19,6 +20,25 @@ import protocol.MessageCode;
  * @version 1.0
  */
 public class ClientHandler implements Runnable {
+
+    /** 1 MiB 图片经 Base64/JSON 编码约 1.4 MiB，额外预留请求字段空间。 */
+    static final int MAX_REQUEST_LINE_CHARS = 2_000_000;
+
+    static String readBoundedLine(BufferedReader reader, int maxChars) throws IOException {
+        StringBuilder line = new StringBuilder();
+        int next;
+        while ((next = reader.read()) != -1) {
+            if (next == '\n') break;
+            if (next == '\r') {
+                reader.mark(1);
+                if (reader.read() != '\n') reader.reset();
+                break;
+            }
+            if (line.length() >= maxChars) throw new IOException("请求消息超过长度限制");
+            line.append((char) next);
+        }
+        return next == -1 && line.isEmpty() ? null : line.toString();
+    }
 
     /** 线程本地存储，用于在请求处理链中获取当前处理连接的 ClientHandler 实例 */
     public static final ThreadLocal<ClientHandler> CURRENT_HANDLER = new ThreadLocal<>();
@@ -56,7 +76,7 @@ public class ClientHandler implements Runnable {
             this.writer = new PrintWriter(new java.io.OutputStreamWriter(socket.getOutputStream(), java.nio.charset.StandardCharsets.UTF_8), true);
 
             String line;
-            while ((line = reader.readLine()) != null) {
+            while ((line = readBoundedLine(reader, MAX_REQUEST_LINE_CHARS)) != null) {
                 // 1. 解析 JSON 为 Message
                 Message request = null;
                 try {
