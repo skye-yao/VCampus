@@ -15,6 +15,9 @@ import service.CourseQueryService;
 import session.SessionManager;
 import session.UserSession;
 
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -83,6 +86,26 @@ public final class AdminCourseHandlerTest {
             require("课程已创建".equals(created.getMessage()),
                     "mutation message must come from the operation result");
 
+            Message fractionalVersion = request("createCourse", administrator.getToken());
+            Map<String, Object> fractionalVersionPayload = coursePayload();
+            fractionalVersionPayload.put("expectedVersion", 1.5);
+            fractionalVersion.putData("request", fractionalVersionPayload);
+            Message fractionalVersionResponse = handler.handle(fractionalVersion);
+            require(fractionalVersionResponse.getCode() == MessageCode.BAD_REQUEST,
+                    "a fractional typed-payload integer must be bad request");
+            require("request 字段格式无效".equals(fractionalVersionResponse.getMessage()),
+                    "typed-payload conversion details must not leak to the client");
+
+            Message malformedCredit = request("createCourse", administrator.getToken());
+            Map<String, Object> malformedCreditPayload = coursePayload();
+            malformedCreditPayload.put("credit", "abc");
+            malformedCredit.putData("request", malformedCreditPayload);
+            Message malformedCreditResponse = handler.handle(malformedCredit);
+            require(malformedCreditResponse.getCode() == MessageCode.BAD_REQUEST,
+                    "a non-numeric typed-payload credit must be bad request");
+            require("request 字段格式无效".equals(malformedCreditResponse.getMessage()),
+                    "number parsing details must not leak to the client");
+
             Message offeringList = request("listOfferings", administrator.getToken());
             offeringList.putData("courseId", "1001");
             Message offeringsListed = handler.handle(offeringList);
@@ -120,13 +143,45 @@ public final class AdminCourseHandlerTest {
             require(conflicted.getData() != null && conflicted.getData().get("latest") != null,
                     "conflict must carry the latest entity");
 
+            PrintStream previousError = System.err;
+            ByteArrayOutputStream databaseLog = new ByteArrayOutputStream();
             catalog.mode = Mode.DATABASE;
-            Message database = handler.handle(archiveRequest(administrator.getToken()));
+            Message database;
+            try {
+                System.setErr(new PrintStream(databaseLog, true, StandardCharsets.UTF_8));
+                database = handler.handle(archiveRequest(administrator.getToken()));
+            } finally {
+                System.setErr(previousError);
+            }
             require(database.getCode() == MessageCode.ERROR,
                     "database failure must use the error code");
             require(database.getMessage() != null
                             && !database.getMessage().contains("SELECT secret"),
                     "database details must not leak");
+            String databaseLogText = databaseLog.toString(StandardCharsets.UTF_8);
+            require(databaseLogText.contains("action=archiveCourse")
+                            && databaseLogText.contains("DatabaseException")
+                            && databaseLogText.contains("SELECT secret"),
+                    "database failure details must remain in the server log");
+
+            ByteArrayOutputStream runtimeLog = new ByteArrayOutputStream();
+            catalog.mode = Mode.RUNTIME;
+            Message runtime;
+            try {
+                System.setErr(new PrintStream(runtimeLog, true, StandardCharsets.UTF_8));
+                runtime = handler.handle(archiveRequest(administrator.getToken()));
+            } finally {
+                System.setErr(previousError);
+            }
+            require(runtime.getCode() == MessageCode.ERROR,
+                    "runtime failure must use the error code");
+            require("服务端内部错误".equals(runtime.getMessage()),
+                    "runtime failure details must not leak");
+            String runtimeLogText = runtimeLog.toString(StandardCharsets.UTF_8);
+            require(runtimeLogText.contains("action=archiveCourse")
+                            && runtimeLogText.contains("IllegalStateException")
+                            && runtimeLogText.contains("runtime probe"),
+                    "runtime failure details must remain in the server log");
             catalog.mode = Mode.SUCCESS;
 
             Message routed = new Message(MessageType.REQUEST, "courseAdmin", "listCourses");
@@ -200,14 +255,14 @@ public final class AdminCourseHandlerTest {
 
     private static AdminOfferingDTO offering() {
         return new AdminOfferingDTO("2001", "CS900-01", "1001", 2026, 1, 40, 0,
-                "DRAFT", "teacher-alpha", "教师甲", null, null, "UNSCHEDULED", 1);
+                "NOT_OPEN", "teacher-alpha", "教师甲", null, null, "UNSCHEDULED", 1);
     }
 
     private static void require(boolean condition, String message) {
         if (!condition) throw new AssertionError(message);
     }
 
-    private enum Mode { SUCCESS, NOT_FOUND, CONFLICT, DATABASE }
+    private enum Mode { SUCCESS, NOT_FOUND, CONFLICT, DATABASE, RUNTIME }
 
     private static final class FakeCatalogService extends AdminCourseCatalogService {
         private String lastAdminUid;
@@ -245,6 +300,7 @@ public final class AdminCourseHandlerTest {
                 case CONFLICT -> throw new ConflictException("课程版本或状态已变化，请刷新后重试", course());
                 case DATABASE -> throw new exception.DatabaseException(
                         "SELECT secret FROM tbl_course failed");
+                case RUNTIME -> throw new IllegalStateException("runtime probe");
                 case SUCCESS -> { }
             }
         }

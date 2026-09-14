@@ -76,7 +76,7 @@ public final class GradeController {
 
     @FXML
     public void refresh() {
-        fxExecutor.accept(this::loadGrades);
+        fxExecutor.accept(this::loadGrades); // this:: 与service中的loadGrades相区分
     }
 
     private void loadTerms() {
@@ -165,6 +165,7 @@ public final class GradeController {
         });
     }
 
+    // 渲染summary和表格中的成绩
     private void renderSummary(GradeSummaryView summary) {
         termGpaLabel.setText(formatMetric(summary.getTermGpa()));
         termAverageLabel.setText(formatMetric(summary.getTermAverage()));
@@ -195,6 +196,7 @@ public final class GradeController {
         renderDetails(null);
     }
 
+    // 根据左侧的
     private void renderDetails(GradeRecordView record) {
         dailyScoreLabel.setText(record == null ? "--" : formatScore(record.getDailyScore()));
         midtermScoreLabel.setText(

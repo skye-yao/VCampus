@@ -15,6 +15,7 @@ public final class MockAdminCourseServiceTest {
 
     public static void main(String[] args) {
         listCoursesFiltersSeedsByStatusAndQuery();
+        offeringCountMatchesServerDefinitionAndCancellation();
         createThenUpdateBumpsVersionAndStaleUpdateConflicts();
         duplicateCourseCodeConflictsAndCourseCodeIsImmutable();
         archiveNeedsEveryOfferingCancelledThenRestores();
@@ -22,6 +23,21 @@ public final class MockAdminCourseServiceTest {
         emptyDraftIsDeletableWhileOtherOfferingIsNot();
         operationIdReplayDoesNotApplyTwice();
         System.out.println("MockAdminCourseServiceTest: PASS");
+    }
+
+    private static void offeringCountMatchesServerDefinitionAndCancellation() {
+        MockAdminCourseService service = new MockAdminCourseService();
+
+        require(courseById(service, "101").getOfferingCount() == 1,
+                "course 101 must count its open offering");
+        require(courseById(service, "201").getOfferingCount() == 1,
+                "course 201 must exclude its cancelled offering");
+        require(courseById(service, "301").getOfferingCount() == 0,
+                "course 301 must exclude its cancelled offering");
+
+        service.cancelOffering("1001", 1, "op-cancel-count").join();
+        require(courseById(service, "101").getOfferingCount() == 0,
+                "cancelling an offering must remove it from the active count");
     }
 
     private static void listCoursesFiltersSeedsByStatusAndQuery() {
@@ -180,6 +196,13 @@ public final class MockAdminCourseServiceTest {
             if (offeringId.equals(offering.getOfferingId())) return true;
         }
         return false;
+    }
+
+    private static AdminCourseView courseById(MockAdminCourseService service, String courseId) {
+        for (AdminCourseView course : service.listCourses(null, null).join()) {
+            if (courseId.equals(course.getCourseId())) return course;
+        }
+        throw new AssertionError("missing course " + courseId);
     }
 
     private static void requireConflict(CompletableFuture<?> future) {

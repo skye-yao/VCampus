@@ -90,9 +90,9 @@ public final class MockAdminCourseService implements AdminCourseService {
         addCourse(new AdminCourseView("101", "CS203", "数据结构", "必修", 4.0, 64,
                 "线性表、树和图", "程序设计基础", true, true, ACTIVE, 1, 1));
         addCourse(new AdminCourseView("201", "CS301", "操作系统", "必修", 3.5, 56,
-                "进程、内存与文件系统", "数据结构", false, true, ACTIVE, 2, 1));
+                "进程、内存与文件系统", "数据结构", false, true, ACTIVE, 1, 1));
         addCourse(new AdminCourseView("301", "CS352", "人机交互", "限选", 2.0, 32,
-                "交互设计与可用性评估", "无", true, false, ARCHIVED, 1, 1));
+                "交互设计与可用性评估", "无", true, false, ARCHIVED, 0, 1));
 
         addOffering(new AdminOfferingView("1001", "OFF-1001", "101", 2026, 1, 120, 30,
                 "OPEN", "T1001", "张老师", null, null, "SCHEDULED", 1));
@@ -303,6 +303,7 @@ public final class MockAdminCourseService implements AdminCourseService {
             requireVersion(current.getVersion(), expectedVersion);
             AdminOfferingView cancelled = withOfferingStatus(current, "CANCELLED");
             addOffering(cancelled);
+            bumpOfferingCount(current.getCourseId(), -1);
             return CompletableFuture.completedFuture(
                     remember(operationId, "教学班已取消", cancelled));
         } catch (RuntimeException failure) {

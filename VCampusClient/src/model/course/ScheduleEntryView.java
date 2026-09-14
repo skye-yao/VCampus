@@ -27,9 +27,12 @@ public final class ScheduleEntryView {
         this.courseName = courseName;
         this.teacher = teacher;
         this.location = location;
-        this.dayOfWeek = dayOfWeek;
+        this.dayOfWeek = dayOfWeek; // 星期几
         this.startPeriod = startPeriod;
-        this.periodCount = periodCount;
+        // 注意，这里面的课程安排是按照**开始节次** + **持续节次** 而非结束节次，
+        // 所以结束节次需要计算才能得到，与底层数据库存储的绝对开始结束时间
+        // （结束时间是结束节次的结尾，开始节次的开头）也不同
+        this.periodCount = periodCount; 
         this.startWeek = startWeek;
         this.endWeek = endWeek;
         this.displayKind = ScheduleDisplayKind.NORMAL;

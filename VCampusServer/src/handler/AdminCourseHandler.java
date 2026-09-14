@@ -1,6 +1,7 @@
 package handler;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonParseException;
 import dto.course.admin.AdminCourseActions;
 import dto.course.admin.approval.AdjustmentRequestPageDTO;
 import dto.course.admin.approval.ApprovalDecisionRequestDTO;
@@ -226,8 +227,10 @@ public class AdminCourseHandler {
         } catch (GradeApprovalService.ConflictException failure) {
             return conflict(response, failure.getMessage(), failure.getEntity());
         } catch (DatabaseException failure) {
+            logFailure(action, failure);
             return failure(response, MessageCode.ERROR, "课程管理服务暂不可用");
         } catch (RuntimeException failure) {
+            logFailure(action, failure);
             return failure(response, MessageCode.ERROR, "服务端内部错误");
         }
     }
@@ -511,12 +514,21 @@ public class AdminCourseHandler {
         throw new IllegalArgumentException(key + " 必须为布尔值");
     }
 
+    private static void logFailure(String action, RuntimeException failure) {
+        System.err.println("课程管理请求处理失败: action=" + action);
+        failure.printStackTrace(System.err);
+    }
+
     private <T> T payload(Message request, Class<T> type) {
         Object value = request.getData() == null ? null : request.getData().get("request");
         if (!(value instanceof Map)) {
             throw new IllegalArgumentException("request 必须为 JSON 对象");
         }
-        return gson.fromJson(gson.toJson(value), type);
+        try {
+            return gson.fromJson(gson.toJson(value), type);
+        } catch (JsonParseException | IllegalStateException | NumberFormatException failure) {
+            throw new IllegalArgumentException("request 字段格式无效", failure);
+        }
     }
 
     private static String optionalText(Message request, String key) {

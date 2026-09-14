@@ -30,14 +30,14 @@ import util.AlertUtil;
 
 public final class ScheduleController {
     private static final int FIRST_PERIOD = 1;
-    private static final int LAST_PERIOD = 10;
+    private static final int LAST_PERIOD = 13;
 
     private final CourseService service;
     private final BiConsumer<String, String> infoReporter;
     private final BiConsumer<String, String> errorReporter;
     private final Consumer<Runnable> fxExecutor;
     private CourseTermView selectedTerm;
-    private long loadGeneration;
+    private long loadGeneration; // 请求的版本管理，用来解决用户短时间多次点击，确认最终的返回结果
     private long termLoadGeneration; // 学期加载的版本管理，避免陈旧学期覆盖最新服务端学期
 
     @FXML private ComboBox<CourseTermView> termFilter;
@@ -121,7 +121,7 @@ public final class ScheduleController {
                 service.loadNotices(term, week);
         scheduleFuture.thenCombine(noticeFuture, ScheduleData::new)
                 .whenComplete((data, error) -> fxExecutor.accept(() -> {
-                    if (generation != loadGeneration) {
+                    if (generation != loadGeneration) { // 忽略旧请求（用户多次快速点击refresh）
                         return;
                     }
                     if (error != null) {
@@ -139,8 +139,10 @@ public final class ScheduleController {
             return;
         }
 
+        // 清空旧数据并显示加载状态
         renderSchedule(Collections.emptyList());
         renderNotices(Collections.emptyList(), "正在加载课表...");
+        // 两个异步的加载请求
         requestScheduleData(term, selectedWeek, data -> {
             renderSchedule(data.entries);
             renderNotices(data.notices);
