@@ -5,6 +5,7 @@ import dto.course.admin.AdminCourseActions;
 import dto.course.admin.approval.AdjustmentRequestPageDTO;
 import dto.course.admin.approval.ApprovalDecisionRequestDTO;
 import dto.course.admin.approval.ApprovalStatusDTO;
+import dto.course.admin.approval.GradeSubmissionPageDTO;
 import dto.course.admin.catalog.CourseEditorRequestDTO;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
 import dto.course.admin.enrollment.AdminEnrollmentPageDTO;
@@ -18,6 +19,7 @@ import protocol.MessageType;
 import service.AdminCourseCatalogService;
 import service.AdminEnrollmentService;
 import service.AdminOfferingService;
+import service.GradeApprovalService;
 import service.ScheduleAdjustmentApprovalService;
 import service.ScheduleManagementService;
 import session.SessionManager;
@@ -30,23 +32,24 @@ import java.util.UUID;
 public class AdminCourseHandler {
     private static final String MODULE = "courseAdmin";
 
-    /** 动作登记表里已定义、但由后续计划开放的管理员操作。 */
-    private static final Set<String> UNAVAILABLE_ACTIONS = Set.of(
-            AdminCourseActions.LIST_GRADE_SUBMISSIONS,
-            AdminCourseActions.GET_GRADE_SUBMISSION,
-            AdminCourseActions.REVIEW_GRADE_SUBMISSION);
+    /**
+     * 动作登记表里已定义、但由后续计划开放的管理员操作。当前所有登记动作均已开放，故为空；
+     * 保留该集合以便后续计划登记新动作时仍能统一返回"尚未开放"。
+     */
+    private static final Set<String> UNAVAILABLE_ACTIONS = Set.of();
 
     private final AdminCourseCatalogService catalog;
     private final AdminOfferingService offerings;
     private final ScheduleManagementService scheduling;
     private final AdminEnrollmentService enrollment;
     private final ScheduleAdjustmentApprovalService adjustments;
+    private final GradeApprovalService grades;
     private final Gson gson = new Gson();
 
     public AdminCourseHandler() {
         this(new AdminCourseCatalogService(), new AdminOfferingService(),
                 new ScheduleManagementService(), new AdminEnrollmentService(),
-                new ScheduleAdjustmentApprovalService());
+                new ScheduleAdjustmentApprovalService(), new GradeApprovalService());
     }
 
     /**
@@ -77,11 +80,21 @@ public class AdminCourseHandler {
                               ScheduleManagementService scheduling,
                               AdminEnrollmentService enrollment,
                               ScheduleAdjustmentApprovalService adjustments) {
+        this(catalog, offerings, scheduling, enrollment, adjustments, null);
+    }
+
+    public AdminCourseHandler(AdminCourseCatalogService catalog,
+                              AdminOfferingService offerings,
+                              ScheduleManagementService scheduling,
+                              AdminEnrollmentService enrollment,
+                              ScheduleAdjustmentApprovalService adjustments,
+                              GradeApprovalService grades) {
         this.catalog = catalog;
         this.offerings = offerings;
         this.scheduling = scheduling;
         this.enrollment = enrollment;
         this.adjustments = adjustments;
+        this.grades = grades;
     }
 
     public Message handle(Message request) {
@@ -170,6 +183,13 @@ public class AdminCourseHandler {
                         adjustments().getRequest(decimalId(request, "requestId")));
                 case AdminCourseActions.REVIEW_ADJUSTMENT_REQUEST -> mutation(response,
                         adjustments().review(uid, adjustmentDecision(request)));
+                case AdminCourseActions.LIST_GRADE_SUBMISSIONS -> gradePage(response,
+                        grades().listGradeSubmissionsPage(adjustmentStatus(request),
+                                pageNumber(request), pageSize(request)));
+                case AdminCourseActions.GET_GRADE_SUBMISSION -> response.putData("gradeSubmission",
+                        grades().getGradeSubmission(decimalId(request, "submissionId")));
+                case AdminCourseActions.REVIEW_GRADE_SUBMISSION -> mutation(response,
+                        grades().review(uid, gradeDecision(request)));
                 default -> {
                     return failure(response, MessageCode.BAD_REQUEST,
                             UNAVAILABLE_ACTIONS.contains(action)
@@ -200,6 +220,10 @@ public class AdminCourseHandler {
             return failure(response, MessageCode.NOT_FOUND, failure.getMessage());
         } catch (AdminEnrollmentService.ConflictException failure) {
             response.putData("conflicts", failure.getConflicts());
+            return conflict(response, failure.getMessage(), failure.getEntity());
+        } catch (GradeApprovalService.NotFoundException failure) {
+            return failure(response, MessageCode.NOT_FOUND, failure.getMessage());
+        } catch (GradeApprovalService.ConflictException failure) {
             return conflict(response, failure.getMessage(), failure.getEntity());
         } catch (DatabaseException failure) {
             return failure(response, MessageCode.ERROR, "课程管理服务暂不可用");
@@ -264,8 +288,22 @@ public class AdminCourseHandler {
         return adjustments;
     }
 
+    private GradeApprovalService grades() {
+        if (grades == null) {
+            throw new IllegalArgumentException("该管理员操作尚未开放");
+        }
+        return grades;
+    }
+
     private static void adjustmentPage(Message response, AdjustmentRequestPageDTO page) {
         response.putData("adjustmentRequests", page.getItems());
+        response.putData("totalCount", page.getTotalCount());
+        response.putData("pageNumber", page.getPageNumber());
+        response.putData("pageSize", page.getPageSize());
+    }
+
+    private static void gradePage(Message response, GradeSubmissionPageDTO page) {
+        response.putData("gradeSubmissions", page.getItems());
         response.putData("totalCount", page.getTotalCount());
         response.putData("pageNumber", page.getPageNumber());
         response.putData("pageSize", page.getPageSize());
@@ -324,6 +362,62 @@ public class AdminCourseHandler {
             }
         }
         return payload(request, ApprovalDecisionRequestDTO.class);
+    }
+
+    /**
+     * Parses a grade decision. Grade approval never forwards {@code force} (R12): a true flag is
+     * refused here, so every accepted decision reaches the service with {@code force = false} and no
+     * override reason, and the service's own defensive refusal stays a safety net rather than the
+     * only guard.
+     */
+    private ApprovalDecisionRequestDTO gradeDecision(Message request) {
+        Object value = request.getData() == null ? null : request.getData().get("request");
+        if (!(value instanceof Map<?, ?> values)) {
+            throw new IllegalArgumentException("request 必须为 JSON 对象");
+        }
+        // Validate raw JSON types before Gson can coerce them into the decision DTO.
+        Object operation = values.get("operationId");
+        try {
+            if (!(operation instanceof String id)
+                    || !UUID.fromString(id).toString().equalsIgnoreCase(id)) {
+                throw new IllegalArgumentException();
+            }
+        } catch (IllegalArgumentException failure) {
+            throw new IllegalArgumentException("operationId 必须是 UUID 字符串");
+        }
+        Object submission = values.get("requestId");
+        if (!(submission instanceof String text) || !text.matches("[0-9]+")) {
+            throw new IllegalArgumentException("requestId 必须为十进制字符串");
+        }
+        Object version = values.get("expectedVersion");
+        if (version instanceof Number number) {
+            if (!Double.isFinite(number.doubleValue())
+                    || number.doubleValue() != Math.rint(number.doubleValue())) {
+                throw new IllegalArgumentException("expectedVersion 必须为整数");
+            }
+        } else if (!(version instanceof String versionText)
+                || !versionText.matches("-?[0-9]+")) {
+            throw new IllegalArgumentException("expectedVersion 必须为整数");
+        }
+        Object approved = values.get("approved");
+        if (values.containsKey("approved") && !(approved instanceof Boolean)) {
+            throw new IllegalArgumentException("approved 必须为布尔值");
+        }
+        Object force = values.get("force");
+        if (values.containsKey("force") && !(force instanceof Boolean)) {
+            throw new IllegalArgumentException("force 必须为布尔值");
+        }
+        if (Boolean.TRUE.equals(force)) {
+            throw new IllegalArgumentException("成绩审批不支持强制覆盖");
+        }
+        Object comment = values.get("reviewComment");
+        if (comment != null && !(comment instanceof String)) {
+            throw new IllegalArgumentException("reviewComment 必须为字符串");
+        }
+        ApprovalDecisionRequestDTO parsed = payload(request, ApprovalDecisionRequestDTO.class);
+        return new ApprovalDecisionRequestDTO(parsed.getOperationId(), parsed.getRequestId(),
+                parsed.getExpectedVersion(), parsed.isApproved(), false, null,
+                parsed.getReviewComment());
     }
 
     private static void enrollmentPage(Message response, String key,

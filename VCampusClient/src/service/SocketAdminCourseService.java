@@ -15,6 +15,9 @@ import dto.course.admin.approval.AdjustmentRequestPageDTO;
 import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
 import dto.course.admin.approval.ApprovalDecisionRequestDTO;
 import dto.course.admin.approval.ApprovalStatusDTO;
+import dto.course.admin.approval.GradeSubmissionDetailDTO;
+import dto.course.admin.approval.GradeSubmissionPageDTO;
+import dto.course.admin.approval.GradeSubmissionSummaryDTO;
 import dto.course.admin.catalog.AdminCourseDTO;
 import dto.course.admin.catalog.AdminOfferingDTO;
 import dto.course.admin.catalog.CourseEditorRequestDTO;
@@ -59,6 +62,8 @@ public final class SocketAdminCourseService implements AdminCourseService {
             AdminOperationResultDTO.class, OfferingStudentDTO.class).getType();
     private static final Type ADJUSTMENT_RESULT_TYPE = TypeToken.getParameterized(
             AdminOperationResultDTO.class, AdjustmentRequestDetailDTO.class).getType();
+    private static final Type GRADE_RESULT_TYPE = TypeToken.getParameterized(
+            AdminOperationResultDTO.class, GradeSubmissionDetailDTO.class).getType();
 
     private final AdminCourseTransport transport;
     private final Gson gson = new Gson();
@@ -365,6 +370,44 @@ public final class SocketAdminCourseService implements AdminCourseService {
 
     private AdjustmentRequestDetailDTO latestAdjustmentRequest(Object value) {
         return gson.fromJson(gson.toJson(value), AdjustmentRequestDetailDTO.class);
+    }
+
+    @Override
+    public CompletableFuture<GradeSubmissionPageDTO> listGradeSubmissionsPage(
+            ApprovalStatusDTO status, int page, int size) {
+        Message request = request(AdminCourseActions.LIST_GRADE_SUBMISSIONS);
+        if (status != null) request.putData("status", status.name());
+        putPage(request, page, size);
+        return map(request, response -> new GradeSubmissionPageDTO(
+                list(response, "gradeSubmissions", GradeSubmissionSummaryDTO.class),
+                read(response, "totalCount", Long.class),
+                read(response, "pageNumber", Integer.class),
+                read(response, "pageSize", Integer.class)));
+    }
+
+    @Override
+    public CompletableFuture<GradeSubmissionDetailDTO> getGradeSubmission(String submissionId) {
+        Message request = request(AdminCourseActions.GET_GRADE_SUBMISSION);
+        request.putData("submissionId", submissionId);
+        return map(request, response -> read(response, "gradeSubmission",
+                GradeSubmissionDetailDTO.class));
+    }
+
+    @Override
+    public CompletableFuture<AdminOperationResultView<GradeSubmissionDetailDTO>> reviewGradeSubmission(
+            ApprovalDecisionRequestDTO decision) {
+        Message request = request(AdminCourseActions.REVIEW_GRADE_SUBMISSION);
+        request.putData("request", decision);
+        return map(request, response -> {
+            AdminOperationResultDTO<GradeSubmissionDetailDTO> dto =
+                    read(response, "result", GRADE_RESULT_TYPE);
+            return new AdminOperationResultView<>(dto.getOperationId(), dto.getOutcomeCode(),
+                    dto.getMessage(), dto.getEntity());
+        }, this::latestGradeSubmission);
+    }
+
+    private GradeSubmissionDetailDTO latestGradeSubmission(Object value) {
+        return gson.fromJson(gson.toJson(value), GradeSubmissionDetailDTO.class);
     }
 
     private ScheduleArrangementView latestArrangement(Object value) {

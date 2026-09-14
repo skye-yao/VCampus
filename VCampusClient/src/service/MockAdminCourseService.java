@@ -18,6 +18,11 @@ import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
 import dto.course.admin.approval.AdjustmentTargetDTO;
 import dto.course.admin.approval.ApprovalDecisionRequestDTO;
 import dto.course.admin.approval.ApprovalStatusDTO;
+import dto.course.admin.approval.GradeDistributionBucketDTO;
+import dto.course.admin.approval.GradeSubmissionDetailDTO;
+import dto.course.admin.approval.GradeSubmissionItemDTO;
+import dto.course.admin.approval.GradeSubmissionPageDTO;
+import dto.course.admin.approval.GradeSubmissionSummaryDTO;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
 import dto.course.admin.enrollment.AdminEnrollmentPreviewDTO;
 import dto.course.admin.enrollment.AdminEnrollmentRequestDTO;
@@ -67,6 +72,10 @@ public final class MockAdminCourseService implements AdminCourseService {
     private final Map<String, AdjustmentReviewStored> adjustmentReviews = new LinkedHashMap<>();
     private final Map<String, AdjustmentRecord> adjustmentRecordings = new LinkedHashMap<>();
     private final Map<String, AdjustmentNotice> adjustmentNoticeRecordings = new LinkedHashMap<>();
+    private final Map<String, GradeSubmissionDetailDTO> gradeSubmissions = new LinkedHashMap<>();
+    private final Map<String, GradeReviewStored> gradeReviews = new LinkedHashMap<>();
+    /** The current published-grade projection the mock owns, keyed by enrollment id. */
+    private final Map<String, Double> publishedGrades = new LinkedHashMap<>();
 
     private long nextCourseId = 401;
     private long nextOfferingId = 4001;
@@ -102,6 +111,7 @@ public final class MockAdminCourseService implements AdminCourseService {
                 1, 16, DRAFT, 1));
         seedEnrollmentStudents();
         seedAdjustmentRequests();
+        seedGradeSubmissions();
     }
 
     @Override
@@ -1317,4 +1327,225 @@ public final class MockAdminCourseService implements AdminCourseService {
     public record AdjustmentNotice(String noticeId, String requestId, String offeringId,
                                    String title, String content, String noticeType, String status,
                                    String createdBy, String publishedAt) { }
+
+    // ------------------------------------------------------------- grade approval
+
+    @Override
+    public CompletableFuture<GradeSubmissionPageDTO> listGradeSubmissionsPage(
+            ApprovalStatusDTO status, int page, int size) {
+        try {
+            if (page < 1) throw badRequest("页码必须大于 0");
+            if (size < 1 || size > 100) throw badRequest("每页条数必须为 1 至 100");
+            ApprovalStatusDTO filter = status == null ? ApprovalStatusDTO.PENDING : status;
+            List<GradeSubmissionSummaryDTO> matching = new ArrayList<>();
+            for (GradeSubmissionDetailDTO detail : gradeSubmissions.values()) {
+                if (detail.getSummary().getStatus() == filter) matching.add(detail.getSummary());
+            }
+            matching.sort(Comparator.comparing(GradeSubmissionSummaryDTO::getSubmittedAt)
+                    .reversed()
+                    .thenComparing(GradeSubmissionSummaryDTO::getSubmissionId,
+                            Comparator.reverseOrder()));
+            int from = (int) Math.min((long) (page - 1) * size, matching.size());
+            int to = (int) Math.min((long) from + size, matching.size());
+            return CompletableFuture.completedFuture(new GradeSubmissionPageDTO(
+                    matching.subList(from, to), matching.size(), page, size));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    @Override
+    public CompletableFuture<GradeSubmissionDetailDTO> getGradeSubmission(String submissionId) {
+        try {
+            return CompletableFuture.completedFuture(requireGradeSubmission(submissionId));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    @Override
+    public CompletableFuture<AdminOperationResultView<GradeSubmissionDetailDTO>> reviewGradeSubmission(
+            ApprovalDecisionRequestDTO raw) {
+        try {
+            ApprovalDecisionRequestDTO request = gradeDecision(raw);
+            GradeReview intent = new GradeReview(request.getOperationId(), request.getRequestId(),
+                    request.getExpectedVersion(), request.isApproved(), request.getReviewComment());
+            GradeReviewStored stored = gradeReviews.get(request.getOperationId());
+            if (stored != null) {
+                if (!stored.intent().equals(intent)) throw conflict("operationId 已用于不同的业务请求");
+                return CompletableFuture.completedFuture(stored.result());
+            }
+            GradeSubmissionDetailDTO current = requireGradeSubmission(request.getRequestId());
+            requirePendingGrade(current, request.getExpectedVersion());
+            GradeSubmissionDetailDTO decided = decideGrade(current, request.isApproved()
+                    ? ApprovalStatusDTO.APPROVED : ApprovalStatusDTO.REJECTED,
+                    request.getReviewComment());
+            // Only an approval publishes the batch; a rejection leaves the projection untouched.
+            if (request.isApproved()) {
+                for (GradeSubmissionItemDTO item : decided.getItems()) {
+                    if (item.getScore() != null) {
+                        publishedGrades.put(item.getEnrollmentId(), item.getScore());
+                    }
+                }
+            }
+            return CompletableFuture.completedFuture(rememberGrade(request.getOperationId(),
+                    request.isApproved() ? "成绩提交已通过" : "成绩提交已驳回", intent, decided));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    /** The current published-grade projection the mock owns, keyed by enrollment id. */
+    public Map<String, Double> publishedGrades() {
+        return Map.copyOf(publishedGrades);
+    }
+
+    private void requirePendingGrade(GradeSubmissionDetailDTO current, int expectedVersion) {
+        if (current.getSummary().getStatus() != ApprovalStatusDTO.PENDING) {
+            throw new AdminCourseServiceException(MessageCode.CONFLICT, "成绩提交已被处理，请刷新后重试",
+                    current);
+        }
+        if (current.getSummary().getVersion() != expectedVersion) {
+            throw new AdminCourseServiceException(MessageCode.CONFLICT, "成绩提交版本已变化，请刷新后重试",
+                    current);
+        }
+    }
+
+    /** Records the decision under a new immutable snapshot; the frozen batch itself is never edited. */
+    private GradeSubmissionDetailDTO decideGrade(GradeSubmissionDetailDTO current,
+            ApprovalStatusDTO status, String reviewComment) {
+        GradeSubmissionSummaryDTO summary = current.getSummary();
+        GradeSubmissionSummaryDTO decidedSummary = new GradeSubmissionSummaryDTO(
+                summary.getSubmissionId(), summary.getOfferingId(), summary.getCourseName(),
+                summary.getOfferingCode(), summary.getVersion(), summary.getTeacherUid(),
+                summary.getTeacherName(), summary.getStudentCount(), summary.getAverage(),
+                summary.getHighest(), summary.getLowest(), summary.getFailCount(), status,
+                summary.getSubmittedAt());
+        GradeSubmissionDetailDTO decided = new GradeSubmissionDetailDTO(decidedSummary,
+                current.getDistribution(), current.getItems(), REVIEWER, MOCK_NOW, reviewComment);
+        gradeSubmissions.put(decidedSummary.getSubmissionId(), decided);
+        return decided;
+    }
+
+    private AdminOperationResultView<GradeSubmissionDetailDTO> rememberGrade(String operationId,
+            String message, GradeReview intent, GradeSubmissionDetailDTO entity) {
+        AdminOperationResultView<GradeSubmissionDetailDTO> result =
+                remember(operationId, message, entity);
+        gradeReviews.put(operationId, new GradeReviewStored(intent, result));
+        return result;
+    }
+
+    private GradeSubmissionDetailDTO requireGradeSubmission(String submissionId) {
+        if (submissionId == null || !submissionId.matches("[0-9]+")) {
+            throw badRequest("submissionId 必须为十进制字符串");
+        }
+        GradeSubmissionDetailDTO detail = gradeSubmissions.get(submissionId);
+        if (detail == null) throw notFound("成绩提交不存在");
+        return detail;
+    }
+
+    private static ApprovalDecisionRequestDTO gradeDecision(ApprovalDecisionRequestDTO raw) {
+        if (raw == null) throw badRequest("请求不能为空");
+        String operationId = raw.getOperationId();
+        try {
+            if (operationId == null
+                    || !UUID.fromString(operationId).toString().equalsIgnoreCase(operationId)) {
+                throw new IllegalArgumentException();
+            }
+        } catch (IllegalArgumentException failure) {
+            throw badRequest("operationId 必须是 UUID 字符串");
+        }
+        if (raw.getRequestId() == null || !raw.getRequestId().matches("[0-9]+")) {
+            throw badRequest("requestId 必须为十进制字符串");
+        }
+        if (raw.getExpectedVersion() <= 0) throw badRequest("expectedVersion 必须为正整数");
+        // Grade approval judges a frozen batch whole and never overrides a conflict (R12).
+        if (raw.isForce()) throw badRequest("成绩审批不支持强制覆盖");
+        String comment = trimmed(raw.getReviewComment(), "审批意见", MAX_REASON);
+        if (!raw.isApproved() && comment == null) throw badRequest("驳回必须填写审批意见");
+        return new ApprovalDecisionRequestDTO(operationId, raw.getRequestId(),
+                raw.getExpectedVersion(), raw.isApproved(), false, null, comment);
+    }
+
+    private void seedGradeSubmissions() {
+        addGradeSubmission(gradeDetail("9001", "1001", "数据结构", "OFF-1001", 1, "T1001", "张老师",
+                "2026-09-11T09:00:00Z", ApprovalStatusDTO.PENDING, null, null, null,
+                List.of(item("8001", "20240031", "陈晨", 88.0, 86.0, null, 84.0, 85.0, 3, 3.5),
+                        item("8002", "20240032", "林晓", 90.0, 92.0, 91.0, 89.0, 90.0, 4, 4.0))));
+        addGradeSubmission(gradeDetail("9002", "2001", "操作系统", "OFF-2001", 2, "T2001", "李老师",
+                "2026-09-10T09:00:00Z", ApprovalStatusDTO.APPROVED, REVIEWER, MOCK_NOW, "同意",
+                List.of(item("8003", "20240033", "王强", 70.0, 72.0, null, 68.0, 70.0, 1, 1.0))));
+        addGradeSubmission(gradeDetail("9003", "1001", "数据结构", "OFF-1001", 1, "T1001", "张老师",
+                "2026-09-10T08:00:00Z", ApprovalStatusDTO.REJECTED, REVIEWER, MOCK_NOW, "材料不足",
+                List.of(item("8004", "20240034", "赵敏", 55.0, 58.0, null, 52.0, 55.0, 0, null))));
+        addGradeSubmission(gradeDetail("9004", "1001", "数据结构", "OFF-1001", 2, "T1001", "张老师",
+                "2026-09-12T09:00:00Z", ApprovalStatusDTO.PENDING, null, null, null,
+                List.of(item("8001", "20240031", "陈晨", 92.0, 94.0, null, 90.0, 92.0, 4, 4.0),
+                        item("8002", "20240032", "林晓", 94.0, 96.0, 95.0, 93.0, 94.0, 4, 4.0))));
+    }
+
+    private void addGradeSubmission(GradeSubmissionDetailDTO detail) {
+        gradeSubmissions.put(detail.getSummary().getSubmissionId(), detail);
+    }
+
+    private static GradeSubmissionDetailDTO gradeDetail(String submissionId, String offeringId,
+            String courseName, String offeringCode, int version, String teacherUid,
+            String teacherName, String submittedAt, ApprovalStatusDTO status, String reviewedBy,
+            String reviewedAt, String reviewComment, List<GradeSubmissionItemDTO> items) {
+        List<Double> scores = new ArrayList<>();
+        int failed = 0;
+        for (GradeSubmissionItemDTO item : items) {
+            if (item.getScore() == null) continue;
+            scores.add(item.getScore());
+            if (item.getScore() < 60) failed++;
+        }
+        double average = scores.isEmpty() ? 0.0 : round2(
+                scores.stream().mapToDouble(Double::doubleValue).average().orElse(0.0));
+        double highest = scores.isEmpty() ? 0.0 : round2(
+                scores.stream().mapToDouble(Double::doubleValue).max().orElse(0.0));
+        double lowest = scores.isEmpty() ? 0.0 : round2(
+                scores.stream().mapToDouble(Double::doubleValue).min().orElse(0.0));
+        GradeSubmissionSummaryDTO summary = new GradeSubmissionSummaryDTO(submissionId, offeringId,
+                courseName, offeringCode, version, teacherUid, teacherName, items.size(), average,
+                highest, lowest, failed, status, submittedAt);
+        return new GradeSubmissionDetailDTO(summary, gradeDistribution(items), List.copyOf(items),
+                reviewedBy, reviewedAt, reviewComment);
+    }
+
+    private static double round2(double value) {
+        return Math.round(value * 100.0) / 100.0;
+    }
+
+    private static List<GradeDistributionBucketDTO> gradeDistribution(
+            List<GradeSubmissionItemDTO> items) {
+        String[] labels = {"90-100", "80-89", "70-79", "60-69", "0-59"};
+        int[] counts = new int[labels.length];
+        for (GradeSubmissionItemDTO item : items) {
+            Double score = item.getScore();
+            if (score == null) continue;
+            if (score >= 90) counts[0]++;
+            else if (score >= 80) counts[1]++;
+            else if (score >= 70) counts[2]++;
+            else if (score >= 60) counts[3]++;
+            else counts[4]++;
+        }
+        List<GradeDistributionBucketDTO> buckets = new ArrayList<>();
+        for (int index = 0; index < labels.length; index++) {
+            buckets.add(new GradeDistributionBucketDTO(labels[index], counts[index]));
+        }
+        return buckets;
+    }
+
+    private static GradeSubmissionItemDTO item(String enrollmentId, String studentUid,
+            String studentName, Double daily, Double midterm, Double experiment, Double finalterm,
+            Double score, Integer level, Double point) {
+        return new GradeSubmissionItemDTO(enrollmentId, studentUid, studentName, daily, midterm,
+                experiment, finalterm, score, level, point);
+    }
+
+    private record GradeReview(String operationId, String requestId, int expectedVersion,
+                               boolean approved, String reviewComment) { }
+
+    private record GradeReviewStored(GradeReview intent,
+            AdminOperationResultView<GradeSubmissionDetailDTO> result) { }
 }

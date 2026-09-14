@@ -8,6 +8,11 @@ import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
 import dto.course.admin.approval.AdjustmentTargetDTO;
 import dto.course.admin.approval.ApprovalDecisionRequestDTO;
 import dto.course.admin.approval.ApprovalStatusDTO;
+import dto.course.admin.approval.GradeDistributionBucketDTO;
+import dto.course.admin.approval.GradeSubmissionDetailDTO;
+import dto.course.admin.approval.GradeSubmissionItemDTO;
+import dto.course.admin.approval.GradeSubmissionPageDTO;
+import dto.course.admin.approval.GradeSubmissionSummaryDTO;
 import dto.course.admin.catalog.AdminCourseDTO;
 import dto.course.admin.catalog.AdminOfferingDTO;
 import dto.course.admin.catalog.CourseEditorRequestDTO;
@@ -50,6 +55,7 @@ public final class SocketAdminCourseServiceTest {
     private static final String COURSE_ID = "9007199254740993";
     private static final String OFFERING_ID = "9007199254740995";
     private static final String REQUEST_ID = "9007199254740999";
+    private static final String GRADE_SUBMISSION_ID = "9007199254740993";
 
     public static void main(String[] args) {
         ClientSession.getInstance().login("admin-alpha", "管理员", TOKEN, null);
@@ -86,6 +92,10 @@ public final class SocketAdminCourseServiceTest {
             adjustmentListSendsFiltersAndMapsItsPage();
             adjustmentDetailAndDecisionMapTypedPayloads();
             adjustmentConflictKeepsTypedRisksAndLatestDetail();
+            gradeMethodsAreDeclaredInTheService();
+            gradeListSendsFiltersAndMapsItsPage();
+            gradeDetailAndDecisionMapTypedPayloads();
+            gradeConflictKeepsTypedLatestDetail();
         } finally {
             ClientSession.getInstance().logout();
         }
@@ -904,6 +914,139 @@ public final class SocketAdminCourseServiceTest {
                             == ScheduleConflictSeverityDTO.OVERRIDABLE,
                     "the dialog must retain the typed approval conflicts");
         }
+    }
+
+    private static void gradeMethodsAreDeclaredInTheService() {
+        declared("listGradeSubmissionsPage", ApprovalStatusDTO.class, int.class, int.class);
+        declared("getGradeSubmission", String.class);
+        declared("reviewGradeSubmission", ApprovalDecisionRequestDTO.class);
+    }
+
+    private static void gradeListSendsFiltersAndMapsItsPage() {
+        FakeTransport transport = new FakeTransport();
+        SocketAdminCourseService service = new SocketAdminCourseService(transport);
+        transport.respond(message -> {
+            message.putData("gradeSubmissions", List.of(wireShaped(gradeSummary())));
+            message.putData("totalCount", 1L);
+            message.putData("pageNumber", 2);
+            message.putData("pageSize", 20);
+        });
+        GradeSubmissionPageDTO page = service.listGradeSubmissionsPage(
+                ApprovalStatusDTO.PENDING, 2, 20).join();
+        requireEnvelope(transport, AdminCourseActions.LIST_GRADE_SUBMISSIONS);
+        require("PENDING".equals(transport.lastRequest.getData("status"))
+                        && Integer.valueOf(2).equals(transport.lastRequest.getData("pageNumber"))
+                        && Integer.valueOf(20).equals(transport.lastRequest.getData("pageSize")),
+                "the grade list must send the typed status and paging");
+        require(page.getTotalCount() == 1L && page.getPageNumber() == 2 && page.getPageSize() == 20
+                        && page.getItems().size() == 1,
+                "the grade page must map the server metadata");
+        require(GRADE_SUBMISSION_ID.equals(page.getItems().get(0).getSubmissionId())
+                        && page.getItems().get(0).getStatus() == ApprovalStatusDTO.PENDING
+                        && page.getItems().get(0).getStudentCount() == 2
+                        && "张老师".equals(page.getItems().get(0).getTeacherName()),
+                "the list adapter must keep the exact decimal submission ID and the summary fields");
+
+        FakeTransport unfiltered = new FakeTransport();
+        unfiltered.respond(message -> {
+            message.putData("gradeSubmissions", List.of());
+            message.putData("totalCount", 0L);
+            message.putData("pageNumber", 1);
+            message.putData("pageSize", 20);
+        });
+        require(new SocketAdminCourseService(unfiltered)
+                        .listGradeSubmissions(null, 1, 20).join().isEmpty(),
+                "the derived list accessor must reuse the page transport");
+        requireEnvelope(unfiltered, AdminCourseActions.LIST_GRADE_SUBMISSIONS);
+        require(unfiltered.lastRequest.getData("status") == null,
+                "a null status must be omitted so the server keeps its PENDING default");
+    }
+
+    private static void gradeDetailAndDecisionMapTypedPayloads() {
+        FakeTransport transport = new FakeTransport();
+        SocketAdminCourseService service = new SocketAdminCourseService(transport);
+        transport.respond(message -> message.putData("gradeSubmission",
+                wireShaped(gradeDetail())));
+        GradeSubmissionDetailDTO detail = service.getGradeSubmission(GRADE_SUBMISSION_ID).join();
+        requireEnvelope(transport, AdminCourseActions.GET_GRADE_SUBMISSION);
+        require(GRADE_SUBMISSION_ID.equals(transport.lastRequest.getData("submissionId")),
+                "the detail read must send the exact decimal submission ID");
+        require(GRADE_SUBMISSION_ID.equals(detail.getSummary().getSubmissionId())
+                        && detail.getSummary().getStatus() == ApprovalStatusDTO.PENDING
+                        && detail.getDistribution().size() == 5
+                        && "90-100".equals(detail.getDistribution().get(0).getLabel())
+                        && detail.getItems().size() == 2
+                        && detail.getItems().get(0).getScore() == 85.0
+                        && detail.getItems().get(0).getGradeLevel() == 3
+                        && detail.getItems().get(0).getGradePoint() == 3.5
+                        && detail.getItems().get(1).getScore() == null,
+                "the detail must map typed distribution, items and a nullable score");
+
+        ApprovalDecisionRequestDTO decision = new ApprovalDecisionRequestDTO(
+                "40000000-0000-0000-0000-000000000001", GRADE_SUBMISSION_ID, 1, true, false, null,
+                "同意");
+        transport.respond(message -> message.putData("result", wireShaped(
+                new AdminOperationResultDTO<>(decision.getOperationId(), "OK", "成绩提交已通过",
+                        gradeDetail(), List.of()))));
+        AdminOperationResultView<GradeSubmissionDetailDTO> result =
+                service.reviewGradeSubmission(decision).join();
+        requireEnvelope(transport, AdminCourseActions.REVIEW_GRADE_SUBMISSION);
+        require(transport.lastRequest.getData("request") == decision,
+                "the decision must travel under request as the typed DTO instance");
+        require(decision.getOperationId().equals(result.getOperationId())
+                        && "OK".equals(result.getOutcomeCode())
+                        && "成绩提交已通过".equals(result.getMessage())
+                        && result.getEntity() != null
+                        && result.getEntity().getSummary().getSubmissionId()
+                                .equals(GRADE_SUBMISSION_ID),
+                "a decision must map the typed operation result");
+    }
+
+    private static void gradeConflictKeepsTypedLatestDetail() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> {
+            message.setCode(MessageCode.CONFLICT);
+            message.setMessage("成绩提交已被处理，请刷新后重试");
+            message.putData("latest", wireShaped(gradeDetail()));
+        });
+        try {
+            new SocketAdminCourseService(transport).reviewGradeSubmission(
+                    new ApprovalDecisionRequestDTO("40000000-0000-0000-0000-000000000002",
+                            GRADE_SUBMISSION_ID, 1, true, false, null, null)).join();
+            throw new AssertionError("a conflict must fail the future");
+        } catch (CompletionException failure) {
+            require(failure.getCause() instanceof SocketAdminCourseService.AdminCourseServiceException,
+                    "a conflict must use the stable service exception");
+            SocketAdminCourseService.AdminCourseServiceException error =
+                    (SocketAdminCourseService.AdminCourseServiceException) failure.getCause();
+            require(error.getCode() == MessageCode.CONFLICT
+                            && error.getLatest() instanceof GradeSubmissionDetailDTO latest
+                            && GRADE_SUBMISSION_ID.equals(latest.getSummary().getSubmissionId()),
+                    "the conflict must carry the latest typed detail for the dialog");
+            require(error.getConflicts().isEmpty(),
+                    "grade approval carries no typed conflicts");
+        }
+    }
+
+    private static GradeSubmissionSummaryDTO gradeSummary() {
+        return new GradeSubmissionSummaryDTO(GRADE_SUBMISSION_ID, "1001", "数据结构", "OFF-1001", 1,
+                "T1001", "张老师", 2, 85.0, 90.0, 80.0, 0, ApprovalStatusDTO.PENDING,
+                "2026-09-10T02:00:00Z");
+    }
+
+    private static GradeSubmissionDetailDTO gradeDetail() {
+        List<GradeDistributionBucketDTO> distribution = List.of(
+                new GradeDistributionBucketDTO("90-100", 1),
+                new GradeDistributionBucketDTO("80-89", 1),
+                new GradeDistributionBucketDTO("70-79", 0),
+                new GradeDistributionBucketDTO("60-69", 0),
+                new GradeDistributionBucketDTO("0-59", 0));
+        List<GradeSubmissionItemDTO> items = List.of(
+                new GradeSubmissionItemDTO("8001", "20240031", "陈晨", 88.0, 86.0, null, 84.0, 85.0,
+                        3, 3.5),
+                new GradeSubmissionItemDTO("8002", "20240032", "林晓", null, null, null, null, null,
+                        null, null));
+        return new GradeSubmissionDetailDTO(gradeSummary(), distribution, items, null, null, null);
     }
 
     private static AdjustmentRequestSummaryDTO adjustmentSummary() {
