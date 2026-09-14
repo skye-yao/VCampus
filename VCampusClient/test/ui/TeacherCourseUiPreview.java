@@ -16,6 +16,7 @@ import service.TeacherCourseServices;
 
 /**
  * 教师工作台离线预览：安装 {@link MockTeacherCourseService}，加载真实教师外壳。
+ * 教师工作台现在包含教学班与教学课程表两页，两者都由同一份 Mock 驱动，可在这里逐页人工查看。
  *
  * <p>与 {@link CourseUiPreview}/{@link AdminCourseUiPreview} 同形：正常启动保持窗口打开供人工查看，
  * 传 {@code --smoke} 时短暂显示后自动退出。自动化截图由 {@link TeacherCourseUiSmokeTest} 负责，

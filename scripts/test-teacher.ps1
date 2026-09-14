@@ -75,6 +75,8 @@ $suites = @(
         Gui = @('ui.TeacherCourseUiSmokeTest')
     }
     # 课表套件：DTO 契约与既有 ScheduleEntryDTO 回归，加上编译期依赖教师课程接口的客户端测试。
+    # 学生端的 ScheduleControllerTest / ScheduleLayoutTest 之前不属于任何套件，这里追加进来，
+    # 让本计划“没有触碰学生端课表”的回归断言真的被执行（它们本来就是无工具包的客户端测试）。
     [pscustomobject]@{ Name = 'Timetable'
         Common = @('dto.course.teacher.TeacherScheduleDtoJsonTest', 'dto.course.CourseDtoJsonTest')
         Client = @('service.SocketTeacherCourseServiceTest',
@@ -84,10 +86,22 @@ $suites = @(
             'controller.TeacherOfferingDetailControllerTest',
             'controller.TeacherScheduleControllerTest',
             'controller.TeacherScheduleLayoutTest',
-            'service.MockTeacherScheduleTest')
+            'service.MockTeacherScheduleTest',
+            'controller.ScheduleControllerTest',
+            'controller.ScheduleLayoutTest')
         # TeacherScheduleMySqlTest also self-gates on the `mysql` argument: real MySQL only with
-        # -WithMySql, otherwise it prints SKIP and is never reported as passing.
-        Server = @('service.TeacherScheduleMySqlTest'); Tcp = @(); Gui = @() }
+        # -WithMySql, otherwise it prints SKIP and is never reported as passing. TeacherCourseHandlerTest
+        # is repeated from Foundation on purpose: Task 3 added the loadTeachingSchedule branch to that
+        # handler, and without this line the Timetable suite would never exercise it. Cross-suite
+        # duplication already has precedent (ui.TeacherCourseUiSmokeTest sits in both Gui lists).
+        Server = @('service.TeacherScheduleMySqlTest', 'handler.TeacherCourseHandlerTest')
+        # 真实 TCP 端到端：登录教师 → courseTeacher/loadTeachingSchedule → DTO 映射。它会重建受保护的
+        # 测试架构，所以必须串行单独运行；-WithTcp 才跑，未传时不会被当作已通过。
+        Tcp = @('integration.TeacherScheduleSocketEndToEndTest')
+        # GUI 冒烟：真实 JavaFX 工具包装入教师外壳，用 MockTeacherCourseService 驱动课表页与课次详情。
+        # 只登记冒烟类：ui.TeacherCourseUiPreview 是人工预览工具且不注册进任何套件。同一个冒烟类
+        # 同时出现在 Foundation.Gui 与这里是有意的重复，跨套件重复有先例。
+        Gui = @('ui.TeacherCourseUiSmokeTest') }
     [pscustomobject]@{ Name = 'Adjustment'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }
     [pscustomobject]@{ Name = 'GradeBook'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }
     [pscustomobject]@{ Name = 'ImportExport'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }
