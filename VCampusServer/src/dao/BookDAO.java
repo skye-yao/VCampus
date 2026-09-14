@@ -80,7 +80,7 @@ public class BookDAO {
         }
     }
     public boolean cancelReservation(String userId, int reservationId) throws SQLException {
-        try (Connection conn = DBUtil.getConnection()) {
+        try (Connection conn = connections.open()) {
             conn.setAutoCommit(false);
             try {
                 int bookId;
@@ -119,7 +119,7 @@ public class BookDAO {
             "WHEN status=1 OR EXISTS (SELECT 1 FROM tblBorrowRecord b WHERE b.bookid=tblBook.id AND b.status IN (0,2) AND b.returnTime IS NULL) THEN 1 " +
             "WHEN status=2 OR EXISTS (SELECT 1 FROM tblReservation r WHERE r.bookid=tblBook.id AND r.status=0) THEN 2 " +
             "ELSE status END";
-    private static final String BOOK_SELECT = "SELECT id,isbn,name,author,publisher,price," + EFFECTIVE_STATUS + " AS status FROM tblBook ";
+    static final String BOOK_SELECT = "SELECT id,isbn,name,author,publisher,price," + EFFECTIVE_STATUS + " AS status FROM tblBook ";
 
     /** 锁住图书行后再次检查，并在一个事务内完成预约和状态更新。 */
     public boolean reserveAvailableBook(String userId, int bookId) throws SQLException {

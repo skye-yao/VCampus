@@ -734,7 +734,19 @@ ON DUPLICATE KEY UPDATE `content`=VALUES(`content`);
 -- ============================================================
 -- 1. 图书表 tblBook
 -- ============================================================
+CREATE TABLE IF NOT EXISTS `tblBookCatalog` (
+`id` INT NOT NULL COMMENT '书目编号，多个实体册共享',
+`isbn` VARCHAR(20) NOT NULL COMMENT '书目 ISBN',
+`name` VARCHAR(100) NOT NULL COMMENT '书名',
+`author` VARCHAR(100) NOT NULL COMMENT '作者',
+`publisher` VARCHAR(100) DEFAULT '' COMMENT '出版社',
+`price` DECIMAL(10,2) DEFAULT NULL COMMENT '遗失赔偿价格',
+PRIMARY KEY (`id`),
+UNIQUE KEY `uk_catalog_isbn` (`isbn`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='图书书目表';
+
 CREATE TABLE IF NOT EXISTS `tblBook` (
+<<<<<<< Updated upstream
                                          `id` INT NOT NULL AUTO_INCREMENT COMMENT '图书编号',
                                          `isbn` VARCHAR(20) NOT NULL COMMENT 'ISBN编号',
                                          `name` VARCHAR(100) NOT NULL COMMENT '图书名称',
@@ -745,6 +757,19 @@ CREATE TABLE IF NOT EXISTS `tblBook` (
                                          PRIMARY KEY (`id`),
                                          UNIQUE KEY `uk_isbn` (`isbn`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='图书基本信息表';
+=======
+`id` INT NOT NULL AUTO_INCREMENT COMMENT '图书编号',
+`isbn` VARCHAR(20) NOT NULL COMMENT 'ISBN编号',
+`name` VARCHAR(100) NOT NULL COMMENT '图书名称',
+`author` VARCHAR(100) NOT NULL COMMENT '图书作者',
+`publisher` VARCHAR(100) DEFAULT '' COMMENT '出版社',
+`price` DECIMAL(10,2) DEFAULT NULL COMMENT '图书赔偿价格，借出前录入',
+`catalogId` INT DEFAULT NULL COMMENT '所属书目编号，同一书目可有多册实体书',
+`status` INT NOT NULL DEFAULT 0 COMMENT '状态: 0-可借, 1-已借, 2-预约, 3-遗失',
+PRIMARY KEY (`id`),
+KEY `idx_book_catalog` (`catalogId`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='图书实体册表';
+>>>>>>> Stashed changes
 
 -- ============================================================
 -- 2. 借阅记录表 tblBorrowRecord

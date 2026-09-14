@@ -30,6 +30,7 @@ import java.util.List;
  * Service负责业务规则判断以及多个DAO之间的组合调用。
  */
 public class LibraryServerService {
+    private final dao.BookCatalogDAO catalogs = new dao.BookCatalogDAO();
 
     private final BookDAO bookDAO;
     private final BorrowRecordDAO borrowRecordDAO;
@@ -75,7 +76,7 @@ public class LibraryServerService {
 
         keyword = keyword.trim();
 
-        return bookDAO.findBooks(keyword);
+        return catalogs.search(keyword);
     }
 
 
@@ -92,7 +93,7 @@ public class LibraryServerService {
             return null;
         }
 
-        return bookDAO.findById(bookId);
+        return catalogs.findById(bookId);
     }
 
 
@@ -123,7 +124,7 @@ public class LibraryServerService {
             return false;
         }
 
-        return bookDAO.reserveAvailableBook(userId, bookId);
+        return catalogs.reserve(userId, bookId);
     }
 
 
@@ -371,7 +372,7 @@ public class LibraryServerService {
 
         // ISBN 已存在
         Book oldBook =
-                bookDAO.findByIsbn(book.getIsbn());
+                catalogs.findByIsbn(book.getIsbn());
 
         if (oldBook != null) {
             return false;
@@ -382,7 +383,7 @@ public class LibraryServerService {
                 BookStatus.AVAILABLE.getCode()
         );
 
-        return bookDAO.insert(book);
+        return catalogs.insert(book);
     }
 
 
@@ -398,13 +399,13 @@ public class LibraryServerService {
         }
 
         Book oldBook =
-                bookDAO.findById(book.getId());
+                catalogs.findById(book.getId());
 
         if (oldBook == null) {
             return false;
         }
 
-        return bookDAO.update(book);
+        return catalogs.update(book);
     }
 
 
@@ -424,13 +425,13 @@ public class LibraryServerService {
         }
 
         Book book =
-                bookDAO.findById(bookId);
+                catalogs.findById(bookId);
 
         if (book == null) {
             return false;
         }
 
-        return bookDAO.delete(bookId);
+        return catalogs.delete(bookId);
     }
 
 
@@ -449,7 +450,7 @@ public class LibraryServerService {
             throws SQLException {
 
         Book book =
-                bookDAO.findById(bookId);
+                catalogs.findById(bookId);
 
         if (book == null) {
             return null;

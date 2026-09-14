@@ -68,6 +68,32 @@ public class LibraryHandler {
             dao.LibrarySchema.ensure();
 
             switch (action.toLowerCase()) {
+                case "getbookcopies":
+                    if (!isAdmin(role)) return forbidden(response);
+                    Integer catalogId = getIntegerData(request, "bookId");
+                    if (catalogId == null || catalogId <= 0) throw new IllegalArgumentException("请选择书目");
+                    response.putData("copies", new dao.BookCatalogDAO().copies(catalogId));
+                    response.setCode(MessageCode.SUCCESS);
+                    return response;
+                case "addbookcopies":
+                    if (!isAdmin(role)) return forbidden(response);
+                    Integer addCatalogId = getIntegerData(request,"bookId");
+                    int count;
+                    try { count = new java.math.BigDecimal(String.valueOf((Object)request.getData("count"))).intValueExact(); }
+                    catch (NumberFormatException | ArithmeticException error) { throw new IllegalArgumentException("册数必须是整数"); }
+                    if (addCatalogId == null || addCatalogId <= 0) throw new IllegalArgumentException("书目编号无效");
+                    new dao.BookCatalogDAO().addCopies(addCatalogId,count);
+                    response.setCode(MessageCode.SUCCESS);
+                    response.setMessage("馆藏册已入库");
+                    return response;
+                case "recoverbookcopy":
+                    if (!isAdmin(role)) return forbidden(response);
+                    Integer copyId = getIntegerData(request,"copyId");
+                    if (copyId == null || copyId <= 0) throw new IllegalArgumentException("请选择实体册");
+                    new dao.LibraryCirculationDAO().recoverCopy(copyId);
+                    response.setCode(MessageCode.SUCCESS);
+                    response.setMessage("该册已找回入库");
+                    return response;
                 case "lendbook":
                 case "returnbook":
                     if (!isAdmin(role)) return forbidden(response);
@@ -296,7 +322,7 @@ public class LibraryHandler {
 
         if (!success) {
             response.setCode(MessageCode.CONFLICT);
-            response.setMessage("预约失败：该书已借出、已预约或已挂失，请刷新列表查看最新状态");
+            response.setMessage("预约失败：该书目暂无可借馆藏册，请刷新列表查看最新数量");
             return response;
         }
 

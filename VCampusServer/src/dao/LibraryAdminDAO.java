@@ -12,7 +12,7 @@ public class LibraryAdminDAO {
     public List<Map<String,String>> findRecords(String kind) throws SQLException {
         String sql;
         String person = "r.id AS '记录编号',r.userid AS '账号',u.name AS '姓名',";
-        String book = "r.bookid AS '图书编号',b.name AS '书名',";
+        String book = "r.bookid AS '册号',b.name AS '书名',";
         String users = " LEFT JOIN tbl_user u ON u.uid=r.userid ";
         String books = " LEFT JOIN tblBook b ON b.id=r.bookid ";
         if ("borrow".equals(kind) || "returns".equals(kind)) {
@@ -22,9 +22,10 @@ public class LibraryAdminDAO {
                 "WHEN r.status=0 THEN '借阅中' WHEN r.status=1 THEN '已归还' ELSE '逾期' END AS '状态' FROM tblBorrowRecord r"+users+books+
                 ("returns".equals(kind)?"WHERE r.status IN(0,2) AND r.returnTime IS NULL ":"")+"ORDER BY r.borrowTime DESC,r.id DESC";
         } else if ("fine".equals(kind)) {
-            sql="SELECT "+person+"r.amount AS '金额',r.overdueAmount AS '逾期费',r.lossAmount AS '赔偿价',r.paidAmount AS '实付',"+
+            sql="SELECT "+person+"loan.bookid AS '册号',b.name AS '书名',r.amount AS '金额',r.overdueAmount AS '逾期费',r.lossAmount AS '赔偿价',r.paidAmount AS '实付',"+
                 "r.refundedAmount AS '已退款',r.paidAmount-r.refundedAmount AS '可退金额',r.reason AS '原因',"+
-                "CASE WHEN r.status=0 AND r.amount=0 THEN '无需缴费' WHEN r.status=0 THEN '未缴费' ELSE '已缴费' END AS '状态' FROM tblFineRecord r"+users+"ORDER BY r.id DESC";
+                "CASE WHEN r.status=0 AND r.amount=0 THEN '无需缴费' WHEN r.status=0 THEN '未缴费' ELSE '已缴费' END AS '状态' FROM tblFineRecord r"+users+
+                "LEFT JOIN tblBorrowRecord loan ON loan.id=r.borrowId LEFT JOIN tblBook b ON b.id=loan.bookid ORDER BY r.id DESC";
         } else if ("loss".equals(kind)) {
             sql="SELECT "+person+book+"r.lossTime AS '挂失时间',CASE WHEN r.status=0 THEN '挂失中' ELSE '已解除' END AS '状态' FROM tblLossRecord r"+users+books+"ORDER BY r.lossTime DESC,r.id DESC";
         } else if ("reservation".equals(kind) || "checkout".equals(kind)) {

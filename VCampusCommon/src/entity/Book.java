@@ -7,6 +7,22 @@ public class Book implements Serializable {
     private static final long serialVersionUID = 1L;
 
     private int id;
+    // 检索响应的 id 为书目编号；馆藏册响应的 id 为实体册号。
+    private int catalogId;
+    private int totalCopies;
+    private int availableCopies;
+    private int initialCopies = 1;
+    private java.util.List<Integer> copyIds = new java.util.ArrayList<>();
+    public int getCatalogId() { return catalogId; }
+    public void setCatalogId(int value) { catalogId = value; }
+    public int getTotalCopies() { return totalCopies; }
+    public void setTotalCopies(int value) { totalCopies = value; }
+    public int getAvailableCopies() { return availableCopies; }
+    public void setAvailableCopies(int value) { availableCopies = value; }
+    public int getInitialCopies() { return initialCopies; }
+    public void setInitialCopies(int value) { initialCopies = value; }
+    public java.util.List<Integer> getCopyIds() { return copyIds; }
+    public void setCopyIds(java.util.List<Integer> value) { copyIds = value; }
     private String isbn;
     private String name;
     private String author;

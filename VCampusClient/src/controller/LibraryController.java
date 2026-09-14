@@ -124,6 +124,8 @@ public class LibraryController {
     @FXML private TableColumn<Book, String> bookAuthorColumn;
     @FXML private TableColumn<Book, String> bookIsbnColumn;
     @FXML private TableColumn<Book, String> bookStatusColumn;
+    @FXML private TableColumn<Book, Number> bookTotalColumn;
+    @FXML private TableColumn<Book, Number> bookAvailableColumn;
     @FXML private Label detailLabel;
     @FXML private TextArea expandedDetail;
     @FXML private Hyperlink detailToggle;
@@ -194,7 +196,7 @@ public class LibraryController {
         lossNoticeList.setCellFactory(view -> new ListCell<>() {
             @Override protected void updateItem(vo.LostBookNotice notice, boolean empty) {
                 super.updateItem(notice, empty);
-                setText(empty || notice == null ? null : "《" + notice.getName() + "》  编号：" + notice.getBookId()
+                setText(empty || notice == null ? null : "《" + notice.getName() + "》  册号：" + notice.getBookId()
                         + "  作者：" + notice.getAuthor() + "\n挂失时间：" + notice.getLossTime().replace('T', ' ')
                         + "\n如有发现，请交至图书馆服务台。");
             }
@@ -228,7 +230,9 @@ public class LibraryController {
         bookNameColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(c.getValue().getName()));
         bookAuthorColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(c.getValue().getAuthor()));
         bookIsbnColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(c.getValue().getIsbn()));
-        bookStatusColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(bookStatus(c.getValue().getStatus())));
+        bookStatusColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(c.getValue().getAvailableCopies()>0?"可借":"暂无可借"));
+        bookTotalColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(c.getValue().getTotalCopies()));
+        bookAvailableColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(c.getValue().getAvailableCopies()));
 
         currentBookColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(c.getValue().getBookId()));
         currentBorrowTimeColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(time(c.getValue().getBorrowTime())));
@@ -287,23 +291,27 @@ public class LibraryController {
             reviewList.getItems().clear();
             return;
         }
-        detailLabel.setText(String.format("《%s》  作者：%s  出版社：%s  ISBN：%s  状态：%s",
-                book.getName(), book.getAuthor(), book.getPublisher(), book.getIsbn(), bookStatus(book.getStatus())));
-        expandedDetail.setText(String.format("书名：%s%n作者：%s%n出版社：%s%nISBN：%s%n图书编号：%d%n状态：%s",
+        detailLabel.setText(String.format("《%s》  作者：%s  总册数：%d  可借：%d",
+                book.getName(), book.getAuthor(), book.getTotalCopies(), book.getAvailableCopies()));
+        expandedDetail.setText(String.format("书名：%s%n作者：%s%n出版社：%s%nISBN：%s%n书目编号：%d%n总册数：%d  可借数量：%d",
                 book.getName(), book.getAuthor(), book.getPublisher() == null ? "暂无" : book.getPublisher(),
-                book.getIsbn(), book.getId(), bookStatus(book.getStatus())));
+                book.getIsbn(), book.getId(), book.getTotalCopies(), book.getAvailableCopies()));
         loadReviews(book.getId());
     }
 
     @FXML private void handleReserve() {
         if (!requireSelectedBook()) return;
-        if (selectedBook.getStatus() != BookStatus.AVAILABLE.getCode()) {
-            AlertUtil.showWarning("暂不可预约", "该书当前状态为：" + bookStatus(selectedBook.getStatus()));
+        if (selectedBook.getAvailableCopies() <= 0) {
+            AlertUtil.showWarning("暂不可预约", "该书目暂无可借馆藏册，请稍后刷新");
             return;
         }
         service.reserveBook(selectedBook.getId()).whenComplete((ignored, error) -> Platform.runLater(() -> {
             if (error != null) showError("预约失败", error);
+<<<<<<< Updated upstream
             else AlertUtil.showInfo("预约成功", "预约记录已保存");
+=======
+            else AlertUtil.showInfo("预约成功", "已为你分配一册，可在我的图书馆查看册号。请在12小时内到馆办理借书，超时自动取消。");
+>>>>>>> Stashed changes
             // 无论成功或失败都刷新，处理列表打开后被其他读者预约的情况。
             handleSearch();
             refreshMyLibrary();
@@ -331,7 +339,10 @@ public class LibraryController {
             if (version != myLibraryVersion) return;
             if (error != null) { showError("加载书名失败", error); return; }
             bookNames.clear();
-            for (Book book : books) bookNames.put(book.getId(), book.getName());
+            for (Book book : books) {
+                bookNames.put(book.getId(), book.getName());
+                if(book.getCopyIds()!=null)for(int copyId:book.getCopyIds())bookNames.put(copyId,book.getName());
+            }
             currentBorrowTable.refresh(); historyTable.refresh(); reservationTable.refresh();
         }));
         refreshLossNotices();

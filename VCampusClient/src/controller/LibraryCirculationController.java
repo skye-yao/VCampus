@@ -35,9 +35,69 @@ public class LibraryCirculationController {
     private Tab panel(String title,String kind,String actionText) {
         TableView<Map<String,String>> table=new TableView<>();
         var rows=FXCollections.<Map<String,String>>observableArrayList();
+<<<<<<< Updated upstream
         var filtered=new FilteredList<>(rows);
         table.setItems(filtered);
         TextField filter=new TextField();filter.setPromptText("输入学生账号、姓名、书名筛选");
+=======
+        var filtered=new FilteredList<>(rows);table.setItems(filtered);
+        String[] columns=fine?new String[]{"账号","姓名","册号","实付","已退款","可退金额","状态"}:
+                checkout?new String[]{"账号","姓名","册号","书名","取书截止时间","状态"}:
+                new String[]{"账号","姓名","册号","书名","应还时间","状态"};
+        for(String key:columns) {
+            TableColumn<Map<String,String>,String> column=new TableColumn<>(key);
+            column.setMinWidth(key.equals("书名")?160:key.contains("时间")?150:85);
+            column.setPrefWidth(key.equals("书名")?260:key.contains("时间")?180:110);
+            column.setCellValueFactory(c->new ReadOnlyObjectWrapper<>(c.getValue().get(key)));
+            if(key.equals("状态")) column.setCellFactory(c->new TableCell<>() {
+                @Override protected void updateItem(String value,boolean empty) {
+                    super.updateItem(value,empty);setText(null);setGraphic(null);
+                    if(!empty&&value!=null) {
+                        Label badge=label(value,"circulation-status");
+                        if(value.contains("逾期")||value.contains("未缴"))badge.getStyleClass().add("circulation-status-warning");
+                        setGraphic(badge);
+                    }
+                }
+            });
+            table.getColumns().add(column);
+        }
+        Label count=label("—","circulation-metric-value");
+        Label secondary=label("—","circulation-metric-value");
+        HBox metrics=new HBox(12,metric("当前记录",count),metric(fine?"可退余额合计":"待办理",secondary),
+                metric(fine?"退款方式":checkout?"取书时限":"借阅期限",label(fine?"原路退回":checkout?"12 小时":"14 天","circulation-metric-value")));
+        for(var node:metrics.getChildren())HBox.setHgrow(node,Priority.ALWAYS);
+        Label note=label(checkout?"预约后请在12小时内取书，超时自动取消。请核对到场同学及图书后办理借出。":
+                fine?"选择已实付账单办理退款，款项退回账单所属用户的校园银行账户。":
+                "收到实体图书后确认归还。允许先还书后缴费，找回的挂失图书也可在这里归还。","circulation-note");
+        note.setWrapText(true);
+        TextField filter=new TextField();filter.setPromptText("搜索账号、姓名、书名或状态");
+        Button refresh=new Button("刷新列表");refresh.getStyleClass().add("btn-secondary");
+        Button action=new Button(actionText);action.getStyleClass().add("btn-primary");action.setDisable(true);
+        Label selection=label("请先选择一条记录","panel-title-small");
+        Label detail=label("选中后，这里会显示办理对象和完整记录信息。","circulation-detail");detail.setWrapText(true);
+        VBox selectionText=new VBox(5,selection,detail);HBox.setHgrow(selectionText,Priority.ALWAYS);
+        HBox selectedCard=new HBox(18,selectionText,action);selectedCard.setAlignment(Pos.CENTER_LEFT);
+        selectedCard.getStyleClass().add("circulation-selection");
+        boolean[] busy={false},loading={false};long[] version={0};
+        Runnable updateAction=()->{
+            Map<String,String> row=table.getSelectionModel().getSelectedItem();
+            action.setDisable(busy[0]||loading[0]||row==null||(fine&&money(row,"可退金额").signum()<=0));
+        };
+        table.getSelectionModel().selectedItemProperty().addListener((obs,old,row)->{
+            selection.setText(row==null?"请先选择一条记录":row.get("姓名")+" · "+row.get("账号")+"  /  记录 #"+row.get("记录编号"));
+            detail.setText(row==null?"选中后，这里会显示办理对象和完整记录信息。":fine?
+                    "册号 "+row.get("册号")+"   逾期费 ¥"+row.get("逾期费")+"   赔偿价 ¥"+row.get("赔偿价")+"   可退 ¥"+row.get("可退金额")+"\n"+row.get("原因"):
+                    "《"+row.get("书名")+"》 · 册号 "+row.get("册号")+"\n"+
+                    (checkout?"预约："+row.get("预约时间")+"   截止取书："+row.get("取书截止时间"):
+                            "借出："+row.get("借阅时间")+"   应还："+row.get("应还时间")));
+            updateAction.run();
+        });
+        Runnable updateCounts=()->{
+            count.setText(filtered.size()+" 条");
+            secondary.setText(fine?"¥ "+filtered.stream().map(row->money(row,"可退金额")).reduce(BigDecimal.ZERO,BigDecimal::add).toPlainString():filtered.size()+" 条");
+        };
+        filtered.addListener((ListChangeListener<Map<String,String>>)change->updateCounts.run());
+>>>>>>> Stashed changes
         filter.textProperty().addListener((obs,old,text)->filtered.setPredicate(row->row.values().stream().anyMatch(v->v!=null&&v.contains(text.trim()))));
         Button refresh=new Button("刷新");Button action=new Button(actionText);action.getStyleClass().add("btn-primary");
         Label note=new Label(kind.equals("checkout")?"请核对到场同学及图书后点击借书；借期从办理成功起计14天。":
@@ -69,7 +129,13 @@ public class LibraryCirculationController {
             if(kind.equals("fine")) { operation=refund(row,id);if(operation==null)return; }
             else {
                 Alert confirm=new Alert(Alert.AlertType.CONFIRMATION,
+<<<<<<< Updated upstream
                         "学生："+row.get("姓名")+"（"+row.get("账号")+"）\n图书："+row.get("书名")+"\n确认已现场核对并办理"+actionText+"？",ButtonType.OK,ButtonType.CANCEL);
+=======
+                        "读者："+row.get("姓名")+"（"+row.get("账号")+"）\n图书："+row.get("书名")+"\n册号："+row.get("册号")+"\n确认已现场核对该册并办理？",ButtonType.OK,ButtonType.CANCEL);
+                confirm.setTitle(actionText);confirm.setHeaderText(actionText);style(confirm.getDialogPane());
+                confirm.initOwner(table.getScene().getWindow());
+>>>>>>> Stashed changes
                 if(confirm.showAndWait().orElse(ButtonType.CANCEL)!=ButtonType.OK)return;
                 operation=kind.equals("checkout")?service.lendBook(id):service.returnBook(id);
             }

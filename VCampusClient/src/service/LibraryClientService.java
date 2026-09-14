@@ -67,6 +67,18 @@ public class LibraryClientService {
     }
 
     public CompletableFuture<Void> reserveBook(int bookId) { return bookAction("reservebook", bookId); }
+    public CompletableFuture<List<Book>> getBookCopies(int bookId) {
+        return simpleRequest("getbookcopies", "bookId", bookId)
+                .thenApply(r -> list(r, "copies", new TypeToken<List<Book>>() {}.getType()));
+    }
+    public CompletableFuture<Void> addBookCopies(int bookId, int count) {
+        Message request = request("addbookcopies");
+        request.putData("bookId",bookId); request.putData("count",count);
+        return send(request).thenApply(r -> null);
+    }
+    public CompletableFuture<Void> recoverBookCopy(int copyId) {
+        return simpleRequest("recoverbookcopy", "copyId", copyId).thenApply(r -> null);
+    }
     public CompletableFuture<Void> cancelReservation(int reservationId) {
         return simpleRequest("cancelreservation", "reservationId", reservationId).thenApply(r -> null);
     }

@@ -99,6 +99,38 @@ public class LibraryCirculationDAO {
             return null;
         });
     }
+<<<<<<< Updated upstream
+=======
+    /** 管理员确认公告中的图书已交回；所有状态和账单在同一事务中更新。 */
+    public boolean recoverLostNotice(int bookId) throws SQLException {
+        return transaction(conn -> {
+            lockBook(conn, bookId);
+            try (PreparedStatement stmt = conn.prepareStatement(
+                    "SELECT id FROM tblLossRecord WHERE bookid=? AND status=0 FOR UPDATE")) {
+                stmt.setInt(1, bookId);
+                try (ResultSet rows = stmt.executeQuery()) {
+                    if (!rows.next()) return false;
+                }
+            }
+            recoverBook(conn, bookId, LocalDateTime.now());
+            return true;
+        });
+    }
+
+    public void recoverCopy(int copyId) throws SQLException {
+        transaction(conn -> {
+            lockBook(conn,copyId);
+            try (PreparedStatement stmt=conn.prepareStatement(BookDAO.BOOK_SELECT+"WHERE id=?")) {
+                stmt.setInt(1,copyId);
+                try(ResultSet row=stmt.executeQuery()) {
+                    if(!row.next()||row.getInt("status")!=3)throw new BusinessException("该册不是挂失状态，请刷新");
+                }
+            }
+            recoverBook(conn,copyId,LocalDateTime.now());return null;
+        });
+    }
+
+>>>>>>> Stashed changes
     /** 正常还书及遗失找回共用；已缴账单保留原实付，后续由管理员退款。 */
     static void recoverBook(Connection conn,int bookId,LocalDateTime now) throws SQLException {
         List<Integer> loans=new ArrayList<>();
@@ -150,7 +182,7 @@ public class LibraryCirculationDAO {
                     update(conn,"UPDATE tblBorrowRecord SET bookPrice=? WHERE id=?",price,loanId);
                 BigDecimal loss=lost && price!=null?price:BigDecimal.ZERO;
                 BigDecimal amount=overdue.add(loss);
-                String reason="《"+row.getString("name")+"》逾期费 "+overdue+" 元"+(lost?"；遗失赔偿 "+(price==null?"待管理员补录书价":price+" 元"):"");
+                String reason="《"+row.getString("name")+"》（册号 "+row.getInt("bookid")+"）逾期费 "+overdue+" 元"+(lost?"；遗失赔偿 "+(price==null?"待管理员补录书价":price+" 元"):"");
                 Integer fine=null;
                 try(PreparedStatement query=conn.prepareStatement("SELECT id,status FROM tblFineRecord WHERE borrowId=? FOR UPDATE")) {
                     query.setInt(1,loanId);

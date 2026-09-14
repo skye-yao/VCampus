@@ -39,11 +39,13 @@
                                 <items>
                                     <TableView fx:id="bookTable">
                                         <columns>
-                                            <TableColumn fx:id="bookIdColumn" maxWidth="55.0" text="编号"/>
+                                            <TableColumn fx:id="bookIdColumn" prefWidth="70.0" text="书目编号"/>
                                             <TableColumn fx:id="bookNameColumn" prefWidth="150.0" text="书名"/>
                                             <TableColumn fx:id="bookAuthorColumn" prefWidth="105.0" text="作者"/>
                                             <TableColumn fx:id="bookIsbnColumn" prefWidth="120.0" text="ISBN"/>
-                                            <TableColumn fx:id="bookStatusColumn" maxWidth="65.0" text="状态"/>
+                                            <TableColumn fx:id="bookTotalColumn" prefWidth="65.0" text="总册数"/>
+                                            <TableColumn fx:id="bookAvailableColumn" prefWidth="75.0" text="可借数量"/>
+                                            <TableColumn fx:id="bookStatusColumn" prefWidth="85.0" text="状态"/>
                                         </columns>
                                     </TableView>
                                     <VBox spacing="9.0" styleClass="detail-panel">
@@ -84,7 +86,7 @@
                         <items>
                         <TableView fx:id="currentBorrowTable" minHeight="90.0" prefHeight="220.0">
                             <columns>
-                                <TableColumn fx:id="currentBookColumn" text="图书编号"/>
+                                <TableColumn fx:id="currentBookColumn" text="册号"/>
                                 <TableColumn fx:id="currentBorrowTimeColumn" text="借阅时间"/>
                                 <TableColumn fx:id="currentDueTimeColumn" text="应还时间"/>
                                 <TableColumn fx:id="currentStatusColumn" text="状态"/>
@@ -96,7 +98,7 @@
                                     <Label styleClass="panel-title-small" text="借阅历史"/>
                                     <TableView fx:id="historyTable" VBox.vgrow="ALWAYS">
                                         <columns>
-                                            <TableColumn fx:id="historyBookColumn" text="图书"/>
+                                            <TableColumn fx:id="historyBookColumn" text="册号"/>
                                             <TableColumn fx:id="historyBorrowTimeColumn" text="借阅时间"/>
                                             <TableColumn fx:id="historyReturnTimeColumn" text="归还时间"/>
                                             <TableColumn fx:id="historyStatusColumn" text="状态"/>
@@ -111,7 +113,7 @@
                                     </HBox>
                                     <TableView fx:id="reservationTable" VBox.vgrow="ALWAYS">
                                         <columns>
-                                            <TableColumn fx:id="reservationBookColumn" text="图书"/>
+                                            <TableColumn fx:id="reservationBookColumn" text="册号"/>
                                             <TableColumn fx:id="reservationTimeColumn" text="预约时间"/>
                                             <TableColumn fx:id="reservationStatusColumn" text="状态"/>
                                         </columns>
