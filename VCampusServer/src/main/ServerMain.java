@@ -20,6 +20,9 @@ public class ServerMain {
      */
     public static void main(String[] args) {
 
+        // 服务端用 ImageIO/Graphics2D 生成商品缩略图，无显示器环境必须使用无头模式。
+        System.setProperty("java.awt.headless", "true");
+
         System.out.println("=================================");
         System.out.println("      VCampus 服务端启动");
         System.out.println("=================================");

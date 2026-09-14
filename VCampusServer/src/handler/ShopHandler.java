@@ -56,6 +56,8 @@ public class ShopHandler {
                         string(request, "keyword"), string(request, "category"), admin));
                 case "SHOP_PRODUCT_DETAIL" -> response.setData(
                         shopService.getProductDetail(number(request, "productId")));
+                case "SHOP_PRODUCT_THUMBNAILS" -> response.putData("thumbnails",
+                        shopService.listProductThumbnails(numberList(request, "productIds")));
                 case "SHOP_CART_LIST" -> response.putData("cartItems", shopService.listCart(userId));
                 case "SHOP_CART_ADD" -> shopService.addCartItem(userId,
                         number(request, "productId"), integer(request, "quantity"));

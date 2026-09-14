@@ -24,28 +24,39 @@
                         <top>
                             <HBox alignment="CENTER_LEFT" spacing="10" styleClass="shop-toolbar">
                                 <padding><Insets bottom="12" left="18" right="18" top="16"/></padding>
-                                <TextField fx:id="keywordField" prefWidth="250" promptText="搜索商品名称" styleClass="form-control"/>
-                                <ComboBox fx:id="categoryCombo" prefWidth="150" styleClass="form-control"/>
-                                <Button minWidth="82" onAction="#handleSearch" styleClass="btn-secondary" text="查询"/>
+                                <TextField fx:id="keywordField" onAction="#handleSearch" prefWidth="190" promptText="搜索商品名称" styleClass="form-control"/>
+                                <ComboBox fx:id="categoryCombo" prefWidth="140" styleClass="form-control"/>
+                                <Button minWidth="72" onAction="#handleSearch" styleClass="btn-secondary" text="查询"/>
+                                <Button fx:id="resetProductFiltersButton" minWidth="72" onAction="#handleResetProductFilters" styleClass="btn-secondary" text="重置"/>
+                                <ToggleButton fx:id="productViewToggle" minWidth="96" onAction="#handleToggleProductView" styleClass="btn-secondary" text="缩略图"/>
                                 <Region HBox.hgrow="ALWAYS"/>
                                 <Label fx:id="productQuantityLabel" minWidth="42" text="数量"/>
-                                <Spinner fx:id="productQuantitySpinner" prefWidth="90"/>
+                                <Spinner fx:id="productQuantitySpinner" prefWidth="80"/>
                                 <Button minWidth="108" onAction="#handleProductDetail" styleClass="btn-secondary" text="商品详情"/>
                                 <Button fx:id="addCartButton" minWidth="132" onAction="#handleAddCart" styleClass="btn-primary" text="加入购物车"/>
                             </HBox>
                         </top>
                         <center>
-                            <TableView fx:id="productTable" styleClass="shop-table">
-                                <columns>
-                                    <TableColumn fx:id="productIdColumn" prefWidth="70" text="编号"/>
-                                    <TableColumn fx:id="productNameColumn" prefWidth="250" text="商品名称"/>
-                                    <TableColumn fx:id="productCategoryColumn" prefWidth="150" text="分类"/>
-                                    <TableColumn fx:id="productPriceColumn" prefWidth="130" text="价格（元）"/>
-                                    <TableColumn fx:id="productStockColumn" prefWidth="110" text="库存"/>
-                                    <TableColumn fx:id="productStatusColumn" prefWidth="120" text="状态"/>
-                                </columns>
+                            <StackPane>
                                 <BorderPane.margin><Insets bottom="18" left="18" right="18"/></BorderPane.margin>
-                            </TableView>
+                                <TableView fx:id="productTable" styleClass="shop-table">
+                                    <columns>
+                                        <TableColumn fx:id="productIdColumn" prefWidth="70" text="编号"/>
+                                        <TableColumn fx:id="productNameColumn" prefWidth="250" text="商品名称"/>
+                                        <TableColumn fx:id="productCategoryColumn" prefWidth="150" text="分类"/>
+                                        <TableColumn fx:id="productPriceColumn" prefWidth="130" text="价格（元）"/>
+                                        <TableColumn fx:id="productStockColumn" prefWidth="110" text="库存"/>
+                                        <TableColumn fx:id="productStatusColumn" prefWidth="120" text="状态"/>
+                                    </columns>
+                                </TableView>
+                                <ScrollPane fx:id="productGalleryScroll" fitToWidth="true" managed="false" styleClass="shop-gallery-scroll" visible="false">
+                                    <content>
+                                        <TilePane fx:id="productGallery" hgap="14" vgap="14" prefColumns="4" styleClass="shop-gallery">
+                                            <padding><Insets bottom="14" left="14" right="14" top="14"/></padding>
+                                        </TilePane>
+                                    </content>
+                                </ScrollPane>
+                            </StackPane>
                         </center>
                     </BorderPane>
                 </Tab>
@@ -67,9 +78,6 @@
                             <HBox alignment="CENTER_RIGHT" spacing="10" styleClass="shop-actionbar">
                                 <padding><Insets bottom="18" left="18" right="18" top="10"/></padding>
                                 <CheckBox fx:id="selectAllCartCheckBox" onAction="#handleSelectAllCart" text="全选"/>
-                                <Label text="当前行数量"/>
-                                <Spinner fx:id="cartQuantitySpinner" prefWidth="90"/>
-                                <Button onAction="#handleUpdateCart" styleClass="btn-secondary" text="修改数量"/>
                                 <Button onAction="#handleRemoveCart" styleClass="btn-secondary" text="删除"/>
                                 <Button onAction="#handleCartProductDetail" styleClass="btn-secondary" text="商品详情"/>
                                 <Region HBox.hgrow="ALWAYS"/>

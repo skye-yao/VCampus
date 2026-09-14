@@ -366,7 +366,7 @@ public class BankService implements IBankPaymentService {
                 throw new BusinessException("校园缴费收入记入财务账户失败");
             }
             String txNo = newTransactionNo();
-            insertTransaction(conn, txNo, account, null, BankTransactionType.TUITION_PAYMENT,
+            insertTransaction(conn, txNo, account, financeAccount.getUserId(), BankTransactionType.TUITION_PAYMENT,
                     amount.negate(), account.getBalance().subtract(amount), null, requestId, bill.getTitle());
             insertTransaction(conn, newTransactionNo(), financeAccount, account.getUserId(),
                     BankTransactionType.CAMPUS_FEE_INCOME, amount,

@@ -24,6 +24,7 @@ import protocol.Message;
 import protocol.MessageCode;
 import protocol.MessageType;
 import util.AlertUtil;
+import util.TableResize;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -102,6 +103,8 @@ public class BankController {
     private final Gson gson = new Gson();
     private final ObservableList<FinanceChargeTarget> allTransferTargets = FXCollections.observableArrayList();
     private BankAccount currentAccount;
+    /** “重置筛选”会连续改动两个下拉框，期间抑制监听器重复查询。 */
+    private boolean suppressBillFilterRefresh;
 
     @FXML
     public void initialize() {
@@ -112,6 +115,14 @@ public class BankController {
         txCounterpartyColumn.setCellValueFactory(new javafx.scene.control.cell.PropertyValueFactory<>("counterpartyUserId"));
         txRemarkColumn.setCellValueFactory(new javafx.scene.control.cell.PropertyValueFactory<>("remark"));
         txTimeColumn.setCellValueFactory(new javafx.scene.control.cell.PropertyValueFactory<>("createdAt"));
+        // 开户初始资金等流水本来就没有对方用户，显示占位符而不是空白，避免看起来像数据缺失。
+        txCounterpartyColumn.setCellFactory(column -> new TableCell<>() {
+            @Override protected void updateItem(String counterparty, boolean empty) {
+                super.updateItem(counterparty, empty);
+                if (empty) { setText(null); return; }
+                setText(counterparty == null || counterparty.isBlank() ? "—" : counterparty);
+            }
+        });
         billUserColumn.setCellValueFactory(new javafx.scene.control.cell.PropertyValueFactory<>("userId"));
         billUserNameColumn.setCellValueFactory(new javafx.scene.control.cell.PropertyValueFactory<>("userName"));
         billTitleColumn.setCellValueFactory(new javafx.scene.control.cell.PropertyValueFactory<>("title"));
@@ -173,11 +184,18 @@ public class BankController {
                         : "-fx-text-fill:#b23b32;-fx-font-weight:bold;");
             }
         });
+        // 所有表格的列宽随窗口大小自适应。
+        TableResize.fillWidth(transactionTable, transferTargetTable, billTable, reimbursementTable);
         boolean admin = isAdmin();
         billTypeFilter.setItems(FXCollections.observableArrayList("全部类型", "学费", "住宿费", "其他费用"));
         billStatusFilter.setItems(FXCollections.observableArrayList("全部状态", "待缴费", "已缴费", "已取消"));
         billTypeFilter.getSelectionModel().selectFirst();
         billStatusFilter.getSelectionModel().selectFirst();
+        // 账单类型和状态是“选中即筛选”的控件：改动后立即刷新，不必再点查询。
+        billTypeFilter.getSelectionModel().selectedItemProperty().addListener(
+                (observable, oldValue, selected) -> refreshBillsAfterFilterChange());
+        billStatusFilter.getSelectionModel().selectedItemProperty().addListener(
+                (observable, oldValue, selected) -> refreshBillsAfterFilterChange());
         balanceCaptionLabel.setText(admin ? "校园财务账户可用余额（管理员操作）" : "当前校园账户余额");
         adminReviewBox.setVisible(admin); adminReviewBox.setManaged(admin);
         billUserColumn.setVisible(admin);
@@ -197,6 +215,12 @@ public class BankController {
     @FXML private void handleRefresh() { refreshAll(); }
 
     @FXML private void handleSearchBills() { refreshBills(); }
+
+    /** 下拉筛选变化后立即刷新；重置筛选期间不重复触发。 */
+    private void refreshBillsAfterFilterChange() {
+        if (suppressBillFilterRefresh) return;
+        refreshBills();
+    }
 
     @FXML
     private void handleCreateCharge() {
@@ -276,6 +300,7 @@ public class BankController {
         collegeColumn.setCellValueFactory(new javafx.scene.control.cell.PropertyValueFactory<>("college"));
         majorColumn.setCellValueFactory(new javafx.scene.control.cell.PropertyValueFactory<>("major"));
         targetTable.getColumns().addAll(selectedColumn, userColumn, nameColumn, roleColumn, collegeColumn, majorColumn);
+        TableResize.fillWidth(targetTable);
 
         Label selectionSummary = new Label("已选择 0 人 / 当前结果 0 人");
         selectionSummary.getStyleClass().add("summary-chip");
@@ -402,9 +427,14 @@ public class BankController {
     }
 
     @FXML private void handleResetBillFilters() {
-        billKeywordField.clear();
-        billTypeFilter.getSelectionModel().selectFirst();
-        billStatusFilter.getSelectionModel().selectFirst();
+        suppressBillFilterRefresh = true;
+        try {
+            billKeywordField.clear();
+            billTypeFilter.getSelectionModel().selectFirst();
+            billStatusFilter.getSelectionModel().selectFirst();
+        } finally {
+            suppressBillFilterRefresh = false;
+        }
         refreshBills();
     }
 

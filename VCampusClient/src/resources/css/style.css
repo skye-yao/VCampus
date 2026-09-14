@@ -547,6 +547,103 @@
     -fx-font-weight: bold;
 }
 
+.shop-gallery-scroll {
+    -fx-background-color: transparent;
+    -fx-background: transparent;
+}
+
+.shop-gallery-scroll > .viewport {
+    -fx-background-color: transparent;
+}
+
+.shop-gallery {
+    -fx-background-color: transparent;
+}
+
+.shop-gallery-card {
+    -fx-background-color: #ffffff;
+    -fx-background-radius: 10px;
+    -fx-border-color: #dfe6e0;
+    -fx-border-radius: 10px;
+    -fx-border-width: 1px;
+    -fx-padding: 10px;
+    -fx-cursor: hand;
+}
+
+.shop-gallery-card:hover {
+    -fx-border-color: #7fa98a;
+}
+
+.shop-gallery-card-selected {
+    -fx-border-color: #2f6b3f;
+    -fx-border-width: 2px;
+}
+
+.shop-gallery-frame {
+    -fx-background-color: #f3f8f4;
+    -fx-background-radius: 8px;
+    -fx-border-color: #d6e3d8;
+    -fx-border-radius: 8px;
+    -fx-border-width: 1px;
+}
+
+.shop-gallery-placeholder {
+    -fx-text-fill: #6b7c6f;
+    -fx-font-size: 12px;
+}
+
+.shop-gallery-name {
+    -fx-text-fill: #231815;
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+}
+
+.shop-gallery-price {
+    -fx-text-fill: #3f553f;
+    -fx-font-size: 15px;
+    -fx-font-weight: bold;
+}
+
+.shop-gallery-meta {
+    -fx-text-fill: #6b7c6f;
+    -fx-font-size: 11px;
+}
+
+.shop-gallery-empty {
+    -fx-text-fill: #6b7c6f;
+    -fx-font-size: 13px;
+    -fx-padding: 24px;
+}
+
+/* 购物车数量列的行内“−/+”控件 */
+.cart-step-button {
+    -fx-background-color: #eef4ef;
+    -fx-text-fill: #2f4b36;
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-background-radius: 6px;
+    -fx-border-color: #d6e3d8;
+    -fx-border-radius: 6px;
+    -fx-border-width: 1px;
+    -fx-padding: 0px 7px 2px 7px;
+    -fx-min-width: 26px;
+    -fx-cursor: hand;
+}
+
+.cart-step-button:hover {
+    -fx-background-color: #dfeae1;
+}
+
+.cart-step-button:disabled {
+    -fx-opacity: 0.4;
+    -fx-cursor: default;
+}
+
+.cart-step-value {
+    -fx-text-fill: #231815;
+    -fx-font-size: 13px;
+}
+
 .admin-subtabs { -fx-background-color: #f6f8f6; -fx-tab-min-width: 105px; }
 .shop-summary-bar { -fx-background-color: #ffffff; -fx-border-color: #e2e8e2; -fx-border-width: 0 0 1px 0; }
 .summary-chip {
