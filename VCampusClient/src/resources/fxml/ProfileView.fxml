@@ -173,9 +173,11 @@
                         <Label styleClass="subpanel-title" text="更换个人头像" />
                         <HBox alignment="CENTER_LEFT" spacing="24.0">
                             <children>
-                                <StackPane prefHeight="84.0" prefWidth="84.0" styleClass="profile-avatar-lg">
-                                    <children><Label styleClass="avatar-text-xl" text="👤" />
-                              <ImageView fx:id="updateAvatarView" fitHeight="80.0" fitWidth="80.0" pickOnBounds="true" preserveRatio="true" /></children>
+                                <StackPane maxHeight="60.0" maxWidth="60.0" minHeight="60.0" minWidth="60.0" prefHeight="60.0" prefWidth="60.0" styleClass="profile-avatar-lg">
+                                    <children>
+                                        <Label styleClass="avatar-text-lg" text="👤" />
+                                        <ImageView fx:id="updateAvatarView" fitHeight="80.0" fitWidth="80.0" pickOnBounds="true" preserveRatio="true" />
+                                    </children>
                                 </StackPane>
                                 <VBox prefHeight="84.0" prefWidth="311.0" spacing="15.0">
                                     <children>

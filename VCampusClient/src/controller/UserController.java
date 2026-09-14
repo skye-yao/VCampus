@@ -16,6 +16,7 @@ import javafx.geometry.Pos;
 import javafx.scene.control.*;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.Region;
 import network.SocketClient;
 import protocol.Message;
 import protocol.MessageCode;
@@ -151,6 +152,8 @@ public class UserController {
             }
         });
 
+        colActions.setMinWidth(285.0);
+        colActions.setPrefWidth(285.0);
         colActions.setCellFactory(col -> new TableCell<User, Void>() {
             private final Button editBtn = new Button("编辑");
             private final Button freezeBtn = new Button();
@@ -160,6 +163,11 @@ public class UserController {
 
             {
                 container.setAlignment(Pos.CENTER);
+                container.setMinWidth(Region.USE_PREF_SIZE);
+                editBtn.setMinWidth(Region.USE_PREF_SIZE);
+                freezeBtn.setMinWidth(Region.USE_PREF_SIZE);
+                resetBtn.setMinWidth(Region.USE_PREF_SIZE);
+                deleteBtn.setMinWidth(Region.USE_PREF_SIZE);
                 editBtn.getStyleClass().addAll("btn-table-action", "btn-table-edit");
                 resetBtn.getStyleClass().addAll("btn-table-action", "btn-table-reset");
                 deleteBtn.getStyleClass().addAll("btn-table-action", "btn-table-delete");

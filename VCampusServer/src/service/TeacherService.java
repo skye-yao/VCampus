@@ -26,12 +26,12 @@ public class TeacherService implements ITeacherService {
  item.setOldValue(actual);teachers.canonicalValue(item.getFieldName(),item.getNewValue());
  }r.setTeacherId(t.getTeacherId());try(Connection c=DBUtil.getConnection()){c.setAutoCommit(false);try{long id=requests.insert(c,r);c.commit();return id;}catch(Exception e){c.rollback();throw e;}}}
  @Override
-    public void review(long id,StudentChangeStatus result,String reviewer,String note)throws SQLException{note=util.InformationRules.reviewNote(note);if(result!=StudentChangeStatus.APPROVED&&result!=StudentChangeStatus.REJECTED)throw new IllegalArgumentException("审核结果无效");try(Connection c=DBUtil.getConnection()){c.setAutoCommit(false);try{TeacherChangeRequest r=requests.findByIdForUpdate(c,id);if(r==null||r.getStatus()!=StudentChangeStatus.PENDING)throw new IllegalStateException("申请不存在或已处理");if(result==StudentChangeStatus.APPROVED&&!teachers.apply(c,r.getTeacherId(),r.getItems()))throw new SQLException("教师信息更新失败");if(!requests.review(c,id,result,reviewer,note))throw new IllegalStateException("申请状态已变化");c.commit();}catch(Exception e){c.rollback();throw e;}}}
+    public void review(long id,StudentChangeStatus result,String reviewer,String note)throws SQLException{note=util.InformationRules.reviewNote(note);if(result!=StudentChangeStatus.APPROVED&&result!=StudentChangeStatus.REJECTED)throw new IllegalArgumentException("审核结果无效");try(Connection c=DBUtil.getConnection()){c.setAutoCommit(false);try{TeacherChangeRequest r=requests.findByIdForUpdate(c,id);if(r==null||r.getStatus()!=StudentChangeStatus.PENDING)throw new IllegalStateException("申请不存在或已处理");if(result==StudentChangeStatus.APPROVED){if(!teachers.apply(c,r.getTeacherId(),r.getItems()))throw new SQLException("教师信息更新失败");new UserDAO().syncUserInfo(c,r.getTeacherId());}if(!requests.review(c,id,result,reviewer,note))throw new IllegalStateException("申请状态已变化");c.commit();}catch(Exception e){c.rollback();throw e;}}}
  @Override
     public boolean updateByAdmin(Teacher t,Teacher original)throws SQLException{
- if(t==null||original==null||t.getTeacherId()==null||!t.getTeacherId().equals(original.getTeacherId()))throw new IllegalArgumentException("缺少原始教师快照或教师编号已变化，请刷新");
- validateRequiredJob(t);return teachers.updateIfUnchanged(t,original);
- }
+		if(t==null||original==null||t.getTeacherId()==null||!t.getTeacherId().equals(original.getTeacherId()))throw new IllegalArgumentException("缺少原始教师快照或教师编号已变化，请刷新");
+		validateRequiredJob(t);boolean ok=teachers.updateIfUnchanged(t,original);if(ok){new UserDAO().syncUserInfo(t.getUID()!=null?t.getUID():t.getTeacherId());}return ok;
+	}
  @Override public String teacherIdForUser(String uid)throws SQLException{return requireTeacher(uid).getTeacherId();}
  private void validateRequiredJob(Teacher t){if(t.getDepartment()==null||t.getDepartment().isBlank())throw new IllegalArgumentException("所在部门不能为空");if(t.getEducation()==null||t.getEducation().isBlank())throw new IllegalArgumentException("学历不能为空");if(t.getEmploymentStartDate()==null)throw new IllegalArgumentException("入职日期不能为空");}
  @Override

@@ -230,7 +230,11 @@ public class UserDAO {
             stmt.setString(5, user.getPhone());
             stmt.setString(6, user.getEmail());
             stmt.setString(7, user.getUID());
-            return stmt.executeUpdate() > 0;
+            boolean ok = stmt.executeUpdate() > 0;
+            if (ok) {
+                syncToStudentOrTeacher(conn, user);
+            }
+            return ok;
         } finally {
             DBUtil.close(conn, stmt, null);
         }
@@ -255,25 +259,27 @@ public class UserDAO {
     }
 
     /**
-     * 将学籍信息（学院、专业、姓名、性别）与银行信息（余额）同步到 tbl_user
+     * 将学籍信息（学院、专业、姓名、性别、手机、邮箱）与银行信息（余额）同步到 tbl_user
      */
     public void syncUserInfo(Connection conn, String uid) {
         if (uid == null || uid.isBlank()) return;
         try {
-            // 1. 同步学生学籍信息（学院、专业、姓名、性别）
+            // 1. 同步学生学籍信息（学院、专业、姓名、性别、手机、邮箱）
             String sqlStudent = "UPDATE tbl_user u " +
-                    "JOIN tblStudent s ON u.UID = s.UID " +
-                    "SET u.name = s.name, u.gender = s.gender, u.college = s.college, u.major = s.major " +
+                    "JOIN tblStudent s ON (u.UID = s.UID OR u.UID = s.studentId) " +
+                    "SET u.name = s.name, u.gender = s.gender, u.college = s.college, u.major = s.major, " +
+                    "u.phone = COALESCE(NULLIF(s.mobile, ''), u.phone), u.email = COALESCE(NULLIF(s.email, ''), u.email) " +
                     "WHERE u.UID = ?";
             try (PreparedStatement stmt = conn.prepareStatement(sqlStudent)) {
                 stmt.setString(1, uid);
                 stmt.executeUpdate();
             }
 
-            // 2. 同步教师信息（学院、职称、姓名、性别）
+            // 2. 同步教师信息（学院、职称、姓名、性别、手机、邮箱）
             String sqlTeacher = "UPDATE tbl_user u " +
-                    "JOIN tblTeacher t ON u.UID = t.UID " +
-                    "SET u.name = t.name, u.gender = t.gender, u.college = t.college, u.major = t.title " +
+                    "JOIN tblTeacher t ON (u.UID = t.UID OR u.UID = t.teacherId) " +
+                    "SET u.name = t.name, u.gender = t.gender, u.college = t.college, u.major = t.title, " +
+                    "u.phone = COALESCE(NULLIF(t.mobile, ''), u.phone), u.email = COALESCE(NULLIF(t.email, ''), u.email) " +
                     "WHERE u.UID = ?";
             try (PreparedStatement stmt = conn.prepareStatement(sqlTeacher)) {
                 stmt.setString(1, uid);
@@ -439,26 +445,43 @@ public class UserDAO {
     private void syncToStudentOrTeacher(Connection conn, User user) {
         if (user == null || user.getUID() == null) return;
         try {
-            if (user.getRole() == Role.STUDENT) {
-                String sql = "UPDATE tblStudent SET name = ?, gender = ?, college = ?, major = ?, mobile = ? WHERE UID = ?";
+            Role role = user.getRole();
+            if (role == null) {
+                String roleSql = "SELECT role FROM tbl_user WHERE UID = ?";
+                try (PreparedStatement ps = conn.prepareStatement(roleSql)) {
+                    ps.setString(1, user.getUID());
+                    try (ResultSet rs = ps.executeQuery()) {
+                        if (rs.next()) {
+                            role = Role.fromCode(rs.getInt("role"));
+                        }
+                    }
+                }
+            }
+
+            if (role == Role.STUDENT) {
+                String sql = "UPDATE tblStudent SET name = ?, gender = ?, college = ?, major = ?, mobile = ?, email = ? WHERE UID = ? OR studentId = ?";
                 try (PreparedStatement s = conn.prepareStatement(sql)) {
                     s.setString(1, user.getName());
                     s.setString(2, user.getGender());
-                    s.setString(3, user.getCollege());
-                    s.setString(4, user.getMajor());
-                    s.setString(5, user.getPhone());
-                    s.setString(6, user.getUID());
+                    s.setString(3, user.getCollege() != null ? user.getCollege() : "");
+                    s.setString(4, user.getMajor() != null ? user.getMajor() : "");
+                    s.setString(5, user.getPhone() != null ? user.getPhone() : "");
+                    s.setString(6, user.getEmail() != null ? user.getEmail() : "");
+                    s.setString(7, user.getUID());
+                    s.setString(8, user.getUID());
                     s.executeUpdate();
                 }
-            } else if (user.getRole() == Role.TEACHER) {
-                String sql = "UPDATE tblTeacher SET name = ?, gender = ?, college = ?, title = ?, mobile = ? WHERE UID = ?";
+            } else if (role == Role.TEACHER) {
+                String sql = "UPDATE tblTeacher SET name = ?, gender = ?, college = ?, title = ?, mobile = ?, email = ? WHERE UID = ? OR teacherId = ?";
                 try (PreparedStatement s = conn.prepareStatement(sql)) {
                     s.setString(1, user.getName());
                     s.setString(2, user.getGender());
-                    s.setString(3, user.getCollege());
-                    s.setString(4, user.getMajor());
-                    s.setString(5, user.getPhone());
-                    s.setString(6, user.getUID());
+                    s.setString(3, user.getCollege() != null ? user.getCollege() : "");
+                    s.setString(4, user.getMajor() != null ? user.getMajor() : "");
+                    s.setString(5, user.getPhone() != null ? user.getPhone() : "");
+                    s.setString(6, user.getEmail() != null ? user.getEmail() : "");
+                    s.setString(7, user.getUID());
+                    s.setString(8, user.getUID());
                     s.executeUpdate();
                 }
             }

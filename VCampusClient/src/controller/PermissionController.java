@@ -18,6 +18,7 @@ import protocol.Message;
 import protocol.MessageCode;
 import protocol.MessageType;
 import util.AlertUtil;
+import session.ClientSession;
 
 import java.lang.reflect.Type;
 import java.util.ArrayList;
@@ -190,7 +191,25 @@ public class PermissionController {
         SocketClient.getInstance().sendAsync(request)
                 .thenAccept(response -> Platform.runLater(() -> {
                     if (response.getCode() == MessageCode.SUCCESS) {
-                        AlertUtil.showInfo("保存成功", "管理员权限配置已成功同步到数据库！");
+                        // 1. 同步更新当前登录管理员的本地 Session 权限
+                        ClientSession session = ClientSession.getInstance();
+                        String myUid = session.getUsername();
+                        if (session.getCurrentUser() != null && session.getCurrentUser().getUID() != null) {
+                            myUid = session.getCurrentUser().getUID();
+                        }
+                        for (AdminPermission p : list) {
+                            if (p != null && p.getUid() != null && p.getUid().equalsIgnoreCase(myUid)) {
+                                session.setAdminPermission(p);
+                                break;
+                            }
+                        }
+
+                        // 2. 触发主控制器实时从服务端同步并刷新主页卡片
+                        if (MainController.getInstance() != null) {
+                            MainController.getInstance().fetchMyPermissions();
+                        }
+
+                        AlertUtil.showInfo("保存成功", "管理员权限配置已成功保存并实时生效！");
                         loadAdminPermissions();
                     } else {
                         AlertUtil.showError("保存失败", response.getMessage() != null ? response.getMessage() : "未知错误");

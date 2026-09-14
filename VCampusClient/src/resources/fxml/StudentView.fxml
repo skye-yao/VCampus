@@ -110,11 +110,11 @@
                   </padding>
                   <StackPane minHeight="70" minWidth="70" prefHeight="70" prefWidth="70" maxHeight="70" maxWidth="70" styleClass="student-avatar">
                     <children>
-                      <Label styleClass="avatar-text-lg" text="管"/>
+                      <Label fx:id="adminDetailAvatarLabel" styleClass="avatar-text-lg" text="管"/>
                       <ImageView fx:id="adminAvatarImageView" fitHeight="70.0" fitWidth="70.0" pickOnBounds="true" preserveRatio="true"/>
                     </children>
                   </StackPane>
-                  <Label styleClass="student-side-name" text="管理员"/>
+                  <Label fx:id="adminDetailNameLabel" styleClass="student-side-name" text="管理员"/>
                   <Button fx:id="adminDetailManagementNavButton" maxWidth="Infinity" onAction="#handleShowStudentManagement" styleClass="student-side-button-active" text="学生信息管理"/>
                   <Button fx:id="adminDetailMaintenanceNavButton" maxWidth="Infinity" onAction="#handleShowStudentMaintenance" styleClass="student-side-button" text="学生信息维护"/>
                   <Button maxWidth="Infinity" onAction="#handleShowReview" styleClass="student-side-button" text="审核信息"/>
@@ -242,9 +242,12 @@
                   <Insets left="14" right="14" top="24"/>
                 </padding>
                 <StackPane minHeight="70" minWidth="70" prefHeight="70" prefWidth="70" maxHeight="70" maxWidth="70" styleClass="student-avatar">
-                  <Label styleClass="avatar-text-lg" text="管"/>
+                  <children>
+                    <Label fx:id="adminListAvatarLabel" styleClass="avatar-text-lg" text="管"/>
+                    <ImageView fx:id="adminListAvatarImageView" fitHeight="70.0" fitWidth="70.0" pickOnBounds="true" preserveRatio="true"/>
+                  </children>
                 </StackPane>
-                <Label styleClass="student-side-name" text="管理员"/>
+                <Label fx:id="adminListNameLabel" styleClass="student-side-name" text="管理员"/>
                 <Button fx:id="managementNavButton" maxWidth="Infinity" onAction="#handleShowStudentManagement" styleClass="student-side-button-active" text="学生信息管理"/>
                 <Button fx:id="maintenanceNavButton" maxWidth="Infinity" onAction="#handleShowStudentMaintenance" styleClass="student-side-button" text="学生信息维护"/>
                 <Button maxWidth="Infinity" onAction="#handleShowReview" styleClass="student-side-button" text="审核信息"/>
@@ -312,9 +315,12 @@
                   <Insets left="14" right="14" top="24"/>
                 </padding>
                 <StackPane minHeight="70" minWidth="70" prefHeight="70" prefWidth="70" maxHeight="70" maxWidth="70" styleClass="student-avatar">
-                  <Label styleClass="avatar-text-lg" text="管"/>
+                  <children>
+                    <Label fx:id="adminReviewAvatarLabel" styleClass="avatar-text-lg" text="管"/>
+                    <ImageView fx:id="adminReviewAvatarImageView" fitHeight="70.0" fitWidth="70.0" pickOnBounds="true" preserveRatio="true"/>
+                  </children>
                 </StackPane>
-                <Label styleClass="student-side-name" text="管理员"/>
+                <Label fx:id="adminReviewNameLabel" styleClass="student-side-name" text="管理员"/>
                 <Button maxWidth="Infinity" onAction="#handleShowStudentManagement" styleClass="student-side-button" text="学生信息管理"/>
                 <Button maxWidth="Infinity" onAction="#handleShowStudentMaintenance" styleClass="student-side-button" text="学生信息维护"/>
                 <Button maxWidth="Infinity" styleClass="student-side-button-active" text="审核信息"/>

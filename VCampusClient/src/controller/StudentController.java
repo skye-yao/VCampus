@@ -36,7 +36,8 @@ import java.util.Base64;
 
 public class StudentController {
     @FXML private Label titleLabel,statusBarLabel,avatarLabel,sidebarAvatarLabel,sidebarNameLabel,sidebarMajorLabel,nameLabel,studentMetaLabel,pendingHintLabel,categoryValue,statusValue,gradeValue,inSchoolValue;
-    @FXML private ImageView avatarImageView,sidebarAvatarImageView,adminAvatarImageView;
+    @FXML private ImageView avatarImageView,sidebarAvatarImageView,adminAvatarImageView,adminListAvatarImageView,adminReviewAvatarImageView;
+    @FXML private Label adminListNameLabel,adminReviewNameLabel,adminDetailNameLabel,adminListAvatarLabel,adminReviewAvatarLabel,adminDetailAvatarLabel;
     @FXML private TabPane studentTabs;
     @FXML private Tab overviewTab,detailTab,experienceTab,adminListTab,reviewTab;
     @FXML private util.control.InformationReviewStatusPane reviewStatusPane;
@@ -161,6 +162,7 @@ public class StudentController {
     //刷新按钮，刷新页面信息
     @FXML private void handleRefresh() {
         if(editing){releaseEditLock();editing=false;}//如果正在编辑，释放锁并且退出编辑状态
+        if (isAdmin()) setupAdminProfile();
         if(isAdmin()&&studentTabs.getSelectionModel().getSelectedItem()==detailTab
                 &&overview!=null&&overview.getStudent()!=null) {
             setStatus("正在刷新学生详情...");
@@ -540,10 +542,7 @@ public class StudentController {
             adminDetailSidebar.setManaged(true);
             detailReturnButton.setText("← 返回");
             studentTabs.getSelectionModel().select(adminListTab);
-            User u = ClientSession.getInstance().getCurrentUser();
-            if (u != null && u.getAvatar() != null && !u.getAvatar().isBlank()) {
-                showAvatar(adminAvatarImageView, null, u.getAvatar());
-            }
+            setupAdminProfile();
         }
         else {
             studentTabs.getTabs().removeAll(adminListTab,reviewTab);
@@ -1138,21 +1137,87 @@ public class StudentController {
     }
 
     private void initAvatar() {
-        User u = ClientSession.getInstance().getCurrentUser();
-        if (u != null && u.getAvatar() != null && !u.getAvatar().isBlank()) {
-            if (isAdmin()) {
-                showAvatar(adminAvatarImageView, null, u.getAvatar());
-            } else {
+        if (isAdmin()) {
+            setupAdminProfile();
+        } else {
+            User u = ClientSession.getInstance().getCurrentUser();
+            if (u != null && u.getAvatar() != null && !u.getAvatar().isBlank()) {
                 showAvatar(avatarImageView, avatarLabel, u.getAvatar());
                 showAvatar(sidebarAvatarImageView, sidebarAvatarLabel, u.getAvatar());
             }
         }
     }
 
+    private void setupAdminProfile() {
+        if (!isAdmin()) return;
+        ClientSession session = ClientSession.getInstance();
+        User u = session.getCurrentUser();
+        String name = null;
+        if (u != null && u.getName() != null && !u.getName().isBlank()) {
+            name = u.getName();
+        } else if (u != null && u.getUID() != null && !u.getUID().isBlank()) {
+            name = u.getUID();
+        } else if (session.getUsername() != null && !session.getUsername().isBlank()) {
+            name = session.getUsername();
+        } else {
+            name = "管理员";
+        }
+
+        String initial = (name != null && !name.isBlank()) ? name.substring(0, 1) : "管";
+
+        if (adminListNameLabel != null) adminListNameLabel.setText(name);
+        if (adminReviewNameLabel != null) adminReviewNameLabel.setText(name);
+        if (adminDetailNameLabel != null) adminDetailNameLabel.setText(name);
+
+        if (adminListAvatarLabel != null) adminListAvatarLabel.setText(initial);
+        if (adminReviewAvatarLabel != null) adminReviewAvatarLabel.setText(initial);
+        if (adminDetailAvatarLabel != null) adminDetailAvatarLabel.setText(initial);
+
+        String avatar = u != null ? u.getAvatar() : null;
+        applyAdminAvatar(avatar);
+
+        String uid = u != null && u.getUID() != null && !u.getUID().isBlank() ? u.getUID() : session.getUsername();
+        if ((avatar == null || avatar.isBlank()) && uid != null && !uid.isBlank()) {
+            fetchAdminUserInfo(uid);
+        }
+    }
+
+    private void applyAdminAvatar(String avatar) {
+        showAvatar(adminListAvatarImageView, adminListAvatarLabel, avatar);
+        showAvatar(adminReviewAvatarImageView, adminReviewAvatarLabel, avatar);
+        showAvatar(adminAvatarImageView, adminDetailAvatarLabel, avatar);
+    }
+
+    private void fetchAdminUserInfo(String uid) {
+        Message request = new Message(MessageType.REQUEST, "user", "getuserinfo");
+        request.putData("cardNo", uid);
+        network.SocketClient.getInstance().sendAsync(request).thenAccept(response -> {
+            if (response != null && response.getCode() == MessageCode.SUCCESS) {
+                Object userObj = response.getData("user");
+                if (userObj != null) {
+                    User user = gson.fromJson(gson.toJson(userObj), User.class);
+                    if (user != null) {
+                        User cur = ClientSession.getInstance().getCurrentUser();
+                        if (cur != null) {
+                            cur.setAvatar(user.getAvatar());
+                            if (cur.getName() == null || cur.getName().isBlank()) {
+                                cur.setName(user.getName());
+                            }
+                        } else {
+                            ClientSession.getInstance().setCurrentUser(user);
+                        }
+                        runOnPage(this::setupAdminProfile);
+                    }
+                }
+            }
+        }).exceptionally(e -> null);
+    }
+
     private void showAvatar(ImageView view, Label fallbackLabel, String base64) {
         if (view == null) return;
         if (base64 == null || base64.isBlank()) {
             view.setImage(null);
+            view.setClip(null);
             view.setVisible(false);
             if (fallbackLabel != null) fallbackLabel.setVisible(true);
             return;
@@ -1161,11 +1226,25 @@ public class StudentController {
             byte[] bytes = Base64.getDecoder().decode(base64);
             Image img = new Image(new ByteArrayInputStream(bytes));
             view.setImage(img);
+            double w = view.getFitWidth();
+            double h = view.getFitHeight();
+            if (w <= 0 || h <= 0) {
+                if (view.getParent() instanceof Region reg && reg.getPrefWidth() > 0 && reg.getPrefHeight() > 0) {
+                    w = reg.getPrefWidth();
+                    h = reg.getPrefHeight();
+                } else {
+                    w = 70;
+                    h = 70;
+                }
+            }
+            double r = Math.min(w, h) / 2.0;
+            view.setClip(new Circle(w / 2.0, h / 2.0, r));
             view.setVisible(true);
             view.toFront();
             if (fallbackLabel != null) fallbackLabel.setVisible(false);
         } catch (Exception e) {
             view.setImage(null);
+            view.setClip(null);
             view.setVisible(false);
             if (fallbackLabel != null) fallbackLabel.setVisible(true);
         }

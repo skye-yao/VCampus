@@ -5,7 +5,7 @@ public class TeacherController {
  private boolean disposed,editAcquiring;
  private void runOnPage(Runnable action){util.Fx.run(()->{if(!disposed)action.run();});}
  @FXML private util.control.InformationReviewStatusPane reviewStatusPane;
- @FXML private Label nameLabel,metaLabel,statusLabel,avatarLabel,sideAvatarLabel,sideNameLabel,sideMetaLabel,overviewStatusValue,overviewTitleValue,overviewCollegeValue,overviewEmployedValue,selectedTeacherCountLabel,adminWorkspaceTitle,teacherPageSummaryLabel; @FXML private ImageView avatarImageView,sideAvatarImageView,adminAvatarImageView; @FXML private GridPane baseGrid,jobGrid,contactGrid; @FXML private Button editButton,jobEditButton,contactEditButton,addExperienceButton,editExperienceButton,deleteExperienceButton,addFamilyButton,editFamilyButton,deleteFamilyButton,exportTeachersButton,exportPdfButton,managementNavButton,maintenanceNavButton,teacherBaseIndexButton,teacherJobIndexButton,teacherContactIndexButton,teacherDetailManagementNavButton,teacherDetailMaintenanceNavButton; @FXML private TabPane tabs; @FXML private Tab overviewTab,detailTab,experienceTab,adminTab,reviewTab; @FXML private VBox overviewPane,baseSection,jobSection,contactSection,experienceCardContainer,familyCardContainer,teacherDetailSidebar,teacherAdminDetailSidebar; @FXML private Pane detailPane; @FXML private ScrollPane detailScroll; @FXML private TableView<Teacher> teacherTable; @FXML private TableColumn<Teacher,Void> selectCol,actionCol; @FXML private TableColumn<Teacher,String> idCol,nameCol,collegeCol,departmentCol,titleCol,statusCol; @FXML private TableView<TeacherChangeRequest> requestTable; @FXML private TableColumn<TeacherChangeRequest,String> requestTeacherCol,requestSubmitCol,requestStatusCol,requestReviewCol; @FXML private TableColumn<TeacherChangeRequest,Void> requestActionCol; @FXML private TextField teacherSearchIdField,teacherSearchNameField,teacherSearchKeywordField,reviewTeacherSearchField,reviewStatusSearchField,teacherPageField; @FXML private ToggleButton unfinishedTeacherReviewButton,completedTeacherReviewButton;
+ @FXML private Label nameLabel,metaLabel,statusLabel,avatarLabel,sideAvatarLabel,sideNameLabel,sideMetaLabel,overviewStatusValue,overviewTitleValue,overviewCollegeValue,overviewEmployedValue,selectedTeacherCountLabel,adminWorkspaceTitle,teacherPageSummaryLabel; @FXML private ImageView avatarImageView,sideAvatarImageView,adminAvatarImageView,adminTabAvatarImageView,adminReviewAvatarImageView; @FXML private Label adminTabAvatarLabel,adminReviewAvatarLabel,adminDetailAvatarLabel,adminTabNameLabel,adminReviewNameLabel,adminDetailNameLabel; @FXML private GridPane baseGrid,jobGrid,contactGrid; @FXML private Button editButton,jobEditButton,contactEditButton,addExperienceButton,editExperienceButton,deleteExperienceButton,addFamilyButton,editFamilyButton,deleteFamilyButton,exportTeachersButton,exportPdfButton,managementNavButton,maintenanceNavButton,teacherBaseIndexButton,teacherJobIndexButton,teacherContactIndexButton,teacherDetailManagementNavButton,teacherDetailMaintenanceNavButton; @FXML private TabPane tabs; @FXML private Tab overviewTab,detailTab,experienceTab,adminTab,reviewTab; @FXML private VBox overviewPane,baseSection,jobSection,contactSection,experienceCardContainer,familyCardContainer,teacherDetailSidebar,teacherAdminDetailSidebar; @FXML private Pane detailPane; @FXML private ScrollPane detailScroll; @FXML private TableView<Teacher> teacherTable; @FXML private TableColumn<Teacher,Void> selectCol,actionCol; @FXML private TableColumn<Teacher,String> idCol,nameCol,collegeCol,departmentCol,titleCol,statusCol; @FXML private TableView<TeacherChangeRequest> requestTable; @FXML private TableColumn<TeacherChangeRequest,String> requestTeacherCol,requestSubmitCol,requestStatusCol,requestReviewCol; @FXML private TableColumn<TeacherChangeRequest,Void> requestActionCol; @FXML private TextField teacherSearchIdField,teacherSearchNameField,teacherSearchKeywordField,reviewTeacherSearchField,reviewStatusSearchField,teacherPageField; @FXML private ToggleButton unfinishedTeacherReviewButton,completedTeacherReviewButton;
  private final ITeacherClientService service=new TeacherClientService();private final Gson gson=new Gson();private TeacherOverviewVO overview;private final List<Control> editableControls=new ArrayList<>();private boolean editing,adminMaintenanceMode;private TeacherWorkExperience selectedExperience;private Pane selectedExperienceCard;private TeacherFamilyMember selectedFamilyMember;private Pane selectedFamilyCard;private static final int PAGE_SIZE=20; private int teacherCurrentPage=1; private List<Teacher> teachers=new ArrayList<>(),filteredTeachers=new ArrayList<>();private List<TeacherChangeRequest> reviewRequests=new ArrayList<>();private final Set<String> selectedTeacherIds=new LinkedHashSet<>();private CheckBox selectAllTeachers;
  private static final List<String> BASE=List.of("UID","teacherId","name","politicalStatus","nationality","gender","idType","idNumber","idIssueDate","birthDate","nativePlace","householdType","birthPlace","sourcePlace","registeredResidence","partyMember","partyJoinDate","healthStatus");
  private static final List<String> JOB=List.of("employed","employmentStatus","campus","college","department","title","position","education","employmentStartDate");
@@ -15,7 +15,7 @@ public class TeacherController {
  ClientMain.setPageCleanup(()->{disposed=true;editing=false;editAcquiring=false;service.dispose();});
  service.onEditLeaseLost(()->runOnPage(()->{editing=false;editAcquiring=false;editableControls.clear();if(overview!=null)render();statusLabel.setText("编辑占用已失效，请刷新后重新进入编辑");}));
 setupTables();setupActionColumn();setupReviewActionColumn();ToggleGroup reviewGroup=new ToggleGroup();unfinishedTeacherReviewButton.setToggleGroup(reviewGroup);completedTeacherReviewButton.setToggleGroup(reviewGroup);reviewGroup.selectedToggleProperty().addListener((o,oldToggle,newToggle)->{if(newToggle==null)oldToggle.setSelected(true);else searchTeacherReviews();});boolean admin=isAdmin();reviewStatusPane.setVisible(!admin);reviewStatusPane.setManaged(!admin);reviewStatusPane.setOnCancel(this::cancelPendingRequest);teacherDetailSidebar.setVisible(!admin);teacherDetailSidebar.setManaged(!admin);teacherAdminDetailSidebar.setVisible(admin);teacherAdminDetailSidebar.setManaged(admin);initAvatar();if(admin){for(Button button:List.of(addExperienceButton,editExperienceButton,deleteExperienceButton,addFamilyButton,editFamilyButton,deleteFamilyButton)){button.setVisible(false);button.setManaged(false);}applyAdminMode();loadAdmin();}else{tabs.getTabs().removeAll(adminTab,reviewTab);service.overview(this::receiveOverview);}}
- @FXML private void back(){ClientMain.switchScene("/resources/fxml/MainView.fxml");} @FXML private void refresh(){if(isAdmin()&&tabs.getSelectionModel().getSelectedItem()==reviewTab&&teacherReviewDetailPane.isVisible()){if(selectedReview!=null)showTeacherReviewDetail(selectedReview);else{backToTeacherReviews();loadAdmin();}return;}if(editing||editAcquiring)cancelEdit();if(isAdmin()&&tabs.getSelectionModel().getSelectedItem()==detailTab&&overview!=null&&overview.getTeacher()!=null)service.query(overview.getTeacher().getTeacherId(),this::receiveOverview);else if(isAdmin())loadAdmin();else service.overview(this::receiveOverview);} @FXML private void edit(){beginGlobalEdit();}
+ @FXML private void back(){ClientMain.switchScene("/resources/fxml/MainView.fxml");} @FXML private void refresh(){if(isAdmin())setupAdminProfile();if(isAdmin()&&tabs.getSelectionModel().getSelectedItem()==reviewTab&&teacherReviewDetailPane.isVisible()){if(selectedReview!=null)showTeacherReviewDetail(selectedReview);else{backToTeacherReviews();loadAdmin();}return;}if(editing||editAcquiring)cancelEdit();if(isAdmin()&&tabs.getSelectionModel().getSelectedItem()==detailTab&&overview!=null&&overview.getTeacher()!=null)service.query(overview.getTeacher().getTeacherId(),this::receiveOverview);else if(isAdmin())loadAdmin();else service.overview(this::receiveOverview);} @FXML private void edit(){beginGlobalEdit();}
  @FXML private void viewDetails(){openTeacherDetail();}
  @FXML private void viewExperiences(){tabs.getSelectionModel().select(experienceTab);}
  @FXML private void backFromExperiences(){tabs.getSelectionModel().select(isAdmin()?detailTab:overviewTab);}
@@ -62,11 +62,87 @@ setupTables();setupActionColumn();setupReviewActionColumn();ToggleGroup reviewGr
  }
  private void receiveOverview(Message m){runOnPage(()->{if(!ok(m)){statusLabel.setText(m.getMessage());return;}overview=data(m,"overview",TeacherOverviewVO.class);render();});}
  private void render(){TeacherChangeRequest progress=overview==null?null:(overview.getPendingRequest()!=null?overview.getPendingRequest():overview.getLatestRequest());reviewStatusPane.showRequest(progress==null?null:progress.getStatus(),progress==null?null:progress.getSubmitTime());Teacher t=displayTeacher();if(t==null){statusLabel.setText("暂无教师档案");showAvatar(avatarImageView,avatarLabel,null);showAvatar(sideAvatarImageView,sideAvatarLabel,null);return;}String name=show(t.getName()),initial="-".equals(name)?"师":name.substring(0,1);nameLabel.setText(name);avatarLabel.setText(initial);sideAvatarLabel.setText(initial);sideNameLabel.setText(name);sideMetaLabel.setText(show(t.getDepartment()));metaLabel.setText(String.join(" · ",show(t.getTeacherId()),show(t.getCollege()),show(t.getDepartment()),show(t.getTitle())));overviewStatusValue.setText(show(t.getEmploymentStatus()));overviewTitleValue.setText(show(t.getTitle()));overviewCollegeValue.setText(show(t.getCollege()));overviewEmployedValue.setText(t.isEmployed()?"在职":"离职");fill(baseGrid,t,BASE);fill(jobGrid,t,JOB);fill(contactGrid,t,CONTACT);renderExperiences(overview.getWorkExperiences());renderFamilyMembers(overview.getFamilyMembers());if(isAdmin())setDetailEditable(adminMaintenanceMode);statusLabel.setText(overview.getPendingRequest()==null?"教师信息已更新":"修改申请待管理员审核，当前显示修改后的内容");String uid=(t.getUID()!=null&&!t.getUID().isBlank())?t.getUID():t.getTeacherId();loadAvatar(uid);}
- private void initAvatar(){User u=ClientSession.getInstance().getCurrentUser();if(u!=null&&u.getAvatar()!=null&&!u.getAvatar().isBlank()){if(isAdmin()){showAvatar(adminAvatarImageView,null,u.getAvatar());}else{showAvatar(avatarImageView,avatarLabel,u.getAvatar());showAvatar(sideAvatarImageView,sideAvatarLabel,u.getAvatar());}}}
+ private void initAvatar(){
+  if(isAdmin()){
+   setupAdminProfile();
+  }else{
+   User u=ClientSession.getInstance().getCurrentUser();
+   if(u!=null&&u.getAvatar()!=null&&!u.getAvatar().isBlank()){
+    showAvatar(avatarImageView,avatarLabel,u.getAvatar());
+    showAvatar(sideAvatarImageView,sideAvatarLabel,u.getAvatar());
+   }
+  }
+ }
+
+ private void setupAdminProfile() {
+  if (!isAdmin()) return;
+  ClientSession session = ClientSession.getInstance();
+  User u = session.getCurrentUser();
+  String name = null;
+  if (u != null && u.getName() != null && !u.getName().isBlank()) {
+   name = u.getName();
+  } else if (u != null && u.getUID() != null && !u.getUID().isBlank()) {
+   name = u.getUID();
+  } else if (session.getUsername() != null && !session.getUsername().isBlank()) {
+   name = session.getUsername();
+  } else {
+   name = "管理员";
+  }
+
+  String initial = (name != null && !name.isBlank()) ? name.substring(0, 1) : "管";
+
+  if (adminTabNameLabel != null) adminTabNameLabel.setText(name);
+  if (adminReviewNameLabel != null) adminReviewNameLabel.setText(name);
+  if (adminDetailNameLabel != null) adminDetailNameLabel.setText(name);
+
+  if (adminTabAvatarLabel != null) adminTabAvatarLabel.setText(initial);
+  if (adminReviewAvatarLabel != null) adminReviewAvatarLabel.setText(initial);
+  if (adminDetailAvatarLabel != null) adminDetailAvatarLabel.setText(initial);
+
+  String avatar = u != null ? u.getAvatar() : null;
+  applyAdminAvatar(avatar);
+
+  String uid = u != null && u.getUID() != null && !u.getUID().isBlank() ? u.getUID() : session.getUsername();
+  if ((avatar == null || avatar.isBlank()) && uid != null && !uid.isBlank()) {
+   fetchAdminUserInfo(uid);
+  }
+ }
+
+ private void applyAdminAvatar(String avatar) {
+  showAvatar(adminTabAvatarImageView, adminTabAvatarLabel, avatar);
+  showAvatar(adminReviewAvatarImageView, adminReviewAvatarLabel, avatar);
+  showAvatar(adminAvatarImageView, adminDetailAvatarLabel, avatar);
+ }
+
+ private void fetchAdminUserInfo(String uid) {
+  Message request = new Message(MessageType.REQUEST, "user", "getuserinfo");
+  request.putData("cardNo", uid);
+  network.SocketClient.getInstance().sendAsync(request).thenAccept(response -> {
+   if (response != null && response.getCode() == MessageCode.SUCCESS) {
+    Object userObj = response.getData("user");
+    if (userObj != null) {
+     User user = gson.fromJson(gson.toJson(userObj), User.class);
+     if (user != null) {
+      User cur = ClientSession.getInstance().getCurrentUser();
+      if (cur != null) {
+       cur.setAvatar(user.getAvatar());
+       if (cur.getName() == null || cur.getName().isBlank()) {
+        cur.setName(user.getName());
+       }
+      } else {
+       ClientSession.getInstance().setCurrentUser(user);
+      }
+      runOnPage(this::setupAdminProfile);
+     }
+    }
+   }
+  }).exceptionally(e -> null);
+ }
  private void showAvatar(ImageView view, Label fallbackLabel, String base64) {
   if (view == null) return;
   if (base64 == null || base64.isBlank()) {
    view.setImage(null);
+   view.setClip(null);
    view.setVisible(false);
    if (fallbackLabel != null) fallbackLabel.setVisible(true);
    return;
@@ -75,11 +151,25 @@ setupTables();setupActionColumn();setupReviewActionColumn();ToggleGroup reviewGr
    byte[] bytes = Base64.getDecoder().decode(base64);
    Image img = new Image(new ByteArrayInputStream(bytes));
    view.setImage(img);
+   double w = view.getFitWidth();
+   double h = view.getFitHeight();
+   if (w <= 0 || h <= 0) {
+    if (view.getParent() instanceof Region reg && reg.getPrefWidth() > 0 && reg.getPrefHeight() > 0) {
+     w = reg.getPrefWidth();
+     h = reg.getPrefHeight();
+    } else {
+     w = 70;
+     h = 70;
+    }
+   }
+   double r = Math.min(w, h) / 2.0;
+   view.setClip(new Circle(w / 2.0, h / 2.0, r));
    view.setVisible(true);
    view.toFront();
    if (fallbackLabel != null) fallbackLabel.setVisible(false);
   } catch (Exception e) {
    view.setImage(null);
+   view.setClip(null);
    view.setVisible(false);
    if (fallbackLabel != null) fallbackLabel.setVisible(true);
   }

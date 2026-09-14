@@ -9,6 +9,7 @@ import javafx.scene.Node;
 import javafx.scene.control.*;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
+import javafx.scene.shape.Circle;
 import javafx.scene.text.Text;
 import javafx.stage.FileChooser;
 import network.SocketClient;
@@ -211,12 +212,19 @@ public class ProfileController {
         if (view == null) return;
         if (base64 == null || base64.isEmpty()) {
             view.setImage(null);
+            view.setClip(null);
             return;
         }
         try {
-            view.setImage(new Image(new ByteArrayInputStream(Base64.getDecoder().decode(base64))));
+            Image img = new Image(new ByteArrayInputStream(Base64.getDecoder().decode(base64)));
+            view.setImage(img);
+            double w = view.getFitWidth() > 0 ? view.getFitWidth() : 80;
+            double h = view.getFitHeight() > 0 ? view.getFitHeight() : 80;
+            double r = Math.min(w, h) / 2.0;
+            view.setClip(new Circle(w / 2.0, h / 2.0, r));
         } catch (Exception e) {
             view.setImage(null);
+            view.setClip(null);
         }
     }
 

@@ -147,6 +147,7 @@ public class StudentService implements IStudentService {
                     if(!studentFields.isEmpty()&&!students.updateApprovedFields(connection, request.getStudentId(), studentFields)) {
                         throw new SQLException("正式学籍更新失败");
                     }
+                    new UserDAO().syncUserInfo(connection, request.getStudentId());
                 }
                 if (!requests.review(connection, requestId, result, reviewer, remark)) {
                     throw new IllegalStateException("申请状态已变化");
@@ -164,7 +165,11 @@ public class StudentService implements IStudentService {
         if(student==null || original==null || student.getStudentId()==null
                 || !student.getStudentId().equals(original.getStudentId()))
             throw new IllegalArgumentException("缺少原始学籍快照或学生编号已变化，请刷新");
-        return students.updateIfUnchanged(student,original);
+        boolean ok = students.updateIfUnchanged(student,original);
+        if (ok) {
+            new UserDAO().syncUserInfo(student.getUID() != null ? student.getUID() : student.getStudentId());
+        }
+        return ok;
     }
     @Override
     public String studentIdForUser(String uid)throws SQLException{return requireStudent(uid).getStudentId();}

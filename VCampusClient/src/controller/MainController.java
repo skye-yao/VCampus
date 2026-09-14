@@ -15,6 +15,7 @@ import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
+import javafx.scene.shape.Circle;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.VBox;
 import entity.AdminPermission;
@@ -141,8 +142,8 @@ public class MainController {
                     ? user.getCollege() : "";
             sidebarRoleLabel.setText(college.isEmpty() ? roleStr : (college + " · " + roleStr));
         }
-        if (sidebarAvatarView != null && user != null && user.getAvatar() != null && !user.getAvatar().isBlank()) {
-            showAvatar(sidebarAvatarView, user.getAvatar());
+        if (sidebarAvatarView != null) {
+            showAvatar(sidebarAvatarView, user != null ? user.getAvatar() : null);
         }
 
         // 个人信息卡片
@@ -320,14 +321,31 @@ public class MainController {
 
     private void showAvatar(ImageView view, String base64) {
         if (view == null) return;
-        if (base64 == null || base64.isEmpty()) {
+        if (base64 == null || base64.isBlank()) {
             view.setImage(null);
+            view.setClip(null);
             return;
         }
         try {
-            view.setImage(new Image(new ByteArrayInputStream(Base64.getDecoder().decode(base64))));
+            Image img = new Image(new ByteArrayInputStream(Base64.getDecoder().decode(base64)));
+            view.setImage(img);
+            double w = view.getFitWidth();
+            double h = view.getFitHeight();
+            if (w <= 0 || h <= 0) {
+                if (view.getParent() instanceof javafx.scene.layout.Region reg && reg.getPrefWidth() > 0 && reg.getPrefHeight() > 0) {
+                    w = reg.getPrefWidth();
+                    h = reg.getPrefHeight();
+                } else {
+                    w = 54;
+                    h = 54;
+                }
+            }
+            double r = Math.min(w, h) / 2.0;
+            view.setClip(new Circle(w / 2.0, h / 2.0, r));
+            view.toFront();
         } catch (Exception e) {
             view.setImage(null);
+            view.setClip(null);
         }
     }
 
@@ -532,7 +550,7 @@ public class MainController {
                 || (user != null && user.getRole() == enums.Role.ADMIN);
     }
 
-    private void fetchMyPermissions() {
+    public void fetchMyPermissions() {
         Message request = new Message(MessageType.REQUEST, "user", "get_my_permissions");
         SocketClient.getInstance().sendAsync(request)
                 .thenAccept(response -> Platform.runLater(() -> {
@@ -551,8 +569,14 @@ public class MainController {
     /**
      * 刷新并展示当前管理员的权限信息（两行内容：第一行是模块名称，第二行是只读权限状态）
      */
-    private void updateMyPermissionDisplay() {
-        if (adminPermissionCard == null || !adminPermissionCard.isVisible()) {
+    public void updateMyPermissionDisplay() {
+        if (adminPermissionCard == null) {
+            return;
+        }
+        boolean isAdmin = isAdminUser();
+        adminPermissionCard.setVisible(isAdmin);
+        adminPermissionCard.setManaged(isAdmin);
+        if (!isAdmin) {
             return;
         }
         ClientSession session = ClientSession.getInstance();
