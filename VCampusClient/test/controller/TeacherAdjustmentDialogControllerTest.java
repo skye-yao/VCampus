@@ -7,8 +7,10 @@ import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -60,6 +62,7 @@ public final class TeacherAdjustmentDialogControllerTest {
         changingTheTargetInvalidatesTheOldPreview();
         editingTheReasonOnlyRegatesSubmit();
         submitsOnceWhileInFlightAndReusesTheOperationIdAfterAFailure();
+        editedPayloadsNeverReuseAnotherPayloadsOperationId();
         cancelSendsNothing();
         conflictsAreLabelledByTheirServerMessage();
         optionsFailureIsReportedAndRetryable();
@@ -270,6 +273,74 @@ public final class TeacherAdjustmentDialogControllerTest {
                 "a successful submit must close the form and report the new application");
     }
 
+    /**
+     * operationId 标识且仅标识一个 payload：任何影响请求内容的编辑（日期/节次/教室，以及作为
+     * 摘要一部分的原因）都必须换一个新的 id，只有“原样重试”才复用。这里用与服务端同形的幂等替身
+     * 复现真实事故：提交已落库但响应丢失 → 编辑字段 → 重提时若复用旧 id，服务端会以
+     * 「operationId 已用于不同的业务请求」拒绝，之后每次编辑重提都失败。
+     */
+    private static void editedPayloadsNeverReuseAnotherPayloadsOperationId() {
+        // 不改字段重试：复用同一个 operationId，服务端按重放返回成功。
+        IdempotencyService replay = new IdempotencyService();
+        TeacherAdjustmentDialogController retried = readyToSubmit(replay);
+        retried.submit();
+        require(replay.submits.size() == 1 && !retried.closed(),
+                "a lost response must keep the form open for a retry");
+        String firstId = replay.submits.get(0).getOperationId();
+        retried.submit();
+        require(replay.submits.size() == 2
+                        && firstId.equals(replay.submits.get(1).getOperationId()),
+                "an unchanged payload must retry with the same operation id, saw "
+                        + replay.submits.get(1).getOperationId());
+        require(retried.closed(),
+                "the replayed submit must be accepted, saw " + retried.errorText());
+
+        // 改日期后重提：必须换新 id，不能再撞摘要冲突。
+        IdempotencyService dateEdit = new IdempotencyService();
+        TeacherAdjustmentDialogController dateController = readyToSubmit(dateEdit);
+        dateController.submit();
+        String dateFirstId = dateEdit.submits.get(0).getOperationId();
+        dateController.selectDate(SAME_WEEK_DATE);
+        dateController.submit();
+        require(dateEdit.submits.size() == 2
+                        && !dateFirstId.equals(dateEdit.submits.get(1).getOperationId()),
+                "editing the date must mint a new operation id, saw "
+                        + dateEdit.submits.get(1).getOperationId());
+        require(dateController.closed() && dateController.errorText() == null,
+                "an edited date must not hit the digest conflict, saw "
+                        + dateController.errorText());
+
+        // 只改原因后重提：原因也是请求摘要的一部分，同样必须换新 id。
+        IdempotencyService reasonEdit = new IdempotencyService();
+        TeacherAdjustmentDialogController reasonController = readyToSubmit(reasonEdit);
+        reasonController.submit();
+        String reasonFirstId = reasonEdit.submits.get(0).getOperationId();
+        reasonController.setReason("  家里有事  ");
+        require(reasonController.preview() != null,
+                "editing the reason must not invalidate the schedule preview");
+        reasonController.submit();
+        require(reasonEdit.submits.size() == 2
+                        && !reasonFirstId.equals(reasonEdit.submits.get(1).getOperationId()),
+                "editing the reason must mint a new operation id, saw "
+                        + reasonEdit.submits.get(1).getOperationId());
+        require(reasonController.closed() && reasonController.errorText() == null,
+                "an edited reason must not hit the digest conflict, saw "
+                        + reasonController.errorText());
+    }
+
+    /** 填好一份可提交的表单（预览由替身立即返回，因此这里直接可提交）。 */
+    private static TeacherAdjustmentDialogController readyToSubmit(
+            TeacherCourseService service) {
+        TeacherAdjustmentDialogController controller = new TeacherAdjustmentDialogController(
+                service, Runnable::run, () -> TODAY);
+        controller.prepare(entry());
+        controller.selectDate(CROSS_WEEK_DATE);
+        controller.selectPeriods(1, 2);
+        controller.setReason("教师出差");
+        require(controller.canSubmit(), "the fixture form must be submittable");
+        return controller;
+    }
+
     private static void cancelSendsNothing() {
         ControlledService service = new ControlledService();
         TeacherAdjustmentDialogController controller = controller(service);
@@ -469,6 +540,103 @@ public final class TeacherAdjustmentDialogControllerTest {
 
     private static void require(boolean condition, String message) {
         if (!condition) throw new AssertionError(message);
+    }
+
+    /**
+     * 与服务端同形的幂等替身：第一次提交的响应丢失（异常完成）但摘要已落库；之后同 id 同内容按重放
+     * 返回成功，同 id 换内容返回摘要冲突原文，换新 id 则正常受理。用来证明“字段变化必须换 id”。
+     */
+    private static final class IdempotencyService implements TeacherCourseService {
+        private final Map<String, String> digests = new LinkedHashMap<>();
+        private final List<TeacherAdjustmentWriteDTO> submits = new ArrayList<>();
+        private boolean loseNextResponse = true;
+
+        @Override
+        public CompletableFuture<TeacherAdjustmentOptionsDTO> getAdjustmentOptions(
+                String offeringId, String originalOccurrenceId) {
+            return CompletableFuture.completedFuture(options());
+        }
+
+        @Override
+        public CompletableFuture<TeacherAdjustmentPreviewDTO> previewAdjustment(
+                TeacherAdjustmentWriteDTO request) {
+            return CompletableFuture.completedFuture(
+                    new TeacherAdjustmentPreviewDTO(List.of(), true));
+        }
+
+        @Override
+        public CompletableFuture<TeacherOperationResultDTO<AdjustmentRequestDetailDTO>>
+                submitAdjustment(TeacherAdjustmentWriteDTO request) {
+            submits.add(request);
+            String digest = digestOf(request);
+            String stored = digests.get(request.getOperationId());
+            if (stored != null) {
+                if (!stored.equals(digest)) {
+                    return CompletableFuture.failedFuture(new TeacherCourseServiceException(
+                            MessageCode.CONFLICT, "operationId 已用于不同的业务请求"));
+                }
+                return CompletableFuture.completedFuture(new TeacherOperationResultDTO<>(
+                        request.getOperationId(), "调课申请已提交",
+                        detail(AdjustmentRequestStatusDTO.PENDING), true));
+            }
+            digests.put(request.getOperationId(), digest);
+            if (loseNextResponse) {
+                // 服务端已经提交成功，但响应在网络上丢了。
+                loseNextResponse = false;
+                return CompletableFuture.failedFuture(new TeacherCourseServiceException(
+                        MessageCode.ERROR, "连接中断"));
+            }
+            return CompletableFuture.completedFuture(new TeacherOperationResultDTO<>(
+                    request.getOperationId(), "调课申请已提交",
+                    detail(AdjustmentRequestStatusDTO.PENDING), false));
+        }
+
+        /** 与 MockTeacherCourseService 同口径的请求摘要：目标、节次、教室与原因。 */
+        private static String digestOf(TeacherAdjustmentWriteDTO write) {
+            List<String> targets = new ArrayList<>();
+            for (dto.course.teacher.TeacherAdjustmentTargetInputDTO target : write.getTargets()) {
+                targets.add(target.getOriginalOccurrenceId() + "@" + target.getTargetDate());
+            }
+            return targets + "|" + write.getNewStartPeriod() + "|" + write.getNewEndPeriod() + "|"
+                    + write.getNewClassroomId() + "|" + write.getReason();
+        }
+
+        @Override
+        public CompletableFuture<List<dto.course.CourseTermDTO>> listTerms() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public CompletableFuture<dto.course.teacher.TeacherPageDTO<
+                dto.course.teacher.TeacherOfferingDTO>> listOfferings(
+                int academicYear, int semester, String query, int page, int size) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public CompletableFuture<dto.course.teacher.TeacherOfferingDetailDTO> getOffering(
+                String offeringId) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public CompletableFuture<dto.course.teacher.TeacherPageDTO<
+                dto.course.teacher.TeacherRosterRowDTO>> listOfferingStudents(
+                String offeringId, String query, Integer enrollmentStatus, int page, int size) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public CompletableFuture<List<dto.course.admin.schedule.ScheduleArrangementDTO>>
+                listOfferingSchedules(String offeringId) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public CompletableFuture<dto.course.teacher.TeacherScheduleWeekDTO> loadTeachingSchedule(
+                int academicYear, int semester, Integer week) {
+            throw new UnsupportedOperationException();
+        }
     }
 
     /**

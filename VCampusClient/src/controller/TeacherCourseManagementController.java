@@ -12,8 +12,8 @@ import service.TeacherCourseServices;
 /**
  * 教师工作台外壳：左上“返回首页”，右上四入口（教学课程表、教学班、成绩录入、我的申请）。
  *
- * <p>子页托管沿用 {@link AdminCourseManagementController} 的机制：四个页面（工作台首页、教学班列表、
- * 教学班详情、教学课程表）都由 FXML 的 {@code fx:include} 一次性装入，外壳只切换它们的
+ * <p>子页托管沿用 {@link AdminCourseManagementController} 的机制：五个页面（工作台首页、教学班列表、
+ * 教学班详情、教学课程表、我的申请）都由 FXML 的 {@code fx:include} 一次性装入，外壳只切换它们的
  * {@code visible/managed}，并在页面被激活时调用子页自己的 {@code activate}/{@code showOffering}
  * 加载数据。选它是因为仓库里所有壳页（学生端 {@code CourseManagementView}、管理员后台、审批控制台）
  * 都是同一套机制，子页控制器还能在无工具包的测试里直接装配。
@@ -22,7 +22,7 @@ import service.TeacherCourseServices;
  * 子页时它会被 {@code unload}/{@code release}，在途请求的响应随即失效，详情页也不保留上一个教学班的
  * 数据，因此不存在长期驻留的过期子页控制器。
  *
- * <p>分阶段边界：教学班与教学课程表已接入；成绩录入、我的申请仍属于后续阶段，入口保持禁用并把
+ * <p>分阶段边界：教学班、教学课程表与我的申请已接入；只剩成绩录入属于后续阶段，入口保持禁用并把
  * {@link #STAGING_NOTICE} 显示在首页。详情页的“成绩录入”按钮只把教学班交回工作台的
  * {@link #openGrades(String)}，本阶段不打开任何成绩页、也不发起任何写请求。
  */
@@ -117,7 +117,7 @@ public final class TeacherCourseManagementController {
         return service;
     }
 
-    // 四个入口：教学班与教学课程表已接入，成绩录入与我的申请按分阶段计划仍是占位。
+    // 四个入口：教学班、教学课程表与我的申请已接入，成绩录入按分阶段计划仍是占位。
 
     @FXML
     void handleOpenOfferings(Event event) {

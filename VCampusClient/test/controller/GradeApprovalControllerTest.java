@@ -453,8 +453,13 @@ public final class GradeApprovalControllerTest {
             throw new UnsupportedOperationException();
         }
 
+        /**
+         * T5 起审批外壳调用四态主名 {@code listAdjustmentRequestsByStatus}；替身必须覆写主名，
+         * 只覆写旧别名会让调用落到默认实现上直接抛 {@code UnsupportedOperationException}
+         * （共享筛选切回调课页就会踩到）。旧别名由接口默认实现委托到主名，不需要再覆写。
+         */
         @Override
-        public CompletableFuture<AdjustmentRequestPageDTO> listAdjustmentRequestsPage(
+        public CompletableFuture<AdjustmentRequestPageDTO> listAdjustmentRequestsByStatus(
                 AdjustmentRequestStatusDTO status, int pageNumber, int size) {
             listCalls.add(status + "|" + pageNumber + "|" + size);
             return CompletableFuture.completedFuture(

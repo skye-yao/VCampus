@@ -50,8 +50,9 @@ import service.TeacherCourseServices;
  * 原因不属于被预检查的目标内容，编辑它只重新判定“原因非空”这一个提交前提，不会为每个按键都
  * 发一次预检查；提交时服务端仍会重新检查全部内容。
  *
- * <p>提交语义：确认一次表单只生成一个 operationId，重试同一份表单复用它（幂等重放）；提交在途
- * 时按钮禁用且重复触发直接返回，因此双击只发送一次；取消/关闭不发送任何写请求。成功后关闭弹窗
+ * <p>提交语义：一份表单内容对应且只对应一个 operationId——日期/节次/教室/原因任一变化都会换新 id，
+ * 只有失败后原样重试同一份内容才复用它（幂等重放）；提交在途时按钮禁用且重复触发直接返回，
+ * 因此双击只发送一次；取消/关闭不发送任何写请求。成功后关闭弹窗
  * 并把新申请交给 {@link #setOnSubmitted} 的接收方，由调用方决定如何提示（不弹模态框，冒烟测试
  * 才能在无人值守下走完整流程）。
  *
@@ -267,25 +268,35 @@ public final class TeacherAdjustmentDialogController {
 
     /**
      * 原因不属于预检查内容，编辑它只重新判定“原因非空”这一提交前提，因此不使预览失效，
-     * 也不会为每个按键都发一次请求；提交时服务端仍会校验原因。
+     * 也不会为每个按键都发一次请求；提交时服务端仍会校验原因。但原因是请求摘要的一部分，
+     * 变化时必须换一个新的 operationId（见 {@link #invalidatePreview()} 的说明）。
      */
     void setReason(String value) {
         String next = value == null ? "" : value;
         if (next.length() > MAX_REASON_LENGTH) next = next.substring(0, MAX_REASON_LENGTH);
         if (!reason.equals(next)) {
             reason = next;
+            operationId = null;
             render();
         }
     }
 
     // ------------------------------------------------------------ 预检查
 
-    /** 字段变化后旧结果立即失效：清空预览并递增值，让在途的旧响应再也写不进来。 */
+    /**
+     * 字段变化后旧结果立即失效：清空预览、丢弃 operationId 并递增值，让在途的旧响应再也写不进来。
+     *
+     * <p>operationId 标识且仅标识一个请求内容（服务端的幂等摘要含目标、节次、教室与原因），因此
+     * 任何影响内容的编辑都必须换一个新 id；否则“提交已落库但响应丢失 → 编辑字段 → 重提”会用旧
+     * id 提交新内容，被服务端以摘要冲突（operationId 已用于不同的业务请求）永久拒绝。只有原样重试
+     * 同一份内容才复用同一个 id（失败后不改字段直接重提）。
+     */
     private void invalidatePreview() {
         formVersion++;
         preview = null;
         previewing = false;
         errorText = null;
+        operationId = null;
     }
 
     private void maybePreview() {
