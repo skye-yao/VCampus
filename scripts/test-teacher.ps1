@@ -51,7 +51,8 @@ $suites = @(
         Name = 'Foundation'
         Common = @('dto.course.teacher.TeacherQueryDtoJsonTest')
         # Client 测试用假 Transport 离屏运行，不需要真实服务器。
-        Client = @('service.SocketTeacherCourseServiceTest')
+        Client = @('service.SocketTeacherCourseServiceTest',
+            'service.MockTeacherCourseServiceTest')
         # TeacherCourseQueryMySqlTest self-gates on the `mysql` argument, so it runs as a real
         # MySQL test only with -WithMySql and prints SKIP otherwise.
         Server = @('database.TeacherFoundationMigrationTest', 'service.TeacherCourseQueryMySqlTest',
