@@ -28,7 +28,7 @@ public class ClientMain extends Application {
     private static Stage primaryStage;
     private static Runnable pageCleanup=()->{};
     public static void setPageCleanup(Runnable cleanup){pageCleanup=cleanup;}
-    private static void cleanupPage(){Runnable old=pageCleanup;pageCleanup=()->{};old.run();}
+    public static void cleanupPage(){Runnable old=pageCleanup;pageCleanup=()->{};old.run();}
 
     @Override
     public void start(Stage stage) {
@@ -67,21 +67,33 @@ public class ClientMain extends Application {
      */
     public static void switchScene(String fxmlPath) {
         try {
+            boolean isLogin = fxmlPath != null && fxmlPath.contains("LoginView");
+            boolean isRegister = fxmlPath != null && fxmlPath.contains("RegisterView");
+            boolean isForgot = fxmlPath != null && fxmlPath.contains("ForgotPasswordView");
+            boolean isAuth = isLogin || isRegister || isForgot;
+
+            // SPA 容器路由优化：若 MainView 处于激活状态，且目标不是鉴权登录页
+            if (!isAuth && controller.MainController.getInstance() != null && controller.MainController.getInstance().isAttachedToScene()) {
+                if (fxmlPath != null && (fxmlPath.contains("MainView.fxml") || fxmlPath.endsWith("MainView.fxml"))) {
+                    controller.MainController.getInstance().showHome();
+                    return;
+                } else {
+                    controller.MainController.getInstance().loadCenterView(fxmlPath);
+                    return;
+                }
+            }
+
             Runnable previousCleanup=pageCleanup;
             pageCleanup=()->{};
             Parent root;
             try {root=FXMLUtil.load(fxmlPath);}
             catch(Exception error){cleanupPage();pageCleanup=previousCleanup;throw error;}
             previousCleanup.run();
-            boolean isLogin = fxmlPath != null && fxmlPath.contains("LoginView");
-            boolean isRegister = fxmlPath != null && fxmlPath.contains("RegisterView");
-            boolean isForgot = fxmlPath != null && fxmlPath.contains("ForgotPasswordView");
-            boolean isAuth = isLogin || isRegister || isForgot;
 
             if (primaryStage.getScene() == null) {
                 // 首次初始化：登录/注册/找回密码页使用紧凑的竖向小窗口
-                double initWidth = isAuth ? 396 : 1024;
-                double initHeight = isRegister ? 720 : (isForgot ? 680 : (isLogin ? 620 : 720));
+                double initWidth = isAuth ? 396 : 1100;
+                double initHeight = isRegister ? 720 : (isForgot ? 680 : (isLogin ? 620 : 740));
                 Scene scene = new Scene(root, initWidth, initHeight);
                 primaryStage.setScene(scene);
             } else {
@@ -98,9 +110,9 @@ public class ClientMain extends Application {
                 // 登录成功进入主界面或其他系统：允许自由放大/最大化
                 primaryStage.setResizable(true);
                 // 若此前是小窗口，自动展开至标准宽屏尺寸
-                if (primaryStage.getWidth() < 600) {
-                    primaryStage.setWidth(1024);
-                    primaryStage.setHeight(720);
+                if (primaryStage.getWidth() < 800) {
+                    primaryStage.setWidth(1100);
+                    primaryStage.setHeight(740);
                     primaryStage.centerOnScreen();
                 }
             }

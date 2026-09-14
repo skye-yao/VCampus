@@ -14,12 +14,11 @@
 
     <!-- 顶部导航栏 -->
     <top>
-        <HBox alignment="CENTER_LEFT" prefHeight="60.0" spacing="16.0" styleClass="chat-topbar" BorderPane.alignment="CENTER">
+        <HBox alignment="CENTER_LEFT" prefHeight="58.0" spacing="16.0" styleClass="chat-topbar" BorderPane.alignment="CENTER">
             <padding>
-                <Insets left="20.0" right="20.0" />
+                <Insets left="24.0" right="24.0" />
             </padding>
             <children>
-                <Button onAction="#handleBackToMain" styleClass="btn-secondary" text="← 返回应用中心" />
                 <Label styleClass="chat-topbar-title" text="虚拟校园·AI智能助手" />
                 <Region HBox.hgrow="ALWAYS" />
                 <Label fx:id="currentUserLabel" styleClass="chat-topbar-user" text="当前用户：师生" />

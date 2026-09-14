@@ -83,7 +83,7 @@
 
     <!-- 右侧主界面内容 -->
     <center>
-        <ScrollPane fitToWidth="true" styleClass="content-scroll-pane" BorderPane.alignment="CENTER">
+        <ScrollPane fx:id="homeScrollPane" fitToWidth="true" styleClass="content-scroll-pane" BorderPane.alignment="CENTER">
             <content>
                 <VBox spacing="18.0" styleClass="dash-content-pane">
                     <padding>
