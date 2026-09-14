@@ -30,6 +30,9 @@ public class LibraryController {
     private Book selectedBook;
     private final java.util.Map<Integer,String> bookNames = new java.util.HashMap<>();
     private long searchVersion;
+    private final javafx.collections.ObservableList<Book> searchResults = javafx.collections.FXCollections.observableArrayList();
+    private final javafx.collections.transformation.FilteredList<Book> filteredBooks = new javafx.collections.transformation.FilteredList<>(searchResults);
+    private ComboBox<String> categoryFilter;
     @FXML private Button previewButton;
     @FXML private Button downloadButton;
     @FXML private Label ebookStatus;
@@ -90,6 +93,7 @@ public class LibraryController {
 
     @FXML private void handleShowAll() {
         searchField.clear();
+        categoryFilter.setValue(util.LibraryCatalogTable.ALL_CATEGORIES);
         bookTable.getSelectionModel().clearSelection();
         showBook(null);
         reviewInput.clear();
@@ -142,6 +146,7 @@ public class LibraryController {
     @FXML private TableColumn<Book, String> bookAuthorColumn;
     @FXML private TableColumn<Book, String> bookIsbnColumn;
     @FXML private TableColumn<Book, String> bookStatusColumn;
+    @FXML private TableColumn<Book, String> bookCategoryColumn;
     @FXML private Label detailLabel;
     @FXML private TextArea expandedDetail;
     @FXML private Hyperlink detailToggle;
@@ -253,7 +258,11 @@ public class LibraryController {
         addBookNameColumn(historyTable, BorrowRecord::getBookId);
         addBookNameColumn(reservationTable, Reservation::getBookId);
         // 列宽策略是 Callback 对象，不能在 FXML 中直接写常量名称字符串。
-        bookTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+        categoryFilter = util.LibraryCatalogTable.configure(bookTable,bookCategoryColumn,bookStatusColumn);
+        javafx.collections.transformation.SortedList<Book> sortedBooks = new javafx.collections.transformation.SortedList<>(filteredBooks);
+        sortedBooks.comparatorProperty().bind(bookTable.comparatorProperty());
+        bookTable.setItems(sortedBooks);
+        categoryFilter.valueProperty().addListener((o,oldValue,value) -> applyCategoryFilter());
         currentBorrowTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
         historyTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
         reservationTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
@@ -263,7 +272,6 @@ public class LibraryController {
         bookNameColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(c.getValue().getName()));
         bookAuthorColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(c.getValue().getAuthor()));
         bookIsbnColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(c.getValue().getIsbn()));
-        bookStatusColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(bookStatus(c.getValue().getStatus())));
 
         currentBookColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(c.getValue().getBookId()));
         currentBorrowTimeColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(time(c.getValue().getBorrowTime())));
@@ -305,8 +313,15 @@ public class LibraryController {
                     if (version != searchVersion) return;
                     setBooksLoading(false);
                     if (error != null) showError("查询图书失败", error);
-                    else bookTable.getItems().setAll(books);
+                    else { searchResults.setAll(books); applyCategoryFilter(); }
                 }));
+    }
+
+    private void applyCategoryFilter() {
+        String category = categoryFilter.getValue();
+        filteredBooks.setPredicate(book -> category == null
+                || util.LibraryCatalogTable.ALL_CATEGORIES.equals(category) || category.equals(book.getCategory()));
+        bookTable.setPlaceholder(new Label("没有符合当前关键词和类别的图书"));
     }
 
     private void showBook(Book book) {
@@ -322,19 +337,19 @@ public class LibraryController {
             reviewList.getItems().clear();
             return;
         }
-        detailLabel.setText(String.format("《%s》  作者：%s  出版社：%s  ISBN：%s  状态：%s",
-                book.getName(), book.getAuthor(), book.getPublisher(), book.getIsbn(), bookStatus(book.getStatus())));
-        expandedDetail.setText(String.format("书名：%s%n作者：%s%n出版社：%s%nISBN：%s%n图书编号：%d%n状态：%s",
+        detailLabel.setText(String.format("《%s》  类别：%s  可借 / 馆藏：%s  作者：%s",
+                book.getName(), book.getCategory(), inventory(book), book.getAuthor()));
+        expandedDetail.setText(String.format("书名：%s%n作者：%s%n出版社：%s%nISBN：%s%n图书编号：%d%n类别：%s%n可借 / 馆藏：%s",
                 book.getName(), book.getAuthor(), book.getPublisher() == null ? "暂无" : book.getPublisher(),
-                book.getIsbn(), book.getId(), bookStatus(book.getStatus())));
+                book.getIsbn(), book.getId(), book.getCategory(), inventory(book)));
         loadReviews(book.getId());
     }
 
     @FXML private void handleReserve() {
         if (administrator) return;
         if (!requireSelectedBook()) return;
-        if (selectedBook.getStatus() != BookStatus.AVAILABLE.getCode()) {
-            AlertUtil.showWarning("暂不可预约", "该书当前状态为：" + bookStatus(selectedBook.getStatus()));
+        if (selectedBook.getAvailableCopies() <= 0) {
+            AlertUtil.showWarning("暂不可预约", "该书暂无可借馆藏，请稍后再试");
             return;
         }
         service.reserveBook(selectedBook.getId()).whenComplete((ignored, error) -> Platform.runLater(() -> {
@@ -368,7 +383,10 @@ public class LibraryController {
             if (version != myLibraryVersion) return;
             if (error != null) { showError("加载书名失败", error); return; }
             bookNames.clear();
-            for (Book book : books) bookNames.put(book.getId(), book.getName());
+            for (Book book : books) {
+                bookNames.put(book.getId(), book.getName());
+                for (int copyId : book.getCopyIds()) bookNames.put(copyId,book.getName());
+            }
             currentBorrowTable.refresh(); historyTable.refresh(); reservationTable.refresh();
         }));
         refreshLossNotices();
@@ -474,7 +492,7 @@ public class LibraryController {
     }
 
     private static String time(LocalDateTime value) { return value == null ? "—" : TIME_FORMAT.format(value); }
-    private static String bookStatus(int code) { try { return BookStatus.fromCode(code).getDescription(); } catch (Exception e) { return "未知(" + code + ")"; } }
+    private static String inventory(Book book) { return book.getAvailableCopies() + " / " + book.getTotalCopies() + " 册"; }
     private static String borrowStatus(int code) { try { return BorrowStatus.fromCode(code).getDescription(); } catch (Exception e) { return "未知(" + code + ")"; } }
     private static String reservationStatus(int code) { try { return ReservationStatus.fromCode(code).getDescription(); } catch (Exception e) { return "未知(" + code + ")"; } }
     private static String fineStatus(int code) { try { return FineStatus.fromCode(code).getDescription(); } catch (Exception e) { return "未知(" + code + ")"; } }

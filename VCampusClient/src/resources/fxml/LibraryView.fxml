@@ -34,15 +34,16 @@
                             </HBox>
                         </top>
                         <center>
-                            <SplitPane dividerPositions="0.59">
+                            <SplitPane dividerPositions="0.70">
                                 <items>
                                     <TableView fx:id="bookTable">
                                         <columns>
-                                            <TableColumn fx:id="bookIdColumn" maxWidth="55.0" text="编号"/>
-                                            <TableColumn fx:id="bookNameColumn" prefWidth="150.0" text="书名"/>
+                                            <TableColumn fx:id="bookIdColumn" minWidth="50.0" prefWidth="50.0" maxWidth="65.0" text="编号"/>
+                                            <TableColumn fx:id="bookNameColumn" minWidth="120.0" prefWidth="170.0" text="书名"/>
+                                            <TableColumn fx:id="bookCategoryColumn" minWidth="144.0" prefWidth="144.0" text="类别"/>
+                                            <TableColumn fx:id="bookStatusColumn" minWidth="132.0" prefWidth="132.0" text="可借 / 馆藏"/>
                                             <TableColumn fx:id="bookAuthorColumn" prefWidth="105.0" text="作者"/>
                                             <TableColumn fx:id="bookIsbnColumn" prefWidth="120.0" text="ISBN"/>
-                                            <TableColumn fx:id="bookStatusColumn" maxWidth="65.0" text="状态"/>
                                         </columns>
                                     </TableView>
                                     <VBox spacing="9.0" styleClass="detail-panel">

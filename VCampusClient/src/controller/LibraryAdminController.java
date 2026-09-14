@@ -73,6 +73,12 @@ public class LibraryAdminController {
     @FXML private TableColumn<Book, String> adminAuthorColumn;
     @FXML private TableColumn<Book, String> adminIsbnColumn;
     @FXML private TableColumn<Book, String> adminStatusColumn;
+    @FXML private TableColumn<Book, String> adminCategoryColumn;
+    @FXML private ComboBox<String> categoryCombo;
+    private ComboBox<String> categoryFilter;
+    private final javafx.collections.ObservableList<Book> searchResults = javafx.collections.FXCollections.observableArrayList();
+    private final javafx.collections.transformation.FilteredList<Book> filteredBooks = new javafx.collections.transformation.FilteredList<>(searchResults);
+    private long searchVersion;
     @FXML private TextField idField;
     @FXML private TextField isbnField;
     @FXML private TextField nameField;
@@ -82,12 +88,19 @@ public class LibraryAdminController {
     @FXML private ComboBox<BookStatus> statusCombo;
 
     @FXML public void initialize() {
-        adminBookTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+        categoryFilter = util.LibraryCatalogTable.configure(adminBookTable,adminCategoryColumn,adminStatusColumn);
+        javafx.collections.transformation.SortedList<Book> sortedBooks = new javafx.collections.transformation.SortedList<>(filteredBooks);
+        sortedBooks.comparatorProperty().bind(adminBookTable.comparatorProperty());
+        adminBookTable.setItems(sortedBooks);
+        categoryFilter.valueProperty().addListener((o,oldValue,value) -> applyCategoryFilter());
+        categoryCombo.getItems().setAll(Book.CATEGORIES);
+        categoryCombo.setValue("其他");
         adminIdColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(c.getValue().getId()));
         adminNameColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(c.getValue().getName()));
         adminAuthorColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(c.getValue().getAuthor()));
         adminIsbnColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(c.getValue().getIsbn()));
-        adminStatusColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(BookStatus.fromCode(c.getValue().getStatus()).getDescription()));
+        statusCombo.setDisable(true);
+        statusCombo.setTooltip(new Tooltip("状态由每册借还自动计算；遗失找回请在挂失公告中办理"));
         statusCombo.getItems().setAll(BookStatus.values());
         statusCombo.setCellFactory(v -> statusCell());
         statusCombo.setButtonCell(statusCell());
@@ -106,9 +119,18 @@ public class LibraryAdminController {
     }
 
     @FXML private void handleAdminSearch() {
+        long version = ++searchVersion;
         service.searchBooks(adminSearchField.getText()).whenComplete((books, error) -> Platform.runLater(() -> {
-            if (error != null) showError(error); else adminBookTable.getItems().setAll(books);
+            if (version != searchVersion) return;
+            if (error != null) showError(error); else { searchResults.setAll(books); applyCategoryFilter(); }
         }));
+    }
+
+    private void applyCategoryFilter() {
+        String category = categoryFilter.getValue();
+        filteredBooks.setPredicate(book -> category == null
+                || util.LibraryCatalogTable.ALL_CATEGORIES.equals(category) || category.equals(book.getCategory()));
+        adminBookTable.setPlaceholder(new Label("没有符合当前关键词和类别的图书"));
     }
 
     @FXML private void handleAddBook() {
@@ -117,7 +139,7 @@ public class LibraryAdminController {
             AlertUtil.showWarning("不合法的图书状态", "新上架图书只能设为可借。");
             return;
         }
-        if (book != null) run(service.addBook(book), "图书上架成功");
+        if (book != null) run(service.addBook(book), "图书上架成功，已入库10册");
     }
 
     @FXML private void handleUpdateBook() {
@@ -161,6 +183,7 @@ public class LibraryAdminController {
             BookStatus status = statusCombo.getValue() == null ? BookStatus.AVAILABLE : statusCombo.getValue();
             Book book = new Book(id, isbnField.getText().trim(), nameField.getText().trim(), authorField.getText().trim(),
                     publisherField.getText().trim(), status.getCode());
+            book.setCategory(categoryCombo.getValue());
             if (!priceField.getText().isBlank()) {
                 java.math.BigDecimal price=new java.math.BigDecimal(priceField.getText().trim());
                 if(price.signum()<=0||price.scale()>2||price.compareTo(new java.math.BigDecimal("99999999.99"))>0) {
@@ -180,6 +203,7 @@ public class LibraryAdminController {
         nameField.setText(book == null ? "" : book.getName());
         authorField.setText(book == null ? "" : book.getAuthor());
         publisherField.setText(book == null ? "" : book.getPublisher());
+        categoryCombo.setValue(book == null ? "其他" : book.getCategory());
         priceField.setText(book==null||book.getPrice()==null?"":book.getPrice().toPlainString());
         statusCombo.getSelectionModel().select(book == null ? BookStatus.AVAILABLE : BookStatus.fromCode(book.getStatus()));
     }

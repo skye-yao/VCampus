@@ -21,7 +21,7 @@ public class LibraryCirculationIntegrationTest {
     interface Attempt {void run() throws Exception;}
     static void denied(Attempt action) throws Exception {try{action.run();throw new AssertionError("expected rejection");}catch(BusinessException | IllegalArgumentException expected){}}
     static void tables(Connection c) throws SQLException {
-        sql(c,"CREATE TEMPORARY TABLE tblBook(id INT PRIMARY KEY AUTO_INCREMENT,isbn VARCHAR(20) UNIQUE,name VARCHAR(100),author VARCHAR(100),publisher VARCHAR(100),status INT,price DECIMAL(10,2)) ENGINE=InnoDB");
+        sql(c,"CREATE TEMPORARY TABLE tblBook(id INT PRIMARY KEY AUTO_INCREMENT,isbn VARCHAR(20),name VARCHAR(100),author VARCHAR(100),publisher VARCHAR(100),category VARCHAR(32) NOT NULL DEFAULT '其他',categoryInitialized BOOLEAN NOT NULL DEFAULT FALSE,status INT,price DECIMAL(10,2),titleId INT NULL,copyNumber INT NOT NULL DEFAULT 1,copiesInitialized BOOLEAN NOT NULL DEFAULT FALSE,UNIQUE KEY uk_isbn_copy(isbn,copyNumber)) ENGINE=InnoDB");
         sql(c,"CREATE TEMPORARY TABLE tblBorrowRecord(id INT PRIMARY KEY AUTO_INCREMENT,userid VARCHAR(32),bookid INT,borrowTime DATETIME,returnTime DATETIME,dueTime DATETIME,status INT,bookPrice DECIMAL(10,2),feeStopTime DATETIME,settledTime DATETIME) ENGINE=InnoDB");
         sql(c,"CREATE TEMPORARY TABLE tblLossRecord(id INT PRIMARY KEY AUTO_INCREMENT,userid VARCHAR(32),bookid INT,lossTime DATETIME,status INT) ENGINE=InnoDB");
         sql(c,"CREATE TEMPORARY TABLE tblReservation(id INT PRIMARY KEY AUTO_INCREMENT,userid VARCHAR(32),bookid INT,reserveTime DATETIME,status INT) ENGINE=InnoDB");
@@ -39,7 +39,7 @@ public class LibraryCirculationIntegrationTest {
                 PasswordUtil.hashPassword("reader-pass","salt"),"salt",PasswordUtil.hashPassword("admin-pass","salt"),"salt");
         LibraryCirculationDAO.update(c,"INSERT INTO tbl_bank_account(account_id,user_id,balance,status,payment_password_hash,payment_password_salt) VALUES(1,'reader',1000,'ACTIVE',?,'salt'),(2,'admin',1000,'ACTIVE',?,'salt')",
                 PasswordUtil.hashPassword("123456","salt"),PasswordUtil.hashPassword("654321","salt"));
-        sql(c,"INSERT INTO tblBook VALUES(1,'test','Book','Author','Publisher',2,50)");
+        sql(c,"INSERT INTO tblBook(id,isbn,name,author,publisher,status,price) VALUES(1,'test','Book','Author','Publisher',2,50)");
         sql(c,"INSERT INTO tblReservation VALUES(1,'reader',1,NOW(),0)");c.commit();
     }
     public static void main(String[] args) throws Exception {

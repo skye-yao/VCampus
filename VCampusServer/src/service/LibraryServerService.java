@@ -92,7 +92,12 @@ public class LibraryServerService {
             return null;
         }
 
-        return bookDAO.findById(bookId);
+        Book copy = bookDAO.findById(bookId);
+        if (copy == null) return null;
+        for (Book title : bookDAO.findBooks(copy.getIsbn())) {
+            if (title.getId() == copy.getTitleId()) return title;
+        }
+        return null;
     }
 
 
@@ -354,6 +359,7 @@ public class LibraryServerService {
     public boolean addBook(Book book)
             throws SQLException {
         validatePrice(book);
+        validateCategory(book);
 
         if (book == null || book.getStatus() != BookStatus.AVAILABLE.getCode()) {
             return false;
@@ -392,6 +398,7 @@ public class LibraryServerService {
     public boolean updateBook(Book book)
             throws SQLException {
         validatePrice(book);
+        validateCategory(book);
 
         if (book == null || book.getId() <= 0) {
             return false;
@@ -404,7 +411,7 @@ public class LibraryServerService {
             return false;
         }
 
-        return bookDAO.update(book);
+        return bookDAO.updateCatalog(book);
     }
 
 
@@ -455,7 +462,10 @@ public class LibraryServerService {
             return null;
         }
 
-        return book.getStatus();
+        for (Book title : bookDAO.findBooks(book.getIsbn())) {
+            if (title.getId() == book.getTitleId()) return title.getStatus();
+        }
+        return null;
     }
 
     public List<vo.LostBookNotice> getPublicLossNotices() throws SQLException {
@@ -465,5 +475,9 @@ public class LibraryServerService {
         if(book!=null && book.getPrice()!=null && (book.getPrice().signum()<=0 || book.getPrice().scale()>2
                 || book.getPrice().compareTo(new java.math.BigDecimal("99999999.99"))>0))
             throw new IllegalArgumentException("书价须大于0，最多两位小数且不超过99999999.99元");
+    }
+    private void validateCategory(Book book) {
+        if (book != null && !Book.CATEGORIES.contains(book.getCategory()))
+            throw new IllegalArgumentException("请选择有效的图书类别");
     }
 }

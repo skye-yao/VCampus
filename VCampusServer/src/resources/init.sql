@@ -788,22 +788,22 @@ UNIQUE KEY `uk_isbn` (`isbn`)
 -- 2. 借阅记录表 tblBorrowRecord
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `tblBorrowRecord` (
-                                                 `id` INT NOT NULL AUTO_INCREMENT COMMENT '借阅记录编号',
-                                                 `userid` VARCHAR(32) NOT NULL COMMENT '用户编号(关联tbl_user.uid)',
-                                                 `bookid` INT NOT NULL COMMENT '图书编号(关联tblBook.id)',
-                                                 `borrowTime` DATETIME NOT NULL COMMENT '借阅时间',
-                                                 `returnTime` DATETIME DEFAULT NULL COMMENT '实际归还时间',
-                                                 `dueTime` DATETIME NOT NULL COMMENT '最迟归还时间',
-                                                 `bookPrice` DECIMAL(10,2) DEFAULT NULL COMMENT '借出时的书价',
-                                                 `feeStopTime` DATETIME DEFAULT NULL COMMENT '首次挂失时冻结逾期计费',
-                                                 `settledTime` DATETIME DEFAULT NULL COMMENT '遗失赔偿结清时间',
-                                                 `status` INT NOT NULL DEFAULT 0 COMMENT '借阅状态: 0-借阅中, 1-已归还, 2-逾期',
-                                                 PRIMARY KEY (`id`),
-                                                 KEY `idx_userid` (`userid`),
-                                                 KEY `idx_bookid` (`bookid`),
-                                                 KEY `idx_status` (`status`),
-                                                 CONSTRAINT `fk_borrow_user` FOREIGN KEY (`userid`) REFERENCES `tbl_user` (`uid`) ON DELETE RESTRICT ON UPDATE CASCADE,
-                                                 CONSTRAINT `fk_borrow_book` FOREIGN KEY (`bookid`) REFERENCES `tblBook` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE
+`id` INT NOT NULL AUTO_INCREMENT COMMENT '借阅记录编号',
+`userid` VARCHAR(32) NOT NULL COMMENT '用户编号(关联tbl_user.uid)',
+`bookid` INT NOT NULL COMMENT '图书编号(关联tblBook.id)',
+`borrowTime` DATETIME NOT NULL COMMENT '借阅时间',
+`returnTime` DATETIME DEFAULT NULL COMMENT '实际归还时间',
+`dueTime` DATETIME NOT NULL COMMENT '最迟归还时间',
+`bookPrice` DECIMAL(10,2) DEFAULT NULL COMMENT '借出时的书价',
+`feeStopTime` DATETIME DEFAULT NULL COMMENT '首次挂失时冻结逾期计费',
+`settledTime` DATETIME DEFAULT NULL COMMENT '遗失赔偿结清时间',
+`status` INT NOT NULL DEFAULT 0 COMMENT '借阅状态: 0-借阅中, 1-已归还, 2-逾期',
+PRIMARY KEY (`id`),
+KEY `idx_userid` (`userid`),
+KEY `idx_bookid` (`bookid`),
+KEY `idx_status` (`status`),
+CONSTRAINT `fk_borrow_user` FOREIGN KEY (`userid`) REFERENCES `tbl_user` (`uid`) ON DELETE RESTRICT ON UPDATE CASCADE,
+CONSTRAINT `fk_borrow_book` FOREIGN KEY (`bookid`) REFERENCES `tblBook` (`id`) ON DELETE RESTRICT ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='借阅记录表';
 
 -- ============================================================

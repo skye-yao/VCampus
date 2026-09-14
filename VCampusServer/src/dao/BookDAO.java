@@ -80,7 +80,7 @@ public class BookDAO {
         }
     }
     public boolean cancelReservation(String userId, int reservationId) throws SQLException {
-        try (Connection conn = DBUtil.getConnection()) {
+        try (Connection conn = connections.open()) {
             conn.setAutoCommit(false);
             try {
                 int bookId;
@@ -119,13 +119,48 @@ public class BookDAO {
             "WHEN status=1 OR EXISTS (SELECT 1 FROM tblBorrowRecord b WHERE b.bookid=tblBook.id AND b.status IN (0,2) AND b.returnTime IS NULL) THEN 1 " +
             "WHEN status=2 OR EXISTS (SELECT 1 FROM tblReservation r WHERE r.bookid=tblBook.id AND r.status=0) THEN 2 " +
             "ELSE status END";
-    private static final String BOOK_SELECT = "SELECT id,isbn,name,author,publisher,price," + EFFECTIVE_STATUS + " AS status FROM tblBook ";
+    private static final String BOOK_SELECT = "SELECT id,isbn,name,author,publisher,category,price,COALESCE(titleId,id) AS catalogId," + EFFECTIVE_STATUS + " AS status FROM tblBook ";
 
     /** 锁住图书行后再次检查，并在一个事务内完成预约和状态更新。 */
     public boolean reserveAvailableBook(String userId, int bookId) throws SQLException {
         try (Connection conn = connections.open()) {
+            // 等待书目锁之后必须看到前一个预约事务已提交的分配结果。
+            conn.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
             conn.setAutoCommit(false);
             try {
+                int titleId;
+                try (PreparedStatement query = conn.prepareStatement("SELECT COALESCE(titleId,id) FROM tblBook WHERE id=?")) {
+                    query.setInt(1, bookId);
+                    try (ResultSet rows = query.executeQuery()) {
+                        if (!rows.next()) { conn.rollback(); return false; }
+                        titleId = rows.getInt(1);
+                    }
+                }
+                // 同一书目的分配串行化，避免同一读者并发预约不同册。
+                if (!lockBook(conn, titleId)) { conn.rollback(); return false; }
+                List<Integer> copies = new ArrayList<>();
+                try (PreparedStatement query = conn.prepareStatement("SELECT id FROM tblBook WHERE id=? OR titleId=? ORDER BY id FOR UPDATE")) {
+                    query.setInt(1,titleId); query.setInt(2,titleId);
+                    try (ResultSet rows = query.executeQuery()) { while (rows.next()) copies.add(rows.getInt(1)); }
+                }
+                for (int copy : copies) LibraryCirculationDAO.expireBookReservations(conn,copy,java.time.LocalDateTime.now());
+                try (PreparedStatement query = conn.prepareStatement(
+                        "SELECT id FROM tblBook WHERE (id=? OR titleId=?) AND (" +
+                        "EXISTS(SELECT 1 FROM tblReservation r WHERE r.bookid=tblBook.id AND r.userid=? AND r.status=0) OR " +
+                        "EXISTS(SELECT 1 FROM tblBorrowRecord r WHERE r.bookid=tblBook.id AND r.userid=? AND r.status IN(0,2) AND r.returnTime IS NULL))")) {
+                    query.setInt(1,titleId); query.setInt(2,titleId); query.setString(3,userId); query.setString(4,userId);
+                    try (ResultSet rows = query.executeQuery()) {
+                        if (rows.next()) { conn.commit(); throw new exception.BusinessException("您已预约或借阅该书，每种书同时限借一册"); }
+                    }
+                }
+                bookId = 0;
+                try (PreparedStatement query = conn.prepareStatement(BOOK_SELECT + "WHERE id=? OR titleId=? ORDER BY id")) {
+                    query.setInt(1,titleId); query.setInt(2,titleId);
+                    try (ResultSet rows = query.executeQuery()) {
+                        while (rows.next()) if (rows.getInt("status")==0) { bookId=rows.getInt("id"); break; }
+                    }
+                }
+                if (bookId==0) { conn.commit(); return false; }
                 try (PreparedStatement lock = conn.prepareStatement("SELECT id FROM tblBook WHERE id=? FOR UPDATE")) {
                     lock.setInt(1, bookId);
                     try (ResultSet rows = lock.executeQuery()) {
@@ -173,7 +208,7 @@ public class BookDAO {
         ResultSet rs = null;
 
         try {
-            conn = DBUtil.getConnection();
+            conn = connections.open();
             stmt = conn.prepareStatement(sql);
             stmt.setInt(1, id);
 
@@ -199,14 +234,14 @@ public class BookDAO {
     public Book findByIsbn(String isbn) throws SQLException {
 
         String sql =
-                BOOK_SELECT + "WHERE isbn = ?";
+                BOOK_SELECT + "WHERE isbn = ? AND titleId IS NULL";
 
         Connection conn = null;
         PreparedStatement stmt = null;
         ResultSet rs = null;
 
         try {
-            conn = DBUtil.getConnection();
+            conn = connections.open();
             stmt = conn.prepareStatement(sql);
             stmt.setString(1, isbn);
 
@@ -250,7 +285,7 @@ public class BookDAO {
         List<Book> books = new ArrayList<>();
 
         try {
-            conn = DBUtil.getConnection();
+            conn = connections.open();
             stmt = conn.prepareStatement(sql);
 
             String key = "%" + keyword + "%";
@@ -264,8 +299,7 @@ public class BookDAO {
             while (rs.next()) {
                 books.add(mapBook(rs));
             }
-
-            return books;
+            return aggregateCopies(books);
 
         } finally {
             DBUtil.close(conn, stmt, rs);
@@ -282,15 +316,16 @@ public class BookDAO {
 
         String sql =
                 "INSERT INTO tblBook " +
-                        "(isbn, name, author, publisher, status, price) " +
-                        "VALUES (?, ?, ?, ?, ?, ?)";
+                        "(isbn, name, author, publisher, status, price, category, categoryInitialized) " +
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, TRUE)";
 
         Connection conn = null;
         PreparedStatement stmt = null;
         ResultSet rs = null;
 
         try {
-            conn = DBUtil.getConnection();
+            conn = connections.open();
+            conn.setAutoCommit(false);
 
             stmt = conn.prepareStatement(
                     sql,
@@ -303,6 +338,7 @@ public class BookDAO {
             stmt.setString(4, book.getPublisher());
             stmt.setInt(5, book.getStatus());
             stmt.setBigDecimal(6, book.getPrice());
+            stmt.setString(7, book.getCategory());
 
             int rows = stmt.executeUpdate();
 
@@ -313,12 +349,16 @@ public class BookDAO {
                 if (rs.next()) {
                     book.setId(rs.getInt(1));
                 }
-
+                LibrarySchema.initializeCopies(conn, book.getId());
+                conn.commit();
                 return true;
             }
 
+            conn.rollback();
             return false;
-
+        } catch (SQLException | RuntimeException e) {
+            if (conn != null) conn.rollback();
+            throw e;
         } finally {
             DBUtil.close(conn, stmt, rs);
         }
@@ -331,6 +371,14 @@ public class BookDAO {
      * @return 是否修改成功
      */
     public boolean update(Book book) throws SQLException {
+        return update(book, false);
+    }
+
+    public boolean updateCatalog(Book book) throws SQLException {
+        return update(book, true);
+    }
+
+    private boolean update(Book book, boolean metadataOnly) throws SQLException {
         if (book == null || book.getId() <= 0 || book.getStatus() < 0 || book.getStatus() > 3) return false;
         try (Connection conn = connections.open()) {
             conn.setAutoCommit(false);
@@ -346,18 +394,19 @@ public class BookDAO {
                     }
                 }
                 int status = book.getStatus();
-                boolean recovered = currentStatus == 3 && status == 0;
-                if (status != currentStatus && !recovered) {
+                boolean recovered = !metadataOnly && currentStatus == 3 && status == 0;
+                if (!metadataOnly && status != currentStatus && !recovered) {
                     throw new IllegalArgumentException("不合法的状态转换：管理员只能将遗失图书改为可借（找回入库），请刷新后重试");
                 }
                 if (recovered) {
                     LibraryCirculationDAO.recoverBook(conn,id,java.time.LocalDateTime.now());
                 }
                 try (PreparedStatement stmt = conn.prepareStatement(
-                        "UPDATE tblBook SET isbn=?,name=?,author=?,publisher=?,price=? WHERE id=?")) {
+                        "UPDATE tblBook SET isbn=?,name=?,author=?,publisher=?,price=?,category=?,categoryInitialized=TRUE WHERE id=? OR titleId=?")) {
                     stmt.setString(1, book.getIsbn()); stmt.setString(2, book.getName());
                     stmt.setString(3, book.getAuthor()); stmt.setString(4, book.getPublisher());
-                    stmt.setBigDecimal(5,book.getPrice()); stmt.setInt(6, id); stmt.executeUpdate();
+                    stmt.setBigDecimal(5,book.getPrice()); stmt.setString(6,book.getCategory());
+                    stmt.setInt(7, id); stmt.setInt(8,id); stmt.executeUpdate();
                 }
                 conn.commit();
                 return true;
@@ -373,15 +422,16 @@ public class BookDAO {
      */
     public boolean delete(Integer id) throws SQLException {
 
-        String sql = "DELETE FROM tblBook WHERE id = ?";
+        String sql = "DELETE FROM tblBook WHERE id = ? OR titleId = ?";
 
         Connection conn = null;
         PreparedStatement stmt = null;
 
         try {
-            conn = DBUtil.getConnection();
+            conn = connections.open();
             stmt = conn.prepareStatement(sql);
             stmt.setInt(1, id);
+            stmt.setInt(2, id);
 
             return stmt.executeUpdate() > 0;
 
@@ -409,7 +459,7 @@ public class BookDAO {
         PreparedStatement stmt = null;
 
         try {
-            conn = DBUtil.getConnection();
+            conn = connections.open();
             stmt = conn.prepareStatement(sql);
 
             stmt.setInt(1, status);
@@ -431,13 +481,35 @@ public class BookDAO {
         Book book = new Book();
 
         book.setId(rs.getInt("id"));
+        book.setTitleId(rs.getInt("catalogId"));
         book.setIsbn(rs.getString("isbn"));
         book.setName(rs.getString("name"));
         book.setAuthor(rs.getString("author"));
         book.setPublisher(rs.getString("publisher"));
+        book.setCategory(rs.getString("category"));
         book.setPrice(rs.getBigDecimal("price"));
         book.setStatus(rs.getInt("status"));
+        book.setAvailableCopies(book.getStatus()==0 ? 1 : 0);
+        book.getCopyIds().add(book.getId());
 
         return book;
+    }
+
+    static List<Book> aggregateCopies(List<Book> copies) {
+        java.util.Map<Integer,Book> titles = new java.util.LinkedHashMap<>();
+        for (Book copy : copies) {
+            Book title = titles.get(copy.getTitleId());
+            if (title == null) {
+                title = new Book(copy.getTitleId(),copy.getIsbn(),copy.getName(),copy.getAuthor(),copy.getPublisher(),copy.getStatus());
+                title.setPrice(copy.getPrice()); title.setTitleId(copy.getTitleId()); title.setTotalCopies(0);
+                title.setCategory(copy.getCategory());
+                titles.put(title.getId(),title);
+            }
+            title.setTotalCopies(title.getTotalCopies()+1);
+            title.setAvailableCopies(title.getAvailableCopies()+(copy.getStatus()==0?1:0));
+            title.getCopyIds().add(copy.getId());
+        }
+        for (Book title : titles.values()) title.setStatus(title.getAvailableCopies()>0 ? 0 : 1);
+        return new ArrayList<>(titles.values());
     }
 }

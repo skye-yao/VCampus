@@ -68,6 +68,15 @@
 .library-root .table-row-cell:filled:selected { -fx-background-color: #d8e9dd; }
 .library-root .table-cell { -fx-padding: 7 9; -fx-text-fill: #34493d; -fx-border-color: transparent; }
 .library-root .table-row-cell:selected .table-cell { -fx-text-fill: #1f4933; }
+.library-root .catalog-table .column-header { -fx-size: 68; }
+.library-root .category-column-header { -fx-alignment: CENTER_LEFT; -fx-padding: 4 3; }
+.library-root .category-column-header > .label { -fx-padding: 0 2; }
+.library-root .category-filter { -fx-padding: 2 4; -fx-font-size: 11px; -fx-background-color: #ffffff; }
+.library-root .category-filter .list-cell { -fx-padding: 3 5; -fx-background-color: transparent; }
+.library-root .category-badge {
+    -fx-background-color: #e3efe7; -fx-background-radius: 10; -fx-padding: 2 8;
+    -fx-text-fill: #386b56; -fx-font-size: 11px;
+}
 .library-root .list-view { -fx-background-color: white; -fx-border-color: #e1e9e3; -fx-border-radius: 8; -fx-padding: 3; }
 .library-root .list-cell { -fx-background-color: white; -fx-padding: 10; -fx-text-fill: #42574a; }
 .library-root .list-cell:filled { -fx-border-color: transparent transparent #edf1ed transparent; }
