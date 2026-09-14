@@ -4,7 +4,7 @@ import dto.course.admin.approval.AdjustmentRequestDetailDTO;
 import dto.course.admin.approval.AdjustmentRequestPageDTO;
 import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
 import dto.course.admin.approval.ApprovalDecisionRequestDTO;
-import dto.course.admin.approval.ApprovalStatusDTO;
+import dto.course.AdjustmentRequestStatusDTO;
 import model.course.admin.AdminOperationResultView;
 import service.MockAdminCourseService.AdjustmentNotice;
 import service.MockAdminCourseService.AdjustmentRecord;
@@ -43,13 +43,13 @@ public final class MockAdjustmentApprovalServiceTest {
     private static void verifySeededWorkflow() {
         MockAdminCourseService service = new MockAdminCourseService();
         require(service.getAdjustmentRequest(PENDING_CLEAN).join().getStatus()
-                        == ApprovalStatusDTO.PENDING,
+                        == AdjustmentRequestStatusDTO.PENDING,
                 "the seeded clean request must be PENDING");
         require(service.getAdjustmentRequest(SEEDED_APPROVED).join().getStatus()
-                        == ApprovalStatusDTO.APPROVED,
+                        == AdjustmentRequestStatusDTO.APPROVED,
                 "the seeded approved request must be APPROVED");
         require(service.getAdjustmentRequest(SEEDED_REJECTED).join().getStatus()
-                        == ApprovalStatusDTO.REJECTED,
+                        == AdjustmentRequestStatusDTO.REJECTED,
                 "the seeded rejected request must be REJECTED");
         require(service.adjustmentRecords().isEmpty() && service.adjustmentNotices().isEmpty(),
                 "seeding must not fabricate an adjustment or a notice");
@@ -82,13 +82,13 @@ public final class MockAdjustmentApprovalServiceTest {
                         && "T1001".equals(summary.getApplicantUid())
                         && "张老师".equals(summary.getApplicantName())
                         && summary.getTargetWeekCount() == 2
-                        && summary.getStatus() == ApprovalStatusDTO.PENDING,
+                        && summary.getStatus() == AdjustmentRequestStatusDTO.PENDING,
                 "the summary must join the offering, course and applicant display data");
 
-        require(service.listAdjustmentRequestsPage(ApprovalStatusDTO.APPROVED, 1, 20).join()
+        require(service.listAdjustmentRequestsPage(AdjustmentRequestStatusDTO.APPROVED, 1, 20).join()
                         .getTotalCount() == 1,
                 "an explicit status filter must isolate that status");
-        require(service.listAdjustmentRequestsPage(ApprovalStatusDTO.PENDING, 2, 1).join()
+        require(service.listAdjustmentRequestsPage(AdjustmentRequestStatusDTO.PENDING, 2, 1).join()
                         .getItems().get(0).getRequestId().equals(PENDING_CONFLICTED),
                 "the second page must slice the ordered pending set");
         require(service.listAdjustmentRequests(null, 1, 20).join().size() == 2,
@@ -115,7 +115,7 @@ public final class MockAdjustmentApprovalServiceTest {
                 service.reviewAdjustmentRequest(decision(
                         "50000000-0000-0000-0000-000000000003", PENDING_CLEAN, 1, false, false, null,
                         "  材料不足  ")).join();
-        require(ApprovalStatusDTO.REJECTED == rejected.getEntity().getStatus()
+        require(AdjustmentRequestStatusDTO.REJECTED == rejected.getEntity().getStatus()
                         && rejected.getEntity().getVersion() == 2
                         && "材料不足".equals(rejected.getEntity().getReviewComment())
                         && ADMIN.equals(rejected.getEntity().getReviewedBy()),
@@ -123,7 +123,7 @@ public final class MockAdjustmentApprovalServiceTest {
         require(service.adjustmentRecords().isEmpty() && service.adjustmentNotices().isEmpty(),
                 "a rejection must produce neither an adjustment nor a notice");
         require(service.getAdjustmentRequest(PENDING_CLEAN).join().getStatus()
-                        == ApprovalStatusDTO.REJECTED,
+                        == AdjustmentRequestStatusDTO.REJECTED,
                 "the decision must be visible through the detail read");
     }
 
@@ -147,7 +147,7 @@ public final class MockAdjustmentApprovalServiceTest {
                 service.reviewAdjustmentRequest(decision(
                         "50000000-0000-0000-0000-000000000006", PENDING_CONFLICTED, 1, true, true,
                         "  已协调教师  ", "同意")).join();
-        require(ApprovalStatusDTO.APPROVED == approved.getEntity().getStatus()
+        require(AdjustmentRequestStatusDTO.APPROVED == approved.getEntity().getStatus()
                         && approved.getEntity().getVersion() == 2
                         && ADMIN.equals(approved.getEntity().getReviewedBy())
                         && "同意".equals(approved.getEntity().getReviewComment()),
@@ -172,7 +172,7 @@ public final class MockAdjustmentApprovalServiceTest {
                         && notices.get(0).content().contains("新安排：星期1 第3-4节"),
                 "an approval must publish exactly one linked rescheduled notice");
         AdjustmentRequestPageDTO pending = service.listAdjustmentRequestsPage(
-                ApprovalStatusDTO.PENDING, 1, 20).join();
+                AdjustmentRequestStatusDTO.PENDING, 1, 20).join();
         require(pending.getTotalCount() == 1
                         && PENDING_CLEAN.equals(pending.getItems().get(0).getRequestId()),
                 "the approved request must leave the pending queue and keep the other one in it");

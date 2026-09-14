@@ -8,6 +8,7 @@ import dto.course.admin.approval.AdjustmentRequestPageDTO;
 import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
 import dto.course.admin.approval.ApprovalDecisionRequestDTO;
 import dto.course.admin.approval.ApprovalStatusDTO;
+import dto.course.AdjustmentRequestStatusDTO;
 import dto.course.admin.approval.GradeSubmissionDetailDTO;
 import dto.course.admin.approval.GradeSubmissionPageDTO;
 import dto.course.admin.approval.GradeSubmissionSummaryDTO;
@@ -133,14 +134,14 @@ public interface AdminCourseService {
     }
 
     default CompletableFuture<List<AdjustmentRequestSummaryDTO>> listAdjustmentRequests(
-            ApprovalStatusDTO status, int page, int size) {
+            AdjustmentRequestStatusDTO status, int page, int size) {
         return listAdjustmentRequestsPage(status, page, size)
                 .thenApply(AdjustmentRequestPageDTO::getItems);
     }
 
     // Defaults keep existing implementations compatible until approval transport is provided.
     default CompletableFuture<AdjustmentRequestPageDTO> listAdjustmentRequestsPage(
-            ApprovalStatusDTO status, int page, int size) {
+            AdjustmentRequestStatusDTO status, int page, int size) {
         throw new UnsupportedOperationException("listAdjustmentRequestsPage");
     }
 

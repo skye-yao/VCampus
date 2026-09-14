@@ -10,6 +10,7 @@ import dto.course.admin.approval.AdjustmentRequestDetailDTO;
 import dto.course.admin.approval.AdjustmentRequestPageDTO;
 import dto.course.admin.approval.ApprovalDecisionRequestDTO;
 import dto.course.admin.approval.ApprovalStatusDTO;
+import dto.course.AdjustmentRequestStatusDTO;
 import dto.course.admin.approval.GradeDistributionBucketDTO;
 import dto.course.admin.approval.GradeSubmissionDetailDTO;
 import dto.course.admin.approval.GradeSubmissionItemDTO;
@@ -454,7 +455,7 @@ public final class GradeApprovalControllerTest {
 
         @Override
         public CompletableFuture<AdjustmentRequestPageDTO> listAdjustmentRequestsPage(
-                ApprovalStatusDTO status, int pageNumber, int size) {
+                AdjustmentRequestStatusDTO status, int pageNumber, int size) {
             listCalls.add(status + "|" + pageNumber + "|" + size);
             return CompletableFuture.completedFuture(
                     new AdjustmentRequestPageDTO(List.of(), 0, pageNumber, size));

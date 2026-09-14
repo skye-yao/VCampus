@@ -7,7 +7,7 @@ import com.google.gson.reflect.TypeToken;
 import dto.course.CourseActions;
 import dto.course.admin.AdminCourseActions;
 import dto.course.admin.approval.AdjustmentRequestDetailDTO;
-import dto.course.admin.approval.ApprovalStatusDTO;
+import dto.course.AdjustmentRequestStatusDTO;
 import dto.course.CourseNoticeDTO;
 import dto.course.ScheduleDisplayKindDTO;
 import dto.course.ScheduleEntryDTO;
@@ -158,7 +158,7 @@ public final class ScheduleAdjustmentSocketEndToEndTest {
         AdjustmentRequestDetailDTO request = GSON.fromJson(
                 GSON.toJsonTree(detail.getData("adjustmentRequest")),
                 AdjustmentRequestDetailDTO.class);
-        require(request.getStatus() == ApprovalStatusDTO.PENDING && request.getVersion() == 1
+        require(request.getStatus() == AdjustmentRequestStatusDTO.PENDING && request.getVersion() == 1
                         && request.getTargets().size() == 2
                         && "980601".equals(request.getTargets().get(0).getOriginalOccurrenceId())
                         && "980603".equals(request.getTargets().get(1).getOriginalOccurrenceId()),
@@ -181,7 +181,7 @@ public final class ScheduleAdjustmentSocketEndToEndTest {
         AdjustmentRequestDetailDTO result = GSON.fromJson(
                 GSON.toJsonTree(approved.getData("result")).getAsJsonObject().get("entity"),
                 AdjustmentRequestDetailDTO.class);
-        require(result.getStatus() == ApprovalStatusDTO.APPROVED && result.getVersion() == 2,
+        require(result.getStatus() == AdjustmentRequestStatusDTO.APPROVED && result.getVersion() == 2,
                 "the approved entity must advance to APPROVED v2");
         require(ADMIN_A.equals(result.getReviewedBy()),
                 "the reviewer must be the authenticated administrator, saw " + result.getReviewedBy());

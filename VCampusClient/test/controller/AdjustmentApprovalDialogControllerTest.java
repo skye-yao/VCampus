@@ -3,7 +3,7 @@ package controller;
 import java.util.List;
 import dto.course.admin.approval.AdjustmentRequestDetailDTO;
 import dto.course.admin.approval.AdjustmentTargetDTO;
-import dto.course.admin.approval.ApprovalStatusDTO;
+import dto.course.AdjustmentRequestStatusDTO;
 import dto.course.admin.schedule.ScheduleConflictDTO;
 import dto.course.admin.schedule.ScheduleConflictSeverityDTO;
 import dto.course.admin.schedule.ScheduleResourceDTO;
@@ -20,7 +20,7 @@ public final class AdjustmentApprovalDialogControllerTest {
     }
 
     private static void showsEveryTargetWeekSideBySide() {
-        AdjustmentRequestDetailDTO detail = detail("教师出差", ApprovalStatusDTO.PENDING,
+        AdjustmentRequestDetailDTO detail = detail("教师出差", AdjustmentRequestStatusDTO.PENDING,
                 List.of(target("8001", 1, "2026-09-08T00:00:00Z", "张老师"),
                         target("8002", 3, "2026-09-22T00:00:00Z", "张老师")),
                 List.of(conflict()));
@@ -50,7 +50,7 @@ public final class AdjustmentApprovalDialogControllerTest {
     }
 
     private static void reusesTheApprovalControllerText() {
-        AdjustmentRequestDetailDTO detail = detail("教师出差", ApprovalStatusDTO.PENDING,
+        AdjustmentRequestDetailDTO detail = detail("教师出差", AdjustmentRequestStatusDTO.PENDING,
                 List.of(target("8001", 1, "2026-09-08T00:00:00Z", "张老师")), List.of(conflict()));
 
         require(AdminApprovalController.conflictLines(detail.getConflicts()).size() == 1
@@ -63,7 +63,7 @@ public final class AdjustmentApprovalDialogControllerTest {
 
     private static void coversMissingResourcesAndReasons() {
         AdjustmentRequestDetailDTO bare = new AdjustmentRequestDetailDTO("970702", "2001", "T1001",
-                "  ", ApprovalStatusDTO.APPROVED, 1, 2, 1, 2, null, null, null,
+                "  ", AdjustmentRequestStatusDTO.APPROVED, 1, 2, 1, 2, null, null, null,
                 List.of(new AdjustmentTargetDTO("8003", 2, "2026-09-15T00:00:00Z",
                         "2026-09-15T01:35:00Z", null, null, null)),
                 List.of(), "2026-09-10T02:00:00Z", null, null, null);
@@ -82,7 +82,7 @@ public final class AdjustmentApprovalDialogControllerTest {
                 "a request without conflicts must say so explicitly");
     }
 
-    private static AdjustmentRequestDetailDTO detail(String reason, ApprovalStatusDTO status,
+    private static AdjustmentRequestDetailDTO detail(String reason, AdjustmentRequestStatusDTO status,
             List<AdjustmentTargetDTO> targets, List<ScheduleConflictDTO> conflicts) {
         return new AdjustmentRequestDetailDTO("970701", "2001", "T1001", reason, status, 3, 5, 3, 4,
                 new ScheduleResourceDTO("T2001", "T2001", "李老师", "teacher", 0),

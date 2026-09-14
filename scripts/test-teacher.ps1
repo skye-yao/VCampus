@@ -102,7 +102,15 @@ $suites = @(
         # 只登记冒烟类：ui.TeacherCourseUiPreview 是人工预览工具且不注册进任何套件。同一个冒烟类
         # 同时出现在 Foundation.Gui 与这里是有意的重复，跨套件重复有先例。
         Gui = @('ui.TeacherCourseUiSmokeTest') }
-    [pscustomobject]@{ Name = 'Adjustment'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }
+    # 调课套件：先建立公共契约（跨周目标日期、四态状态、精确 ID、不可变 targets）与 V006 迁移契约。
+    # ScheduleAdjustmentApprovalHandlerTest 是 DB-free 的旧审批回归：调课 DTO 迁到四态后必须证明
+    # 管理员审批接口仍然可用。V006 迁移测试自带 `mysql` 开关，只有 -WithMySql 才跑真实库。
+    [pscustomobject]@{ Name = 'Adjustment'
+        Common = @('dto.course.teacher.TeacherAdjustmentDtoJsonTest')
+        Client = @()
+        Server = @('database.TeacherAdjustmentMigrationTest',
+            'handler.ScheduleAdjustmentApprovalHandlerTest')
+        Tcp = @(); Gui = @() }
     [pscustomobject]@{ Name = 'GradeBook'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }
     [pscustomobject]@{ Name = 'ImportExport'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }
     [pscustomobject]@{ Name = 'Applications'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }

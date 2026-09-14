@@ -10,6 +10,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
+import dto.course.AdjustmentRequestStatusDTO;
 import dto.course.admin.catalog.CourseEditorRequestDTO;
 import dto.course.admin.AdminCourseActions;
 import dto.course.admin.approval.AdjustmentRequestDetailDTO;
@@ -1078,9 +1079,10 @@ public final class MockAdminCourseService implements AdminCourseService {
 
     @Override
     public CompletableFuture<AdjustmentRequestPageDTO> listAdjustmentRequestsPage(
-            ApprovalStatusDTO status, int page, int size) {
+            AdjustmentRequestStatusDTO status, int page, int size) {
         try {
-            ApprovalStatusDTO filter = status == null ? ApprovalStatusDTO.PENDING : status;
+            AdjustmentRequestStatusDTO filter = status == null
+                    ? AdjustmentRequestStatusDTO.PENDING : status;
             if (page < 1) throw badRequest("页码必须大于 0");
             if (size < 1 || size > 100) throw badRequest("每页条数必须为 1 至 100");
             List<AdjustmentRequestSummaryDTO> matching = new ArrayList<>();
@@ -1128,7 +1130,7 @@ public final class MockAdminCourseService implements AdminCourseService {
             AdminOperationResultView<AdjustmentRequestDetailDTO> result;
             if (!request.isApproved()) {
                 result = rememberAdjustment(request.getOperationId(), "调课申请已驳回", intent,
-                        decideAdjustment(current, ApprovalStatusDTO.REJECTED, request.getReviewComment()));
+                        decideAdjustment(current, AdjustmentRequestStatusDTO.REJECTED, request.getReviewComment()));
             } else {
                 boolean blocking = conflicts.stream().anyMatch(
                         risk -> risk.getSeverity() == ScheduleConflictSeverityDTO.BLOCKING);
@@ -1139,7 +1141,7 @@ public final class MockAdminCourseService implements AdminCourseService {
                             current, conflicts);
                 }
                 AdjustmentRequestDetailDTO approved = decideAdjustment(current,
-                        ApprovalStatusDTO.APPROVED, request.getReviewComment());
+                        AdjustmentRequestStatusDTO.APPROVED, request.getReviewComment());
                 for (AdjustmentTargetDTO target : approved.getTargets()) {
                     adjustmentRecordings.put(target.getOriginalOccurrenceId(), new AdjustmentRecord(
                             Long.toString(nextAdjustmentId++), approved.getRequestId(),
@@ -1170,7 +1172,7 @@ public final class MockAdminCourseService implements AdminCourseService {
     }
 
     private void requirePending(AdjustmentRequestDetailDTO current, int expectedVersion) {
-        if (current.getStatus() != ApprovalStatusDTO.PENDING) {
+        if (current.getStatus() != AdjustmentRequestStatusDTO.PENDING) {
             throw new AdminCourseServiceException(MessageCode.CONFLICT, "调课申请已被处理，请刷新后重试",
                     current, current.getConflicts());
         }
@@ -1182,7 +1184,7 @@ public final class MockAdminCourseService implements AdminCourseService {
 
     /** Records the decision and republishes the request under its new immutable snapshot. */
     private AdjustmentRequestDetailDTO decideAdjustment(AdjustmentRequestDetailDTO current,
-            ApprovalStatusDTO status, String reviewComment) {
+            AdjustmentRequestStatusDTO status, String reviewComment) {
         AdjustmentRequestDetailDTO decided = new AdjustmentRequestDetailDTO(current.getRequestId(),
                 current.getOfferingId(), current.getApplicantUid(), current.getReason(), status,
                 current.getVersion() + 1, current.getNewDayOfWeek(), current.getNewStartPeriod(),
@@ -1278,14 +1280,14 @@ public final class MockAdminCourseService implements AdminCourseService {
 
     private void seedAdjustmentRequests() {
         addAdjustmentRequest(new AdjustmentRequestDetailDTO("9001", "1001", "T1001", "带队参加学科竞赛",
-                ApprovalStatusDTO.PENDING, 1, 5, 1, 2,
+                AdjustmentRequestStatusDTO.PENDING, 1, 5, 1, 2,
                 new ScheduleResourceDTO("8001", "T1001", "张老师", TEACHER_RESOURCE, 0), null,
                 new ScheduleResourceDTO("8101", "3001", "A-101", CLASSROOM_RESOURCE, 120),
                 List.of(target("7001", 1, "2026-09-08T00:00:00Z", "张老师"),
                         target("7002", 2, "2026-09-15T00:00:00Z", "张老师")),
                 List.of(), "2026-09-10T09:00:00Z", null, null, null));
         addAdjustmentRequest(new AdjustmentRequestDetailDTO("9002", "2002", "T2003", "临时出差",
-                ApprovalStatusDTO.PENDING, 1, 1, 3, 4,
+                AdjustmentRequestStatusDTO.PENDING, 1, 1, 3, 4,
                 new ScheduleResourceDTO("8003", "T2003", "王老师", TEACHER_RESOURCE, 0), null, null,
                 List.of(target("7003", 3, "2026-09-22T02:00:00Z", "王老师")),
                 List.of(new ScheduleConflictDTO("TEACHER_OVERLAP",
@@ -1293,12 +1295,12 @@ public final class MockAdminCourseService implements AdminCourseService {
                         "任课教师在该时间已有其他课程")),
                 "2026-09-10T08:00:00Z", null, null, null));
         addAdjustmentRequest(new AdjustmentRequestDetailDTO("9003", "3001", "T3001", "实验室检修",
-                ApprovalStatusDTO.APPROVED, 2, 3, 1, 2,
+                AdjustmentRequestStatusDTO.APPROVED, 2, 3, 1, 2,
                 new ScheduleResourceDTO("8005", "T3001", "赵老师", TEACHER_RESOURCE, 0), null, null,
                 List.of(target("7004", 4, "2026-09-29T00:00:00Z", "赵老师")),
                 List.of(), "2026-09-10T07:00:00Z", REVIEWER, MOCK_NOW, "同意"));
         addAdjustmentRequest(new AdjustmentRequestDetailDTO("9004", "1001", "T1001", "材料不足的申请",
-                ApprovalStatusDTO.REJECTED, 2, 2, 1, 2,
+                AdjustmentRequestStatusDTO.REJECTED, 2, 2, 1, 2,
                 new ScheduleResourceDTO("8001", "T1001", "张老师", TEACHER_RESOURCE, 0), null,
                 new ScheduleResourceDTO("8101", "3001", "A-101", CLASSROOM_RESOURCE, 120),
                 List.of(target("7005", 5, "2026-10-06T00:00:00Z", "张老师")),

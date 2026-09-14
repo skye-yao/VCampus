@@ -9,6 +9,7 @@ import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import dto.course.AdjustmentRequestStatusDTO;
 import dto.course.admin.approval.AdjustmentRequestDetailDTO;
 import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
 import dto.course.admin.approval.AdjustmentTargetDTO;
@@ -44,6 +45,8 @@ public final class AdminApprovalController {
     static final String PENDING_LABEL = "待审批";
     static final String APPROVED_LABEL = "已通过";
     static final String REJECTED_LABEL = "已驳回";
+    /** 教师撤销是调课独有的终态，成绩审批没有这个状态。 */
+    static final String WITHDRAWN_LABEL = "已撤销";
     static final int PAGE_SIZE = 20;
 
     private final AdminCourseService service;
@@ -53,7 +56,7 @@ public final class AdminApprovalController {
     private final Consumer<Runnable> fxExecutor;
     private final Function<ReviewPrompt, String> textPrompt;
 
-    private ApprovalStatusDTO status = ApprovalStatusDTO.PENDING;
+    private AdjustmentRequestStatusDTO status = AdjustmentRequestStatusDTO.PENDING;
     private int page = 1;
     private long totalCount;
     private List<AdjustmentRequestSummaryDTO> requests = List.of();
@@ -130,7 +133,8 @@ public final class AdminApprovalController {
     void showGrades() {
         setTab(false);
         // 只把当前共享筛选交给刚激活的子页；隐藏的调课页不刷新。
-        if (gradePageController != null) gradePageController.activate(status);
+        // 成绩页沿用三态枚举，共享筛选只可能是它与调课四态共有的三个状态。
+        if (gradePageController != null) gradePageController.activate(gradeStatus(status));
     }
 
     @FXML
@@ -160,13 +164,13 @@ public final class AdminApprovalController {
     }
 
     void applyStatus(String label) {
-        ApprovalStatusDTO next = toStatus(label);
+        AdjustmentRequestStatusDTO next = toStatus(label);
         if (next == status) {
             return;
         }
         status = next; // 共享筛选；切换标签页时新激活的子页会拿到同一个值
         if (gradeActive) {
-            if (gradePageController != null) gradePageController.loadPage(next, 1);
+            if (gradePageController != null) gradePageController.loadPage(gradeStatus(next), 1);
             return;
         }
         loadPage(next, 1);
@@ -182,7 +186,7 @@ public final class AdminApprovalController {
      */
     void review(boolean approved, boolean force, String reviewComment, String overrideReason) {
         AdjustmentRequestDetailDTO current = detail;
-        if (current == null || current.getStatus() != ApprovalStatusDTO.PENDING) {
+        if (current == null || current.getStatus() != AdjustmentRequestStatusDTO.PENDING) {
             return;
         }
         if (!approved && isBlank(reviewComment)) {
@@ -208,7 +212,7 @@ public final class AdminApprovalController {
                 }));
     }
 
-    void loadPage(ApprovalStatusDTO nextStatus, int nextPage) {
+    void loadPage(AdjustmentRequestStatusDTO nextStatus, int nextPage) {
         this.status = nextStatus;
         this.page = Math.max(1, nextPage);
         long generation = ++listGeneration;
@@ -315,7 +319,7 @@ public final class AdminApprovalController {
                 detailBody.getChildren().add(label);
             }
         }
-        boolean actionable = value.getStatus() == ApprovalStatusDTO.PENDING;
+        boolean actionable = value.getStatus() == AdjustmentRequestStatusDTO.PENDING;
         enable(approveButton, actionable);
         enable(rejectButton, actionable);
         enable(forceApproveButton, actionable);
@@ -418,18 +422,32 @@ public final class AdminApprovalController {
         return value == null || value.isBlank() ? "—" : value;
     }
 
-    static ApprovalStatusDTO toStatus(String label) {
-        if (APPROVED_LABEL.equals(label)) return ApprovalStatusDTO.APPROVED;
-        if (REJECTED_LABEL.equals(label)) return ApprovalStatusDTO.REJECTED;
-        return ApprovalStatusDTO.PENDING;
+    static AdjustmentRequestStatusDTO toStatus(String label) {
+        if (APPROVED_LABEL.equals(label)) return AdjustmentRequestStatusDTO.APPROVED;
+        if (REJECTED_LABEL.equals(label)) return AdjustmentRequestStatusDTO.REJECTED;
+        return AdjustmentRequestStatusDTO.PENDING;
     }
 
-    static String statusLabel(ApprovalStatusDTO status) {
+    /**
+     * 调课状态是四态：教师撤销也必须能显示，不能被当成管理员驳回。
+     */
+    static String statusLabel(AdjustmentRequestStatusDTO status) {
         return switch (status) {
             case APPROVED -> APPROVED_LABEL;
             case REJECTED -> REJECTED_LABEL;
+            case WITHDRAWN -> WITHDRAWN_LABEL;
             case PENDING -> PENDING_LABEL;
         };
+    }
+
+    /** 成绩审批沿用三态枚举，按枚举名复用同一套标签，三态里没有 WITHDRAWN。 */
+    static String statusLabel(ApprovalStatusDTO status) {
+        return statusLabel(status == null ? null : AdjustmentRequestStatusDTO.valueOf(status.name()));
+    }
+
+    /** 共享筛选只可能落在两个枚举共有的三个状态上，按枚举名交给成绩页。 */
+    private static ApprovalStatusDTO gradeStatus(AdjustmentRequestStatusDTO status) {
+        return status == null ? null : ApprovalStatusDTO.valueOf(status.name());
     }
 
     private static String weekdayName(int dayOfWeek) {
@@ -486,7 +504,7 @@ public final class AdminApprovalController {
         return detail;
     }
 
-    ApprovalStatusDTO status() {
+    AdjustmentRequestStatusDTO status() {
         return status;
     }
 

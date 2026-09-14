@@ -10,7 +10,7 @@ import dto.course.admin.approval.AdjustmentRequestPageDTO;
 import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
 import dto.course.admin.approval.AdjustmentTargetDTO;
 import dto.course.admin.approval.ApprovalDecisionRequestDTO;
-import dto.course.admin.approval.ApprovalStatusDTO;
+import dto.course.AdjustmentRequestStatusDTO;
 import dto.course.admin.result.AdminOperationResultDTO;
 import dto.course.admin.schedule.ScheduleConflictDTO;
 import dto.course.admin.schedule.ScheduleSlotDTO;
@@ -96,10 +96,10 @@ public class ScheduleAdjustmentApprovalService {
 
     // ------------------------------------------------------------------- reads
 
-    public AdjustmentRequestPageDTO listRequests(ApprovalStatusDTO status, int page, int size) {
+    public AdjustmentRequestPageDTO listRequests(AdjustmentRequestStatusDTO status, int page, int size) {
         if (page < 1) throw new IllegalArgumentException("页码必须大于 0");
         if (size < 1 || size > 100) throw new IllegalArgumentException("每页条数必须为 1 至 100");
-        ApprovalStatusDTO filter = status == null ? ApprovalStatusDTO.PENDING : status;
+        AdjustmentRequestStatusDTO filter = status == null ? AdjustmentRequestStatusDTO.PENDING : status;
         try (Connection connection = DBUtil.getConnection()) {
             long total = dao.countRequests(connection, filter);
             List<AdjustmentRequestSummaryDTO> items =
@@ -117,7 +117,7 @@ public class ScheduleAdjustmentApprovalService {
             if (row == null) throw new NotFoundException("调课申请不存在");
             List<ScheduleAdjustmentDAO.TargetRow> targets = dao.listTargets(connection, id);
             Assessment assessment = inspect(connection, row, targets, new Calendars(dao));
-            List<ScheduleConflictDTO> found = row.status() == ApprovalStatusDTO.PENDING
+            List<ScheduleConflictDTO> found = row.status() == AdjustmentRequestStatusDTO.PENDING
                     ? assessment.conflicts() : List.of();
             return detail(connection, row, targets, found);
         } catch (SQLException failure) {
@@ -176,7 +176,7 @@ public class ScheduleAdjustmentApprovalService {
         ScheduleAdjustmentDAO.RequestRow row = dao.findRequest(connection, requestId);
         if (row == null) throw new NotFoundException("调课申请不存在");
         List<ScheduleAdjustmentDAO.TargetRow> targets = dao.listTargets(connection, requestId);
-        if (row.status() != ApprovalStatusDTO.PENDING) {
+        if (row.status() != AdjustmentRequestStatusDTO.PENDING) {
             Assessment current = inspect(connection, row, targets, calendars);
             throw conflict("调课申请已被处理，请刷新后重试", connection, row, targets, current.conflicts());
         }
@@ -220,7 +220,7 @@ public class ScheduleAdjustmentApprovalService {
             ScheduleAdjustmentDAO.RequestRow row, List<ScheduleAdjustmentDAO.TargetRow> targets)
             throws SQLException {
         int affected = dao.updateDecision(connection, row.requestId(), request.getExpectedVersion(),
-                ApprovalStatusDTO.REJECTED, admin, clock.instant(), request.getReviewComment());
+                AdjustmentRequestStatusDTO.REJECTED, admin, clock.instant(), request.getReviewComment());
         if (affected == 0) throw new ConflictException("调课申请状态已变化，请刷新后重试");
         ScheduleAdjustmentDAO.RequestRow decided = dao.findRequest(connection, row.requestId());
         AdjustmentRequestDetailDTO entity = detail(connection, decided, targets, List.of());
@@ -254,7 +254,7 @@ public class ScheduleAdjustmentApprovalService {
                     window.start(), window.end(), teacher, assistant, classroom);
         }
         int affected = dao.updateDecision(connection, row.requestId(), request.getExpectedVersion(),
-                ApprovalStatusDTO.APPROVED, admin, clock.instant(), request.getReviewComment());
+                AdjustmentRequestStatusDTO.APPROVED, admin, clock.instant(), request.getReviewComment());
         if (affected == 0) throw new ConflictException("调课申请状态已变化，请刷新后重试");
         dao.insertNotice(connection, row.requestId(), row.offeringId(), admin, NOTICE_TITLE,
                 noticeContent(connection, row, targets, assessment, calendars), clock.instant());

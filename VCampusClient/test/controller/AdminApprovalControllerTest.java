@@ -13,7 +13,7 @@ import dto.course.admin.approval.AdjustmentRequestPageDTO;
 import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
 import dto.course.admin.approval.AdjustmentTargetDTO;
 import dto.course.admin.approval.ApprovalDecisionRequestDTO;
-import dto.course.admin.approval.ApprovalStatusDTO;
+import dto.course.AdjustmentRequestStatusDTO;
 import dto.course.admin.catalog.CourseEditorRequestDTO;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
 import dto.course.admin.schedule.ScheduleConflictDTO;
@@ -44,10 +44,10 @@ public final class AdminApprovalControllerTest {
 
     private static void testDefaultFilterAndRendering() {
         ControlledService service = new ControlledService();
-        service.page = page(ApprovalStatusDTO.PENDING, 2, 20, summary("970701"), summary("970702"));
+        service.page = page(AdjustmentRequestStatusDTO.PENDING, 2, 20, summary("970701"), summary("970702"));
         AdminApprovalController controller = controller(service, new Recorder(), "驳回意见");
 
-        controller.loadPage(ApprovalStatusDTO.PENDING, 1);
+        controller.loadPage(AdjustmentRequestStatusDTO.PENDING, 1);
 
         require(service.listCalls.size() == 1 && "PENDING|1|20".equals(service.listCalls.get(0)),
                 "the pending filter must load page 1 at the shared page size, saw "
@@ -55,7 +55,7 @@ public final class AdminApprovalControllerTest {
         require(controller.requests().size() == 2 && controller.totalCount() == 2
                         && !controller.loading() && controller.errorText() == null,
                 "the loaded page must be rendered without an error state");
-        require(controller.status() == ApprovalStatusDTO.PENDING && controller.page() == 1,
+        require(controller.status() == AdjustmentRequestStatusDTO.PENDING && controller.page() == 1,
                 "the controller must remember the active filter");
         require(controller.detail() == null,
                 "no request is selected until a row is clicked");
@@ -63,7 +63,7 @@ public final class AdminApprovalControllerTest {
 
     private static void testStatusFilterAndConflictsReachTheService() {
         ControlledService service = new ControlledService();
-        service.page = page(ApprovalStatusDTO.APPROVED, 1, 20, summary("970701"));
+        service.page = page(AdjustmentRequestStatusDTO.APPROVED, 1, 20, summary("970701"));
         AdminApprovalController controller = controller(service, new Recorder(), null);
 
         controller.applyStatus(AdminApprovalController.APPROVED_LABEL);
@@ -86,10 +86,10 @@ public final class AdminApprovalControllerTest {
         CompletableFuture<AdjustmentRequestPageDTO> newer = new CompletableFuture<>();
         service.pages.addLast(older);
         service.pages.addLast(newer);
-        controller.loadPage(ApprovalStatusDTO.PENDING, 1);
-        controller.loadPage(ApprovalStatusDTO.REJECTED, 1);
-        older.complete(page(ApprovalStatusDTO.PENDING, 1, 20, summary("970701")));
-        newer.complete(page(ApprovalStatusDTO.REJECTED, 1, 20, summary("970702"),
+        controller.loadPage(AdjustmentRequestStatusDTO.PENDING, 1);
+        controller.loadPage(AdjustmentRequestStatusDTO.REJECTED, 1);
+        older.complete(page(AdjustmentRequestStatusDTO.PENDING, 1, 20, summary("970701")));
+        newer.complete(page(AdjustmentRequestStatusDTO.REJECTED, 1, 20, summary("970702"),
                 summary("970703")));
 
         require(controller.requests().size() == 2
@@ -103,7 +103,7 @@ public final class AdminApprovalControllerTest {
         service.pages.addLast(CompletableFuture.failedFuture(
                 new AdminCourseServiceException(MessageCode.ERROR, "审批服务暂不可用")));
 
-        controller.loadPage(ApprovalStatusDTO.PENDING, 1);
+        controller.loadPage(AdjustmentRequestStatusDTO.PENDING, 1);
 
         require("审批服务暂不可用".equals(controller.errorText())
                         && controller.requests().isEmpty() && !controller.loading(),
@@ -181,13 +181,13 @@ public final class AdminApprovalControllerTest {
         AdminApprovalController controller = controller(service, recorder, null);
         controller.loadDetail("970701");
 
-        AdjustmentRequestDetailDTO approved = detail(ApprovalStatusDTO.APPROVED, List.of());
+        AdjustmentRequestDetailDTO approved = detail(AdjustmentRequestStatusDTO.APPROVED, List.of());
         service.reviews.addLast(CompletableFuture.failedFuture(new AdminCourseServiceException(
                 MessageCode.CONFLICT, "调课申请已被处理，请刷新后重试", approved, List.of())));
         controller.approveSelected();
 
         require(controller.detail() != null
-                        && controller.detail().getStatus() == ApprovalStatusDTO.APPROVED,
+                        && controller.detail().getStatus() == AdjustmentRequestStatusDTO.APPROVED,
                 "a conflict must render the latest server state");
         require(recorder.lastError() != null
                         && recorder.lastError().contains("调课申请已被处理"),
@@ -206,15 +206,15 @@ public final class AdminApprovalControllerTest {
 
     private static AdjustmentRequestSummaryDTO summary(String requestId) {
         return new AdjustmentRequestSummaryDTO(requestId, "数据结构", "OFF-1001", "T1001", "张老师",
-                2, ApprovalStatusDTO.PENDING, "2026-09-10T02:00:00Z");
+                2, AdjustmentRequestStatusDTO.PENDING, "2026-09-10T02:00:00Z");
     }
 
-    private static AdjustmentRequestPageDTO page(ApprovalStatusDTO status, int number, int size,
+    private static AdjustmentRequestPageDTO page(AdjustmentRequestStatusDTO status, int number, int size,
             AdjustmentRequestSummaryDTO... items) {
         return new AdjustmentRequestPageDTO(List.of(items), items.length, number, size);
     }
 
-    private static AdjustmentRequestDetailDTO detail(ApprovalStatusDTO status,
+    private static AdjustmentRequestDetailDTO detail(AdjustmentRequestStatusDTO status,
                                                      List<ScheduleConflictDTO> conflicts) {
         return new AdjustmentRequestDetailDTO("970701", "2001", "T1001", "教师出差", status, 3, 5, 3, 4,
                 new ScheduleResourceDTO("T2001", "T2001", "李老师", "teacher", 0), null,
@@ -323,7 +323,7 @@ public final class AdminApprovalControllerTest {
 
         @Override
         public CompletableFuture<AdjustmentRequestPageDTO> listAdjustmentRequestsPage(
-                ApprovalStatusDTO status, int pageNumber, int size) {
+                AdjustmentRequestStatusDTO status, int pageNumber, int size) {
             listCalls.add(status + "|" + pageNumber + "|" + size);
             if (!pages.isEmpty()) return pages.removeFirst();
             return CompletableFuture.completedFuture(page == null
@@ -335,7 +335,7 @@ public final class AdminApprovalControllerTest {
             detailCalls.add(requestId);
             if (!details.isEmpty()) return details.removeFirst();
             return CompletableFuture.completedFuture(
-                    detail == null ? AdminApprovalControllerTest.detail(ApprovalStatusDTO.PENDING,
+                    detail == null ? AdminApprovalControllerTest.detail(AdjustmentRequestStatusDTO.PENDING,
                             List.of()) : detail);
         }
 
@@ -346,7 +346,7 @@ public final class AdminApprovalControllerTest {
             if (!reviews.isEmpty()) return reviews.removeFirst();
             return CompletableFuture.completedFuture(new AdminOperationResultView<>(
                     request.getOperationId(), "OK", "调课申请已通过",
-                    AdminApprovalControllerTest.detail(ApprovalStatusDTO.APPROVED, List.of())));
+                    AdminApprovalControllerTest.detail(AdjustmentRequestStatusDTO.APPROVED, List.of())));
         }
     }
 }

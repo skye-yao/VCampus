@@ -8,6 +8,7 @@ import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
 import dto.course.admin.approval.AdjustmentTargetDTO;
 import dto.course.admin.approval.ApprovalDecisionRequestDTO;
 import dto.course.admin.approval.ApprovalStatusDTO;
+import dto.course.AdjustmentRequestStatusDTO;
 import dto.course.admin.approval.GradeDistributionBucketDTO;
 import dto.course.admin.approval.GradeSubmissionDetailDTO;
 import dto.course.admin.approval.GradeSubmissionItemDTO;
@@ -805,7 +806,7 @@ public final class SocketAdminCourseServiceTest {
     }
 
     private static void adjustmentMethodsAreDeclaredInTheService() {
-        declared("listAdjustmentRequestsPage", ApprovalStatusDTO.class, int.class, int.class);
+        declared("listAdjustmentRequestsPage", AdjustmentRequestStatusDTO.class, int.class, int.class);
         declared("getAdjustmentRequest", String.class);
         declared("reviewAdjustmentRequest", ApprovalDecisionRequestDTO.class);
     }
@@ -820,7 +821,7 @@ public final class SocketAdminCourseServiceTest {
             message.putData("pageSize", 20);
         });
         AdjustmentRequestPageDTO page = service.listAdjustmentRequestsPage(
-                ApprovalStatusDTO.APPROVED, 2, 20).join();
+                AdjustmentRequestStatusDTO.APPROVED, 2, 20).join();
         requireEnvelope(transport, AdminCourseActions.LIST_ADJUSTMENT_REQUESTS);
         require("APPROVED".equals(transport.lastRequest.getData("status"))
                         && Integer.valueOf(2).equals(transport.lastRequest.getData("pageNumber"))
@@ -830,7 +831,7 @@ public final class SocketAdminCourseServiceTest {
                         && page.getItems().size() == 1,
                 "the adjustment page must map the server metadata");
         require(REQUEST_ID.equals(page.getItems().get(0).getRequestId())
-                        && page.getItems().get(0).getStatus() == ApprovalStatusDTO.APPROVED
+                        && page.getItems().get(0).getStatus() == AdjustmentRequestStatusDTO.APPROVED
                         && page.getItems().get(0).getTargetWeekCount() == 2,
                 "the list adapter must keep the typed status and exact decimal request ID");
 
@@ -859,7 +860,7 @@ public final class SocketAdminCourseServiceTest {
         require(REQUEST_ID.equals(transport.lastRequest.getData("requestId")),
                 "the detail read must send the exact decimal request ID");
         require(REQUEST_ID.equals(detail.getRequestId())
-                        && detail.getStatus() == ApprovalStatusDTO.PENDING
+                        && detail.getStatus() == AdjustmentRequestStatusDTO.PENDING
                         && detail.getNewDayOfWeek() == 5 && detail.getNewStartPeriod() == 1
                         && detail.getNewEndPeriod() == 2
                         && detail.getTargets().size() == 1
@@ -1051,12 +1052,12 @@ public final class SocketAdminCourseServiceTest {
 
     private static AdjustmentRequestSummaryDTO adjustmentSummary() {
         return new AdjustmentRequestSummaryDTO(REQUEST_ID, "数据结构", "OFF-1001", "T1001", "张老师",
-                2, ApprovalStatusDTO.APPROVED, "2026-09-10T02:00:00Z");
+                2, AdjustmentRequestStatusDTO.APPROVED, "2026-09-10T02:00:00Z");
     }
 
     private static AdjustmentRequestDetailDTO adjustmentDetail() {
         return new AdjustmentRequestDetailDTO(REQUEST_ID, "2001", "T1001", "临时调课",
-                ApprovalStatusDTO.PENDING, 3, 5, 1, 2,
+                AdjustmentRequestStatusDTO.PENDING, 3, 5, 1, 2,
                 new ScheduleResourceDTO("T2001", "T2001", "李老师", "teacher", 0), null,
                 new ScheduleResourceDTO("3001", "3001", "A-101", "classroom", 120),
                 List.of(new AdjustmentTargetDTO("8001", 1, "2026-09-08T00:00:00Z",

@@ -1,7 +1,7 @@
 package dao;
 
 import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
-import dto.course.admin.approval.ApprovalStatusDTO;
+import dto.course.AdjustmentRequestStatusDTO;
 import dto.course.admin.schedule.ScheduleResourceDTO;
 
 import java.sql.Connection;
@@ -64,7 +64,7 @@ public class ScheduleAdjustmentDAO {
     }
 
     public List<AdjustmentRequestSummaryDTO> listRequests(Connection connection,
-                                                          ApprovalStatusDTO status, int offset,
+                                                          AdjustmentRequestStatusDTO status, int offset,
                                                           int limit) throws SQLException {
         String sql = "SELECT r.request_id,c.course_name,o.offering_code,r.requested_by,u.name,"
                 + "(SELECT COUNT(*) FROM course_schedule_adjustment_target t"
@@ -86,7 +86,7 @@ public class ScheduleAdjustmentDAO {
                             Long.toString(rows.getLong("request_id")), rows.getString("course_name"),
                             rows.getString("offering_code"), rows.getString("requested_by"),
                             rows.getString("name"), rows.getInt("target_week_count"),
-                            ApprovalStatusDTO.valueOf(rows.getString("status")),
+                            AdjustmentRequestStatusDTO.valueOf(rows.getString("status")),
                             instantText(rows.getTimestamp("submitted_at"))));
                 }
             }
@@ -94,7 +94,7 @@ public class ScheduleAdjustmentDAO {
         return List.copyOf(summaries);
     }
 
-    public long countRequests(Connection connection, ApprovalStatusDTO status) throws SQLException {
+    public long countRequests(Connection connection, AdjustmentRequestStatusDTO status) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT COUNT(*) FROM course_schedule_adjustment_request WHERE status=?")) {
             statement.setString(1, status.name());
@@ -253,7 +253,7 @@ public class ScheduleAdjustmentDAO {
     }
 
     public int updateDecision(Connection connection, long requestId, int expectedVersion,
-                              ApprovalStatusDTO status, String reviewerUid, Instant reviewedAt,
+                              AdjustmentRequestStatusDTO status, String reviewerUid, Instant reviewedAt,
                               String reviewComment) throws SQLException {
         String sql = "UPDATE course_schedule_adjustment_request SET status=?,reviewed_by=?,"
                 + "reviewed_at=?,review_comment=?,version=version+1"
@@ -301,7 +301,7 @@ public class ScheduleAdjustmentDAO {
         Long classroom = rows.wasNull() ? null : classroomId;
         return new RequestRow(rows.getLong("request_id"), rows.getLong("offering_id"),
                 rows.getString("requested_by"), rows.getString("reason"), rows.getInt("version"),
-                ApprovalStatusDTO.valueOf(rows.getString("status")), rows.getInt("new_weekday"),
+                AdjustmentRequestStatusDTO.valueOf(rows.getString("status")), rows.getInt("new_weekday"),
                 rows.getInt("new_start_period"), rows.getInt("new_end_period"),
                 rows.getString("new_teacher_uid"), rows.getString("new_assistant_uid"), classroom,
                 rows.getTimestamp("submitted_at"), rows.getString("reviewed_by"),
@@ -345,7 +345,7 @@ public class ScheduleAdjustmentDAO {
     }
 
     public record RequestRow(long requestId, long offeringId, String applicantUid, String reason,
-                             int version, ApprovalStatusDTO status, int newDayOfWeek,
+                             int version, AdjustmentRequestStatusDTO status, int newDayOfWeek,
                              int newStartPeriod, int newEndPeriod, String newTeacherUid,
                              String newAssistantUid, Long newClassroomId, Timestamp submittedAt,
                              String reviewedBy, Timestamp reviewedAt, String reviewComment) {

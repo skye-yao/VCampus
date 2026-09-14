@@ -12,7 +12,7 @@ import dto.course.admin.approval.AdjustmentRequestPageDTO;
 import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
 import dto.course.admin.approval.AdjustmentTargetDTO;
 import dto.course.admin.approval.ApprovalDecisionRequestDTO;
-import dto.course.admin.approval.ApprovalStatusDTO;
+import dto.course.AdjustmentRequestStatusDTO;
 import dto.course.admin.schedule.ScheduleConflictDTO;
 import dto.course.admin.schedule.ScheduleConflictSeverityDTO;
 import dto.course.admin.schedule.ScheduleResourceDTO;
@@ -46,22 +46,26 @@ public final class AdjustmentApprovalDtoJsonTest {
     }
 
     private static void statusEnumValuesMatchTheWireContract() {
-        ApprovalStatusDTO[] expected = {
-                ApprovalStatusDTO.PENDING,
-                ApprovalStatusDTO.APPROVED,
-                ApprovalStatusDTO.REJECTED};
-        require(Arrays.equals(expected, ApprovalStatusDTO.values()),
-                "approval status must expose exactly PENDING, APPROVED, REJECTED");
-        require(GSON.fromJson("\"PENDING\"", ApprovalStatusDTO.class) == ApprovalStatusDTO.PENDING,
+        AdjustmentRequestStatusDTO[] expected = {
+                AdjustmentRequestStatusDTO.PENDING,
+                AdjustmentRequestStatusDTO.APPROVED,
+                AdjustmentRequestStatusDTO.REJECTED,
+                AdjustmentRequestStatusDTO.WITHDRAWN};
+        require(Arrays.equals(expected, AdjustmentRequestStatusDTO.values()),
+                "adjustment status must expose exactly PENDING, APPROVED, REJECTED, WITHDRAWN");
+        require(GSON.fromJson("\"PENDING\"", AdjustmentRequestStatusDTO.class)
+                        == AdjustmentRequestStatusDTO.PENDING,
                 "PENDING must deserialize from its wire name");
-        require(GSON.fromJson("\"APPROVED\"", ApprovalStatusDTO.class) == ApprovalStatusDTO.APPROVED,
-                "APPROVED must deserialize from its wire name");
-        require(GSON.fromJson("\"REJECTED\"", ApprovalStatusDTO.class) == ApprovalStatusDTO.REJECTED,
+        require(GSON.fromJson("\"WITHDRAWN\"", AdjustmentRequestStatusDTO.class)
+                        == AdjustmentRequestStatusDTO.WITHDRAWN,
+                "a withdrawn request must deserialize from its own wire name");
+        require(GSON.fromJson("\"REJECTED\"", AdjustmentRequestStatusDTO.class)
+                        == AdjustmentRequestStatusDTO.REJECTED,
                 "REJECTED must deserialize from its wire name");
     }
 
     private static void unknownWireStatusBecomesNullInsteadOfValidStatus() {
-        require(GSON.fromJson("\"CANCELLED\"", ApprovalStatusDTO.class) == null,
+        require(GSON.fromJson("\"CANCELLED\"", AdjustmentRequestStatusDTO.class) == null,
                 "an unmapped status name must deserialize to null, not to a valid status");
 
         AdjustmentRequestSummaryDTO wire = GSON.fromJson(
@@ -72,14 +76,14 @@ public final class AdjustmentApprovalDtoJsonTest {
                 AdjustmentRequestSummaryDTO.class);
         require(wire.getStatus() == null,
                 "an unmapped wire status must leave the summary status null rather than valid");
-        require(!ApprovalStatusDTO.PENDING.equals(wire.getStatus()),
+        require(!AdjustmentRequestStatusDTO.PENDING.equals(wire.getStatus()),
                 "an unmapped wire status must not fall back to PENDING");
     }
 
     private static void summaryRoundTripsExactIdsAndApplicantFields() {
         AdjustmentRequestSummaryDTO source = new AdjustmentRequestSummaryDTO(
                 REQUEST_ID, "数据结构", "CS203-01", APPLICANT_UID, "陈老师",
-                6, ApprovalStatusDTO.PENDING, SUBMITTED_AT);
+                6, AdjustmentRequestStatusDTO.PENDING, SUBMITTED_AT);
         AdjustmentRequestSummaryDTO copy = GSON.fromJson(
                 GSON.toJson(source), AdjustmentRequestSummaryDTO.class);
 
@@ -91,7 +95,7 @@ public final class AdjustmentApprovalDtoJsonTest {
                 "summary applicant UID must keep its leading zeroes");
         require("陈老师".equals(copy.getApplicantName()), "summary applicant name must survive JSON");
         require(copy.getTargetWeekCount() == 6, "summary target week count must survive JSON");
-        require(copy.getStatus() == ApprovalStatusDTO.PENDING, "summary status must survive JSON");
+        require(copy.getStatus() == AdjustmentRequestStatusDTO.PENDING, "summary status must survive JSON");
         require(SUBMITTED_AT.equals(copy.getSubmittedAt()),
                 "summary submission time must stay a UTC ISO-8601 string");
         requireStringId(source, "requestId", REQUEST_ID);
@@ -126,7 +130,7 @@ public final class AdjustmentApprovalDtoJsonTest {
         require(APPLICANT_UID.equals(copy.getApplicantUid()),
                 "detail applicant UID must keep its leading zeroes");
         require("教师出差，申请调至第五节".equals(copy.getReason()), "detail reason must survive JSON");
-        require(copy.getStatus() == ApprovalStatusDTO.APPROVED, "detail status must survive JSON");
+        require(copy.getStatus() == AdjustmentRequestStatusDTO.APPROVED, "detail status must survive JSON");
         require(copy.getVersion() == 4, "detail version must survive JSON as an integer");
         require(copy.getNewDayOfWeek() == 5, "proposed weekday must survive JSON");
         require(copy.getNewStartPeriod() == 3 && copy.getNewEndPeriod() == 4,
@@ -173,7 +177,7 @@ public final class AdjustmentApprovalDtoJsonTest {
 
     private static void detailKeepsNullableResourceAndReviewFieldsNull() {
         AdjustmentRequestDetailDTO pending = new AdjustmentRequestDetailDTO(
-                "77", "88", "S-42", null, ApprovalStatusDTO.PENDING, 1, 2, 1, 2,
+                "77", "88", "S-42", null, AdjustmentRequestStatusDTO.PENDING, 1, 2, 1, 2,
                 null, null, null, List.of(), List.of(), SUBMITTED_AT, null, null, null);
         AdjustmentRequestDetailDTO copy = GSON.fromJson(
                 GSON.toJson(pending), AdjustmentRequestDetailDTO.class);
@@ -185,7 +189,7 @@ public final class AdjustmentApprovalDtoJsonTest {
         require(copy.getReviewedBy() == null && copy.getReviewedAt() == null
                         && copy.getReviewComment() == null,
                 "an unreviewed request must keep every review field null");
-        require(copy.getStatus() == ApprovalStatusDTO.PENDING,
+        require(copy.getStatus() == AdjustmentRequestStatusDTO.PENDING,
                 "an unreviewed request must stay pending");
     }
 
@@ -226,7 +230,7 @@ public final class AdjustmentApprovalDtoJsonTest {
         List<AdjustmentTargetDTO> targets = new ArrayList<>(List.of(firstTarget(), secondTarget()));
         List<ScheduleConflictDTO> conflicts = new ArrayList<>(List.of(overridableConflict()));
         AdjustmentRequestDetailDTO detail = new AdjustmentRequestDetailDTO(
-                REQUEST_ID, OFFERING_ID, APPLICANT_UID, "教师出差", ApprovalStatusDTO.PENDING,
+                REQUEST_ID, OFFERING_ID, APPLICANT_UID, "教师出差", AdjustmentRequestStatusDTO.PENDING,
                 1, 2, 1, 2, null, null, null, targets, conflicts,
                 SUBMITTED_AT, null, null, null);
         targets.clear();
@@ -248,8 +252,8 @@ public final class AdjustmentApprovalDtoJsonTest {
 
     private static void pageRoundTripsTotalCountMetadataAndItems() {
         AdjustmentRequestPageDTO source = new AdjustmentRequestPageDTO(
-                List.of(summary(REQUEST_ID, ApprovalStatusDTO.PENDING),
-                        summary("9007199254740994", ApprovalStatusDTO.APPROVED)),
+                List.of(summary(REQUEST_ID, AdjustmentRequestStatusDTO.PENDING),
+                        summary("9007199254740994", AdjustmentRequestStatusDTO.APPROVED)),
                 123L, 3, 20);
         AdjustmentRequestPageDTO copy = GSON.fromJson(
                 GSON.toJson(source), AdjustmentRequestPageDTO.class);
@@ -261,13 +265,13 @@ public final class AdjustmentApprovalDtoJsonTest {
         require(copy.getItems().size() == 2, "page must retain every summary row");
         require(REQUEST_ID.equals(copy.getItems().get(0).getRequestId()),
                 "first page row request ID must stay exact");
-        require(copy.getItems().get(1).getStatus() == ApprovalStatusDTO.APPROVED,
+        require(copy.getItems().get(1).getStatus() == AdjustmentRequestStatusDTO.APPROVED,
                 "second page row status must survive JSON");
     }
 
     private static void pageItemsAreDefensiveAndUnmodifiable() {
         List<AdjustmentRequestSummaryDTO> items = new ArrayList<>(
-                List.of(summary("7", ApprovalStatusDTO.PENDING)));
+                List.of(summary("7", AdjustmentRequestStatusDTO.PENDING)));
         AdjustmentRequestPageDTO page = new AdjustmentRequestPageDTO(items, 1L, 1, 20);
         items.clear();
 
@@ -278,7 +282,7 @@ public final class AdjustmentApprovalDtoJsonTest {
     private static void deserializedPageItemsAreUnmodifiable() {
         AdjustmentRequestPageDTO copy = GSON.fromJson(GSON.toJson(
                 new AdjustmentRequestPageDTO(
-                        List.of(summary("7", ApprovalStatusDTO.REJECTED)), 1L, 1, 20)),
+                        List.of(summary("7", AdjustmentRequestStatusDTO.REJECTED)), 1L, 1, 20)),
                 AdjustmentRequestPageDTO.class);
 
         requireUnmodifiable(copy.getItems(), "deserialized page items");
@@ -287,7 +291,7 @@ public final class AdjustmentApprovalDtoJsonTest {
     private static AdjustmentRequestDetailDTO approvedDetail() {
         return new AdjustmentRequestDetailDTO(
                 REQUEST_ID, OFFERING_ID, APPLICANT_UID, "教师出差，申请调至第五节",
-                ApprovalStatusDTO.APPROVED, 4, 5, 3, 4,
+                AdjustmentRequestStatusDTO.APPROVED, 4, 5, 3, 4,
                 new ScheduleResourceDTO("9007199254740999", "T001", "张老师", "TEACHER", 0),
                 null,
                 new ScheduleResourceDTO("9007199254741001", "R-201", "教四-201", "CLASSROOM", 60),
@@ -296,7 +300,7 @@ public final class AdjustmentApprovalDtoJsonTest {
                 SUBMITTED_AT, REVIEWER_UID, REVIEWED_AT, "同意调整");
     }
 
-    private static AdjustmentRequestSummaryDTO summary(String requestId, ApprovalStatusDTO status) {
+    private static AdjustmentRequestSummaryDTO summary(String requestId, AdjustmentRequestStatusDTO status) {
         return new AdjustmentRequestSummaryDTO(
                 requestId, "数据结构", "CS203-01", APPLICANT_UID, "陈老师",
                 6, status, SUBMITTED_AT);

@@ -2,6 +2,7 @@ package handler;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonParseException;
+import dto.course.AdjustmentRequestStatusDTO;
 import dto.course.admin.AdminCourseActions;
 import dto.course.admin.approval.AdjustmentRequestPageDTO;
 import dto.course.admin.approval.ApprovalDecisionRequestDTO;
@@ -185,7 +186,7 @@ public class AdminCourseHandler {
                 case AdminCourseActions.REVIEW_ADJUSTMENT_REQUEST -> mutation(response,
                         adjustments().review(uid, adjustmentDecision(request)));
                 case AdminCourseActions.LIST_GRADE_SUBMISSIONS -> gradePage(response,
-                        grades().listGradeSubmissionsPage(adjustmentStatus(request),
+                        grades().listGradeSubmissionsPage(gradeStatus(request),
                                 pageNumber(request), pageSize(request)));
                 case AdminCourseActions.GET_GRADE_SUBMISSION -> response.putData("gradeSubmission",
                         grades().getGradeSubmission(decimalId(request, "submissionId")));
@@ -312,8 +313,26 @@ public class AdminCourseHandler {
         response.putData("pageSize", page.getPageSize());
     }
 
-    /** An absent status keeps the server-side PENDING default; an unknown one is a bad request. */
-    private static ApprovalStatusDTO adjustmentStatus(Message request) {
+    /**
+     * 调课状态解析：缺省交给服务端默认 PENDING，未知值一律 400。
+     * 调课是四态，教师撤销的 WITHDRAWN 必须能被筛选出来。
+     */
+    private static AdjustmentRequestStatusDTO adjustmentStatus(Message request) {
+        String status = optionalText(request, "status");
+        if (status == null) return null;
+        try {
+            return AdjustmentRequestStatusDTO.valueOf(status.trim());
+        } catch (IllegalArgumentException failure) {
+            throw new IllegalArgumentException(
+                    "status 必须为 PENDING、APPROVED、REJECTED 或 WITHDRAWN");
+        }
+    }
+
+    /**
+     * 成绩状态解析保持三态：成绩提交没有“撤销”，不能因为调课新增了 WITHDRAWN
+     * 就让成绩列表承认一个不存在的状态。
+     */
+    private static ApprovalStatusDTO gradeStatus(Message request) {
         String status = optionalText(request, "status");
         if (status == null) return null;
         try {

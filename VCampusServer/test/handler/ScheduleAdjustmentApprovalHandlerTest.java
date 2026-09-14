@@ -6,7 +6,7 @@ import dto.course.admin.approval.AdjustmentRequestPageDTO;
 import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
 import dto.course.admin.approval.AdjustmentTargetDTO;
 import dto.course.admin.approval.ApprovalDecisionRequestDTO;
-import dto.course.admin.approval.ApprovalStatusDTO;
+import dto.course.AdjustmentRequestStatusDTO;
 import dto.course.admin.result.AdminOperationResultDTO;
 import dto.course.admin.schedule.ScheduleConflictDTO;
 import dto.course.admin.schedule.ScheduleConflictSeverityDTO;
@@ -123,7 +123,7 @@ public final class ScheduleAdjustmentApprovalHandlerTest {
         filtered.putData("pageSize", 5);
         require(handler.handle(filtered).getCode() == MessageCode.SUCCESS,
                 "an explicit status filter must succeed");
-        require(recording.lastStatus == ApprovalStatusDTO.APPROVED && recording.lastPage == 2
+        require(recording.lastStatus == AdjustmentRequestStatusDTO.APPROVED && recording.lastPage == 2
                         && recording.lastSize == 5,
                 "the explicit status and paging must reach the service");
     }
@@ -293,7 +293,7 @@ public final class ScheduleAdjustmentApprovalHandlerTest {
 
     private static AdjustmentRequestDetailDTO detail() {
         return new AdjustmentRequestDetailDTO(REQUEST_ID, "2001", "T1001", "临时调课",
-                ApprovalStatusDTO.PENDING, 3, 5, 1, 2,
+                AdjustmentRequestStatusDTO.PENDING, 3, 5, 1, 2,
                 new ScheduleResourceDTO("T2001", "T2001", "李老师", "teacher", 0), null,
                 new ScheduleResourceDTO("3001", "3001", "A-101", "classroom", 120),
                 List.of(new AdjustmentTargetDTO("8001", 1, "2026-09-08T00:00:00Z",
@@ -318,7 +318,7 @@ public final class ScheduleAdjustmentApprovalHandlerTest {
     /** Records what the handler passed down and serves one canned page, detail and outcome. */
     private static final class RecordingAdjustmentService
             extends ScheduleAdjustmentApprovalService {
-        private ApprovalStatusDTO lastStatus;
+        private AdjustmentRequestStatusDTO lastStatus;
         private int lastPage;
         private int lastSize;
         private String lastRequestId;
@@ -327,13 +327,13 @@ public final class ScheduleAdjustmentApprovalHandlerTest {
         private RuntimeException detailFailure;
 
         @Override
-        public AdjustmentRequestPageDTO listRequests(ApprovalStatusDTO status, int page, int size) {
+        public AdjustmentRequestPageDTO listRequests(AdjustmentRequestStatusDTO status, int page, int size) {
             lastStatus = status;
             lastPage = page;
             lastSize = size;
             List<AdjustmentRequestSummaryDTO> items = new ArrayList<>();
             items.add(new AdjustmentRequestSummaryDTO(REQUEST_ID, "数据结构", "OFF-1", "T1001",
-                    "张老师", 2, ApprovalStatusDTO.PENDING, "2026-09-10T02:00:00Z"));
+                    "张老师", 2, AdjustmentRequestStatusDTO.PENDING, "2026-09-10T02:00:00Z"));
             return new AdjustmentRequestPageDTO(items, 7L, page, size);
         }
 

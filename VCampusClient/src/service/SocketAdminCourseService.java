@@ -9,6 +9,7 @@ import java.util.function.Function;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
+import dto.course.AdjustmentRequestStatusDTO;
 import dto.course.admin.AdminCourseActions;
 import dto.course.admin.approval.AdjustmentRequestDetailDTO;
 import dto.course.admin.approval.AdjustmentRequestPageDTO;
@@ -336,7 +337,7 @@ public final class SocketAdminCourseService implements AdminCourseService {
 
     @Override
     public CompletableFuture<AdjustmentRequestPageDTO> listAdjustmentRequestsPage(
-            ApprovalStatusDTO status, int page, int size) {
+            AdjustmentRequestStatusDTO status, int page, int size) {
         Message request = request(AdminCourseActions.LIST_ADJUSTMENT_REQUESTS);
         if (status != null) request.putData("status", status.name());
         putPage(request, page, size);

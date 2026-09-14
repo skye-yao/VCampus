@@ -9,7 +9,7 @@ import dto.course.admin.approval.AdjustmentRequestPageDTO;
 import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
 import dto.course.admin.approval.AdjustmentTargetDTO;
 import dto.course.admin.approval.ApprovalDecisionRequestDTO;
-import dto.course.admin.approval.ApprovalStatusDTO;
+import dto.course.AdjustmentRequestStatusDTO;
 import dto.course.admin.result.AdminOperationResultDTO;
 import dto.course.admin.schedule.ScheduleConflictDTO;
 import util.DBUtil;
@@ -37,9 +37,9 @@ import java.util.Properties;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static dto.course.admin.approval.ApprovalStatusDTO.APPROVED;
-import static dto.course.admin.approval.ApprovalStatusDTO.PENDING;
-import static dto.course.admin.approval.ApprovalStatusDTO.REJECTED;
+import static dto.course.AdjustmentRequestStatusDTO.APPROVED;
+import static dto.course.AdjustmentRequestStatusDTO.PENDING;
+import static dto.course.AdjustmentRequestStatusDTO.REJECTED;
 import static dto.course.admin.schedule.ScheduleConflictSeverityDTO.BLOCKING;
 import static dto.course.admin.schedule.ScheduleConflictSeverityDTO.OVERRIDABLE;
 
@@ -150,7 +150,7 @@ public final class ScheduleAdjustmentApprovalMySqlTest {
 
         List<String> paged = new ArrayList<>();
         for (int pageNumber = 1; pageNumber <= (all.getTotalCount() + 1) / 2; pageNumber++) {
-            AdjustmentRequestPageDTO slice = service.listRequests(ApprovalStatusDTO.PENDING,
+            AdjustmentRequestPageDTO slice = service.listRequests(AdjustmentRequestStatusDTO.PENDING,
                     pageNumber, 2);
             require(slice.getPageNumber() == pageNumber && slice.getPageSize() == 2
                             && slice.getTotalCount() == all.getTotalCount(),
@@ -166,18 +166,18 @@ public final class ScheduleAdjustmentApprovalMySqlTest {
                         && APPLICANT.equals(summary.getApplicantUid())
                         && "Adj Applicant".equals(summary.getApplicantName())
                         && summary.getTargetWeekCount() == 1
-                        && summary.getStatus() == ApprovalStatusDTO.PENDING
+                        && summary.getStatus() == AdjustmentRequestStatusDTO.PENDING
                         && instantText("2026-09-10 05:00:00").equals(summary.getSubmittedAt()),
                 "summaries join course, offering and applicant display data");
 
         // The shared schema may hold decided rows outside this fixture, so the filter is checked by
         // what it returns rather than by a server-wide total against a fixture-only count.
-        require(service.listRequests(ApprovalStatusDTO.APPROVED, 1, 100).getItems().stream()
+        require(service.listRequests(AdjustmentRequestStatusDTO.APPROVED, 1, 100).getItems().stream()
                         .allMatch(item -> item.getStatus() == APPROVED)
-                        && fixtures(ids(service.listRequests(ApprovalStatusDTO.APPROVED, 1, 100)))
+                        && fixtures(ids(service.listRequests(AdjustmentRequestStatusDTO.APPROVED, 1, 100)))
                         .isEmpty(),
                 "an explicit status filter returns only that status");
-        require(fixtures(ids(service.listRequests(ApprovalStatusDTO.REJECTED, 1, 100))).isEmpty(),
+        require(fixtures(ids(service.listRequests(AdjustmentRequestStatusDTO.REJECTED, 1, 100))).isEmpty(),
                 "nothing under test is rejected before the decision scenarios run");
 
         expect(IllegalArgumentException.class, () -> service.listRequests(null, 0, 10),
@@ -192,7 +192,7 @@ public final class ScheduleAdjustmentApprovalMySqlTest {
                 () -> service.getRequest("970799"), "a missing request is not found");
 
         AdjustmentRequestDetailDTO detail = service.getRequest(Long.toString(REQUEST_OVERRIDABLE));
-        require(detail.getStatus() == ApprovalStatusDTO.PENDING && detail.getVersion() == 1
+        require(detail.getStatus() == AdjustmentRequestStatusDTO.PENDING && detail.getVersion() == 1
                         && Long.toString(OFFERING_MAIN).equals(detail.getOfferingId())
                         && APPLICANT.equals(detail.getApplicantUid())
                         && "临时调课夹具".equals(detail.getReason()),
@@ -264,7 +264,7 @@ public final class ScheduleAdjustmentApprovalMySqlTest {
         require("OK".equals(result.getOutcomeCode()) && result.getConflicts().isEmpty(),
                 "a clean approval succeeds without conflicts");
         AdjustmentRequestDetailDTO entity = result.getEntity();
-        require(entity.getStatus() == ApprovalStatusDTO.APPROVED && entity.getVersion() == 2
+        require(entity.getStatus() == AdjustmentRequestStatusDTO.APPROVED && entity.getVersion() == 2
                         && ADMIN_A.equals(entity.getReviewedBy())
                         && instantText("2026-09-14 06:30:00").equals(entity.getReviewedAt()),
                 "the approved entity advances the version and records the reviewer");
@@ -313,7 +313,7 @@ public final class ScheduleAdjustmentApprovalMySqlTest {
         require(before.equals(scheduleSnapshot()),
                 "approval never rewrites the published base plan, rules, weeks, occurrences or bookings");
 
-        AdjustmentRequestPageDTO approved = service.listRequests(ApprovalStatusDTO.APPROVED, 1, 100);
+        AdjustmentRequestPageDTO approved = service.listRequests(AdjustmentRequestStatusDTO.APPROVED, 1, 100);
         require(fixtures(ids(approved)).equals(List.of(Long.toString(REQUEST_CLEAN)))
                         && approved.getTotalCount() == count("SELECT COUNT(*) FROM"
                         + " course_schedule_adjustment_request WHERE status='APPROVED'"),
