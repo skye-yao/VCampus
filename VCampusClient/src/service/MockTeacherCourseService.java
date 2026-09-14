@@ -1,5 +1,8 @@
 package service;
 
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -9,13 +12,18 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 import dto.course.CourseTermDTO;
+import dto.course.ScheduleDisplayKindDTO;
 import dto.course.admin.schedule.ScheduleArrangementDTO;
 import dto.course.admin.schedule.ScheduleResourceDTO;
 import dto.course.admin.schedule.ScheduleSlotDTO;
+import dto.course.teacher.TeacherCalendarDateDTO;
 import dto.course.teacher.TeacherOfferingDTO;
 import dto.course.teacher.TeacherOfferingDetailDTO;
 import dto.course.teacher.TeacherPageDTO;
+import dto.course.teacher.TeacherPeriodDTO;
 import dto.course.teacher.TeacherRosterRowDTO;
+import dto.course.teacher.TeacherScheduleEntryDTO;
+import dto.course.teacher.TeacherScheduleWeekDTO;
 import protocol.MessageCode;
 import service.SocketTeacherCourseService.TeacherCourseServiceException;
 
@@ -47,6 +55,23 @@ public final class MockTeacherCourseService implements TeacherCourseService {
     private static final String FULL_ROSTER_OFFERING = "9007199254740993";
     /** 超过一页（size=20）的名单长度。 */
     private static final int ROSTER_LENGTH = 27;
+
+    // 教师周课表的固定教学日历：mock 不连数据库，任何学年学期都返回同一份可复现日历。
+    private static final String SCHEDULE_CALENDAR_ID = "9007199254740991";
+    private static final String SCHEDULE_TIMEZONE = "Asia/Shanghai";
+    private static final int MIN_TEACHING_WEEK = 1;
+    private static final int MAX_TEACHING_WEEK = 16;
+    /** mock 的“服务器时钟”当前教学周；week=null 时选它。 */
+    private static final int CURRENT_TEACHING_WEEK = 8;
+    /** 第 8 周周一，用于按周推导每个 ISO 本地日期。 */
+    private static final LocalDate WEEK_EIGHT_MONDAY = LocalDate.of(2026, 9, 14);
+    /** 节次模板覆盖到第 13 节，不硬编码十节。 */
+    private static final int PERIOD_COUNT = 13;
+    private static final LocalTime FIRST_PERIOD_START = LocalTime.of(8, 0);
+    private static final int PERIOD_LENGTH_MINUTES = 45;
+    private static final int PERIOD_INTERVAL_MINUTES = 50;
+    private static final DateTimeFormatter PERIOD_TIME =
+            DateTimeFormatter.ofPattern("HH:mm:ss");
 
     private final List<CourseTermDTO> terms = List.of(
             new CourseTermDTO(2025, 3, "2025-2026 春学期"),
@@ -157,7 +182,53 @@ public final class MockTeacherCourseService implements TeacherCourseService {
         }
     }
 
+    @Override
+    public CompletableFuture<TeacherScheduleWeekDTO> loadTeachingSchedule(
+            int academicYear, int semester, Integer week) {
+        try {
+            int selectedWeek = week == null ? CURRENT_TEACHING_WEEK : week;
+            if (selectedWeek < MIN_TEACHING_WEEK || selectedWeek > MAX_TEACHING_WEEK) {
+                throw badRequest("week 必须落在 " + MIN_TEACHING_WEEK + ".." + MAX_TEACHING_WEEK);
+            }
+            return CompletableFuture.completedFuture(buildWeek(selectedWeek));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
     // ------------------------------------------------------------------ 固定数据
+
+    /** 构造一份日期、节次与课次自洽的固定周：周一到周日、13 节、周一有一节 NORMAL 课。 */
+    private static TeacherScheduleWeekDTO buildWeek(int week) {
+        List<TeacherCalendarDateDTO> dates = new ArrayList<>();
+        List<TeacherPeriodDTO> periods = new ArrayList<>();
+        for (int weekday = 1; weekday <= 7; weekday++) {
+            String date = WEEK_EIGHT_MONDAY.plusWeeks(week - 8L)
+                    .plusDays(weekday - 1L).toString();
+            boolean teachingDay = weekday <= 5;
+            dates.add(new TeacherCalendarDateDTO(date, week, weekday, teachingDay));
+            if (!teachingDay) {
+                continue;
+            }
+            for (int period = 1; period <= PERIOD_COUNT; period++) {
+                LocalTime start = FIRST_PERIOD_START
+                        .plusMinutes((long) (period - 1) * PERIOD_INTERVAL_MINUTES);
+                periods.add(new TeacherPeriodDTO(date, period, start.format(PERIOD_TIME),
+                        start.plusMinutes(PERIOD_LENGTH_MINUTES).format(PERIOD_TIME)));
+            }
+        }
+
+        String monday = WEEK_EIGHT_MONDAY.plusWeeks(week - 8L).toString();
+        List<TeacherScheduleEntryDTO> entries = List.of(new TeacherScheduleEntryDTO(
+                Long.toString(9007199254740000L + week), FULL_ROSTER_OFFERING,
+                "CS203", "数据结构与算法基础", "陈老师", "A-101", monday, week, 1, 1, 2,
+                ScheduleDisplayKindDTO.NORMAL, null, null, null, null, true));
+
+        return new TeacherScheduleWeekDTO(SCHEDULE_CALENDAR_ID, SCHEDULE_TIMEZONE, week,
+                MIN_TEACHING_WEEK, MAX_TEACHING_WEEK, CURRENT_TEACHING_WEEK,
+                dates, periods, entries);
+    }
+
 
     private void seedOfferings() {
         add(new TeacherOfferingDTO(FULL_ROSTER_OFFERING, "CS203-01", "数据结构 CS203-01",

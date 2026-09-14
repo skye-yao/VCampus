@@ -22,6 +22,7 @@ import dto.course.teacher.TeacherOfferingDTO;
 import dto.course.teacher.TeacherOfferingDetailDTO;
 import dto.course.teacher.TeacherPageDTO;
 import dto.course.teacher.TeacherRosterRowDTO;
+import dto.course.teacher.TeacherScheduleWeekDTO;
 import javafx.event.ActionEvent;
 import javafx.event.Event;
 import service.TeacherCourseService;
@@ -484,6 +485,14 @@ public final class TeacherOfferingControllerTest {
         public CompletableFuture<List<ScheduleArrangementDTO>> listOfferingSchedules(
                 String offeringId) {
             throw new UnsupportedOperationException("the list page must not load schedules");
+        }
+
+        @Override
+        public CompletableFuture<TeacherScheduleWeekDTO> loadTeachingSchedule(
+                int academicYear, int semester, Integer week) {
+            return CompletableFuture.completedFuture(new TeacherScheduleWeekDTO(
+                    "9007199254740991", "Asia/Shanghai", week == null ? 1 : week, 1, 16, 1,
+                    List.of(), List.of(), List.of()));
         }
     }
 }

@@ -74,7 +74,15 @@ $suites = @(
         # 套件运行传的是 --config，登记它会让一次无人值守运行停在打开的窗口上永不退出。
         Gui = @('ui.TeacherCourseUiSmokeTest')
     }
-    [pscustomobject]@{ Name = 'Timetable'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }
+    # 课表套件：DTO 契约与既有 ScheduleEntryDTO 回归，加上编译期依赖教师课程接口的客户端测试。
+    [pscustomobject]@{ Name = 'Timetable'
+        Common = @('dto.course.teacher.TeacherScheduleDtoJsonTest', 'dto.course.CourseDtoJsonTest')
+        Client = @('service.SocketTeacherCourseServiceTest',
+            'service.MockTeacherCourseServiceTest',
+            'controller.TeacherCourseManagementControllerTest',
+            'controller.TeacherOfferingControllerTest',
+            'controller.TeacherOfferingDetailControllerTest')
+        Server = @(); Tcp = @(); Gui = @() }
     [pscustomobject]@{ Name = 'Adjustment'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }
     [pscustomobject]@{ Name = 'GradeBook'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }
     [pscustomobject]@{ Name = 'ImportExport'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }

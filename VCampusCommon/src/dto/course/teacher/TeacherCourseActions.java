@@ -12,6 +12,7 @@ public final class TeacherCourseActions {
     public static final String GET_OFFERING = "getOffering";
     public static final String LIST_OFFERING_STUDENTS = "listOfferingStudents";
     public static final String LIST_OFFERING_SCHEDULES = "listOfferingSchedules";
+    public static final String LOAD_TEACHING_SCHEDULE = "loadTeachingSchedule";
 
     private TeacherCourseActions() {
     }

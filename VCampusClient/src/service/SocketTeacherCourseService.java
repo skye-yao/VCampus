@@ -6,15 +6,18 @@ import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonElement;
 import com.google.gson.reflect.TypeToken;
 
 import dto.course.CourseTermDTO;
+import dto.course.ScheduleDisplayKindDTO;
 import dto.course.admin.schedule.ScheduleArrangementDTO;
 import dto.course.teacher.TeacherCourseActions;
 import dto.course.teacher.TeacherOfferingDTO;
 import dto.course.teacher.TeacherOfferingDetailDTO;
 import dto.course.teacher.TeacherPageDTO;
 import dto.course.teacher.TeacherRosterRowDTO;
+import dto.course.teacher.TeacherScheduleWeekDTO;
 import protocol.Message;
 import protocol.MessageCode;
 import protocol.MessageType;
@@ -87,6 +90,60 @@ public final class SocketTeacherCourseService implements TeacherCourseService {
         request.putData("offeringId", offeringId);
         return map(request, response -> List.copyOf(
                 list(response, "schedules", ScheduleArrangementDTO.class)));
+    }
+
+    @Override
+    public CompletableFuture<TeacherScheduleWeekDTO> loadTeachingSchedule(
+            int academicYear, int semester, Integer week) {
+        Message request = request(TeacherCourseActions.LOAD_TEACHING_SCHEDULE);
+        request.putData("academicYear", academicYear);
+        request.putData("semester", semester);
+        if (week != null) request.putData("week", week);
+        return map(request, this::readSchedule);
+    }
+
+    /**
+     * 课表映射在反序列化前显式拒绝未知 {@code displayKind}。
+     *
+     * <p>Gson 把无法识别的枚举常量静默解析成 null，而不是抛异常；若直接映射，未知类型会被
+     * 当成缺失值并可能在界面回退成 NORMAL。这里先检查原始 JSON，未知或缺失一律报清晰错误。
+     */
+    private TeacherScheduleWeekDTO readSchedule(Message response) {
+        Object value = response.getData() == null ? null : response.getData().get("schedule");
+        if (value == null) {
+            throw new TeacherCourseServiceException(MessageCode.ERROR, "缺少响应字段: schedule");
+        }
+        JsonElement tree = gson.toJsonTree(value);
+        requireKnownDisplayKinds(tree);
+        return gson.fromJson(tree, TeacherScheduleWeekDTO.class);
+    }
+
+    private static void requireKnownDisplayKinds(JsonElement schedule) {
+        if (schedule == null || !schedule.isJsonObject()) return;
+        JsonElement entries = schedule.getAsJsonObject().get("entries");
+        if (entries == null || !entries.isJsonArray()) return;
+        for (JsonElement entry : entries.getAsJsonArray()) {
+            if (!entry.isJsonObject()) continue;
+            JsonElement kind = entry.getAsJsonObject().get("displayKind");
+            if (kind == null || kind.isJsonNull() || !isKnownDisplayKind(kind)) {
+                throw new TeacherCourseServiceException(MessageCode.ERROR,
+                        "未知的课表展示类型: " + rawKind(kind));
+            }
+        }
+    }
+
+    private static boolean isKnownDisplayKind(JsonElement kind) {
+        if (!kind.isJsonPrimitive() || !kind.getAsJsonPrimitive().isString()) return false;
+        String name = kind.getAsString();
+        for (ScheduleDisplayKindDTO known : ScheduleDisplayKindDTO.values()) {
+            if (known.name().equals(name)) return true;
+        }
+        return false;
+    }
+
+    private static String rawKind(JsonElement kind) {
+        if (kind == null || kind.isJsonNull()) return "空值";
+        return kind.isJsonPrimitive() ? kind.getAsString() : kind.toString();
     }
 
     private static void putPaging(Message request, int page, int size) {

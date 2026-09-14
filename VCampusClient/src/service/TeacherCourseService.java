@@ -9,6 +9,7 @@ import dto.course.teacher.TeacherOfferingDTO;
 import dto.course.teacher.TeacherOfferingDetailDTO;
 import dto.course.teacher.TeacherPageDTO;
 import dto.course.teacher.TeacherRosterRowDTO;
+import dto.course.teacher.TeacherScheduleWeekDTO;
 
 /**
  * 教师端只读课程查询的客户端契约。
@@ -28,4 +29,13 @@ public interface TeacherCourseService {
             String offeringId, String query, Integer enrollmentStatus, int page, int size);
 
     CompletableFuture<List<ScheduleArrangementDTO>> listOfferingSchedules(String offeringId);
+
+    /**
+     * 按教学日历经周查看教师本人的课表。
+     *
+     * <p>{@code week} 为 null 时由服务端依据注入的 {@code Clock} 与教学日历选定当前/最近有效教学周；
+     * 返回的 {@code currentWeek} 为 null 表示今天不在此学期。
+     */
+    CompletableFuture<TeacherScheduleWeekDTO> loadTeachingSchedule(
+            int academicYear, int semester, Integer week);
 }

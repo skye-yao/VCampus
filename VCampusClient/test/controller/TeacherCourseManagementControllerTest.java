@@ -24,6 +24,7 @@ import dto.course.teacher.TeacherOfferingDTO;
 import dto.course.teacher.TeacherOfferingDetailDTO;
 import dto.course.teacher.TeacherPageDTO;
 import dto.course.teacher.TeacherRosterRowDTO;
+import dto.course.teacher.TeacherScheduleWeekDTO;
 import javafx.event.Event;
 import service.MockTeacherCourseService;
 import service.TeacherCourseService;
@@ -485,6 +486,14 @@ public final class TeacherCourseManagementControllerTest {
                     new ScheduleResourceDTO("8001", "00001234", "陈老师", "teacher", 0), null,
                     new ScheduleResourceDTO("8101", "3001", "A-101", "classroom", 120),
                     List.of(new ScheduleSlotDTO(1, 1, 2)), 1, 16, "ACTIVE", 1)));
+        }
+
+        @Override
+        public CompletableFuture<TeacherScheduleWeekDTO> loadTeachingSchedule(
+                int academicYear, int semester, Integer week) {
+            return CompletableFuture.completedFuture(new TeacherScheduleWeekDTO(
+                    "9007199254740991", "Asia/Shanghai", week == null ? 1 : week, 1, 16, 1,
+                    List.of(), List.of(), List.of()));
         }
     }
 }

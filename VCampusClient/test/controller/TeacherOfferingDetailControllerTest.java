@@ -24,6 +24,7 @@ import dto.course.teacher.TeacherOfferingDTO;
 import dto.course.teacher.TeacherOfferingDetailDTO;
 import dto.course.teacher.TeacherPageDTO;
 import dto.course.teacher.TeacherRosterRowDTO;
+import dto.course.teacher.TeacherScheduleWeekDTO;
 import javafx.event.ActionEvent;
 import javafx.event.Event;
 import service.TeacherCourseService;
@@ -355,10 +356,10 @@ public final class TeacherOfferingDetailControllerTest {
 
     private static void theSharedServiceContractExposesNoWritePath() {
         Set<String> allowed = Set.of("listTerms", "listOfferings", "getOffering",
-                "listOfferingStudents", "listOfferingSchedules");
+                "listOfferingStudents", "listOfferingSchedules", "loadTeachingSchedule");
         for (Method method : TeacherCourseService.class.getDeclaredMethods()) {
             require(allowed.contains(method.getName()),
-                    "the teacher course service must stay read-only in T1, found "
+                    "the teacher course service must expose only read paths, found "
                             + method.getName());
         }
     }
@@ -629,6 +630,14 @@ public final class TeacherOfferingDetailControllerTest {
                     new ScheduleResourceDTO("8101", "3001", "A-101", "classroom", 120),
                     List.of(new ScheduleSlotDTO(1, 1, 2), new ScheduleSlotDTO(3, 3, 4)),
                     1, 16, "ACTIVE", 1)));
+        }
+
+        @Override
+        public CompletableFuture<TeacherScheduleWeekDTO> loadTeachingSchedule(
+                int academicYear, int semester, Integer week) {
+            return CompletableFuture.completedFuture(new TeacherScheduleWeekDTO(
+                    "9007199254740991", "Asia/Shanghai", week == null ? 1 : week, 1, 16, 1,
+                    List.of(), List.of(), List.of()));
         }
     }
 }
