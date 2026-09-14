@@ -77,6 +77,9 @@ public class AiController {
 
         // 3. 加载用户的历史会话
         loadConversationList();
+
+        // 4. 初始化右侧功能指引提示
+        renderCitations(null);
     }
 
     /**
@@ -519,10 +522,34 @@ public class AiController {
         citationsContainer.getChildren().clear();
 
         if (citations == null || citations.isEmpty()) {
-            Label emptyLabel = new Label("💡 本次回答未调用规章检索资料\n（属于通用闲聊、系统操作指引或个人私有数据直连查询）");
-            emptyLabel.setStyle("-fx-text-fill: -fx-text-muted; -fx-font-size: 13px; -fx-padding: 12px; -fx-line-spacing: 4px;");
-            emptyLabel.setWrapText(true);
-            citationsContainer.getChildren().add(emptyLabel);
+            VBox guideBox = new VBox(10);
+            guideBox.setStyle("-fx-background-color: #f8faf8; -fx-background-radius: 8px; -fx-border-color: #e2e8e2; -fx-border-radius: 8px; -fx-padding: 13px;");
+
+            Label titleLabel = new Label("💡 智能问答与服务功能指引");
+            titleLabel.setStyle("-fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: -fx-seu-green-dark;");
+
+            // 1. RAG 知识库功能提示
+            VBox ragBox = new VBox(4);
+            Label ragTitle = new Label("📚 RAG 校园规章知识库问答");
+            ragTitle.setStyle("-fx-font-size: 12px; -fx-font-weight: bold; -fx-text-fill: #151E49;");
+            Label ragDesc = new Label("自动检索校园规章、办事指南与业务规程（如图书馆借阅、选课规程、学杂费缴纳、商店退款等）。命中时此处将实时呈现参考文档与引用片段。\n\n👉 提问示例：“图书借阅规则”、“学费如何交”、“选课学分限制”");
+            ragDesc.setStyle("-fx-font-size: 11.5px; -fx-text-fill: #4b5563; -fx-line-spacing: 2px;");
+            ragDesc.setWrapText(true);
+            ragBox.getChildren().addAll(ragTitle, ragDesc);
+
+            Separator sep = new Separator();
+
+            // 2. 数据库直连功能提示
+            VBox dbBox = new VBox(4);
+            Label dbTitle = new Label("🗄️ 个人数据库安全直连查询");
+            dbTitle.setStyle("-fx-font-size: 12px; -fx-font-weight: bold; -fx-text-fill: #151E49;");
+            Label dbDesc = new Label("直连校园真实业务数据库，权威可信、严防模型幻觉，且完全免扣 Token 费用。可实时查询个人一卡通余额、学籍档案信息与待缴账单明细。\n\n👉 提问示例：“查我的余额”、“我的学籍信息”、“查看我的待缴账单”");
+            dbDesc.setStyle("-fx-font-size: 11.5px; -fx-text-fill: #4b5563; -fx-line-spacing: 2px;");
+            dbDesc.setWrapText(true);
+            dbBox.getChildren().addAll(dbTitle, dbDesc);
+
+            guideBox.getChildren().addAll(titleLabel, ragBox, sep, dbBox);
+            citationsContainer.getChildren().add(guideBox);
             return;
         }
 

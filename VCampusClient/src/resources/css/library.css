@@ -11,7 +11,7 @@
     -fx-background-color: linear-gradient(to right, #234d3e, #386b56);
     -fx-padding: 12 20;
 }
-.library-root .library-title { -fx-font-size: 21px; -fx-font-weight: bold; -fx-text-fill: #ffffff; }
+.library-root .library-title { -fx-font-size: 22px; -fx-font-weight: bold; -fx-text-fill: #ffffff; }
 .library-root .library-subtitle { -fx-text-fill: #d0e2d7; -fx-font-size: 11px; }
 .library-root .library-header .btn-secondary { -fx-background-color: #e3eee6; -fx-text-fill: #234d3e; }
 .library-root .library-tabs { -fx-tab-min-width: 100px; -fx-tab-min-height: 34px; }

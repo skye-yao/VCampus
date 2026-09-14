@@ -9,10 +9,13 @@ import entity.User;
 import javafx.application.Platform;
 import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
+import javafx.scene.Parent;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
+import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.VBox;
 import entity.AdminPermission;
 import entity.Student;
@@ -27,12 +30,23 @@ import protocol.MessageType;
 import service.LibraryClientService;
 import session.ClientSession;
 import util.AlertUtil;
+import util.FXMLUtil;
 
 import java.io.ByteArrayInputStream;
 import java.util.Base64;
 import java.util.List;
 
 public class MainController {
+
+    @FXML private BorderPane rootMain;
+    @FXML private ScrollPane homeScrollPane;
+
+    // ===== 实例与 SPA 路由管理 =====
+    private static MainController instance;
+
+    public static MainController getInstance() {
+        return instance;
+    }
 
     // ===== 侧边栏控件 =====
     @FXML private ImageView sidebarAvatarView;
@@ -97,6 +111,8 @@ public class MainController {
 
     @FXML
     public void initialize() {
+        instance = this;
+
         // 1. 读取并显示当前用户本地 Session 数据
         loadUserData();
 
@@ -315,40 +331,122 @@ public class MainController {
         }
     }
 
-    // ===== 页面导航动作 =====
+    // ===== SPA 单页容器路由与视图管理 =====
 
-    @FXML
-    public void handleNavigateHome(ActionEvent event) {
-        // 当前已在主页，重新刷新数据
+    /**
+     * 判断当前 MainView 是否在主场景中呈现
+     */
+    public boolean isAttachedToScene() {
+        return rootMain != null
+                && rootMain.getScene() != null
+                && ClientMain.getPrimaryStage() != null
+                && ClientMain.getPrimaryStage().getScene() == rootMain.getScene()
+                && rootMain.getScene().getRoot() == rootMain;
+    }
+
+    /**
+     * 恢复右侧主界面内容为首页看板
+     */
+    public void showHome() {
+        ClientMain.cleanupPage();
+        if (homeScrollPane != null && rootMain != null) {
+            rootMain.setCenter(homeScrollPane);
+        }
+        updateActiveNavButton(navHomeBtn);
         loadUserData();
         fetchLatestUserInfo();
         loadLibraryNotices();
     }
 
+    /**
+     * 动态将子系统视图载入至右侧 center 区域
+     */
+    public void loadCenterView(String fxmlPath) {
+        try {
+            ClientMain.cleanupPage();
+            Parent view = FXMLUtil.load(fxmlPath);
+            if (rootMain != null) {
+                rootMain.setCenter(view);
+            }
+            updateActiveNavButton(mapFxmlToNavButton(fxmlPath));
+        } catch (Exception e) {
+            e.printStackTrace();
+            AlertUtil.showError("界面加载失败", "无法加载模块界面: " + fxmlPath + "\n错误详情: " + e.getMessage());
+            showHome();
+        }
+    }
+
+    private Button mapFxmlToNavButton(String fxmlPath) {
+        if (fxmlPath == null) return navHomeBtn;
+        if (fxmlPath.contains("ProfileView")) return navProfileBtn;
+        if (fxmlPath.contains("StudentView") || fxmlPath.contains("TeacherView") || fxmlPath.contains("InformationSelectView")) {
+            return navStudentBtn;
+        }
+        if (fxmlPath.contains("LibraryView")) return navLibraryBtn;
+        if (fxmlPath.contains("ShopView")) return navStoreBtn;
+        if (fxmlPath.contains("BankView")) return navBankBtn;
+        if (fxmlPath.contains("AIview")) return navAiBtn;
+        if (fxmlPath.contains("UserView")) return userNavBtn;
+        if (fxmlPath.contains("PermissionView")) return permissionNavBtn;
+        return navHomeBtn;
+    }
+
+    private void updateActiveNavButton(Button activeBtn) {
+        Button[] buttons = {
+                navHomeBtn, navProfileBtn, navStudentBtn, navLibraryBtn,
+                navCourseBtn, navStoreBtn, navBankBtn, navAiBtn,
+                userNavBtn, permissionNavBtn
+        };
+        for (Button btn : buttons) {
+            if (btn != null) {
+                btn.getStyleClass().remove("main-nav-btn-active");
+                if (btn == activeBtn) {
+                    if (!btn.getStyleClass().contains("main-nav-btn-active")) {
+                        btn.getStyleClass().add("main-nav-btn-active");
+                    }
+                }
+            }
+        }
+    }
+
+    // ===== 页面导航动作 =====
+
+    @FXML
+    public void handleNavigateHome(ActionEvent event) {
+        if (rootMain != null && rootMain.getCenter() != homeScrollPane) {
+            showHome();
+        } else {
+            // 当前已在主页，重新刷新数据
+            loadUserData();
+            fetchLatestUserInfo();
+            loadLibraryNotices();
+        }
+    }
+
     @FXML
     public void handleNavigateProfile(ActionEvent event) {
-        ClientMain.switchScene("/resources/fxml/ProfileView.fxml");
+        loadCenterView("/resources/fxml/ProfileView.fxml");
     }
 
     @FXML
     public void openStudentAffairs(ActionEvent event) {
         String role = ClientSession.getInstance().getRole();
         if ("TEACHER".equalsIgnoreCase(role) || "教师".equals(role)) {
-            ClientMain.switchScene("/resources/fxml/TeacherView.fxml");
+            loadCenterView("/resources/fxml/TeacherView.fxml");
         } else if ("ADMIN".equalsIgnoreCase(role) || "管理员".equals(role)) {
             if (!ClientSession.getInstance().hasAcademicPermission()) {
                 AlertUtil.showWarning("权限不足", "您没有该模块的管理权限");
                 return;
             }
-            ClientMain.switchScene("/resources/fxml/InformationSelectView.fxml");
+            loadCenterView("/resources/fxml/InformationSelectView.fxml");
         } else {
-            ClientMain.switchScene("/resources/fxml/StudentView.fxml");
+            loadCenterView("/resources/fxml/StudentView.fxml");
         }
     }
 
     @FXML
     public void openLibrary(ActionEvent event) {
-        ClientMain.switchScene("/resources/fxml/LibraryView.fxml");
+        loadCenterView("/resources/fxml/LibraryView.fxml");
     }
 
     @FXML
@@ -370,7 +468,7 @@ public class MainController {
                 return;
             }
         }
-        ClientMain.switchScene("/resources/fxml/ShopView.fxml");
+        loadCenterView("/resources/fxml/ShopView.fxml");
     }
 
     @FXML
@@ -381,12 +479,12 @@ public class MainController {
                 return;
             }
         }
-        ClientMain.switchScene("/resources/fxml/BankView.fxml");
+        loadCenterView("/resources/fxml/BankView.fxml");
     }
 
     @FXML
     public void handleNavigatePermission(ActionEvent event) {
-        ClientMain.switchScene("/resources/fxml/PermissionView.fxml");
+        loadCenterView("/resources/fxml/PermissionView.fxml");
     }
 
     @FXML
@@ -395,12 +493,12 @@ public class MainController {
             AlertUtil.showWarning("权限不足", "您没有用户管理权限");
             return;
         }
-        ClientMain.switchScene("/resources/fxml/UserView.fxml");
+        loadCenterView("/resources/fxml/UserView.fxml");
     }
 
     @FXML
     public void openAI(ActionEvent event) {
-        ClientMain.switchScene("/resources/fxml/AIview.fxml");
+        loadCenterView("/resources/fxml/AIview.fxml");
     }
 
     @FXML
