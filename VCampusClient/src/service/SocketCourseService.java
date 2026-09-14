@@ -22,6 +22,7 @@ import dto.course.CourseTeacherDTO;
 import dto.course.CourseTermDTO;
 import dto.course.GradeRecordDTO;
 import dto.course.GradeSummaryDTO;
+import dto.course.ScheduleDisplayKindDTO;
 import dto.course.ScheduleEntryDTO;
 import dto.course.TrainingPlanCourseDTO;
 import dto.course.TrainingPlanGroupDTO;
@@ -38,6 +39,7 @@ import model.course.CourseTermView;
 import model.course.CourseView;
 import model.course.GradeRecordView;
 import model.course.GradeSummaryView;
+import model.course.ScheduleDisplayKind;
 import model.course.ScheduleEntryView;
 import model.course.SelectionStatus;
 import model.course.TrainingPlanCourseView;
@@ -371,7 +373,25 @@ public final class SocketCourseService implements CourseService {
         return new ScheduleEntryView(Long.parseLong(dto.getOfferingId()), dto.getTerm(),
                 dto.getCourseCode(), dto.getCourseName(), dto.getTeacher(), dto.getLocation(),
                 dto.getDayOfWeek(), dto.getStartPeriod(), dto.getPeriodCount(),
-                dto.getStartWeek(), dto.getEndWeek());
+                dto.getStartWeek(), dto.getEndWeek(), displayKind(dto), dto.getAdjustmentId(),
+                dto.getOriginalScheduleText(), dto.getAdjustedScheduleText(),
+                dto.getAdjustmentReason());
+    }
+
+    /**
+     * The wire value is authoritative. An absent or unrecognized kind must fail loudly instead of
+     * being rendered as a plain lesson, which would silently hide a temporary adjustment.
+     */
+    private static ScheduleDisplayKind displayKind(ScheduleEntryDTO dto) {
+        ScheduleDisplayKindDTO kind = dto.getDisplayKind();
+        if (kind == null) {
+            throw new CourseServiceException(MessageCode.ERROR, "缺少响应字段: displayKind");
+        }
+        return switch (kind) {
+            case NORMAL -> ScheduleDisplayKind.NORMAL;
+            case ADJUSTED_ORIGINAL -> ScheduleDisplayKind.ADJUSTED_ORIGINAL;
+            case ADJUSTED_TARGET -> ScheduleDisplayKind.ADJUSTED_TARGET;
+        };
     }
 
     private static GradeSummaryView gradeSummary(GradeSummaryDTO dto) {

@@ -5,6 +5,7 @@ import dto.course.CourseOfferingDTO;
 import dto.course.CoursePlanSnapshotDTO;
 import dto.course.CourseTermDTO;
 import dto.course.GradeRecordDTO;
+import dto.course.ScheduleDisplayKindDTO;
 import dto.course.ScheduleEntryDTO;
 import dto.course.SelectionStateDTO;
 
@@ -25,8 +26,66 @@ public final class CourseQueryMappingTest {
     public static void main(String[] args) throws Exception {
         verifyOfferingGroupingAndStatePriority();
         verifyScheduleAndNoticeIdsRemainExact();
+        verifyAdjustedEntriesPairAndPlainEntriesStaySingle();
         verifyNullableGradeComponentsRemainNull();
         System.out.println("Course query mapping test passed.");
+    }
+
+    /**
+     * An adjusted occurrence becomes a display-only original plus an effective target sharing one
+     * adjustment identity; an occurrence without an ACTIVE adjustment stays exactly one NORMAL row.
+     */
+    private static void verifyAdjustedEntriesPairAndPlainEntriesStaySingle() throws Exception {
+        CachedRowSet rows = rows(SCHEDULE_COLUMNS, SCHEDULE_TYPES,
+                scheduleRow(BIG_ID, "CS101", "Programming", "Teacher A", "Room A",
+                        2, 3, 4, 1, 16, null, null, null, null, null, null, null),
+                scheduleRow("2002", "CS202", "Databases", "Teacher B", "Room B",
+                        2, 3, 4, 1, 16, "9007199254740999", "教师出差", 5, 3, 4,
+                        "Teacher C", "Room C"));
+        List<ScheduleEntryDTO> entries = CourseScheduleDAO.mapScheduleRows(rows, "2026-2027 秋学期");
+        require(entries.size() == 3, "an adjusted row must expand into a pair, observed "
+                + entries.size());
+
+        // The rowset fixture does not preserve insertion order, so the two shapes are selected by
+        // display kind rather than by position.
+        List<ScheduleEntryDTO> plainEntries = entries.stream()
+                .filter(entry -> ScheduleDisplayKindDTO.NORMAL == entry.getDisplayKind()).toList();
+        List<ScheduleEntryDTO> pairs = entries.stream()
+                .filter(entry -> ScheduleDisplayKindDTO.NORMAL != entry.getDisplayKind()).toList();
+        require(plainEntries.size() == 1 && pairs.size() == 2,
+                "exactly one plain entry and one pair are expected");
+        ScheduleEntryDTO plain = plainEntries.get(0);
+        require(plain.getAdjustmentId() == null && plain.getOriginalScheduleText() == null
+                        && plain.getAdjustedScheduleText() == null
+                        && plain.getAdjustmentReason() == null,
+                "an unadjusted occurrence must stay one NORMAL entry with no adjustment data");
+
+        ScheduleEntryDTO original = pairs.get(0);
+        ScheduleEntryDTO target = pairs.get(1);
+        require(ScheduleDisplayKindDTO.ADJUSTED_ORIGINAL == original.getDisplayKind()
+                        && ScheduleDisplayKindDTO.ADJUSTED_TARGET == target.getDisplayKind(),
+                "the pair must be ordered original then target");
+        require("9007199254740999".equals(original.getAdjustmentId())
+                        && original.getAdjustmentId().equals(target.getAdjustmentId()),
+                "both halves must share one exact adjustment identity");
+        require(original.getDayOfWeek() == 2 && original.getStartPeriod() == 3
+                        && original.getPeriodCount() == 2 && "Room B".equals(original.getLocation())
+                        && "Teacher B".equals(original.getTeacher()),
+                "the original half must keep the base plan coordinates and resources");
+        require(target.getDayOfWeek() == 5 && target.getStartPeriod() == 3
+                        && target.getPeriodCount() == 2 && "Room C".equals(target.getLocation())
+                        && "Teacher C".equals(target.getTeacher()),
+                "the target half must carry the proposed coordinates and resources");
+        require("周二 第3-4节 Room B".equals(original.getOriginalScheduleText())
+                        && "周五 第3-4节 Room C".equals(original.getAdjustedScheduleText()),
+                "both halves must describe the original and the adjusted arrangement");
+        require(original.getOriginalScheduleText().equals(target.getOriginalScheduleText())
+                        && original.getAdjustedScheduleText().equals(target.getAdjustedScheduleText())
+                        && "教师出差".equals(target.getAdjustmentReason()),
+                "either half must be able to render the full detail text");
+        require(original.getOfferingId().equals(target.getOfferingId())
+                        && original.getStartWeek() == 1 && target.getEndWeek() == 16,
+                "both halves must keep the offering identity and the week range");
     }
 
     private static void verifyOfferingGroupingAndStatePriority() throws Exception {
@@ -109,13 +168,9 @@ public final class CourseQueryMappingTest {
     }
 
     private static void verifyScheduleAndNoticeIdsRemainExact() throws Exception {
-        CachedRowSet scheduleRows = rows(
-                new String[]{"offering_id", "course_code", "course_name", "teacher", "location",
-                        "day_of_week", "start_period", "end_period", "start_week", "end_week"},
-                new int[]{Types.BIGINT, Types.VARCHAR, Types.VARCHAR, Types.VARCHAR, Types.VARCHAR,
-                        Types.INTEGER, Types.INTEGER, Types.INTEGER, Types.INTEGER, Types.INTEGER},
-                new Object[]{BIG_ID, "CS101", "Programming", "Teacher A", "Room A",
-                        2, 1, 2, 1, 16});
+        CachedRowSet scheduleRows = rows(SCHEDULE_COLUMNS, SCHEDULE_TYPES,
+                scheduleRow(BIG_ID, "CS101", "Programming", "Teacher A", "Room A",
+                        2, 1, 2, 1, 16, null, null, null, null, null, null, null));
         List<ScheduleEntryDTO> schedule = CourseScheduleDAO.mapScheduleRows(
                 scheduleRows, "2026-2027 秋学期");
         require(BIG_ID.equals(schedule.get(0).getOfferingId()),
@@ -145,6 +200,27 @@ public final class CourseQueryMappingTest {
         require(grades.get(0).getDailyScore() == null
                         && grades.get(0).getExperimentScore() == null,
                 "nullable grade components must remain null");
+    }
+
+    private static final String[] SCHEDULE_COLUMNS = {"offering_id", "course_code", "course_name",
+            "teacher", "location", "day_of_week", "start_period", "end_period", "start_week",
+            "end_week", "adjustment_id", "adjustment_reason", "new_weekday", "new_start_period",
+            "new_end_period", "adjusted_teacher", "adjusted_location"};
+
+    private static final int[] SCHEDULE_TYPES = {Types.BIGINT, Types.VARCHAR, Types.VARCHAR,
+            Types.VARCHAR, Types.VARCHAR, Types.INTEGER, Types.INTEGER, Types.INTEGER, Types.INTEGER,
+            Types.INTEGER, Types.BIGINT, Types.VARCHAR, Types.INTEGER, Types.INTEGER, Types.INTEGER,
+            Types.VARCHAR, Types.VARCHAR};
+
+    /** One shape for both the plain and the adjusted row, so a fixture cannot drift per case. */
+    private static Object[] scheduleRow(Object offeringId, String code, String name, String teacher,
+                                        String location, int day, int start, int end, int startWeek,
+                                        int endWeek, Object adjustmentId, Object reason,
+                                        Object newDay, Object newStart, Object newEnd,
+                                        Object adjustedTeacher, Object adjustedLocation) {
+        return new Object[]{offeringId, code, name, teacher, location, day, start, end, startWeek,
+                endWeek, adjustmentId, reason, newDay, newStart, newEnd, adjustedTeacher,
+                adjustedLocation};
     }
 
     private static Object[] course(long id) {

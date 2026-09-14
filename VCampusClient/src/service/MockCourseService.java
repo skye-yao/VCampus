@@ -18,6 +18,7 @@ import model.course.CourseTermView;
 import model.course.CourseView;
 import model.course.GradeRecordView;
 import model.course.GradeSummaryView;
+import model.course.ScheduleDisplayKind;
 import model.course.ScheduleEntryView;
 import model.course.SelectionStatus;
 import model.course.TrainingPlanCourseView;
@@ -37,6 +38,7 @@ public final class MockCourseService implements CourseService {
             new LinkedHashMap<>();
     private final Map<Long, ScheduleEntryView> scheduleTemplates = new LinkedHashMap<>();
     private final List<CourseNoticeView> notices = new ArrayList<>();
+    private final List<ScheduleAdjustment> adjustments = new ArrayList<>();
 
     public MockCourseService() {
         addCourse(new CourseView(101L, "CS203", "数据结构", "必修", 4.0, 64,
@@ -103,6 +105,9 @@ public final class MockCourseService implements CourseService {
         notices.add(new CourseNoticeView(
                 DEFAULT_TERM_NAME, 13, "数据结构调课通知",
                 "第 13 周课程调整至周五 3-4 节，地点为教四-201。"));
+        // The paired timetable state behind that notice: the week-13 meeting of 数据结构 moves.
+        adjustments.add(new ScheduleAdjustment(1001L, 13, 5, 3, 2, "张老师", "教四-201",
+                "教师出差，第 13 周课程调整", "ADJ-1001-13"));
     }
 
     @Override
@@ -262,11 +267,77 @@ public final class MockCourseService implements CourseService {
                     && offering.getSelectionStatus() == SelectionStatus.ENROLLED
                     && scheduleEntry.getTerm().equals(term == null ? null : term.getDisplayName())
                     && scheduleEntry.isActiveInWeek(week)) {
-                entries.add(scheduleEntry);
+                ScheduleAdjustment adjustment = adjustmentIn(template.getKey(), week);
+                if (adjustment == null) {
+                    entries.add(scheduleEntry);
+                } else {
+                    entries.add(adjustedOriginal(scheduleEntry, adjustment));
+                    entries.add(adjustedTarget(scheduleEntry, adjustment));
+                }
             }
         }
         return CompletableFuture.completedFuture(List.copyOf(entries));
     }
+
+    private ScheduleAdjustment adjustmentIn(long offeringId, int week) {
+        for (ScheduleAdjustment adjustment : adjustments) {
+            if (adjustment.offeringId() == offeringId && adjustment.week() == week) {
+                return adjustment;
+            }
+        }
+        return null;
+    }
+
+    /** The display-only half: the published slot, which no longer occupies it. */
+    private static ScheduleEntryView adjustedOriginal(ScheduleEntryView base,
+                                                     ScheduleAdjustment adjustment) {
+        return new ScheduleEntryView(base.getOfferingId(), base.getTerm(), base.getCourseCode(),
+                base.getCourseName(), base.getTeacher(), base.getLocation(), base.getDayOfWeek(),
+                base.getStartPeriod(), base.getPeriodCount(), base.getStartWeek(), base.getEndWeek(),
+                ScheduleDisplayKind.ADJUSTED_ORIGINAL, adjustment.adjustmentId(),
+                originalText(base), adjustedText(adjustment), adjustment.reason());
+    }
+
+    /** The effective half: where and when the lesson actually happens in that week. */
+    private static ScheduleEntryView adjustedTarget(ScheduleEntryView base,
+                                                    ScheduleAdjustment adjustment) {
+        return new ScheduleEntryView(base.getOfferingId(), base.getTerm(), base.getCourseCode(),
+                base.getCourseName(), adjustment.teacher(), adjustment.location(),
+                adjustment.dayOfWeek(), adjustment.startPeriod(), adjustment.periodCount(),
+                base.getStartWeek(), base.getEndWeek(), ScheduleDisplayKind.ADJUSTED_TARGET,
+                adjustment.adjustmentId(), originalText(base), adjustedText(adjustment),
+                adjustment.reason());
+    }
+
+    private static String originalText(ScheduleEntryView base) {
+        return scheduleText(base.getDayOfWeek(), base.getStartPeriod(),
+                base.getStartPeriod() + base.getPeriodCount() - 1, base.getLocation());
+    }
+
+    private static String adjustedText(ScheduleAdjustment adjustment) {
+        return scheduleText(adjustment.dayOfWeek(), adjustment.startPeriod(),
+                adjustment.startPeriod() + adjustment.periodCount() - 1, adjustment.location());
+    }
+
+    private static String scheduleText(int dayOfWeek, int startPeriod, int endPeriod,
+                                       String location) {
+        String day = switch (dayOfWeek) {
+            case 1 -> "周一";
+            case 2 -> "周二";
+            case 3 -> "周三";
+            case 4 -> "周四";
+            case 5 -> "周五";
+            case 6 -> "周六";
+            case 7 -> "周日";
+            default -> "周" + dayOfWeek;
+        };
+        return day + " 第" + startPeriod + "-" + endPeriod + "节"
+                + (location == null || location.isBlank() ? "" : " " + location);
+    }
+
+    private record ScheduleAdjustment(long offeringId, int week, int dayOfWeek, int startPeriod,
+                                      int periodCount, String teacher, String location,
+                                      String reason, String adjustmentId) { }
 
     @Override
     public CompletableFuture<List<CourseNoticeView>> loadNotices(

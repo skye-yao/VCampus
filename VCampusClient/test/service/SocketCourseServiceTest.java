@@ -14,6 +14,7 @@ import dto.course.CourseTeacherDTO;
 import dto.course.CourseTermDTO;
 import dto.course.GradeRecordDTO;
 import dto.course.GradeSummaryDTO;
+import dto.course.ScheduleDisplayKindDTO;
 import dto.course.ScheduleEntryDTO;
 import dto.course.SelectionStateDTO;
 import dto.course.TrainingPlanCourseDTO;
@@ -36,6 +37,7 @@ import model.course.CourseTermView;
 import model.course.CourseView;
 import model.course.GradeRecordView;
 import model.course.GradeSummaryView;
+import model.course.ScheduleDisplayKind;
 import model.course.ScheduleEntryView;
 import model.course.SelectionStatus;
 import model.course.TrainingPlanGroupView;
@@ -58,6 +60,7 @@ public final class SocketCourseServiceTest {
         loadSelectionSnapshotMapsItemsAndTerm();
         mutationsPropagateOperationIdOfferingIdAndSnapshot();
         loadScheduleAndNoticesSendTermAndWeek();
+        adjustmentScheduleEntriesMapExplicitly();
         loadGradesMapsNullableComponents();
         loadTrainingPlanNeedsNoTerm();
         nonSuccessResponsesBecomeStableExceptions();
@@ -242,6 +245,59 @@ public final class SocketCourseServiceTest {
         require(notices.size() == 1 && "停课通知".equals(notices.get(0).getTitle())
                         && notices.get(0).getWeek() == 8,
                 "notice must map");
+    }
+
+    /** The paired display fields must survive the wire, and an absent kind must fail loudly. */
+    private static void adjustmentScheduleEntriesMapExplicitly() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("schedule", List.of(
+                new ScheduleEntryDTO("1001", "2026-2027 秋学期", "CS203", "数据结构", "张老师",
+                        "教四-201", 2, 3, 2, 1, 16, ScheduleDisplayKindDTO.ADJUSTED_ORIGINAL,
+                        "9007199254740999", "周二 第3-4节 教四-201", "周五 第3-4节 教二-305",
+                        "教师出差"),
+                new ScheduleEntryDTO("1001", "2026-2027 秋学期", "CS203", "数据结构", "李老师",
+                        "教二-305", 5, 3, 2, 1, 16, ScheduleDisplayKindDTO.ADJUSTED_TARGET,
+                        "9007199254740999", "周二 第3-4节 教四-201", "周五 第3-4节 教二-305",
+                        "教师出差"))));
+        List<ScheduleEntryView> entries =
+                new SocketCourseService(transport).loadSchedule(TERM, 13).join();
+        require(entries.size() == 2
+                        && entries.get(0).getDisplayKind() == ScheduleDisplayKind.ADJUSTED_ORIGINAL
+                        && entries.get(1).getDisplayKind() == ScheduleDisplayKind.ADJUSTED_TARGET,
+                "both halves of the pair must map their display kind explicitly");
+        require("9007199254740999".equals(entries.get(0).getAdjustmentId())
+                        && entries.get(0).getAdjustmentId().equals(entries.get(1).getAdjustmentId())
+                        && entries.get(0).getDayOfWeek() == 2
+                        && entries.get(1).getDayOfWeek() == 5
+                        && "教二-305".equals(entries.get(1).getLocation())
+                        && "李老师".equals(entries.get(1).getTeacher())
+                        && "周二 第3-4节 教四-201".equals(entries.get(1).getOriginalScheduleText())
+                        && "周五 第3-4节 教二-305".equals(entries.get(1).getAdjustedScheduleText())
+                        && "教师出差".equals(entries.get(1).getAdjustmentReason()),
+                "the adjustment identity, coordinates, resources and detail text must map");
+
+        FakeTransport legacy = new FakeTransport();
+        legacy.respond(message -> message.putData("schedule", List.of(
+                new ScheduleEntryDTO("1001", "2026-2027 秋学期", "CS203", "数据结构", "张老师",
+                        "教四-201", 2, 3, 2, 1, 16))));
+        ScheduleEntryView plain = new SocketCourseService(legacy).loadSchedule(TERM, 3).join().get(0);
+        require(plain.getDisplayKind() == ScheduleDisplayKind.NORMAL
+                        && plain.getAdjustmentId() == null
+                        && plain.getOriginalScheduleText() == null,
+                "the legacy DTO constructor must still map to a plain NORMAL entry");
+
+        FakeTransport absent = new FakeTransport();
+        absent.respond(message -> message.putData("schedule", List.of(
+                new ScheduleEntryDTO("1001", "2026-2027 秋学期", "CS203", "数据结构", "张老师",
+                        "教四-201", 2, 3, 2, 1, 16, null, null, null, null, null))));
+        try {
+            new SocketCourseService(absent).loadSchedule(TERM, 3).join();
+            throw new AssertionError("an absent display kind must not render as NORMAL");
+        } catch (CompletionException failure) {
+            require(failure.getCause() instanceof SocketCourseService.CourseServiceException error
+                            && "缺少响应字段: displayKind".equals(error.getMessage()),
+                    "an absent display kind must fail clearly, observed " + failure.getCause());
+        }
     }
 
     private static void loadGradesMapsNullableComponents() {

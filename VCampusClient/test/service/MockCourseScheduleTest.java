@@ -3,6 +3,7 @@ package service;
 import java.util.List;
 import model.course.CourseNoticeView;
 import model.course.CourseTermView;
+import model.course.ScheduleDisplayKind;
 import model.course.ScheduleEntryView;
 
 public final class MockCourseScheduleTest {
@@ -36,6 +37,37 @@ public final class MockCourseScheduleTest {
         require(service.loadNotices(TERM, 12).get().isEmpty(),
                 "notices from another week must not appear");
         requireImmutable(notices, "notice results must be immutable");
+
+        List<ScheduleEntryView> adjusted = service.loadSchedule(TERM, 13).get();
+        List<ScheduleEntryView> pair = adjusted.stream()
+                .filter(entry -> entry.getOfferingId() == 1001L).toList();
+        require(pair.size() == 2
+                        && pair.get(0).getDisplayKind() == ScheduleDisplayKind.ADJUSTED_ORIGINAL
+                        && pair.get(1).getDisplayKind() == ScheduleDisplayKind.ADJUSTED_TARGET
+                        && "ADJ-1001-13".equals(pair.get(0).getAdjustmentId())
+                        && pair.get(0).getAdjustmentId().equals(pair.get(1).getAdjustmentId()),
+                "an adjusted week must pair one display-only original with one effective target");
+        require(pair.get(0).getDayOfWeek() == 2 && pair.get(0).getStartPeriod() == 3
+                        && pair.get(1).getDayOfWeek() == 5 && pair.get(1).getStartPeriod() == 3,
+                "the pair must sit at the original and the adjusted coordinates, observed "
+                        + pair.get(0).getDayOfWeek() + "/" + pair.get(0).getStartPeriod() + " and "
+                        + pair.get(1).getDayOfWeek() + "/" + pair.get(1).getStartPeriod());
+        require(pair.get(0).isActiveInWeek(13) && pair.get(1).isActiveInWeek(13)
+                        && "周二 第3-4节 教四-201".equals(pair.get(0).getOriginalScheduleText())
+                        && "周五 第3-4节 教四-201".equals(pair.get(0).getAdjustedScheduleText())
+                        && pair.get(0).getOriginalScheduleText().equals(
+                        pair.get(1).getOriginalScheduleText())
+                        && pair.get(0).getAdjustedScheduleText().equals(
+                        pair.get(1).getAdjustedScheduleText()),
+                "both halves must be active in the adjusted week and share the detail text");
+
+        List<ScheduleEntryView> neighbouring = service.loadSchedule(TERM, 12).get().stream()
+                .filter(entry -> entry.getOfferingId() == 1001L).toList();
+        require(neighbouring.size() == 1
+                        && neighbouring.get(0).getDisplayKind() == ScheduleDisplayKind.NORMAL
+                        && neighbouring.get(0).getAdjustmentId() == null
+                        && neighbouring.get(0).getDayOfWeek() == 2,
+                "a neighbouring week must keep the single plain entry");
         System.out.println("MockCourseScheduleTest: PASS");
     }
 
