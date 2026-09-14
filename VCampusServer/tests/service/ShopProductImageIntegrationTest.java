@@ -36,6 +36,7 @@ public class ShopProductImageIntegrationTest {
 
         expectRejected(() -> shop.createProduct("admin", product, Base64.getEncoder().encodeToString(png), false));
         expectRejected(() -> shop.createProduct("admin", product, "%%broken%%", true));
+        expectRejected(() -> shop.createProduct("admin", product, "", true));
         if (productExists(uniqueName)) throw new AssertionError("无效上传不应创建商品");
 
         long productId = -1;

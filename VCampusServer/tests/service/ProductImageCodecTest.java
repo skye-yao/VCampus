@@ -21,7 +21,13 @@ public class ProductImageCodecTest {
 
         expectRejected("损坏的 Base64", "%%%");
         expectRejected("不是图片", Base64.getEncoder().encodeToString(new byte[]{1, 2, 3}));
+        expectRejected("伪造 PNG 头", Base64.getEncoder().encodeToString(new byte[]{
+                (byte) 137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3}));
         expectRejected("超过 1 MiB", Base64.getEncoder().encodeToString(new byte[1024 * 1024 + 1]));
+        BufferedImage tooWide = new BufferedImage(4097, 1, BufferedImage.TYPE_INT_RGB);
+        ByteArrayOutputStream widePng = new ByteArrayOutputStream();
+        ImageIO.write(tooWide, "png", widePng);
+        expectRejected("图片宽度超过上限", Base64.getEncoder().encodeToString(widePng.toByteArray()));
         System.out.println("ProductImageCodecTest PASS");
     }
 

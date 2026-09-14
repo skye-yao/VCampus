@@ -322,7 +322,7 @@ public class ShopService {
     public Map<String, Object> createProduct(String operatorId, Product product, String imageBase64, boolean admin) {
         requireAdmin(admin);
         validateProduct(product, false);
-        ProductImageCodec.ValidatedImage image = imageBase64 == null || imageBase64.isBlank()
+        ProductImageCodec.ValidatedImage image = imageBase64 == null
                 ? null : ProductImageCodec.decode(imageBase64);
         Connection conn = null;
         try {

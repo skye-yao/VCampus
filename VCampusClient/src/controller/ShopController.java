@@ -347,18 +347,19 @@ public class ShopController {
         StackPane picture = new StackPane();
         picture.getStyleClass().add("shop-image-frame");
         picture.setMinSize(280, 250);
-        Image image = decodeProductImage(imageBase64);
-        if (image == null) {
-            Label placeholder = new Label("暂无图片");
-            placeholder.getStyleClass().add("shop-image-placeholder");
-            picture.getChildren().add(placeholder);
-        } else {
-            ImageView imageView = new ImageView(image);
-            imageView.setFitWidth(260);
-            imageView.setFitHeight(230);
-            imageView.setPreserveRatio(true);
-            picture.getChildren().add(imageView);
-        }
+        Label placeholder = new Label(imageBase64 == null ? "暂无图片" : "图片加载中…");
+        placeholder.getStyleClass().add("shop-image-placeholder");
+        ImageView imageView = new ImageView();
+        imageView.setFitWidth(260);
+        imageView.setFitHeight(230);
+        imageView.setPreserveRatio(true);
+        picture.getChildren().addAll(placeholder, imageView);
+        if (imageBase64 != null) CompletableFuture.supplyAsync(() -> decodeProductImage(imageBase64))
+                .thenAccept(image -> Platform.runLater(() -> {
+                    imageView.setImage(image);
+                    placeholder.setText("暂无图片");
+                    placeholder.setVisible(image == null);
+                }));
 
         Label name = new Label(product.getProductName());
         name.getStyleClass().add("shop-detail-name");
@@ -651,6 +652,7 @@ public class ShopController {
         createProductButton.setDisable(true);
         replaceProductImageButton.setDisable(true);
         shopUploadStatusLabel.setText("正在上传图片，请稍候…");
+        java.util.concurrent.atomic.AtomicBoolean requestStarted = new java.util.concurrent.atomic.AtomicBoolean();
         CompletableFuture.supplyAsync(() -> {
             try {
                 return ShopImageClientCodec.encode(file.toPath());
@@ -659,6 +661,7 @@ public class ShopController {
             }
         }).thenCompose(imageBase64 -> {
             request.putData("imageBase64", imageBase64);
+            requestStarted.set(true);
             return SocketClient.getInstance().sendAsync(request);
         }).whenComplete((response, error) -> Platform.runLater(() -> {
             imageUploadInProgress = false;
@@ -668,7 +671,13 @@ public class ShopController {
             if (error != null) {
                 Throwable cause = error;
                 while (cause instanceof CompletionException && cause.getCause() != null) cause = cause.getCause();
-                AlertUtil.showError("商品图片", "上传失败：" + cause.getMessage());
+                if (requestStarted.get()) {
+                    AlertUtil.showWarning("商品图片", "上传结果尚未确认。请先刷新商品列表和操作日志，确认是否已经保存，再决定是否重试。\n原因：" + cause.getMessage());
+                    refreshProducts();
+                    refreshOperationLogs();
+                } else {
+                    AlertUtil.showError("商品图片", "读取图片失败：" + cause.getMessage());
+                }
                 onFailure.run();
             } else if (response.getCode() != MessageCode.SUCCESS) {
                 AlertUtil.showError("商品图片", response.getMessage());
@@ -713,10 +722,15 @@ public class ShopController {
             Product current = adminProductTable.getSelectionModel().getSelectedItem();
             if (generation != adminPreviewGeneration || current == null
                     || !Long.valueOf(selectedId).equals(current.getProductId())) return;
-            Image image = decodeProductImage(imageBase64);
-            adminProductImageView.setImage(image);
-            adminImagePlaceholderLabel.setText("暂无图片");
-            adminImagePlaceholderLabel.setVisible(image == null);
+            CompletableFuture.supplyAsync(() -> decodeProductImage(imageBase64))
+                    .thenAccept(image -> Platform.runLater(() -> {
+                        Product stillSelected = adminProductTable.getSelectionModel().getSelectedItem();
+                        if (generation != adminPreviewGeneration || stillSelected == null
+                                || !Long.valueOf(selectedId).equals(stillSelected.getProductId())) return;
+                        adminProductImageView.setImage(image);
+                        adminImagePlaceholderLabel.setText("暂无图片");
+                        adminImagePlaceholderLabel.setVisible(image == null);
+                    }));
         });
     }
 
