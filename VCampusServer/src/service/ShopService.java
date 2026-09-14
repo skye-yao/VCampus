@@ -3,6 +3,7 @@ package service;
 import dao.CartItemDAO;
 import dao.OrderItemDAO;
 import dao.ProductDAO;
+import dao.ProductImageDAO;
 import dao.ShopOrderDAO;
 import dao.ShopRefundDAO;
 import dao.ShopOperationLogDAO;
@@ -29,10 +30,12 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.Base64;
 
 /** 商店模块业务服务。 */
 public class ShopService {
     private final ProductDAO productDAO = new ProductDAO();
+    private final ProductImageDAO productImageDAO = new ProductImageDAO();
     private final CartItemDAO cartItemDAO = new CartItemDAO();
     private final ShopOrderDAO shopOrderDAO = new ShopOrderDAO();
     private final OrderItemDAO orderItemDAO = new OrderItemDAO();
@@ -61,6 +64,22 @@ public class ShopService {
             Product product = productDAO.findById(productId);
             if (product == null) throw new BusinessException("商品不存在");
             return product;
+        } catch (SQLException e) {
+            throw new DatabaseException("查询商品详情失败", e);
+        }
+    }
+
+    /** 详情按需加载图片；列表查询始终不包含图片二进制。 */
+    public Map<String, Object> getProductDetail(long productId) {
+        try (Connection conn = DBUtil.getConnection()) {
+            Product product = productDAO.findById(conn, productId, false);
+            if (product == null) throw new BusinessException("商品不存在");
+            ProductImageDAO.ImageRow image = productImageDAO.findByProductId(conn, productId);
+            Map<String, Object> detail = new LinkedHashMap<>();
+            detail.put("product", product);
+            detail.put("imageBase64", image == null ? null : Base64.getEncoder().encodeToString(image.bytes()));
+            detail.put("imageMimeType", image == null ? null : image.mimeType());
+            return detail;
         } catch (SQLException e) {
             throw new DatabaseException("查询商品详情失败", e);
         }
@@ -300,9 +319,11 @@ public class ShopService {
         } finally { resetAndClose(conn); }
     }
 
-    public Map<String, Object> createProduct(String operatorId, Product product, boolean admin) {
+    public Map<String, Object> createProduct(String operatorId, Product product, String imageBase64, boolean admin) {
         requireAdmin(admin);
         validateProduct(product, false);
+        ProductImageCodec.ValidatedImage image = imageBase64 == null || imageBase64.isBlank()
+                ? null : ProductImageCodec.decode(imageBase64);
         Connection conn = null;
         try {
             conn = DBUtil.getConnection(); conn.setAutoCommit(false);
@@ -314,8 +335,10 @@ public class ShopService {
             Map<String,Object> result = new LinkedHashMap<>();
             long productId = productDAO.insert(conn, product);
             result.put("productId", productId);
+            if (image != null) productImageDAO.upsert(conn, productId, image.mimeType(), image.bytes());
             operationLogDAO.insert(conn, operatorId, "PRODUCT_CREATE", "PRODUCT", productId,
-                    null, productSnapshot(product), "新增商品并默认上架");
+                    null, productSnapshot(product) + (image == null ? "" : ",image=" + image.mimeType()),
+                    "新增商品并默认上架");
             conn.commit(); return result;
         } catch (BusinessException e) {
             rollback(conn); throw e;
@@ -325,6 +348,37 @@ public class ShopService {
                 throw new BusinessException("商品名称已存在，不能重复新增");
             }
             throw new DatabaseException("新增商品失败", e);
+        } finally {
+            resetAndClose(conn);
+        }
+    }
+
+    /** 商品版本、图片及管理员审计日志在同一事务中提交。 */
+    public void replaceProductImage(String operatorId, long productId, int expectedVersion,
+                                    String imageBase64, boolean admin) {
+        requireAdmin(admin);
+        ProductImageCodec.ValidatedImage image = ProductImageCodec.decode(imageBase64);
+        Connection conn = null;
+        try {
+            conn = DBUtil.getConnection();
+            conn.setAutoCommit(false);
+            Product before = productDAO.findById(conn, productId, true);
+            if (before == null) throw new BusinessException("商品不存在");
+            if (!productDAO.bumpVersionForImage(conn, productId, expectedVersion)) {
+                throw new BusinessException("商品已被其他操作修改，请刷新后重试");
+            }
+            ProductImageDAO.ImageRow oldImage = productImageDAO.findByProductId(conn, productId);
+            productImageDAO.upsert(conn, productId, image.mimeType(), image.bytes());
+            operationLogDAO.insert(conn, operatorId, "PRODUCT_IMAGE_UPDATE", "PRODUCT", productId,
+                    oldImage == null ? "image=none" : "image=" + oldImage.mimeType(),
+                    "image=" + image.mimeType(), "更换商品图片");
+            conn.commit();
+        } catch (BusinessException e) {
+            rollback(conn);
+            throw e;
+        } catch (SQLException e) {
+            rollback(conn);
+            throw new DatabaseException("更换商品图片失败", e);
         } finally {
             resetAndClose(conn);
         }
