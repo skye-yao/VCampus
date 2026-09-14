@@ -85,6 +85,9 @@ public final class StudentPdfExport {
             familyMembers = Collections.emptyList();
         }
 
+        util.InformationRules.requireExportCapacity(experiences.size(),util.InformationRules.STUDENT_EXPERIENCES,"学习经历");
+        util.InformationRules.requireExportCapacity(familyMembers.size(),util.InformationRules.STUDENT_FAMILY,"家庭成员");
+        awards=recentAwards(awards);
         /*
          * 1. 加载 PDF 模板
          */
@@ -350,6 +353,13 @@ public final class StudentPdfExport {
     /**
      * 模板最多显示 4 条奖励。
      */
+    static List<StudentAward> recentAwards(List<StudentAward> awards) {
+        return awards.stream().sorted(java.util.Comparator.comparing(StudentAward::getAwardDate,
+                java.util.Comparator.nullsLast(java.util.Comparator.reverseOrder()))
+                .thenComparing(StudentAward::getAwardId,java.util.Comparator.nullsLast(java.util.Comparator.reverseOrder())))
+                .limit(util.InformationRules.AWARDS_EXPORTED).toList();
+    }
+
     private static void writeAwards(
             PDPageContentStream content,
             PDType0Font latinFont,

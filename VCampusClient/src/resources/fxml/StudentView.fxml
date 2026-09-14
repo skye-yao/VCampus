@@ -391,8 +391,8 @@
                     <VBox prefWidth="260" spacing="12" styleClass="student-panel">
                       <Label styleClass="student-section-title" text="审核处理"/>
                       <HBox spacing="8"><Button fx:id="approveButton" disable="true" maxWidth="Infinity" onAction="#handleApprove" styleClass="btn-primary" text="通过" HBox.hgrow="ALWAYS"/><Button fx:id="rejectButton" disable="true" maxWidth="Infinity" onAction="#handleReject" styleClass="btn-secondary" text="不通过" HBox.hgrow="ALWAYS"/></HBox>
-                      <Label text="不通过理由"/>
-                      <TextArea fx:id="reviewRemarkArea" prefRowCount="12" promptText="选择不通过时必须填写理由" VBox.vgrow="ALWAYS"/>
+                      <Label text="审核意见（可选）"/>
+                      <TextArea fx:id="reviewRemarkArea" prefRowCount="12" promptText="可不填写，最多255个字符" VBox.vgrow="ALWAYS"/>
                     </VBox>
                   </HBox>
                 </VBox>

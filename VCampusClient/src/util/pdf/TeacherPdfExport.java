@@ -26,18 +26,14 @@ public final class TeacherPdfExport {
         if (teacher == null || output == null) throw new IllegalArgumentException("教师和输出文件不能为空");
         List<TeacherWorkExperience> work = experiences == null ? List.of() : experiences;
         List<TeacherFamilyMember> family = familyMembers == null ? List.of() : familyMembers;
+        util.InformationRules.requireExportCapacity(work.size(),util.InformationRules.TEACHER_EXPERIENCES,"工作经历");
+        util.InformationRules.requireExportCapacity(family.size(),util.InformationRules.TEACHER_FAMILY,"社会关系");
         try (InputStream input = TeacherPdfExport.class.getResourceAsStream(TEMPLATE)) {
             if (input == null) throw new IOException("找不到 PDF 模板：" + TEMPLATE);
             byte[] bytes = input.readAllBytes();
             try (PDDocument document = Loader.loadPDF(bytes)) {
                 if (document.getNumberOfPages() != 1) throw new IOException("教师 PDF 模板应为单页登记表");
-                // 超出模板行数时续页，避免遗漏教师已维护的经历或社会关系。
-                int pages = Math.max(1, Math.max((work.size() + 4) / 5, (family.size() + 3) / 4));
-                for (int i = 1; i < pages; i++) {
-                    try (PDDocument template = Loader.loadPDF(bytes)) {
-                        new org.apache.pdfbox.multipdf.PDFMergerUtility().appendDocument(document, template);
-                    }
-                }
+                int pages = 1;
                 PDType0Font latin = PdfFontManage.loadTimesNewRoman(document);
                 PDType0Font chinese = PdfFontManage.loadChineseFont(document);
                 for (int p = 0; p < pages; p++) {

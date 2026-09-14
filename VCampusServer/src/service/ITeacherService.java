@@ -19,7 +19,8 @@ public interface ITeacherService {
     TeacherChangeRequest queryRequest(long id)throws SQLException;
     long submit(String UID,TeacherChangeRequest r)throws SQLException;
     void review(long id,StudentChangeStatus result,String reviewer,String note)throws SQLException;
-    boolean updateByAdmin(Teacher t)throws SQLException;
+    String teacherIdForUser(String uid)throws SQLException;
+    boolean updateByAdmin(Teacher t,Teacher original)throws SQLException;
     boolean addWorkExperience(String UID,TeacherWorkExperience value)throws SQLException;
     boolean updateWorkExperience(String UID,TeacherWorkExperience value)throws SQLException;
     boolean deleteWorkExperience(String UID,long id)throws SQLException;
