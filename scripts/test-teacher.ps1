@@ -13,9 +13,9 @@
 #       以完整 JavaFX SDK 启动工具包运行 GUI 测试；-JavaFxHome 默认指向本机已解压的
 #       openjfx-25.0.4 SDK，缺少原生 DLL 时立即报错而不是静默降级。
 #
-# 约定：javac/java 非零退出立即停止；SKIP 永远不等于 PASS；每次运行使用独立输出目录；
-# 不自动创建或删除数据库。`-WithTcp`/`-WithGui` 只有在所选套件确实声明了对应测试时才允许使用，
-# 否则报错退出，避免“什么都没跑却看起来通过”。
+# 约定：javac/java 非零退出立即停止；SKIP 永远不等于 PASS；每次运行在 .codex-tmp/teacher/<套件>-<唯一值>
+# 下用独立输出目录；不自动创建或删除数据库。`-WithTcp`/`-WithGui` 只有在所选套件确实声明了对应测试时
+# 才允许使用，否则报错退出，避免“什么都没跑却看起来通过”。
 
 [CmdletBinding()]
 param(
@@ -66,9 +66,13 @@ $suites = @(
         # MySQL test only with -WithMySql and prints SKIP otherwise.
         Server = @('database.TeacherFoundationMigrationTest', 'service.TeacherCourseQueryMySqlTest',
             'handler.TeacherCourseHandlerTest')
-        Tcp = @()
-        # GUI 冒烟（ui.*）属于伞形计划的 T6：它注册后直接复用下面已经修好的 -WithGui 运行方式。
-        Gui = @()
+        # 真实 TCP 端到端：登录教师 → courseTeacher 查询 → DTO 映射。它会重建受保护的测试架构，
+        # 所以必须串行单独运行；-WithTcp 才跑，未传时不会被当作已通过。
+        Tcp = @('integration.TeacherCourseQuerySocketEndToEndTest')
+        # GUI 冒烟与截图：真实 JavaFX 工具包装入教师工作台外壳，用 MockTeacherCourseService 驱动。
+        # 只登记冒烟类：ui.TeacherCourseUiPreview 是人工预览工具，只有收到 `--smoke` 才自动关闭，
+        # 套件运行传的是 --config，登记它会让一次无人值守运行停在打开的窗口上永不退出。
+        Gui = @('ui.TeacherCourseUiSmokeTest')
     }
     [pscustomobject]@{ Name = 'Timetable'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }
     [pscustomobject]@{ Name = 'Adjustment'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }
@@ -155,7 +159,8 @@ if ($WithMySql -and -not (Test-Path -LiteralPath $resolvedConfig -PathType Leaf)
 $configArgument = '--config=' + $resolvedConfig.Replace('\', '/')
 
 $runId = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
-$buildRoot = Join-Path $repoRoot (Join-Path 'build\test-teacher' $runId)
+# 每次运行一个独立目录，路径里带套件名，便于按套件分辨产物（伞形计划的统一约定）。
+$buildRoot = Join-Path $repoRoot (Join-Path '.codex-tmp\teacher' ($Suite + '-' + $runId))
 $commonOutput = Join-Path $buildRoot 'common'
 $commonTestOutput = Join-Path $buildRoot 'common-test'
 $clientOutput = Join-Path $buildRoot 'client'
@@ -257,14 +262,32 @@ foreach ($testClass in $selected.Client) {
         Class = $testClass; Classpath = $clientTestClasspath; Gui = $false; Arguments = @()
     }
 }
-foreach ($testClass in ($selected.Server + $selected.Tcp + $selected.Gui)) {
-    $gui = $selected.Gui -contains $testClass
+foreach ($testClass in $selected.Server) {
     $runs += [pscustomobject]@{
-        Class = $testClass
-        Classpath = if ($gui) { $guiTestClasspath } else { $serverTestClasspath }
-        Gui = $gui
+        Class = $testClass; Classpath = $serverTestClasspath; Gui = $false
         Arguments = $serverArguments
     }
+}
+# TCP 与 GUI 用例默认不跑，必须由调用者显式开启：前者会重建受保护的测试架构，后者需要完整
+# JavaFX SDK。声明了却不跑时它们不出现在运行列表里，所以不会被当成通过。
+if ($WithTcp) {
+    foreach ($testClass in $selected.Tcp) {
+        $runs += [pscustomobject]@{
+            Class = $testClass; Classpath = $serverTestClasspath; Gui = $false
+            Arguments = $serverArguments
+        }
+    }
+}
+if ($WithGui) {
+    foreach ($testClass in $selected.Gui) {
+        $runs += [pscustomobject]@{
+            Class = $testClass; Classpath = $guiTestClasspath; Gui = $true
+            Arguments = $serverArguments
+        }
+    }
+}
+if ($runs.Count -eq 0) {
+    throw "Suite $Suite selected no tests to run; nothing was run. Pass -WithTcp/-WithGui if the suite only declares those."
 }
 
 foreach ($run in $runs) {
