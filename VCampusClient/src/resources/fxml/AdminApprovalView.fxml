@@ -86,12 +86,7 @@
                         </HBox>
                     </children>
                 </VBox>
-                <VBox fx:id="gradePlaceholder" alignment="CENTER" managed="false" spacing="10.0" styleClass="course-admin-placeholder" visible="false">
-                    <children>
-                        <Label styleClass="course-admin-placeholder-title" text="成绩审批" />
-                        <Label styleClass="course-admin-placeholder-text" text="成绩审批将在后续阶段开放" />
-                    </children>
-                </VBox>
+                <fx:include fx:id="gradePage" managed="false" source="GradeApprovalView.fxml" visible="false" />
             </children>
         </StackPane>
     </center>

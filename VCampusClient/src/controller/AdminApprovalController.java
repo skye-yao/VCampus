@@ -18,6 +18,7 @@ import dto.course.admin.schedule.ScheduleConflictDTO;
 import dto.course.admin.schedule.ScheduleResourceDTO;
 import javafx.application.Platform;
 import javafx.fxml.FXML;
+import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.ComboBox;
@@ -33,9 +34,10 @@ import service.SocketAdminCourseService.AdminCourseServiceException;
 import util.AlertUtil;
 
 /**
- * 管理员审批页面：调课审批已实现，成绩审批保留为显式空占位。
+ * 管理员审批页面外壳：调课审批（本类）与成绩审批（{@link GradeApprovalController}）两个标签页。
  *
- * <p>FXML 只提供稳定骨架；列表行、详情文本与冲突说明都由控制器按服务端结果生成，且这些
+ * <p>状态筛选由外壳共享：切换标签页时新激活的子页拿到当前筛选并刷新，隐藏的子页不会发起
+ * 请求。FXML 只提供稳定骨架；列表行、详情文本与冲突说明都由控制器按服务端结果生成，且这些
  * 生成逻辑都是纯函数，因此无需 JavaFX 运行时即可测试。
  */
 public final class AdminApprovalController {
@@ -57,6 +59,7 @@ public final class AdminApprovalController {
     private List<AdjustmentRequestSummaryDTO> requests = List.of();
     private AdjustmentRequestDetailDTO detail;
     private boolean loading;
+    private boolean gradeActive;
     private String errorText;
     private long listGeneration;
     private long detailGeneration;
@@ -74,7 +77,8 @@ public final class AdminApprovalController {
     @FXML private Label detailTitleLabel;
     @FXML private VBox detailBody;
     @FXML private Label detailPlaceholder;
-    @FXML private VBox gradePlaceholder;
+    @FXML private Node gradePage;
+    @FXML private GradeApprovalController gradePageController;
     @FXML private Button approveButton;
     @FXML private Button rejectButton;
     @FXML private Button forceApproveButton;
@@ -109,18 +113,24 @@ public final class AdminApprovalController {
 
     @FXML
     public void refresh() {
+        if (gradeActive) {
+            if (gradePageController != null) gradePageController.refresh();
+            return;
+        }
         loadPage(status, page);
     }
 
     @FXML
-    private void showAdjustments() {
+    void showAdjustments() {
         setTab(true);
         loadPage(status, 1);
     }
 
     @FXML
-    private void showGrades() {
+    void showGrades() {
         setTab(false);
+        // 只把当前共享筛选交给刚激活的子页；隐藏的调课页不刷新。
+        if (gradePageController != null) gradePageController.activate(status);
     }
 
     @FXML
@@ -152,6 +162,11 @@ public final class AdminApprovalController {
     void applyStatus(String label) {
         ApprovalStatusDTO next = toStatus(label);
         if (next == status) {
+            return;
+        }
+        status = next; // 共享筛选；切换标签页时新激活的子页会拿到同一个值
+        if (gradeActive) {
+            if (gradePageController != null) gradePageController.loadPage(next, 1);
             return;
         }
         loadPage(next, 1);
@@ -245,8 +260,9 @@ public final class AdminApprovalController {
     }
 
     private void setTab(boolean adjustments) {
+        gradeActive = !adjustments;
         setActive(adjustmentPanel, adjustments);
-        setActive(gradePlaceholder, !adjustments);
+        setActive(gradePage, !adjustments);
         if (adjustmentTabButton != null) adjustmentTabButton.setSelected(adjustments);
         if (gradeTabButton != null) gradeTabButton.setSelected(!adjustments);
     }

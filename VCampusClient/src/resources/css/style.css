@@ -1574,3 +1574,43 @@
 .course-approval-dialog-row {
     -fx-padding: 4px 0;
 }
+
+/* 管理员审批页的成绩审批标签页：指标卡、成绩分布与成绩明细。 */
+.course-approval-grade {
+    -fx-padding: 0;
+}
+
+.course-approval-section-title {
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #151E49;
+}
+
+.course-approval-metric-card {
+    -fx-background-color: #f8faf8;
+    -fx-border-color: #dfe4df;
+    -fx-border-radius: 4px;
+    -fx-min-width: 92px;
+    -fx-padding: 6px 12px;
+}
+
+.course-approval-metric-title {
+    -fx-font-size: 10px;
+    -fx-text-fill: #6b746c;
+}
+
+.course-approval-metric-value {
+    -fx-font-size: 15px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #151E49;
+}
+
+.course-approval-distribution-row,
+.course-approval-item-row {
+    -fx-font-size: 11px;
+    -fx-text-fill: #4f5b52;
+}
+
+.course-approval-grade-table {
+    -fx-font-size: 11px;
+}

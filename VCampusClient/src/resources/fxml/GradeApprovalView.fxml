@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.control.Separator?>
+<?import javafx.scene.control.TableColumn?>
+<?import javafx.scene.control.TableView?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.StackPane?>
+<?import javafx.scene.layout.VBox?>
+
+<VBox spacing="8.0" styleClass="course-approval-grade" xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.GradeApprovalController">
+    <children>
+        <HBox spacing="12.0" VBox.vgrow="ALWAYS">
+            <children>
+                <StackPane prefWidth="320.0" styleClass="course-admin-list-area">
+                    <children>
+                        <ScrollPane fitToWidth="true" hbarPolicy="NEVER" pannable="true" styleClass="course-admin-list-scroll">
+                            <content>
+                                <VBox fx:id="submissionList" fillWidth="true" spacing="8.0" styleClass="course-admin-list" />
+                            </content>
+                        </ScrollPane>
+                        <VBox alignment="CENTER" maxHeight="-Infinity" spacing="10.0" styleClass="course-admin-state-area" StackPane.alignment="TOP_CENTER">
+                            <children>
+                                <Label fx:id="loadingLabel" managed="false" styleClass="course-admin-loading-text" text="正在加载成绩提交..." visible="false" />
+                                <Label fx:id="emptyLabel" managed="false" maxWidth="300.0" styleClass="course-admin-empty-state" text="没有符合条件的成绩提交" visible="false" />
+                                <Label fx:id="errorLabel" managed="false" maxWidth="300.0" styleClass="course-admin-error-text" text="" visible="false" />
+                                <Button fx:id="errorRetryButton" managed="false" onAction="#refresh" styleClass="course-admin-retry-button" text="重试" visible="false" />
+                            </children>
+                            <padding>
+                                <Insets top="28.0" />
+                            </padding>
+                        </VBox>
+                    </children>
+                </StackPane>
+                <VBox maxHeight="-Infinity" spacing="8.0" styleClass="course-approval-detail" HBox.hgrow="ALWAYS">
+                    <children>
+                        <Label fx:id="detailTitleLabel" styleClass="course-approval-detail-title" text="请选择成绩提交" wrapText="true" />
+                        <Label fx:id="detailPlaceholder" styleClass="course-admin-placeholder-text" text="左侧选择一条成绩提交后可查看统计与明细" wrapText="true" />
+                        <ScrollPane fitToWidth="true" hbarPolicy="NEVER" VBox.vgrow="ALWAYS">
+                            <content>
+                                <VBox spacing="10.0">
+                                    <children>
+                                        <HBox fx:id="metricCardBox" spacing="10.0" />
+                                        <Label styleClass="course-approval-section-title" text="成绩分布" />
+                                        <VBox fx:id="distributionRows" spacing="4.0" />
+                                        <Label styleClass="course-approval-section-title" text="学生成绩" />
+                                        <TableView fx:id="itemTable" prefHeight="220.0" styleClass="course-approval-grade-table">
+                                            <columns>
+                                                <TableColumn fx:id="studentColumn" prefWidth="110.0" text="学号" />
+                                                <TableColumn fx:id="nameColumn" prefWidth="90.0" text="姓名" />
+                                                <TableColumn fx:id="dailyColumn" prefWidth="60.0" text="平时" />
+                                                <TableColumn fx:id="midtermColumn" prefWidth="60.0" text="期中" />
+                                                <TableColumn fx:id="experimentColumn" prefWidth="60.0" text="实验" />
+                                                <TableColumn fx:id="finaltermColumn" prefWidth="60.0" text="期末" />
+                                                <TableColumn fx:id="totalColumn" prefWidth="60.0" text="总评" />
+                                                <TableColumn fx:id="levelColumn" prefWidth="60.0" text="等级" />
+                                                <TableColumn fx:id="pointColumn" prefWidth="60.0" text="绩点" />
+                                            </columns>
+                                        </TableView>
+                                        <VBox fx:id="detailBody" spacing="6.0" />
+                                    </children>
+                                </VBox>
+                            </content>
+                        </ScrollPane>
+                        <Separator />
+                        <HBox alignment="CENTER_RIGHT" spacing="10.0">
+                            <children>
+                                <Button fx:id="rejectButton" disabled="true" onAction="#rejectSelected" styleClass="course-approval-reject-button" text="驳回" />
+                                <Button fx:id="approveButton" disabled="true" onAction="#approveSelected" styleClass="course-approval-approve-button" text="通过" />
+                            </children>
+                        </HBox>
+                    </children>
+                    <padding>
+                        <Insets left="12.0" />
+                    </padding>
+                </VBox>
+            </children>
+        </HBox>
+    </children>
+</VBox>
