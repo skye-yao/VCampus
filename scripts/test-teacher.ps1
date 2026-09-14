@@ -50,7 +50,9 @@ $suites = @(
     [pscustomobject]@{
         Name = 'Foundation'
         Common = @('dto.course.teacher.TeacherQueryDtoJsonTest')
-        Server = @('database.TeacherFoundationMigrationTest')
+        # TeacherCourseQueryMySqlTest self-gates on the `mysql` argument, so it runs as a real
+        # MySQL test only with -WithMySql and prints SKIP otherwise.
+        Server = @('database.TeacherFoundationMigrationTest', 'service.TeacherCourseQueryMySqlTest')
         Tcp = @()
         Gui = @()
     }
