@@ -2,6 +2,12 @@ package service;
 
 import com.google.gson.Gson;
 import dto.course.admin.AdminCourseActions;
+import dto.course.admin.approval.AdjustmentRequestDetailDTO;
+import dto.course.admin.approval.AdjustmentRequestPageDTO;
+import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
+import dto.course.admin.approval.AdjustmentTargetDTO;
+import dto.course.admin.approval.ApprovalDecisionRequestDTO;
+import dto.course.admin.approval.ApprovalStatusDTO;
 import dto.course.admin.catalog.AdminCourseDTO;
 import dto.course.admin.catalog.AdminOfferingDTO;
 import dto.course.admin.catalog.CourseEditorRequestDTO;
@@ -43,6 +49,7 @@ public final class SocketAdminCourseServiceTest {
     private static final String TOKEN = "token-123";
     private static final String COURSE_ID = "9007199254740993";
     private static final String OFFERING_ID = "9007199254740995";
+    private static final String REQUEST_ID = "9007199254740999";
 
     public static void main(String[] args) {
         ClientSession.getInstance().login("admin-alpha", "管理员", TOKEN, null);
@@ -75,6 +82,10 @@ public final class SocketAdminCourseServiceTest {
             enrollmentMutationsMapTypedHistoryRows();
             enrollmentConflictsKeepTypedRisksAndLatestRow();
             enrollmentPageRequiresServerMetadata();
+            adjustmentMethodsAreDeclaredInTheService();
+            adjustmentListSendsFiltersAndMapsItsPage();
+            adjustmentDetailAndDecisionMapTypedPayloads();
+            adjustmentConflictKeepsTypedRisksAndLatestDetail();
         } finally {
             ClientSession.getInstance().logout();
         }
@@ -781,6 +792,138 @@ public final class SocketAdminCourseServiceTest {
                             && error.getCode() == MessageCode.ERROR,
                     "missing page metadata must become a stable service error");
         }
+    }
+
+    private static void adjustmentMethodsAreDeclaredInTheService() {
+        declared("listAdjustmentRequestsPage", ApprovalStatusDTO.class, int.class, int.class);
+        declared("getAdjustmentRequest", String.class);
+        declared("reviewAdjustmentRequest", ApprovalDecisionRequestDTO.class);
+    }
+
+    private static void adjustmentListSendsFiltersAndMapsItsPage() {
+        FakeTransport transport = new FakeTransport();
+        SocketAdminCourseService service = new SocketAdminCourseService(transport);
+        transport.respond(message -> {
+            message.putData("adjustmentRequests", List.of(wireShaped(adjustmentSummary())));
+            message.putData("totalCount", 1L);
+            message.putData("pageNumber", 2);
+            message.putData("pageSize", 20);
+        });
+        AdjustmentRequestPageDTO page = service.listAdjustmentRequestsPage(
+                ApprovalStatusDTO.APPROVED, 2, 20).join();
+        requireEnvelope(transport, AdminCourseActions.LIST_ADJUSTMENT_REQUESTS);
+        require("APPROVED".equals(transport.lastRequest.getData("status"))
+                        && Integer.valueOf(2).equals(transport.lastRequest.getData("pageNumber"))
+                        && Integer.valueOf(20).equals(transport.lastRequest.getData("pageSize")),
+                "the adjustment list must send the typed status and paging");
+        require(page.getTotalCount() == 1L && page.getPageNumber() == 2 && page.getPageSize() == 20
+                        && page.getItems().size() == 1,
+                "the adjustment page must map the server metadata");
+        require(REQUEST_ID.equals(page.getItems().get(0).getRequestId())
+                        && page.getItems().get(0).getStatus() == ApprovalStatusDTO.APPROVED
+                        && page.getItems().get(0).getTargetWeekCount() == 2,
+                "the list adapter must keep the typed status and exact decimal request ID");
+
+        FakeTransport unfiltered = new FakeTransport();
+        unfiltered.respond(message -> {
+            message.putData("adjustmentRequests", List.of());
+            message.putData("totalCount", 0L);
+            message.putData("pageNumber", 1);
+            message.putData("pageSize", 20);
+        });
+        require(new SocketAdminCourseService(unfiltered)
+                        .listAdjustmentRequests(null, 1, 20).join().isEmpty(),
+                "the derived list accessor must reuse the page transport");
+        requireEnvelope(unfiltered, AdminCourseActions.LIST_ADJUSTMENT_REQUESTS);
+        require(unfiltered.lastRequest.getData("status") == null,
+                "a null status must be omitted so the server keeps its PENDING default");
+    }
+
+    private static void adjustmentDetailAndDecisionMapTypedPayloads() {
+        FakeTransport transport = new FakeTransport();
+        SocketAdminCourseService service = new SocketAdminCourseService(transport);
+        transport.respond(message -> message.putData("adjustmentRequest",
+                wireShaped(adjustmentDetail())));
+        AdjustmentRequestDetailDTO detail = service.getAdjustmentRequest(REQUEST_ID).join();
+        requireEnvelope(transport, AdminCourseActions.GET_ADJUSTMENT_REQUEST);
+        require(REQUEST_ID.equals(transport.lastRequest.getData("requestId")),
+                "the detail read must send the exact decimal request ID");
+        require(REQUEST_ID.equals(detail.getRequestId())
+                        && detail.getStatus() == ApprovalStatusDTO.PENDING
+                        && detail.getNewDayOfWeek() == 5 && detail.getNewStartPeriod() == 1
+                        && detail.getNewEndPeriod() == 2
+                        && detail.getTargets().size() == 1
+                        && "8001".equals(detail.getTargets().get(0).getOriginalOccurrenceId())
+                        && detail.getConflicts().size() == 1
+                        && detail.getConflicts().get(0).getSeverity()
+                        == ScheduleConflictSeverityDTO.OVERRIDABLE,
+                "the detail must map typed targets and conflicts");
+
+        ApprovalDecisionRequestDTO decision = new ApprovalDecisionRequestDTO(
+                "40000000-0000-0000-0000-000000000001", REQUEST_ID, 3, true, true, "已协调教师", null);
+        transport.respond(message -> message.putData("result", wireShaped(
+                new AdminOperationResultDTO<>(decision.getOperationId(), "OK", "调课申请已通过",
+                        adjustmentDetail(), List.of(adjustmentConflict())))));
+        AdminOperationResultView<AdjustmentRequestDetailDTO> result =
+                service.reviewAdjustmentRequest(decision).join();
+        requireEnvelope(transport, AdminCourseActions.REVIEW_ADJUSTMENT_REQUEST);
+        require(transport.lastRequest.getData("request") == decision,
+                "the decision must travel under request as the typed DTO instance");
+        require(decision.getOperationId().equals(result.getOperationId())
+                        && "OK".equals(result.getOutcomeCode())
+                        && "调课申请已通过".equals(result.getMessage())
+                        && result.getEntity() != null
+                        && result.getEntity().getVersion() == 3,
+                "a decision must map the typed operation result");
+    }
+
+    private static void adjustmentConflictKeepsTypedRisksAndLatestDetail() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> {
+            message.setCode(MessageCode.CONFLICT);
+            message.setMessage("存在阻断性冲突，无法通过调课申请");
+            message.putData("latest", wireShaped(adjustmentDetail()));
+            message.putData("conflicts", wireShaped(List.of(adjustmentConflict())));
+        });
+        try {
+            new SocketAdminCourseService(transport).reviewAdjustmentRequest(
+                    new ApprovalDecisionRequestDTO("40000000-0000-0000-0000-000000000002",
+                            REQUEST_ID, 3, true, false, null, null)).join();
+            throw new AssertionError("a conflict must fail the future");
+        } catch (CompletionException failure) {
+            require(failure.getCause() instanceof SocketAdminCourseService.AdminCourseServiceException,
+                    "a conflict must use the stable service exception");
+            SocketAdminCourseService.AdminCourseServiceException error =
+                    (SocketAdminCourseService.AdminCourseServiceException) failure.getCause();
+            require(error.getCode() == MessageCode.CONFLICT
+                            && error.getLatest() instanceof AdjustmentRequestDetailDTO latest
+                            && REQUEST_ID.equals(latest.getRequestId()),
+                    "the conflict must carry the latest typed detail for the dialog");
+            require(error.getConflicts().size() == 1
+                            && error.getConflicts().get(0).getSeverity()
+                            == ScheduleConflictSeverityDTO.OVERRIDABLE,
+                    "the dialog must retain the typed approval conflicts");
+        }
+    }
+
+    private static AdjustmentRequestSummaryDTO adjustmentSummary() {
+        return new AdjustmentRequestSummaryDTO(REQUEST_ID, "数据结构", "OFF-1001", "T1001", "张老师",
+                2, ApprovalStatusDTO.APPROVED, "2026-09-10T02:00:00Z");
+    }
+
+    private static AdjustmentRequestDetailDTO adjustmentDetail() {
+        return new AdjustmentRequestDetailDTO(REQUEST_ID, "2001", "T1001", "临时调课",
+                ApprovalStatusDTO.PENDING, 3, 5, 1, 2,
+                new ScheduleResourceDTO("T2001", "T2001", "李老师", "teacher", 0), null,
+                new ScheduleResourceDTO("3001", "3001", "A-101", "classroom", 120),
+                List.of(new AdjustmentTargetDTO("8001", 1, "2026-09-08T00:00:00Z",
+                        "2026-09-08T01:35:00Z", "张老师", null, "A-101")),
+                List.of(adjustmentConflict()), "2026-09-10T02:00:00Z", null, null, null);
+    }
+
+    private static ScheduleConflictDTO adjustmentConflict() {
+        return new ScheduleConflictDTO("TEACHER_OVERLAP", ScheduleConflictSeverityDTO.OVERRIDABLE,
+                "T2001", "2001", 1, 5, 1, 2, "任课教师在该时间已有其他课程");
     }
 
     private static OfferingStudentDTO enrollmentRow(String status, boolean removable) {

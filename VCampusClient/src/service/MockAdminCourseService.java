@@ -12,6 +12,12 @@ import java.util.concurrent.CompletableFuture;
 
 import dto.course.admin.catalog.CourseEditorRequestDTO;
 import dto.course.admin.AdminCourseActions;
+import dto.course.admin.approval.AdjustmentRequestDetailDTO;
+import dto.course.admin.approval.AdjustmentRequestPageDTO;
+import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
+import dto.course.admin.approval.AdjustmentTargetDTO;
+import dto.course.admin.approval.ApprovalDecisionRequestDTO;
+import dto.course.admin.approval.ApprovalStatusDTO;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
 import dto.course.admin.enrollment.AdminEnrollmentPreviewDTO;
 import dto.course.admin.enrollment.AdminEnrollmentRequestDTO;
@@ -57,11 +63,17 @@ public final class MockAdminCourseService implements AdminCourseService {
     private final Map<String, EnrollmentStudent> students = new LinkedHashMap<>();
     private final Map<String, EnrollmentState> enrollmentHistory = new LinkedHashMap<>();
     private final Map<String, EnrollmentOperation> enrollmentOperations = new LinkedHashMap<>();
+    private final Map<String, AdjustmentRequestDetailDTO> adjustmentRequests = new LinkedHashMap<>();
+    private final Map<String, AdjustmentReviewStored> adjustmentReviews = new LinkedHashMap<>();
+    private final Map<String, AdjustmentRecord> adjustmentRecordings = new LinkedHashMap<>();
+    private final Map<String, AdjustmentNotice> adjustmentNoticeRecordings = new LinkedHashMap<>();
 
     private long nextCourseId = 401;
     private long nextOfferingId = 4001;
     private long nextArrangementId = 9002;
     private long nextEnrollmentId = 50031;
+    private long nextAdjustmentId = 9101;
+    private long nextNoticeId = 8101;
     private PlanState plan = new PlanState(PLAN_ID, PLAN_NAME, PLAN_YEAR, PLAN_SEMESTER, 1,
             DRAFT, false);
 
@@ -89,6 +101,7 @@ public final class MockAdminCourseService implements AdminCourseService {
                 List.of(new ScheduleSlotDTO(1, 1, 2), new ScheduleSlotDTO(3, 3, 4)),
                 1, 16, DRAFT, 1));
         seedEnrollmentStudents();
+        seedAdjustmentRequests();
     }
 
     @Override
@@ -1040,4 +1053,268 @@ public final class MockAdminCourseService implements AdminCourseService {
         future.completeExceptionally(error);
         return future;
     }
+
+    // ------------------------------------------------------- temporary adjustments
+
+    /**
+     * The preview administrator is the signed-in test account, so the mock records it as the
+     * reviewer instead of taking an identity from the request.
+     */
+    private static final String REVIEWER = "admin-alpha";
+    private static final String MOCK_NOW = "2026-09-14T06:30:00Z";
+    private static final String RESCHEDULED = "RESCHEDULED";
+    private static final int MAX_REASON = 500;
+
+    @Override
+    public CompletableFuture<AdjustmentRequestPageDTO> listAdjustmentRequestsPage(
+            ApprovalStatusDTO status, int page, int size) {
+        try {
+            ApprovalStatusDTO filter = status == null ? ApprovalStatusDTO.PENDING : status;
+            if (page < 1) throw badRequest("页码必须大于 0");
+            if (size < 1 || size > 100) throw badRequest("每页条数必须为 1 至 100");
+            List<AdjustmentRequestSummaryDTO> matching = new ArrayList<>();
+            for (AdjustmentRequestDetailDTO request : adjustmentRequests.values()) {
+                if (request.getStatus() == filter) matching.add(adjustmentSummary(request));
+            }
+            matching.sort(Comparator.comparing(AdjustmentRequestSummaryDTO::getSubmittedAt)
+                    .reversed()
+                    .thenComparing(AdjustmentRequestSummaryDTO::getRequestId,
+                            Comparator.reverseOrder()));
+            int from = (int) Math.min((long) (page - 1) * size, matching.size());
+            int to = (int) Math.min((long) from + size, matching.size());
+            return CompletableFuture.completedFuture(new AdjustmentRequestPageDTO(
+                    matching.subList(from, to), matching.size(), page, size));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    @Override
+    public CompletableFuture<AdjustmentRequestDetailDTO> getAdjustmentRequest(String requestId) {
+        try {
+            return CompletableFuture.completedFuture(requireAdjustmentRequest(requestId));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    @Override
+    public CompletableFuture<AdminOperationResultView<AdjustmentRequestDetailDTO>> reviewAdjustmentRequest(
+            ApprovalDecisionRequestDTO raw) {
+        try {
+            ApprovalDecisionRequestDTO request = adjustmentDecision(raw);
+            AdjustmentReview intent = new AdjustmentReview(request.getOperationId(),
+                    request.getRequestId(), request.getExpectedVersion(), request.isApproved(),
+                    request.isForce(), request.getOverrideReason(), request.getReviewComment());
+            AdjustmentReviewStored stored = adjustmentReviews.get(request.getOperationId());
+            if (stored != null) {
+                if (!stored.intent().equals(intent)) throw conflict("operationId 已用于不同的业务请求");
+                return CompletableFuture.completedFuture(stored.result());
+            }
+            AdjustmentRequestDetailDTO current = requireAdjustmentRequest(request.getRequestId());
+            requirePending(current, request.getExpectedVersion());
+            List<ScheduleConflictDTO> conflicts = current.getConflicts();
+            AdminOperationResultView<AdjustmentRequestDetailDTO> result;
+            if (!request.isApproved()) {
+                result = rememberAdjustment(request.getOperationId(), "调课申请已驳回", intent,
+                        decideAdjustment(current, ApprovalStatusDTO.REJECTED, request.getReviewComment()));
+            } else {
+                boolean blocking = conflicts.stream().anyMatch(
+                        risk -> risk.getSeverity() == ScheduleConflictSeverityDTO.BLOCKING);
+                if (blocking || (!request.isForce() && !conflicts.isEmpty())) {
+                    throw new AdminCourseServiceException(MessageCode.CONFLICT,
+                            blocking ? "存在阻断性冲突，无法通过调课申请"
+                                    : "存在可绕过冲突，请确认后强制通过",
+                            current, conflicts);
+                }
+                AdjustmentRequestDetailDTO approved = decideAdjustment(current,
+                        ApprovalStatusDTO.APPROVED, request.getReviewComment());
+                for (AdjustmentTargetDTO target : approved.getTargets()) {
+                    adjustmentRecordings.put(target.getOriginalOccurrenceId(), new AdjustmentRecord(
+                            Long.toString(nextAdjustmentId++), approved.getRequestId(),
+                            target.getOriginalOccurrenceId(), target.getWeek(),
+                            "星期" + approved.getNewDayOfWeek() + " 第" + approved.getNewStartPeriod()
+                                    + "-" + approved.getNewEndPeriod() + "节",
+                            ACTIVE));
+                }
+                adjustmentNoticeRecordings.put(approved.getRequestId(), new AdjustmentNotice(
+                        Long.toString(nextNoticeId++), approved.getRequestId(),
+                        approved.getOfferingId(), "调课安排已生效", adjustmentNotice(approved),
+                        RESCHEDULED, PUBLISHED, REVIEWER, MOCK_NOW));
+                result = rememberAdjustment(request.getOperationId(), "调课申请已通过", intent, approved);
+            }
+            return CompletableFuture.completedFuture(result);
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    /** The deterministic adjustment and notice state a later UI test can assert on. */
+    public List<AdjustmentRecord> adjustmentRecords() {
+        return List.copyOf(adjustmentRecordings.values());
+    }
+
+    public List<AdjustmentNotice> adjustmentNotices() {
+        return List.copyOf(adjustmentNoticeRecordings.values());
+    }
+
+    private void requirePending(AdjustmentRequestDetailDTO current, int expectedVersion) {
+        if (current.getStatus() != ApprovalStatusDTO.PENDING) {
+            throw new AdminCourseServiceException(MessageCode.CONFLICT, "调课申请已被处理，请刷新后重试",
+                    current, current.getConflicts());
+        }
+        if (current.getVersion() != expectedVersion) {
+            throw new AdminCourseServiceException(MessageCode.CONFLICT, "调课申请版本已变化，请刷新后重试",
+                    current, current.getConflicts());
+        }
+    }
+
+    /** Records the decision and republishes the request under its new immutable snapshot. */
+    private AdjustmentRequestDetailDTO decideAdjustment(AdjustmentRequestDetailDTO current,
+            ApprovalStatusDTO status, String reviewComment) {
+        AdjustmentRequestDetailDTO decided = new AdjustmentRequestDetailDTO(current.getRequestId(),
+                current.getOfferingId(), current.getApplicantUid(), current.getReason(), status,
+                current.getVersion() + 1, current.getNewDayOfWeek(), current.getNewStartPeriod(),
+                current.getNewEndPeriod(), current.getNewTeacher(), current.getNewAssistant(),
+                current.getNewClassroom(), current.getTargets(), current.getConflicts(),
+                current.getSubmittedAt(), REVIEWER, MOCK_NOW, reviewComment);
+        adjustmentRequests.put(decided.getRequestId(), decided);
+        return decided;
+    }
+
+    private AdminOperationResultView<AdjustmentRequestDetailDTO> rememberAdjustment(String operationId,
+            String message, AdjustmentReview intent, AdjustmentRequestDetailDTO entity) {
+        AdminOperationResultView<AdjustmentRequestDetailDTO> result =
+                new AdminOperationResultView<>(operationId, "OK", message, entity);
+        adjustmentReviews.put(operationId, new AdjustmentReviewStored(intent, result));
+        return result;
+    }
+
+    private AdjustmentRequestDetailDTO requireAdjustmentRequest(String requestId) {
+        if (requestId == null || !requestId.matches("[0-9]+")) {
+            throw badRequest("requestId 必须为十进制字符串");
+        }
+        AdjustmentRequestDetailDTO request = adjustmentRequests.get(requestId);
+        if (request == null) throw notFound("调课申请不存在");
+        return request;
+    }
+
+    private AdjustmentRequestSummaryDTO adjustmentSummary(AdjustmentRequestDetailDTO request) {
+        AdminOfferingView offering = offerings.get(request.getOfferingId());
+        AdminCourseView course = offering == null ? null : courses.get(offering.getCourseId());
+        return new AdjustmentRequestSummaryDTO(request.getRequestId(),
+                course == null ? "" : course.getCourseName(),
+                offering == null ? "" : offering.getOfferingCode(), request.getApplicantUid(),
+                teacherName(request.getApplicantUid()), request.getTargets().size(),
+                request.getStatus(), request.getSubmittedAt());
+    }
+
+    private static String teacherName(String uid) {
+        return switch (uid) {
+            case "T1001" -> "张老师";
+            case "T2003" -> "王老师";
+            case "T3001" -> "赵老师";
+            default -> uid;
+        };
+    }
+
+    private static String adjustmentNotice(AdjustmentRequestDetailDTO request) {
+        List<String> weeks = new ArrayList<>();
+        List<String> occurrences = new ArrayList<>();
+        for (AdjustmentTargetDTO target : request.getTargets()) {
+            weeks.add(Integer.toString(target.getWeek()));
+            occurrences.add(target.getOriginalOccurrenceId());
+        }
+        return "临时调课已生效。周次：" + String.join("、", weeks) + "。新安排：星期"
+                + request.getNewDayOfWeek() + " 第" + request.getNewStartPeriod() + "-"
+                + request.getNewEndPeriod() + "节。受影响课程实例：" + String.join("、", occurrences)
+                + "。";
+    }
+
+    private static ApprovalDecisionRequestDTO adjustmentDecision(ApprovalDecisionRequestDTO raw) {
+        if (raw == null) throw badRequest("请求不能为空");
+        String operationId = raw.getOperationId();
+        try {
+            if (operationId == null
+                    || !UUID.fromString(operationId).toString().equalsIgnoreCase(operationId)) {
+                throw new IllegalArgumentException();
+            }
+        } catch (IllegalArgumentException failure) {
+            throw badRequest("operationId 必须是 UUID 字符串");
+        }
+        if (raw.getRequestId() == null || !raw.getRequestId().matches("[0-9]+")) {
+            throw badRequest("requestId 必须为十进制字符串");
+        }
+        if (raw.getExpectedVersion() <= 0) throw badRequest("expectedVersion 必须为正整数");
+        if (raw.isForce() && !raw.isApproved()) {
+            throw badRequest("只有通过调课申请才支持强制覆盖");
+        }
+        String reason = trimmed(raw.getOverrideReason(), "强制原因", MAX_REASON);
+        if (raw.isForce() && reason == null) throw badRequest("强制通过必须填写原因");
+        String comment = trimmed(raw.getReviewComment(), "审批意见", MAX_REASON);
+        if (!raw.isApproved() && comment == null) throw badRequest("驳回必须填写审批意见");
+        return new ApprovalDecisionRequestDTO(operationId, raw.getRequestId(),
+                raw.getExpectedVersion(), raw.isApproved(), raw.isForce(), reason, comment);
+    }
+
+    private static String trimmed(String value, String field, int maxLength) {
+        String text = blankToNull(value == null ? null : value.trim());
+        if (text != null && text.length() > maxLength) {
+            throw badRequest(field + "不能超过 " + maxLength + " 字符");
+        }
+        return text;
+    }
+
+    private void seedAdjustmentRequests() {
+        addAdjustmentRequest(new AdjustmentRequestDetailDTO("9001", "1001", "T1001", "带队参加学科竞赛",
+                ApprovalStatusDTO.PENDING, 1, 5, 1, 2,
+                new ScheduleResourceDTO("8001", "T1001", "张老师", TEACHER_RESOURCE, 0), null,
+                new ScheduleResourceDTO("8101", "3001", "A-101", CLASSROOM_RESOURCE, 120),
+                List.of(target("7001", 1, "2026-09-08T00:00:00Z", "张老师"),
+                        target("7002", 2, "2026-09-15T00:00:00Z", "张老师")),
+                List.of(), "2026-09-10T09:00:00Z", null, null, null));
+        addAdjustmentRequest(new AdjustmentRequestDetailDTO("9002", "2002", "T2003", "临时出差",
+                ApprovalStatusDTO.PENDING, 1, 1, 3, 4,
+                new ScheduleResourceDTO("8003", "T2003", "王老师", TEACHER_RESOURCE, 0), null, null,
+                List.of(target("7003", 3, "2026-09-22T02:00:00Z", "王老师")),
+                List.of(new ScheduleConflictDTO("TEACHER_OVERLAP",
+                        ScheduleConflictSeverityDTO.OVERRIDABLE, "T2003", "1001", 3, 1, 3, 4,
+                        "任课教师在该时间已有其他课程")),
+                "2026-09-10T08:00:00Z", null, null, null));
+        addAdjustmentRequest(new AdjustmentRequestDetailDTO("9003", "3001", "T3001", "实验室检修",
+                ApprovalStatusDTO.APPROVED, 2, 3, 1, 2,
+                new ScheduleResourceDTO("8005", "T3001", "赵老师", TEACHER_RESOURCE, 0), null, null,
+                List.of(target("7004", 4, "2026-09-29T00:00:00Z", "赵老师")),
+                List.of(), "2026-09-10T07:00:00Z", REVIEWER, MOCK_NOW, "同意"));
+        addAdjustmentRequest(new AdjustmentRequestDetailDTO("9004", "1001", "T1001", "材料不足的申请",
+                ApprovalStatusDTO.REJECTED, 2, 2, 1, 2,
+                new ScheduleResourceDTO("8001", "T1001", "张老师", TEACHER_RESOURCE, 0), null,
+                new ScheduleResourceDTO("8101", "3001", "A-101", CLASSROOM_RESOURCE, 120),
+                List.of(target("7005", 5, "2026-10-06T00:00:00Z", "张老师")),
+                List.of(), "2026-09-10T06:00:00Z", REVIEWER, MOCK_NOW, "材料不足"));
+    }
+
+    private void addAdjustmentRequest(AdjustmentRequestDetailDTO request) {
+        adjustmentRequests.put(request.getRequestId(), request);
+    }
+
+    private static AdjustmentTargetDTO target(String occurrenceId, int week, String startAt,
+                                              String teacher) {
+        return new AdjustmentTargetDTO(occurrenceId, week, startAt, startAt, teacher, null, "A-101");
+    }
+
+    private record AdjustmentReview(String operationId, String requestId, int expectedVersion,
+                                    boolean approved, boolean force, String overrideReason,
+                                    String reviewComment) { }
+
+    private record AdjustmentReviewStored(AdjustmentReview intent,
+            AdminOperationResultView<AdjustmentRequestDetailDTO> result) { }
+
+    public record AdjustmentRecord(String adjustmentId, String requestId,
+                                   String originalOccurrenceId, int week, String scheduleText,
+                                   String status) { }
+
+    public record AdjustmentNotice(String noticeId, String requestId, String offeringId,
+                                   String title, String content, String noticeType, String status,
+                                   String createdBy, String publishedAt) { }
 }

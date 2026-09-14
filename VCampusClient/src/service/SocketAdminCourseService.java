@@ -10,6 +10,11 @@ import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
 import dto.course.admin.AdminCourseActions;
+import dto.course.admin.approval.AdjustmentRequestDetailDTO;
+import dto.course.admin.approval.AdjustmentRequestPageDTO;
+import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
+import dto.course.admin.approval.ApprovalDecisionRequestDTO;
+import dto.course.admin.approval.ApprovalStatusDTO;
 import dto.course.admin.catalog.AdminCourseDTO;
 import dto.course.admin.catalog.AdminOfferingDTO;
 import dto.course.admin.catalog.CourseEditorRequestDTO;
@@ -52,6 +57,8 @@ public final class SocketAdminCourseService implements AdminCourseService {
             AdminOperationResultDTO.class, SchedulePlanDTO.class).getType();
     private static final Type ENROLLMENT_RESULT_TYPE = TypeToken.getParameterized(
             AdminOperationResultDTO.class, OfferingStudentDTO.class).getType();
+    private static final Type ADJUSTMENT_RESULT_TYPE = TypeToken.getParameterized(
+            AdminOperationResultDTO.class, AdjustmentRequestDetailDTO.class).getType();
 
     private final AdminCourseTransport transport;
     private final Gson gson = new Gson();
@@ -320,6 +327,44 @@ public final class SocketAdminCourseService implements AdminCourseService {
         return map(request,
                 response -> planResult(read(response, "result", PLAN_RESULT_TYPE)),
                 this::latestPlan);
+    }
+
+    @Override
+    public CompletableFuture<AdjustmentRequestPageDTO> listAdjustmentRequestsPage(
+            ApprovalStatusDTO status, int page, int size) {
+        Message request = request(AdminCourseActions.LIST_ADJUSTMENT_REQUESTS);
+        if (status != null) request.putData("status", status.name());
+        putPage(request, page, size);
+        return map(request, response -> new AdjustmentRequestPageDTO(
+                list(response, "adjustmentRequests", AdjustmentRequestSummaryDTO.class),
+                read(response, "totalCount", Long.class),
+                read(response, "pageNumber", Integer.class),
+                read(response, "pageSize", Integer.class)));
+    }
+
+    @Override
+    public CompletableFuture<AdjustmentRequestDetailDTO> getAdjustmentRequest(String requestId) {
+        Message request = request(AdminCourseActions.GET_ADJUSTMENT_REQUEST);
+        request.putData("requestId", requestId);
+        return map(request, response -> read(response, "adjustmentRequest",
+                AdjustmentRequestDetailDTO.class));
+    }
+
+    @Override
+    public CompletableFuture<AdminOperationResultView<AdjustmentRequestDetailDTO>> reviewAdjustmentRequest(
+            ApprovalDecisionRequestDTO decision) {
+        Message request = request(AdminCourseActions.REVIEW_ADJUSTMENT_REQUEST);
+        request.putData("request", decision);
+        return map(request, response -> {
+            AdminOperationResultDTO<AdjustmentRequestDetailDTO> dto =
+                    read(response, "result", ADJUSTMENT_RESULT_TYPE);
+            return new AdminOperationResultView<>(dto.getOperationId(), dto.getOutcomeCode(),
+                    dto.getMessage(), dto.getEntity());
+        }, this::latestAdjustmentRequest);
+    }
+
+    private AdjustmentRequestDetailDTO latestAdjustmentRequest(Object value) {
+        return gson.fromJson(gson.toJson(value), AdjustmentRequestDetailDTO.class);
     }
 
     private ScheduleArrangementView latestArrangement(Object value) {

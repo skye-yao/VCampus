@@ -2,6 +2,9 @@ package handler;
 
 import com.google.gson.Gson;
 import dto.course.admin.AdminCourseActions;
+import dto.course.admin.approval.AdjustmentRequestPageDTO;
+import dto.course.admin.approval.ApprovalDecisionRequestDTO;
+import dto.course.admin.approval.ApprovalStatusDTO;
 import dto.course.admin.catalog.CourseEditorRequestDTO;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
 import dto.course.admin.enrollment.AdminEnrollmentPageDTO;
@@ -15,6 +18,7 @@ import protocol.MessageType;
 import service.AdminCourseCatalogService;
 import service.AdminEnrollmentService;
 import service.AdminOfferingService;
+import service.ScheduleAdjustmentApprovalService;
 import service.ScheduleManagementService;
 import session.SessionManager;
 import session.UserSession;
@@ -28,9 +32,6 @@ public class AdminCourseHandler {
 
     /** 动作登记表里已定义、但由后续计划开放的管理员操作。 */
     private static final Set<String> UNAVAILABLE_ACTIONS = Set.of(
-            AdminCourseActions.LIST_ADJUSTMENT_REQUESTS,
-            AdminCourseActions.GET_ADJUSTMENT_REQUEST,
-            AdminCourseActions.REVIEW_ADJUSTMENT_REQUEST,
             AdminCourseActions.LIST_GRADE_SUBMISSIONS,
             AdminCourseActions.GET_GRADE_SUBMISSION,
             AdminCourseActions.REVIEW_GRADE_SUBMISSION);
@@ -39,11 +40,13 @@ public class AdminCourseHandler {
     private final AdminOfferingService offerings;
     private final ScheduleManagementService scheduling;
     private final AdminEnrollmentService enrollment;
+    private final ScheduleAdjustmentApprovalService adjustments;
     private final Gson gson = new Gson();
 
     public AdminCourseHandler() {
         this(new AdminCourseCatalogService(), new AdminOfferingService(),
-                new ScheduleManagementService(), new AdminEnrollmentService());
+                new ScheduleManagementService(), new AdminEnrollmentService(),
+                new ScheduleAdjustmentApprovalService());
     }
 
     /**
@@ -66,10 +69,19 @@ public class AdminCourseHandler {
                               AdminOfferingService offerings,
                               ScheduleManagementService scheduling,
                               AdminEnrollmentService enrollment) {
+        this(catalog, offerings, scheduling, enrollment, null);
+    }
+
+    public AdminCourseHandler(AdminCourseCatalogService catalog,
+                              AdminOfferingService offerings,
+                              ScheduleManagementService scheduling,
+                              AdminEnrollmentService enrollment,
+                              ScheduleAdjustmentApprovalService adjustments) {
         this.catalog = catalog;
         this.offerings = offerings;
         this.scheduling = scheduling;
         this.enrollment = enrollment;
+        this.adjustments = adjustments;
     }
 
     public Message handle(Message request) {
@@ -115,12 +127,12 @@ public class AdminCourseHandler {
                                 integer(request, "expectedVersion"), text(request, "operationId")));
                 case AdminCourseActions.SEARCH_STUDENTS -> enrollmentPage(response, "students",
                         enrollment().searchStudents(enrollmentQuery(request, true),
-                                enrollmentPageNumber(request), enrollmentPageSize(request)));
+                                pageNumber(request), pageSize(request)));
                 case AdminCourseActions.LIST_OFFERING_STUDENTS -> enrollmentPage(response,
                         "offeringStudents", enrollment().listOfferingStudents(
                                 enrollmentOfferingId(data(request, "offeringId")),
-                                enrollmentQuery(request, false), enrollmentPageNumber(request),
-                                enrollmentPageSize(request)));
+                                enrollmentQuery(request, false), pageNumber(request),
+                                pageSize(request)));
                 case AdminCourseActions.PREVIEW_ADMIN_ENROLLMENT -> response.putData("preview",
                         enrollment().previewAdminEnrollment(
                                 enrollmentOfferingId(data(request, "offeringId")),
@@ -150,6 +162,14 @@ public class AdminCourseHandler {
                         scheduling().publish(uid, decimalId(request, "planId"),
                                 integer(request, "expectedRevision"), text(request, "operationId"),
                                 flag(request, "force"), optionalText(request, "overrideReason")));
+                case AdminCourseActions.LIST_ADJUSTMENT_REQUESTS -> adjustmentPage(response,
+                        adjustments().listRequests(adjustmentStatus(request), pageNumber(request),
+                                pageSize(request)));
+                case AdminCourseActions.GET_ADJUSTMENT_REQUEST -> response.putData(
+                        "adjustmentRequest",
+                        adjustments().getRequest(decimalId(request, "requestId")));
+                case AdminCourseActions.REVIEW_ADJUSTMENT_REQUEST -> mutation(response,
+                        adjustments().review(uid, adjustmentDecision(request)));
                 default -> {
                     return failure(response, MessageCode.BAD_REQUEST,
                             UNAVAILABLE_ACTIONS.contains(action)
@@ -171,6 +191,11 @@ public class AdminCourseHandler {
             return failure(response, MessageCode.NOT_FOUND, failure.getMessage());
         } catch (ScheduleManagementService.ConflictException failure) {
             return scheduleConflict(response, failure);
+        } catch (ScheduleAdjustmentApprovalService.NotFoundException failure) {
+            return failure(response, MessageCode.NOT_FOUND, failure.getMessage());
+        } catch (ScheduleAdjustmentApprovalService.ConflictException failure) {
+            response.putData("conflicts", failure.getConflicts());
+            return conflict(response, failure.getMessage(), failure.getEntity());
         } catch (AdminEnrollmentService.NotFoundException failure) {
             return failure(response, MessageCode.NOT_FOUND, failure.getMessage());
         } catch (AdminEnrollmentService.ConflictException failure) {
@@ -232,6 +257,75 @@ public class AdminCourseHandler {
         return enrollment;
     }
 
+    private ScheduleAdjustmentApprovalService adjustments() {
+        if (adjustments == null) {
+            throw new IllegalArgumentException("该管理员操作尚未开放");
+        }
+        return adjustments;
+    }
+
+    private static void adjustmentPage(Message response, AdjustmentRequestPageDTO page) {
+        response.putData("adjustmentRequests", page.getItems());
+        response.putData("totalCount", page.getTotalCount());
+        response.putData("pageNumber", page.getPageNumber());
+        response.putData("pageSize", page.getPageSize());
+    }
+
+    /** An absent status keeps the server-side PENDING default; an unknown one is a bad request. */
+    private static ApprovalStatusDTO adjustmentStatus(Message request) {
+        String status = optionalText(request, "status");
+        if (status == null) return null;
+        try {
+            return ApprovalStatusDTO.valueOf(status.trim());
+        } catch (IllegalArgumentException failure) {
+            throw new IllegalArgumentException("status 必须为 PENDING、APPROVED 或 REJECTED");
+        }
+    }
+
+    private ApprovalDecisionRequestDTO adjustmentDecision(Message request) {
+        Object value = request.getData() == null ? null : request.getData().get("request");
+        if (!(value instanceof Map<?, ?> values)) {
+            throw new IllegalArgumentException("request 必须为 JSON 对象");
+        }
+        // Validate raw JSON types before Gson can coerce them into the decision DTO.
+        Object operation = values.get("operationId");
+        try {
+            if (!(operation instanceof String id)
+                    || !UUID.fromString(id).toString().equalsIgnoreCase(id)) {
+                throw new IllegalArgumentException();
+            }
+        } catch (IllegalArgumentException failure) {
+            throw new IllegalArgumentException("operationId 必须是 UUID 字符串");
+        }
+        Object requestId = values.get("requestId");
+        if (!(requestId instanceof String text) || !text.matches("[0-9]+")) {
+            throw new IllegalArgumentException("requestId 必须为十进制字符串");
+        }
+        Object version = values.get("expectedVersion");
+        if (version instanceof Number number) {
+            if (!Double.isFinite(number.doubleValue())
+                    || number.doubleValue() != Math.rint(number.doubleValue())) {
+                throw new IllegalArgumentException("expectedVersion 必须为整数");
+            }
+        } else if (!(version instanceof String versionText)
+                || !versionText.matches("-?[0-9]+")) {
+            throw new IllegalArgumentException("expectedVersion 必须为整数");
+        }
+        for (String key : new String[] {"approved", "force"}) {
+            Object raw = values.get(key);
+            if (values.containsKey(key) && !(raw instanceof Boolean)) {
+                throw new IllegalArgumentException(key + " 必须为布尔值");
+            }
+        }
+        for (String key : new String[] {"overrideReason", "reviewComment"}) {
+            Object raw = values.get(key);
+            if (raw != null && !(raw instanceof String)) {
+                throw new IllegalArgumentException(key + " 必须为字符串");
+            }
+        }
+        return payload(request, ApprovalDecisionRequestDTO.class);
+    }
+
     private static void enrollmentPage(Message response, String key,
             AdminEnrollmentPageDTO<?> page) {
         response.putData(key, page.getItems());
@@ -247,13 +341,13 @@ public class AdminCourseHandler {
         return query;
     }
 
-    private static int enrollmentPageNumber(Message request) {
+    private static int pageNumber(Message request) {
         int page = integer(request, "pageNumber");
         if (page < 1) throw new IllegalArgumentException("pageNumber 必须大于 0");
         return page;
     }
 
-    private static int enrollmentPageSize(Message request) {
+    private static int pageSize(Message request) {
         int size = integer(request, "pageSize");
         if (size < 1 || size > 100) throw new IllegalArgumentException("pageSize 必须为 1 至 100");
         return size;
