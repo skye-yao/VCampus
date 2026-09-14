@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import com.google.gson.reflect.TypeToken;
 
 public final class CourseDtoJsonTest {
@@ -24,6 +25,66 @@ public final class CourseDtoJsonTest {
         roundTripsMutationResultFieldsIndependently();
         roundTripsPushEventContract();
         exposesExactCourseActions();
+        legacyScheduleEntryDefaultsToNormalDisplay();
+        roundTripsScheduleEntryDisplayFields();
+    }
+
+    private static void legacyScheduleEntryDefaultsToNormalDisplay() {
+        ScheduleEntryDTO legacy = new ScheduleEntryDTO(
+                "9007199254740993", "2026-2027 秋学期", "CS203", "数据结构", "张老师",
+                "教四-201", 2, 3, 2, 1, 16);
+
+        require(legacy.getDisplayKind() == ScheduleDisplayKindDTO.NORMAL,
+                "the 11-argument schedule entry must default to the NORMAL display kind");
+        require(legacy.getAdjustmentId() == null,
+                "the 11-argument schedule entry must leave the adjustment ID null");
+        require(legacy.getOriginalScheduleText() == null,
+                "the 11-argument schedule entry must leave the original schedule text null");
+        require(legacy.getAdjustedScheduleText() == null,
+                "the 11-argument schedule entry must leave the adjusted schedule text null");
+        require(legacy.getAdjustmentReason() == null,
+                "the 11-argument schedule entry must leave the adjustment reason null");
+        require("教四-201".equals(legacy.getLocation()) && legacy.getStartPeriod() == 3
+                        && legacy.getPeriodCount() == 2,
+                "the 11-argument schedule entry must keep its original slot fields");
+    }
+
+    private static void roundTripsScheduleEntryDisplayFields() {
+        ScheduleDisplayKindDTO[] expectedKinds = {
+                ScheduleDisplayKindDTO.NORMAL,
+                ScheduleDisplayKindDTO.ADJUSTED_ORIGINAL,
+                ScheduleDisplayKindDTO.ADJUSTED_TARGET};
+        require(Arrays.equals(expectedKinds, ScheduleDisplayKindDTO.values()),
+                "schedule display kind must expose exactly NORMAL, ADJUSTED_ORIGINAL, ADJUSTED_TARGET");
+
+        ScheduleEntryDTO source = new ScheduleEntryDTO(
+                "9007199254740993", "2026-2027 秋学期", "CS203", "数据结构", "张老师",
+                "教四-305", 5, 5, 2, 6, 6, ScheduleDisplayKindDTO.ADJUSTED_TARGET,
+                "9007199254740997", "第6周 星期五 第3-4节 教四-201",
+                "第6周 星期五 第5-6节 教四-305", "教师出差调课");
+        ScheduleEntryDTO copy = GSON.fromJson(GSON.toJson(source), ScheduleEntryDTO.class);
+
+        require(copy.getDisplayKind() == ScheduleDisplayKindDTO.ADJUSTED_TARGET,
+                "the adjusted target display kind must survive JSON");
+        require("9007199254740997".equals(copy.getAdjustmentId()),
+                "the adjustment ID must remain an exact decimal string beyond the JavaScript safe integer");
+        require("第6周 星期五 第3-4节 教四-201".equals(copy.getOriginalScheduleText()),
+                "the original schedule text must survive JSON");
+        require("第6周 星期五 第5-6节 教四-305".equals(copy.getAdjustedScheduleText()),
+                "the adjusted schedule text must survive JSON");
+        require("教师出差调课".equals(copy.getAdjustmentReason()),
+                "the adjustment reason must survive JSON");
+        require(copy.getDayOfWeek() == 5 && copy.getStartPeriod() == 5 && copy.getEndWeek() == 6,
+                "the adjusted slot fields must survive JSON");
+        requireStringId(source, "adjustmentId", "9007199254740997");
+    }
+
+    private static void requireStringId(Object source, String key, String expected) {
+        JsonObject json = GSON.toJsonTree(source).getAsJsonObject();
+        require(json.getAsJsonPrimitive(key).isString(),
+                key + " must be a JSON string, not a JSON number");
+        require(expected.equals(json.get(key).getAsString()),
+                key + " must remain exact on the wire");
     }
 
     private static void roundTripsSixStateOfferingContract() {

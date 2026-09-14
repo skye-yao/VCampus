@@ -3,6 +3,11 @@ package service;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
+import dto.course.admin.approval.AdjustmentRequestDetailDTO;
+import dto.course.admin.approval.AdjustmentRequestPageDTO;
+import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
+import dto.course.admin.approval.ApprovalDecisionRequestDTO;
+import dto.course.admin.approval.ApprovalStatusDTO;
 import dto.course.admin.catalog.CourseEditorRequestDTO;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
 import dto.course.admin.enrollment.AdminEnrollmentPreviewDTO;
@@ -122,5 +127,27 @@ public interface AdminCourseService {
             String planId, int expectedRevision, String operationId,
             boolean force, String overrideReason) {
         throw new UnsupportedOperationException("publishSchedulePlan");
+    }
+
+    default CompletableFuture<List<AdjustmentRequestSummaryDTO>> listAdjustmentRequests(
+            ApprovalStatusDTO status, int page, int size) {
+        return listAdjustmentRequestsPage(status, page, size)
+                .thenApply(AdjustmentRequestPageDTO::getItems);
+    }
+
+    // Defaults keep existing implementations compatible until approval transport is provided.
+    default CompletableFuture<AdjustmentRequestPageDTO> listAdjustmentRequestsPage(
+            ApprovalStatusDTO status, int page, int size) {
+        throw new UnsupportedOperationException("listAdjustmentRequestsPage");
+    }
+
+    default CompletableFuture<AdjustmentRequestDetailDTO> getAdjustmentRequest(
+            String requestId) {
+        throw new UnsupportedOperationException("getAdjustmentRequest");
+    }
+
+    default CompletableFuture<AdminOperationResultView<AdjustmentRequestDetailDTO>> reviewAdjustmentRequest(
+            ApprovalDecisionRequestDTO request) {
+        throw new UnsupportedOperationException("reviewAdjustmentRequest");
     }
 }

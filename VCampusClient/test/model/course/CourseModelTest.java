@@ -2,6 +2,7 @@ package model.course;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public final class CourseModelTest {
@@ -65,7 +66,71 @@ public final class CourseModelTest {
         require(event.getExpiresAt().equals(Instant.parse("2026-09-10T01:05:00Z")),
                 "push event expiry must parse as UTC");
 
+        legacyScheduleEntryKeepsNormalDisplayDefaults();
+        scheduleEntryCarriesAdjustmentDisplay();
+
         System.out.println("CourseModelTest: PASS");
+    }
+
+    private static void legacyScheduleEntryKeepsNormalDisplayDefaults() {
+        ScheduleEntryView legacy = new ScheduleEntryView(
+                1001L, "2026-2027 秋学期", "CS203", "数据结构", "张老师", "教四-201",
+                2, 3, 2, 1, 16);
+
+        require(legacy.getDisplayKind() == ScheduleDisplayKind.NORMAL,
+                "the 11-argument schedule entry must default to the NORMAL display kind");
+        require(legacy.getAdjustmentId() == null,
+                "the 11-argument schedule entry must leave the adjustment ID null");
+        require(legacy.getOriginalScheduleText() == null,
+                "the 11-argument schedule entry must leave the original schedule text null");
+        require(legacy.getAdjustedScheduleText() == null,
+                "the 11-argument schedule entry must leave the adjusted schedule text null");
+        require(legacy.getAdjustmentReason() == null,
+                "the 11-argument schedule entry must leave the adjustment reason null");
+        require(legacy.getOfferingId() == 1001L && legacy.getLocation().equals("教四-201"),
+                "the 11-argument schedule entry must keep its original slot fields");
+        require(legacy.isActiveInWeek(1) && !legacy.isActiveInWeek(17),
+                "the 11-argument schedule entry must keep its week activity window");
+    }
+
+    private static void scheduleEntryCarriesAdjustmentDisplay() {
+        ScheduleDisplayKind[] expectedKinds = {
+                ScheduleDisplayKind.NORMAL,
+                ScheduleDisplayKind.ADJUSTED_ORIGINAL,
+                ScheduleDisplayKind.ADJUSTED_TARGET};
+        require(Arrays.equals(expectedKinds, ScheduleDisplayKind.values()),
+                "schedule display kind must expose exactly NORMAL, ADJUSTED_ORIGINAL, ADJUSTED_TARGET");
+
+        ScheduleEntryView target = new ScheduleEntryView(
+                1001L, "2026-2027 秋学期", "CS203", "数据结构", "张老师", "教四-305",
+                5, 5, 2, 6, 6, ScheduleDisplayKind.ADJUSTED_TARGET,
+                "9007199254740993", "第6周 星期五 第3-4节 教四-201",
+                "第6周 星期五 第5-6节 教四-305", "教师出差调课");
+
+        require(target.getDisplayKind() == ScheduleDisplayKind.ADJUSTED_TARGET,
+                "an adjusted target entry must expose the target display kind");
+        require("9007199254740993".equals(target.getAdjustmentId()),
+                "an adjusted entry must keep the adjustment ID as exact text");
+        require("第6周 星期五 第3-4节 教四-201".equals(target.getOriginalScheduleText()),
+                "an adjusted entry must expose the original schedule text");
+        require("第6周 星期五 第5-6节 教四-305".equals(target.getAdjustedScheduleText()),
+                "an adjusted entry must expose the adjusted schedule text");
+        require("教师出差调课".equals(target.getAdjustmentReason()),
+                "an adjusted entry must expose the adjustment reason");
+        require(target.getLocation().equals("教四-305") && target.getDayOfWeek() == 5
+                        && target.getStartPeriod() == 5,
+                "an adjusted target entry must expose the new slot fields");
+
+        ScheduleEntryView original = new ScheduleEntryView(
+                1001L, "2026-2027 秋学期", "CS203", "数据结构", "张老师", "教四-201",
+                2, 3, 2, 6, 6, ScheduleDisplayKind.ADJUSTED_ORIGINAL,
+                "9007199254740993", "第6周 星期五 第3-4节 教四-201",
+                "第6周 星期五 第5-6节 教四-305", "教师出差调课");
+
+        require(original.getDisplayKind() == ScheduleDisplayKind.ADJUSTED_ORIGINAL,
+                "an original occurrence entry must keep its own display kind");
+        require(original.getLocation().equals("教四-201") && original.getDayOfWeek() == 2,
+                "an original occurrence entry must keep the original slot fields");
     }
 
     private static void requireImmutable(List<?> values, String message) {

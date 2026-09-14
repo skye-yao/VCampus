@@ -12,6 +12,11 @@ public final class ScheduleEntryView {
     private final int periodCount;
     private final int startWeek;
     private final int endWeek;
+    private final ScheduleDisplayKind displayKind;
+    private final String adjustmentId;
+    private final String originalScheduleText;
+    private final String adjustedScheduleText;
+    private final String adjustmentReason;
 
     public ScheduleEntryView(long offeringId, String term, String courseCode,
             String courseName, String teacher, String location, int dayOfWeek,
@@ -27,6 +32,35 @@ public final class ScheduleEntryView {
         this.periodCount = periodCount;
         this.startWeek = startWeek;
         this.endWeek = endWeek;
+        this.displayKind = ScheduleDisplayKind.NORMAL;
+        this.adjustmentId = null;
+        this.originalScheduleText = null;
+        this.adjustedScheduleText = null;
+        this.adjustmentReason = null;
+    }
+
+    public ScheduleEntryView(long offeringId, String term, String courseCode,
+            String courseName, String teacher, String location, int dayOfWeek,
+            int startPeriod, int periodCount, int startWeek, int endWeek,
+            ScheduleDisplayKind displayKind, String adjustmentId,
+            String originalScheduleText, String adjustedScheduleText,
+            String adjustmentReason) {
+        this.offeringId = offeringId;
+        this.term = term;
+        this.courseCode = courseCode;
+        this.courseName = courseName;
+        this.teacher = teacher;
+        this.location = location;
+        this.dayOfWeek = dayOfWeek;
+        this.startPeriod = startPeriod;
+        this.periodCount = periodCount;
+        this.startWeek = startWeek;
+        this.endWeek = endWeek;
+        this.displayKind = displayKind;
+        this.adjustmentId = adjustmentId;
+        this.originalScheduleText = originalScheduleText;
+        this.adjustedScheduleText = adjustedScheduleText;
+        this.adjustmentReason = adjustmentReason;
     }
 
     public long getOfferingId() {
@@ -71,6 +105,26 @@ public final class ScheduleEntryView {
 
     public int getEndWeek() {
         return endWeek;
+    }
+
+    public ScheduleDisplayKind getDisplayKind() {
+        return displayKind;
+    }
+
+    public String getAdjustmentId() {
+        return adjustmentId;
+    }
+
+    public String getOriginalScheduleText() {
+        return originalScheduleText;
+    }
+
+    public String getAdjustedScheduleText() {
+        return adjustedScheduleText;
+    }
+
+    public String getAdjustmentReason() {
+        return adjustmentReason;
     }
 
     public boolean isActiveInWeek(int week) {
