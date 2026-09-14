@@ -108,8 +108,13 @@ $suites = @(
     [pscustomobject]@{ Name = 'Adjustment'
         Common = @('dto.course.teacher.TeacherAdjustmentDtoJsonTest')
         Client = @()
+        # TeacherAdjustmentConflictMySqlTest 自带 `mysql` 开关（-WithMySql 才跑真实库）。
+        # CourseConflictMySqlTest 是既有排课冲突引擎的回归：它不解析 `mysql` 参数，只按
+        # db.properties 指向受保护测试库来运行，登记它是为了证明共用检查没有改动旧行为。
         Server = @('database.TeacherAdjustmentMigrationTest',
-            'handler.ScheduleAdjustmentApprovalHandlerTest')
+            'handler.ScheduleAdjustmentApprovalHandlerTest',
+            'service.TeacherAdjustmentConflictMySqlTest',
+            'service.CourseConflictMySqlTest')
         Tcp = @(); Gui = @() }
     [pscustomobject]@{ Name = 'GradeBook'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }
     [pscustomobject]@{ Name = 'ImportExport'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }

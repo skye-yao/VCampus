@@ -6,7 +6,9 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Reads the effective schedule: occurrences that still occupy resources, with the ones replaced
@@ -59,6 +61,65 @@ public class AdminScheduleConflictDAO {
             statement.setTimestamp(6, candidateEnd);
             statement.setTimestamp(7, candidateStart);
             statement.setLong(8, excluded);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) occurrences.add(map(rows));
+            }
+        }
+        return occurrences;
+    }
+
+    /**
+     * The same effective schedule as {@link #overlapping}, but only the named original occurrences
+     * are ignored — never a whole arrangement. Both branches carry the same exclusion: the base
+     * branch matches {@code o.id} and the adjustment branch matches {@code j.original_occurrence_id}
+     * so an ACTIVE adjustment disappears together with the original it replaced. An empty (or null)
+     * set adds no predicate at all instead of an invalid {@code NOT IN ()}; the ids are expanded as
+     * {@code ?} placeholders, never concatenated into the SQL text.
+     */
+    public List<EffectiveOccurrence> overlappingExcludingOccurrences(Connection connection,
+            long planId, Timestamp candidateStart, Timestamp candidateEnd,
+            Set<Long> excludedOccurrenceIds) throws SQLException {
+        Set<Long> excluded = excludedOccurrenceIds == null ? Set.of() : excludedOccurrenceIds;
+        String placeholders = excluded.isEmpty() ? null
+                : String.join(",", Collections.nCopies(excluded.size(), "?"));
+        String occurrenceExclusion = placeholders == null ? ""
+                : " AND o.id NOT IN (" + placeholders + ")";
+        String adjustmentExclusion = placeholders == null ? ""
+                : " AND j.original_occurrence_id NOT IN (" + placeholders + ")";
+        String sql = "SELECT o.id AS occurrence_id,"
+                + " a.arrangement_id,a.offering_id,a.teacher_uid,a.assistant_uid,a.classroom_id,"
+                + " o.start_at,o.end_at"
+                + " FROM course_occurrence o"
+                + " JOIN course_schedule_rule r ON r.id=o.rule_id"
+                + " JOIN course_schedule_arrangement a ON a.arrangement_id=r.arrangement_id"
+                + " WHERE o.plan_id=? AND start_at < ? AND end_at > ?"
+                + " AND r.status='ACTIVE' AND a.status='ACTIVE'"
+                + " AND NOT EXISTS (SELECT 1 FROM course_schedule_adjustment j"
+                + " WHERE j.original_occurrence_id=o.id AND j.status='ACTIVE')"
+                + occurrenceExclusion
+                + " UNION ALL"
+                + " SELECT o.id AS occurrence_id,"
+                + " a.arrangement_id,a.offering_id,j.teacher_uid,j.assistant_uid,j.classroom_id,"
+                + " j.start_at_utc AS start_at,j.end_at_utc AS end_at"
+                + " FROM course_schedule_adjustment j"
+                + " JOIN course_occurrence o ON o.id=j.original_occurrence_id"
+                + " JOIN course_schedule_rule r ON r.id=o.rule_id"
+                + " JOIN course_schedule_arrangement a ON a.arrangement_id=r.arrangement_id"
+                + " WHERE j.status='ACTIVE' AND o.plan_id=?"
+                + " AND r.status='ACTIVE' AND a.status='ACTIVE'"
+                + " AND j.start_at_utc < ? AND j.end_at_utc > ?"
+                + adjustmentExclusion;
+        List<EffectiveOccurrence> occurrences = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            int index = 1;
+            statement.setLong(index++, planId);
+            statement.setTimestamp(index++, candidateEnd);
+            statement.setTimestamp(index++, candidateStart);
+            for (Long occurrenceId : excluded) statement.setLong(index++, occurrenceId);
+            statement.setLong(index++, planId);
+            statement.setTimestamp(index++, candidateEnd);
+            statement.setTimestamp(index++, candidateStart);
+            for (Long occurrenceId : excluded) statement.setLong(index++, occurrenceId);
             try (ResultSet rows = statement.executeQuery()) {
                 while (rows.next()) occurrences.add(map(rows));
             }
