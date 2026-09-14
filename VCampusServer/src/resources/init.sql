@@ -320,6 +320,17 @@ CREATE TABLE IF NOT EXISTS `tbl_product` (
     CONSTRAINT `chk_product_status` CHECK (`status` IN ('ON_SALE','OFF_SALE'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='商店商品表';
 
+-- 商品图片与商品列表分表存储；服务端更换电脑后连接同一个数据库即可继续读取图片。
+CREATE TABLE IF NOT EXISTS `tbl_product_image` (
+    `product_id` BIGINT NOT NULL COMMENT '商品编号',
+    `mime_type` VARCHAR(20) NOT NULL COMMENT 'image/png 或 image/jpeg',
+    `image_data` MEDIUMBLOB NOT NULL COMMENT '图片二进制内容，最大由服务端限制为 1 MiB',
+    `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`product_id`),
+    CONSTRAINT `fk_product_image_product` FOREIGN KEY (`product_id`)
+        REFERENCES `tbl_product` (`product_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='商店商品图片表';
+
 CREATE TABLE IF NOT EXISTS `tbl_cart_item` (
     `cart_item_id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '购物车项目主键',
     `user_id` VARCHAR(32) NOT NULL COMMENT '用户一卡通号',
