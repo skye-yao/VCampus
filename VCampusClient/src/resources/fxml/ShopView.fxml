@@ -2,6 +2,7 @@
 
 <?import javafx.geometry.Insets?>
 <?import javafx.scene.control.*?>
+<?import javafx.scene.image.ImageView?>
 <?import javafx.scene.layout.*?>
 
 <BorderPane prefHeight="650.0" prefWidth="1040.0" styleClass="main-window"
@@ -114,7 +115,8 @@
                                             <padding><Insets bottom="12" left="18" right="18" top="14"/></padding>
                                             <Label styleClass="hint-text" text="选择商品后可修改基本信息或调整上下架状态"/>
                                             <Region HBox.hgrow="ALWAYS"/>
-                                            <Button onAction="#handleOpenCreateProduct" styleClass="btn-primary" text="新增商品"/>
+                                            <Label fx:id="shopUploadStatusLabel" styleClass="hint-text" text=""/>
+                                            <Button fx:id="createProductButton" onAction="#handleOpenCreateProduct" styleClass="btn-primary" text="新增商品"/>
                                         </HBox>
                                     </top>
                                     <center>
@@ -134,6 +136,12 @@
                                                 <VBox spacing="10" styleClass="shop-admin-card">
                                                     <padding><Insets bottom="20" left="20" right="20" top="20"/></padding>
                                                     <Label styleClass="subpanel-title" text="商品基本信息"/>
+                                                    <Label styleClass="form-label" text="商品图片"/>
+                                                    <StackPane prefHeight="180" styleClass="shop-image-frame">
+                                                        <Label fx:id="adminImagePlaceholderLabel" styleClass="shop-image-placeholder" text="选择商品后预览图片"/>
+                                                        <ImageView fx:id="adminProductImageView" fitHeight="160" fitWidth="230" preserveRatio="true" smooth="true"/>
+                                                    </StackPane>
+                                                    <Button fx:id="replaceProductImageButton" maxWidth="Infinity" onAction="#handleReplaceProductImage" styleClass="btn-secondary" text="更换图片"/>
                                                     <Label styleClass="form-label" text="商品名称"/>
                                                     <TextField fx:id="adminNameField" styleClass="form-control"/>
                                                     <Label styleClass="form-label" text="分类"/>

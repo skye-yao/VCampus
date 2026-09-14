@@ -18,20 +18,35 @@ import javafx.fxml.FXML;
 import javafx.geometry.Insets;
 import javafx.scene.control.*;
 import javafx.scene.control.cell.PropertyValueFactory;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
 import javafx.scene.layout.GridPane;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.StackPane;
+import javafx.scene.layout.VBox;
+import javafx.stage.FileChooser;
 import network.SocketClient;
 import protocol.Message;
 import protocol.MessageCode;
 import protocol.MessageType;
 import session.ClientSession;
 import util.AlertUtil;
+import util.ShopImageClientCodec;
 
+import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.IOException;
 import java.math.BigDecimal;
+import java.nio.file.Files;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashSet;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 /** 商店JavaFX控制器。 */
@@ -81,6 +96,11 @@ public class ShopController {
     @FXML private ComboBox<String> adminCategoryField;
     @FXML private TextField adminPriceField;
     @FXML private TextArea adminDescriptionArea;
+    @FXML private ImageView adminProductImageView;
+    @FXML private Label adminImagePlaceholderLabel;
+    @FXML private Button replaceProductImageButton;
+    @FXML private Button createProductButton;
+    @FXML private Label shopUploadStatusLabel;
     @FXML private TableView<Product> inventoryProductTable;
     @FXML private TableColumn<Product, Long> inventoryIdColumn;
     @FXML private TableColumn<Product, String> inventoryNameColumn;
@@ -115,6 +135,8 @@ public class ShopController {
 
     private final Gson gson = new Gson();
     private final Set<Long> selectedCartItemIds = new LinkedHashSet<>();
+    private long adminPreviewGeneration;
+    private boolean imageUploadInProgress;
 
     @FXML
     public void initialize() {
@@ -137,8 +159,12 @@ public class ShopController {
         } else {
             shopTabs.getTabs().remove(adminTab);
         }
+        replaceProductImageButton.setDisable(true);
         adminProductTable.getSelectionModel().selectedItemProperty().addListener(
-                (observable, oldValue, selected) -> fillAdminForm(selected));
+                (observable, oldValue, selected) -> {
+                    fillAdminForm(selected);
+                    loadAdminProductPreview(selected);
+                });
         inventoryProductTable.getSelectionModel().selectedItemProperty().addListener(
                 (observable, oldValue, selected) -> inventoryStockField.setText(
                         selected == null || selected.getStock() == null ? "" : String.valueOf(selected.getStock())));
@@ -283,26 +309,79 @@ public class ShopController {
             AlertUtil.showWarning("商品详情", "请先选择一个商品");
             return;
         }
-        showProductDetail(product);
+        requestProductDetail(product.getProductId(), this::showProductDetail);
     }
 
-    private void showProductDetail(Product product) {
-        String text = "商品：" + product.getProductName() + "\n分类：" + product.getCategory()
-                + "\n价格：¥" + product.getPrice() + "\n库存：" + product.getStock()
-                + "\n\n" + (product.getDescription() == null ? "" : product.getDescription());
-        AlertUtil.showInfo("商品详情", text);
+    private void requestProductDetail(long productId, BiConsumer<Product, String> onLoaded) {
+        Message request = request(MessageType.SHOP_PRODUCT_DETAIL);
+        request.putData("productId", productId);
+        send(request, response -> {
+            Object rawProduct = response.getData("product");
+            if (rawProduct == null) {
+                AlertUtil.showError("商品详情", "服务端没有返回商品信息");
+                return;
+            }
+            Product product = gson.fromJson(gson.toJson(rawProduct), Product.class);
+            Object rawImage = response.getData("imageBase64");
+            onLoaded.accept(product, rawImage instanceof String value ? value : null);
+        });
+    }
+
+    private Image decodeProductImage(String imageBase64) {
+        if (imageBase64 == null || imageBase64.isBlank()) return null;
+        try {
+            Image image = new Image(new ByteArrayInputStream(Base64.getDecoder().decode(imageBase64)));
+            return image.isError() ? null : image;
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private void showProductDetail(Product product, String imageBase64) {
+        Dialog<Void> dialog = new Dialog<>();
+        dialog.setTitle("商品详情");
+        dialog.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
+        java.net.URL stylesheet = getClass().getResource("/resources/css/style.css");
+        if (stylesheet != null) dialog.getDialogPane().getStylesheets().add(stylesheet.toExternalForm());
+
+        StackPane picture = new StackPane();
+        picture.getStyleClass().add("shop-image-frame");
+        picture.setMinSize(280, 250);
+        Image image = decodeProductImage(imageBase64);
+        if (image == null) {
+            Label placeholder = new Label("暂无图片");
+            placeholder.getStyleClass().add("shop-image-placeholder");
+            picture.getChildren().add(placeholder);
+        } else {
+            ImageView imageView = new ImageView(image);
+            imageView.setFitWidth(260);
+            imageView.setFitHeight(230);
+            imageView.setPreserveRatio(true);
+            picture.getChildren().add(imageView);
+        }
+
+        Label name = new Label(product.getProductName());
+        name.getStyleClass().add("shop-detail-name");
+        name.setWrapText(true);
+        Label price = new Label("¥ " + product.getPrice());
+        price.getStyleClass().add("shop-detail-price");
+        Label description = new Label(product.getDescription() == null ? "" : product.getDescription());
+        description.setWrapText(true);
+        VBox information = new VBox(13, name, new Label("分类：" + product.getCategory()), price,
+                new Label("库存：" + product.getStock()), description);
+        information.setPrefWidth(320);
+        HBox content = new HBox(22, picture, information);
+        content.setPadding(new Insets(18));
+        dialog.getDialogPane().setContent(content);
+        dialog.getDialogPane().setPrefWidth(700);
+        dialog.showAndWait();
     }
 
     @FXML
     private void handleCartProductDetail() {
         CartItem item = cartTable.getSelectionModel().getSelectedItem();
         if (item == null) { AlertUtil.showWarning("商品详情", "请先选择一条购物车记录"); return; }
-        Message request = request(MessageType.SHOP_PRODUCT_DETAIL);
-        request.putData("productId", item.getProductId());
-        send(request, response -> {
-            Product product = gson.fromJson(gson.toJson((Object) response.getData("product")), Product.class);
-            showProductDetail(product);
-        });
+        requestProductDetail(item.getProductId(), this::showProductDetail);
     }
 
     @FXML
@@ -477,6 +556,23 @@ public class ShopController {
         descriptionArea.setPromptText("请输入商品说明");
         descriptionArea.setPrefRowCount(4);
         descriptionArea.setWrapText(true);
+        File[] selectedImage = new File[1];
+        ImageView imagePreview = new ImageView();
+        imagePreview.setFitWidth(175);
+        imagePreview.setFitHeight(120);
+        imagePreview.setPreserveRatio(true);
+        Label imageFileLabel = new Label("未选择图片，可稍后在商品维护中上传");
+        imageFileLabel.getStyleClass().add("hint-text");
+        Button chooseImageButton = new Button("选择 JPG/PNG 图片");
+        chooseImageButton.getStyleClass().add("btn-secondary");
+        chooseImageButton.setOnAction(event -> {
+            File file = chooseProductImage(dialog.getDialogPane().getScene().getWindow());
+            if (file == null) return;
+            selectedImage[0] = file;
+            imageFileLabel.setText(file.getName());
+            imagePreview.setImage(new Image(file.toURI().toString(), true));
+        });
+        VBox imageBox = new VBox(8, chooseImageButton, imageFileLabel, imagePreview);
         nameField.getStyleClass().add("form-control");
         categoryField.getStyleClass().add("form-control");
         priceField.getStyleClass().add("form-control");
@@ -497,15 +593,16 @@ public class ShopController {
         form.addRow(1, new Label("商品分类"), categoryField);
         form.addRow(2, new Label("商品价格"), priceField);
         form.addRow(3, new Label("初始库存"), stockField);
-        form.addRow(4, new Label("商品说明"), descriptionArea);
+        form.addRow(4, new Label("商品图片"), imageBox);
+        form.addRow(5, new Label("商品说明"), descriptionArea);
         GridPane.setHgrow(nameField, javafx.scene.layout.Priority.ALWAYS);
         GridPane.setHgrow(categoryField, javafx.scene.layout.Priority.ALWAYS);
         GridPane.setHgrow(priceField, javafx.scene.layout.Priority.ALWAYS);
         GridPane.setHgrow(stockField, javafx.scene.layout.Priority.ALWAYS);
         GridPane.setHgrow(descriptionArea, javafx.scene.layout.Priority.ALWAYS);
         dialog.getDialogPane().setContent(form);
-        dialog.getDialogPane().setMinWidth(580);
-        dialog.getDialogPane().setPrefWidth(620);
+        dialog.getDialogPane().setMinWidth(620);
+        dialog.getDialogPane().setPrefWidth(680);
 
         Product[] validatedProduct = new Product[1];
         dialog.getDialogPane().lookupButton(createButton).addEventFilter(
@@ -520,10 +617,106 @@ public class ShopController {
 
         Product input = validatedProduct[0];
         Message request = productRequest(MessageType.SHOP_PRODUCT_CREATE, input);
-        send(request, response -> {
+        Runnable afterCreate = () -> {
             AlertUtil.showInfo("商品管理", "商品新增成功，已默认上架");
             refreshProducts();
             refreshOperationLogs();
+        };
+        if (selectedImage[0] == null) send(request, response -> afterCreate.run());
+        else sendImageRequest(request, selectedImage[0], afterCreate, () -> { });
+    }
+
+    private File chooseProductImage(javafx.stage.Window owner) {
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("选择商品图片（最大 1 MiB）");
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter(
+                "JPG 或 PNG 图片", "*.jpg", "*.jpeg", "*.png"));
+        File file = chooser.showOpenDialog(owner);
+        if (file == null) return null;
+        try {
+            if (Files.size(file.toPath()) > 1024 * 1024) {
+                AlertUtil.showWarning("商品图片", "图片不能超过 1 MiB，请选择较小的图片");
+                return null;
+            }
+        } catch (IOException e) {
+            AlertUtil.showError("商品图片", "无法读取图片文件：" + e.getMessage());
+            return null;
+        }
+        return file;
+    }
+
+    private void sendImageRequest(Message request, File file, Runnable onSuccess, Runnable onFailure) {
+        if (imageUploadInProgress) return;
+        imageUploadInProgress = true;
+        createProductButton.setDisable(true);
+        replaceProductImageButton.setDisable(true);
+        shopUploadStatusLabel.setText("正在上传图片，请稍候…");
+        CompletableFuture.supplyAsync(() -> {
+            try {
+                return ShopImageClientCodec.encode(file.toPath());
+            } catch (IOException e) {
+                throw new CompletionException(e);
+            }
+        }).thenCompose(imageBase64 -> {
+            request.putData("imageBase64", imageBase64);
+            return SocketClient.getInstance().sendAsync(request);
+        }).whenComplete((response, error) -> Platform.runLater(() -> {
+            imageUploadInProgress = false;
+            createProductButton.setDisable(false);
+            replaceProductImageButton.setDisable(adminProductTable.getSelectionModel().getSelectedItem() == null);
+            shopUploadStatusLabel.setText("");
+            if (error != null) {
+                Throwable cause = error;
+                while (cause instanceof CompletionException && cause.getCause() != null) cause = cause.getCause();
+                AlertUtil.showError("商品图片", "上传失败：" + cause.getMessage());
+                onFailure.run();
+            } else if (response.getCode() != MessageCode.SUCCESS) {
+                AlertUtil.showError("商品图片", response.getMessage());
+                onFailure.run();
+            } else {
+                onSuccess.run();
+            }
+        }));
+    }
+
+    @FXML
+    private void handleReplaceProductImage() {
+        Product selected = adminProductTable.getSelectionModel().getSelectedItem();
+        if (selected == null) {
+            AlertUtil.showWarning("商品图片", "请先选择要更换图片的商品");
+            return;
+        }
+        File file = chooseProductImage(shopTabs.getScene().getWindow());
+        if (file == null) return;
+        Image localPreview = new Image(file.toURI().toString(), true);
+        adminProductImageView.setImage(localPreview);
+        adminImagePlaceholderLabel.setVisible(false);
+        Message request = request(MessageType.SHOP_PRODUCT_IMAGE_SET);
+        request.putData("productId", selected.getProductId());
+        request.putData("version", selected.getVersion());
+        sendImageRequest(request, file, () -> {
+            AlertUtil.showInfo("商品图片", "商品图片已更新");
+            refreshProducts();
+            refreshOperationLogs();
+        }, () -> loadAdminProductPreview(selected));
+    }
+
+    private void loadAdminProductPreview(Product selected) {
+        long generation = ++adminPreviewGeneration;
+        adminProductImageView.setImage(null);
+        adminImagePlaceholderLabel.setVisible(true);
+        adminImagePlaceholderLabel.setText(selected == null ? "选择商品后预览图片" : "图片加载中…");
+        replaceProductImageButton.setDisable(selected == null || imageUploadInProgress);
+        if (selected == null) return;
+        long selectedId = selected.getProductId();
+        requestProductDetail(selectedId, (product, imageBase64) -> {
+            Product current = adminProductTable.getSelectionModel().getSelectedItem();
+            if (generation != adminPreviewGeneration || current == null
+                    || !Long.valueOf(selectedId).equals(current.getProductId())) return;
+            Image image = decodeProductImage(imageBase64);
+            adminProductImageView.setImage(image);
+            adminImagePlaceholderLabel.setText("暂无图片");
+            adminImagePlaceholderLabel.setVisible(image == null);
         });
     }
 
@@ -598,10 +791,20 @@ public class ShopController {
         String category = categoryCombo == null ? "" : categoryCombo.getValue();
         request.putData("category", "全部分类".equals(category) ? "" : category);
         send(request, response -> {
+            Product previous = adminProductTable.getSelectionModel().getSelectedItem();
+            Long selectedId = previous == null ? null : previous.getProductId();
             Product[] products = gson.fromJson(gson.toJson((Object) response.getData("products")), Product[].class);
             productTable.setItems(FXCollections.observableArrayList(products));
             adminProductTable.setItems(FXCollections.observableArrayList(products));
             inventoryProductTable.setItems(FXCollections.observableArrayList(products));
+            if (selectedId != null) {
+                for (Product product : products) {
+                    if (selectedId.equals(product.getProductId())) {
+                        adminProductTable.getSelectionModel().select(product);
+                        break;
+                    }
+                }
+            }
         });
     }
 

@@ -521,6 +521,32 @@
     -fx-border-width: 0 0 0 1px;
 }
 
+.shop-image-frame {
+    -fx-background-color: #f3f8f4;
+    -fx-background-radius: 10px;
+    -fx-border-color: #d6e3d8;
+    -fx-border-radius: 10px;
+    -fx-border-width: 1px;
+    -fx-padding: 10px;
+}
+
+.shop-image-placeholder {
+    -fx-text-fill: #6b7c6f;
+    -fx-font-size: 13px;
+}
+
+.shop-detail-name {
+    -fx-text-fill: #231815;
+    -fx-font-size: 21px;
+    -fx-font-weight: bold;
+}
+
+.shop-detail-price {
+    -fx-text-fill: #3f553f;
+    -fx-font-size: 20px;
+    -fx-font-weight: bold;
+}
+
 .admin-subtabs { -fx-background-color: #f6f8f6; -fx-tab-min-width: 105px; }
 .shop-summary-bar { -fx-background-color: #ffffff; -fx-border-color: #e2e8e2; -fx-border-width: 0 0 1px 0; }
 .summary-chip {

@@ -2,6 +2,12 @@ package service;
 
 import entity.Product;
 import exception.BusinessException;
+import handler.ShopHandler;
+import protocol.Message;
+import protocol.MessageCode;
+import protocol.MessageType;
+import session.SessionManager;
+import session.UserSession;
 import util.DBUtil;
 
 import javax.imageio.ImageIO;
@@ -33,6 +39,7 @@ public class ShopProductImageIntegrationTest {
         if (productExists(uniqueName)) throw new AssertionError("无效上传不应创建商品");
 
         long productId = -1;
+        UserSession studentSession = SessionManager.getInstance().createSession("213242789", "学生");
         try {
             productId = ((Number) shop.createProduct("admin", product,
                     Base64.getEncoder().encodeToString(png), true).get("productId")).longValue();
@@ -41,10 +48,28 @@ public class ShopProductImageIntegrationTest {
                 throw new AssertionError("新商品图片无法读取");
             }
             if (!"image/png".equals(detail.get("imageMimeType"))) throw new AssertionError("PNG MIME 错误");
+            ShopHandler reader = new ShopHandler();
+            Message detailRequest = new Message(MessageType.REQUEST, "shop", "SHOP_PRODUCT_DETAIL");
+            detailRequest.setToken(studentSession.getToken());
+            detailRequest.putData("productId", productId);
+            Message firstClientResponse = reader.handle(detailRequest);
+            if (firstClientResponse.getCode() != MessageCode.SUCCESS
+                    || !java.util.Arrays.equals(png, Base64.getDecoder().decode(
+                    (String) firstClientResponse.getData("imageBase64")))) {
+                throw new AssertionError("客户端不能通过商店协议读取新商品图片");
+            }
 
             long id = productId;
             expectRejected(() -> shop.replaceProductImage("admin", id, 0,
                     Base64.getEncoder().encodeToString(jpeg), false));
+            Message deniedRequest = new Message(MessageType.REQUEST, "shop", "SHOP_PRODUCT_IMAGE_SET");
+            deniedRequest.setToken(studentSession.getToken());
+            deniedRequest.putData("productId", id);
+            deniedRequest.putData("version", 0);
+            deniedRequest.putData("imageBase64", Base64.getEncoder().encodeToString(jpeg));
+            if (reader.handle(deniedRequest).getCode() != MessageCode.BAD_REQUEST) {
+                throw new AssertionError("普通用户不应能通过商店协议上传图片");
+            }
             shop.replaceProductImage("admin", id, 0, Base64.getEncoder().encodeToString(jpeg), true);
             expectRejected(() -> shop.replaceProductImage("admin", id, 0,
                     Base64.getEncoder().encodeToString(png), true));
@@ -53,8 +78,15 @@ public class ShopProductImageIntegrationTest {
                 throw new AssertionError("过期版本不应覆盖较新的图片");
             }
             if (!"image/jpeg".equals(detail.get("imageMimeType"))) throw new AssertionError("JPEG MIME 错误");
+            Message secondClientResponse = reader.handle(detailRequest);
+            if (secondClientResponse.getCode() != MessageCode.SUCCESS
+                    || !java.util.Arrays.equals(jpeg, Base64.getDecoder().decode(
+                    (String) secondClientResponse.getData("imageBase64")))) {
+                throw new AssertionError("另一客户端重新请求后应看到新图片");
+            }
             System.out.println("ShopProductImageIntegrationTest PASS");
         } finally {
+            SessionManager.getInstance().removeSession(studentSession.getToken());
             if (productId > 0) cleanup(productId);
         }
     }
