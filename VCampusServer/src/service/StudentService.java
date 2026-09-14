@@ -127,6 +127,7 @@ public class StudentService implements IStudentService {
     }
     @Override
     public void review(long requestId, StudentChangeStatus result, String reviewer, String remark) throws SQLException {
+        remark=util.InformationRules.reviewNote(remark);
         if (result != StudentChangeStatus.APPROVED && result != StudentChangeStatus.REJECTED) {
             throw new IllegalArgumentException("审核结果无效");
         }
@@ -223,12 +224,12 @@ public class StudentService implements IStudentService {
     @Override
     public boolean addExperience(String UID,StudentExperience value)throws SQLException{
         if(value==null)throw new IllegalArgumentException("学习经历不能为空");validateRelatedRecord(value);
-        value.setExperienceId(null);value.setStudentId(requireStudent(UID).getStudentId());return requireChanged(experiences.insert(value),"学习经历添加失败");
+        value.setExperienceId(null);value.setStudentId(requireStudent(UID).getStudentId());return requireChanged(InformationRecordLimit.insert("tblStudentExperience",value.getStudentId(),c->experiences.insert(c,value)),"学习经历添加失败");
     }
     @Override
     public boolean addFamilyMember(String UID,StudentFamilyMember value)throws SQLException{
         if(value==null)throw new IllegalArgumentException("家庭成员不能为空");validateRelatedRecord(value);
-        value.setMemberId(null);value.setStudentId(requireStudent(UID).getStudentId());return requireChanged(familyMembers.insert(value),"家庭成员添加失败");
+        value.setMemberId(null);value.setStudentId(requireStudent(UID).getStudentId());return requireChanged(InformationRecordLimit.insert("tblStudentFamilyMember",value.getStudentId(),c->familyMembers.insert(c,value)),"家庭成员添加失败");
     }
     @Override
     public boolean updateExperience(String UID,StudentExperience value)throws SQLException{
@@ -254,10 +255,10 @@ public class StudentService implements IStudentService {
     }
     private void applyRelatedRecordOperation(Connection c,String studentId,StudentChangeItem item)throws SQLException {
         boolean changed=switch(item.getFieldName()) {
-            case EXPERIENCE_ADD -> {StudentExperience x=gson.fromJson(item.getNewValue(),StudentExperience.class);x.setExperienceId(null);x.setStudentId(studentId);yield experiences.insert(c,x);}
+            case EXPERIENCE_ADD -> {StudentExperience x=gson.fromJson(item.getNewValue(),StudentExperience.class);x.setExperienceId(null);x.setStudentId(studentId);InformationRecordLimit.check(c,"tblStudentExperience",studentId);validateRelatedRecord(x);yield experiences.insert(c,x);}
             case EXPERIENCE_UPDATE -> {StudentExperience x=gson.fromJson(item.getNewValue(),StudentExperience.class);yield experiences.update(c,studentId,x);}
             case EXPERIENCE_DELETE -> {StudentExperience x=gson.fromJson(item.getNewValue(),StudentExperience.class);yield experiences.delete(c,studentId,requiredId(x.getExperienceId(),"学习经历"));}
-            case FAMILY_ADD -> {StudentFamilyMember x=gson.fromJson(item.getNewValue(),StudentFamilyMember.class);x.setMemberId(null);x.setStudentId(studentId);yield familyMembers.insert(c,x);}
+            case FAMILY_ADD -> {StudentFamilyMember x=gson.fromJson(item.getNewValue(),StudentFamilyMember.class);x.setMemberId(null);x.setStudentId(studentId);InformationRecordLimit.check(c,"tblStudentFamilyMember",studentId);validateRelatedRecord(x);yield familyMembers.insert(c,x);}
             case FAMILY_UPDATE -> {StudentFamilyMember x=gson.fromJson(item.getNewValue(),StudentFamilyMember.class);yield familyMembers.update(c,studentId,x);}
             case FAMILY_DELETE -> {StudentFamilyMember x=gson.fromJson(item.getNewValue(),StudentFamilyMember.class);yield familyMembers.delete(c,studentId,requiredId(x.getMemberId(),"家庭成员"));}
             default -> throw new IllegalArgumentException("未知关联信息变更类型");

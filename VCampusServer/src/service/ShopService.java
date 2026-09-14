@@ -27,6 +27,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -82,6 +83,32 @@ public class ShopService {
             return detail;
         } catch (SQLException e) {
             throw new DatabaseException("查询商品详情失败", e);
+        }
+    }
+
+    /**
+     * 批量返回商品缩略图，供商品中心在列表和缩略图视图之间切换。
+     *
+     * <p>只返回确实有图片的商品；没有图片的商品不出现在结果里，由客户端显示占位。
+     * 缩略图在服务端按需生成并按原图更新时间缓存，商品列表接口仍然不携带任何图片二进制。
+     */
+    public Map<String, String> listProductThumbnails(List<Long> productIds) {
+        if (productIds == null || productIds.isEmpty()) return Map.of();
+        List<Long> ids = productIds.stream().filter(Objects::nonNull).distinct().limit(120).toList();
+        if (ids.isEmpty()) return Map.of();
+        try (Connection conn = DBUtil.getConnection()) {
+            Map<String, String> thumbnails = new LinkedHashMap<>();
+            for (ProductImageDAO.ThumbSource source : productImageDAO.findThumbSources(conn, ids)) {
+                byte[] thumbnail = ProductThumbnailCache.thumbnail(
+                        source.productId(), source.updatedAtMillis(), source.bytes());
+                if (thumbnail != null) {
+                    thumbnails.put(String.valueOf(source.productId()),
+                            Base64.getEncoder().encodeToString(thumbnail));
+                }
+            }
+            return thumbnails;
+        } catch (SQLException e) {
+            throw new DatabaseException("查询商品缩略图失败", e);
         }
     }
 
@@ -369,6 +396,8 @@ public class ShopService {
             }
             ProductImageDAO.ImageRow oldImage = productImageDAO.findByProductId(conn, productId);
             productImageDAO.upsert(conn, productId, image.mimeType(), image.bytes());
+            // 更新时间只精确到秒，同一秒内换图不会改变时间戳，这里主动让缩略图缓存失效。
+            ProductThumbnailCache.invalidate(productId);
             operationLogDAO.insert(conn, operatorId, "PRODUCT_IMAGE_UPDATE", "PRODUCT", productId,
                     oldImage == null ? "image=none" : "image=" + oldImage.mimeType(),
                     "image=" + image.mimeType(), "更换商品图片");

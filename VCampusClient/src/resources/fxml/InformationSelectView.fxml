@@ -7,7 +7,9 @@
            stylesheets="@../css/style.css" styleClass="information-select-page">
   <VBox alignment="CENTER_LEFT" maxWidth="760" minHeight="520" prefWidth="760" spacing="0" styleClass="information-select-panel">
     <padding><Insets bottom="44" left="48" right="48" top="44"/></padding>
-    <Label styleClass="information-select-title" text="基本信息"/>
+    <Label styleClass="dash-main-title" text="基本信息">
+      <VBox.margin><Insets bottom="24"/></VBox.margin>
+    </Label>
     <Button alignment="CENTER_LEFT" maxWidth="Infinity" minHeight="108"
             onAction="#openStudent" styleClass="information-choice-card, information-choice-card-primary">
       <graphic><VBox alignment="CENTER_LEFT" spacing="8"><Label styleClass="information-choice-title" text="学生信息"/></VBox></graphic>
@@ -16,9 +18,6 @@
             onAction="#openTeacher" styleClass="information-choice-card">
       <VBox.margin><Insets top="18"/></VBox.margin>
       <graphic><VBox alignment="CENTER_LEFT" spacing="8"><Label styleClass="information-choice-title" text="教师信息"/></VBox></graphic>
-    </Button>
-    <Button alignment="CENTER_LEFT" onAction="#back" styleClass="information-select-back" text="← 返回应用中心">
-      <VBox.margin><Insets top="34"/></VBox.margin>
     </Button>
   </VBox>
 </StackPane>

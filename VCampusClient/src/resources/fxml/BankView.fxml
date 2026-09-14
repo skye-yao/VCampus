@@ -8,11 +8,9 @@
             stylesheets="@../css/style.css" xmlns="http://javafx.com/javafx/26"
             xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.BankController">
     <top>
-        <HBox alignment="CENTER_LEFT" spacing="14" styleClass="app-topbar">
-            <padding><Insets bottom="12" left="24" right="24" top="12"/></padding>
-            <Button onAction="#handleBack" styleClass="btn-back" text="← 返回应用中心"/>
-            <Region HBox.hgrow="ALWAYS"/>
-            <Label styleClass="brand-title" text="校园银行"/>
+        <HBox alignment="CENTER_LEFT" prefHeight="58.0" spacing="14" styleClass="app-topbar">
+            <padding><Insets left="24.0" right="24.0"/></padding>
+            <Label styleClass="dash-main-title" text="校园银行"/>
             <Label styleClass="brand-divider" text="|"/>
             <Label styleClass="brand-subtitle" text="账户 · 流水 · 校园支付"/>
         </HBox>

@@ -12,7 +12,7 @@ public interface ITeacherClientService {
     void submit(TeacherChangeRequest r,Consumer<Message> c);
     void list(Consumer<Message> c);
     void query(String id,Consumer<Message> c);
-    void update(Teacher t,Consumer<Message> c);
+    void update(Teacher t,Teacher original,Consumer<Message> c);
     void reviews(Consumer<Message> c);
     void reviewQuery(long id,Consumer<Message> c);
     void review(TeacherReviewVO v,Consumer<Message> c);

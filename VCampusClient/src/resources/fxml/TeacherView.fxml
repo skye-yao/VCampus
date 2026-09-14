@@ -5,7 +5,7 @@
 <?import javafx.scene.image.ImageView?>
 <?import javafx.scene.layout.*?>
 <BorderPane xmlns="http://javafx.com/javafx/17" xmlns:fx="http://javafx.com/fxml/1" prefHeight="580" prefWidth="860" styleClass="main-window" stylesheets="@../css/style.css" fx:controller="controller.TeacherController">
-  <top><HBox alignment="CENTER_LEFT" prefHeight="56" spacing="12" styleClass="app-topbar"><padding><Insets left="22" right="22"/></padding><Button onAction="#back" styleClass="btn-back" text="← 返回"/><Label styleClass="brand-title" text="我的信息"/><Region HBox.hgrow="ALWAYS"/><Button onAction="#refresh" styleClass="btn-secondary" text="刷新"/></HBox></top>
+  <top><HBox alignment="CENTER_LEFT" prefHeight="58" spacing="12" styleClass="app-topbar"><padding><Insets left="24" right="24"/></padding><Label styleClass="dash-main-title" text="教职信息"/><Region HBox.hgrow="ALWAYS"/><Button onAction="#refresh" styleClass="btn-secondary" text="刷新"/></HBox></top>
   <center><TabPane fx:id="tabs" tabClosingPolicy="UNAVAILABLE" styleClass="student-tab-pane"><tabs>
     <Tab fx:id="overviewTab" text="教师基本信息"><ScrollPane fitToWidth="true" hbarPolicy="NEVER" styleClass="student-scroll"><VBox fx:id="overviewPane" spacing="16" styleClass="student-page"><padding><Insets bottom="22" left="25" right="25" top="20"/></padding>
       <HBox alignment="CENTER_LEFT" spacing="18" styleClass="student-hero"><StackPane minHeight="82" minWidth="82" prefHeight="82" prefWidth="82" maxHeight="82" maxWidth="82" styleClass="student-avatar"><children><Label fx:id="avatarLabel" styleClass="avatar-text-xl" text="师"/><ImageView fx:id="avatarImageView" fitHeight="82.0" fitWidth="82.0" pickOnBounds="true" preserveRatio="true"/></children></StackPane><VBox spacing="7" HBox.hgrow="ALWAYS"><Label fx:id="nameLabel" styleClass="profile-name-title" text="正在加载"/><Label fx:id="metaLabel" styleClass="student-meta" text="工号 / 学院 / 部门 / 职称"/></VBox><VBox spacing="8"><Button onAction="#viewDetails" styleClass="btn-primary" text="查看详情"/><Button onAction="#viewExperiences" styleClass="btn-primary" text="查看经历"/></VBox></HBox>
@@ -50,7 +50,7 @@
         <VBox minWidth="260" prefWidth="260" maxWidth="260" spacing="12" styleClass="student-panel">
           <Label styleClass="student-section-title" text="审核处理"/>
           <HBox spacing="8"><Button fx:id="teacherApproveButton" disable="true" onAction="#approveTeacherRequest" styleClass="btn-primary" text="通过" HBox.hgrow="ALWAYS" maxWidth="Infinity"/><Button fx:id="teacherRejectButton" disable="true" onAction="#rejectTeacherRequest" styleClass="btn-secondary" text="不通过" HBox.hgrow="ALWAYS" maxWidth="Infinity"/></HBox>
-          <Label text="不通过理由"/><TextArea fx:id="teacherReviewRemark" wrapText="true" prefRowCount="12" promptText="选择不通过时必须填写理由" VBox.vgrow="ALWAYS"/>
+          <Label text="审核意见（可选）"/><TextArea fx:id="teacherReviewRemark" wrapText="true" prefRowCount="12" promptText="可不填写，最多255个字符" VBox.vgrow="ALWAYS"/>
         </VBox>
       </HBox>
     </VBox></StackPane></center></BorderPane></Tab>

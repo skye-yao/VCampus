@@ -68,6 +68,8 @@
                         <Button fx:id="navBankBtn" maxWidth="1.7976931348623157E308" onAction="#openBank" styleClass="main-nav-btn" text="💳   银行" />
                         <!-- 8. AI助手 -->
                         <Button fx:id="navAiBtn" maxWidth="1.7976931348623157E308" onAction="#openAI" styleClass="main-nav-btn" text="🤖   AI助手" />
+                        <!-- 用户管理 (管理员可见) -->
+                        <Button fx:id="userNavBtn" maxWidth="1.7976931348623157E308" onAction="#handleNavigateUserManage" styleClass="main-nav-btn" text="👥   用户管理" visible="false" managed="false" />
                         <!-- 权限管理 (仅管理员且UID==admin时显示) -->
                         <Button fx:id="permissionNavBtn" maxWidth="1.7976931348623157E308" onAction="#handleNavigatePermission" styleClass="main-nav-btn" text="🛡   权限管理" visible="false" managed="false" />
                     </children>
@@ -81,7 +83,7 @@
 
     <!-- 右侧主界面内容 -->
     <center>
-        <ScrollPane fitToWidth="true" styleClass="content-scroll-pane" BorderPane.alignment="CENTER">
+        <ScrollPane fx:id="homeScrollPane" fitToWidth="true" styleClass="content-scroll-pane" BorderPane.alignment="CENTER">
             <content>
                 <VBox spacing="18.0" styleClass="dash-content-pane">
                     <padding>
@@ -172,11 +174,12 @@
                                                 <!-- 两行内容网格：第一行是模块名称，第二行是只读状态 -->
                                                 <GridPane hgap="8.0" style="-fx-background-color: #f8fafc; -fx-background-radius: 8px; -fx-padding: 12px 10px; -fx-border-color: #e2e8f0; -fx-border-radius: 8px;">
                                                     <columnConstraints>
-                                                        <ColumnConstraints percentWidth="20.0" halignment="CENTER" />
-                                                        <ColumnConstraints percentWidth="20.0" halignment="CENTER" />
-                                                        <ColumnConstraints percentWidth="20.0" halignment="CENTER" />
-                                                        <ColumnConstraints percentWidth="20.0" halignment="CENTER" />
-                                                        <ColumnConstraints percentWidth="20.0" halignment="CENTER" />
+                                                        <ColumnConstraints percentWidth="16.66" halignment="CENTER" />
+                                                        <ColumnConstraints percentWidth="16.66" halignment="CENTER" />
+                                                        <ColumnConstraints percentWidth="16.66" halignment="CENTER" />
+                                                        <ColumnConstraints percentWidth="16.66" halignment="CENTER" />
+                                                        <ColumnConstraints percentWidth="16.66" halignment="CENTER" />
+                                                        <ColumnConstraints percentWidth="16.66" halignment="CENTER" />
                                                     </columnConstraints>
                                                     <rowConstraints>
                                                         <RowConstraints minHeight="28.0" valignment="CENTER" />
@@ -184,11 +187,12 @@
                                                     </rowConstraints>
                                                     <children>
                                                         <!-- 第一行：模块名称 -->
-                                                        <Label style="-fx-font-weight: bold; -fx-font-size: 12.5px; -fx-text-fill: #151E49;" text="🎓 学籍信息" GridPane.columnIndex="0" GridPane.rowIndex="0" />
-                                                        <Label style="-fx-font-weight: bold; -fx-font-size: 12.5px; -fx-text-fill: #151E49;" text="📚 图书馆" GridPane.columnIndex="1" GridPane.rowIndex="0" />
-                                                        <Label style="-fx-font-weight: bold; -fx-font-size: 12.5px; -fx-text-fill: #151E49;" text="📝 选课" GridPane.columnIndex="2" GridPane.rowIndex="0" />
-                                                        <Label style="-fx-font-weight: bold; -fx-font-size: 12.5px; -fx-text-fill: #151E49;" text="🛒 商店" GridPane.columnIndex="3" GridPane.rowIndex="0" />
-                                                        <Label style="-fx-font-weight: bold; -fx-font-size: 12.5px; -fx-text-fill: #151E49;" text="💳 银行" GridPane.columnIndex="4" GridPane.rowIndex="0" />
+                                                        <Label style="-fx-font-weight: bold; -fx-font-size: 12px; -fx-text-fill: #151E49;" text="🎓 学籍" GridPane.columnIndex="0" GridPane.rowIndex="0" />
+                                                        <Label style="-fx-font-weight: bold; -fx-font-size: 12px; -fx-text-fill: #151E49;" text="📚 图书" GridPane.columnIndex="1" GridPane.rowIndex="0" />
+                                                        <Label style="-fx-font-weight: bold; -fx-font-size: 12px; -fx-text-fill: #151E49;" text="📝 选课" GridPane.columnIndex="2" GridPane.rowIndex="0" />
+                                                        <Label style="-fx-font-weight: bold; -fx-font-size: 12px; -fx-text-fill: #151E49;" text="🛒 商店" GridPane.columnIndex="3" GridPane.rowIndex="0" />
+                                                        <Label style="-fx-font-weight: bold; -fx-font-size: 12px; -fx-text-fill: #151E49;" text="💳 银行" GridPane.columnIndex="4" GridPane.rowIndex="0" />
+                                                        <Label style="-fx-font-weight: bold; -fx-font-size: 12px; -fx-text-fill: #151E49;" text="👥 用户" GridPane.columnIndex="5" GridPane.rowIndex="0" />
 
                                                         <!-- 第二行：只读，显示哪些模块有权限 -->
                                                         <Label fx:id="permStatusAcademic" text="—" GridPane.columnIndex="0" GridPane.rowIndex="1" />
@@ -196,6 +200,7 @@
                                                         <Label fx:id="permStatusCourse" text="—" GridPane.columnIndex="2" GridPane.rowIndex="1" />
                                                         <Label fx:id="permStatusShop" text="—" GridPane.columnIndex="3" GridPane.rowIndex="1" />
                                                         <Label fx:id="permStatusBank" text="—" GridPane.columnIndex="4" GridPane.rowIndex="1" />
+                                                        <Label fx:id="permStatusUser" text="—" GridPane.columnIndex="5" GridPane.rowIndex="1" />
                                                     </children>
                                                 </GridPane>
 

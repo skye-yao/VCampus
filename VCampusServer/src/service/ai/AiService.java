@@ -459,22 +459,17 @@ public class AiService {
      */
     private String offlineReply(String systemPrompt, String userMessage) {
         if (systemPrompt != null && systemPrompt.contains("【参考资料】")) {
-            if (userMessage.contains("缴费") || userMessage.contains("学费") || userMessage.contains("选课")
-                    || userMessage.contains("借书") || userMessage.contains("图书") || userMessage.contains("学籍")
-                    || userMessage.contains("退款") || userMessage.contains("卡") || userMessage.contains("规则")
-                    || userMessage.contains("流程") || userMessage.contains("费用") || userMessage.contains("充值")
-                    || userMessage.contains("多少钱") || userMessage.contains("预约")) {
-                int idx = systemPrompt.indexOf("【参考资料】");
-                int endIdx = systemPrompt.indexOf("--------------------------------------------------");
-                String ctx;
-                if (endIdx > idx) {
-                    ctx = systemPrompt.substring(idx, endIdx);
-                } else {
-                    ctx = systemPrompt.substring(idx);
+            int firstDivider = systemPrompt.indexOf("--------------------------------------------------");
+            if (firstDivider != -1) {
+                int secondDivider = systemPrompt.indexOf("--------------------------------------------------", firstDivider + 40);
+                if (secondDivider != -1) {
+                    String ctx = systemPrompt.substring(firstDivider + 50, secondDivider).trim();
+                    if (!ctx.isBlank()) {
+                        ctx = ctx.replaceAll("\\[\\d+\\]", "").trim();
+                        if (ctx.length() > 300) ctx = ctx.substring(0, 300) + "...";
+                        return "根据校园官方知识库规程，为您解答如下：\n\n" + ctx + "\n\n[RAG_USED:true]";
+                    }
                 }
-                ctx = ctx.replace("【参考资料】", "").replaceAll("\\[\\d+]", "").trim();
-                if (ctx.length() > 260) ctx = ctx.substring(0, 260) + "...";
-                return "根据校园官方知识库规程，为您解答如下：\n\n" + ctx + "\n\n[RAG_USED:true]";
             }
         }
         if (userMessage.contains("你好") || userMessage.contains("您好")) {

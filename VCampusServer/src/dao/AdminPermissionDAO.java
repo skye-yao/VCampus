@@ -21,7 +21,7 @@ public class AdminPermissionDAO {
     private static volatile boolean tableReady = false;
 
     /**
-     * 确保数据表 tbl_admin_permission 存在并具备最新字段（拆分商店权限与银行权限）
+     * 确保数据表 tbl_admin_permission 存在并具备最新字段（拆分商店权限、银行权限与新增用户管理权限）
      */
     public static synchronized void ensureTable() {
         if (tableReady) {
@@ -34,13 +34,14 @@ public class AdminPermissionDAO {
                 "course_perm TINYINT(1) NOT NULL DEFAULT 0, " +
                 "shop_perm TINYINT(1) NOT NULL DEFAULT 0, " +
                 "bank_perm TINYINT(1) NOT NULL DEFAULT 0, " +
+                "user_perm TINYINT(1) NOT NULL DEFAULT 0, " +
                 "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP" +
                 ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
         try (Connection conn = DBUtil.getConnection();
              Statement stmt = conn.createStatement()) {
             stmt.execute(sql);
 
-            // 针对已存在的旧表，热升级补全 shop_perm 与 bank_perm 列
+            // 针对已存在的旧表，热升级补全 shop_perm、bank_perm 与 user_perm 列
             try (ResultSet cols = conn.getMetaData().getColumns(conn.getCatalog(), null, "tbl_admin_permission", "shop_perm")) {
                 if (!cols.next()) {
                     stmt.execute("ALTER TABLE tbl_admin_permission ADD COLUMN shop_perm TINYINT(1) NOT NULL DEFAULT 0");
@@ -49,6 +50,11 @@ public class AdminPermissionDAO {
             try (ResultSet cols = conn.getMetaData().getColumns(conn.getCatalog(), null, "tbl_admin_permission", "bank_perm")) {
                 if (!cols.next()) {
                     stmt.execute("ALTER TABLE tbl_admin_permission ADD COLUMN bank_perm TINYINT(1) NOT NULL DEFAULT 0");
+                }
+            }
+            try (ResultSet cols = conn.getMetaData().getColumns(conn.getCatalog(), null, "tbl_admin_permission", "user_perm")) {
+                if (!cols.next()) {
+                    stmt.execute("ALTER TABLE tbl_admin_permission ADD COLUMN user_perm TINYINT(1) NOT NULL DEFAULT 0");
                 }
             }
 
@@ -60,7 +66,6 @@ public class AdminPermissionDAO {
 
     /**
      * 获取所有管理员（role = 0）的权限列表
-     * UID 为 admin 的超级管理员固定为全 false，且排在列表首位
      */
     public List<AdminPermission> getAllAdminPermissions() throws SQLException {
         ensureTable();
@@ -69,7 +74,8 @@ public class AdminPermissionDAO {
                 "COALESCE(p.library_perm, 0) AS library_perm, " +
                 "COALESCE(p.course_perm, 0) AS course_perm, " +
                 "COALESCE(p.shop_perm, 0) AS shop_perm, " +
-                "COALESCE(p.bank_perm, 0) AS bank_perm " +
+                "COALESCE(p.bank_perm, 0) AS bank_perm, " +
+                "COALESCE(p.user_perm, 0) AS user_perm " +
                 "FROM tbl_user u " +
                 "LEFT JOIN tbl_admin_permission p ON u.UID = p.uid " +
                 "WHERE u.role = 0 " +
@@ -91,6 +97,7 @@ public class AdminPermissionDAO {
                 perm.setCoursePerm(rs.getInt("course_perm") == 1);
                 perm.setShopPerm(rs.getInt("shop_perm") == 1);
                 perm.setBankPerm(rs.getInt("bank_perm") == 1);
+                perm.setUserPerm(rs.getInt("user_perm") == 1);
                 result.add(perm);
             }
         }
@@ -111,7 +118,8 @@ public class AdminPermissionDAO {
                 "COALESCE(p.library_perm, 0) AS library_perm, " +
                 "COALESCE(p.course_perm, 0) AS course_perm, " +
                 "COALESCE(p.shop_perm, 0) AS shop_perm, " +
-                "COALESCE(p.bank_perm, 0) AS bank_perm " +
+                "COALESCE(p.bank_perm, 0) AS bank_perm, " +
+                "COALESCE(p.user_perm, 0) AS user_perm " +
                 "FROM tbl_user u " +
                 "LEFT JOIN tbl_admin_permission p ON u.UID = p.uid " +
                 "WHERE u.UID = ?";
@@ -129,11 +137,12 @@ public class AdminPermissionDAO {
                     perm.setCoursePerm(rs.getInt("course_perm") == 1);
                     perm.setShopPerm(rs.getInt("shop_perm") == 1);
                     perm.setBankPerm(rs.getInt("bank_perm") == 1);
+                    perm.setUserPerm(rs.getInt("user_perm") == 1);
                     return perm;
                 }
             }
         }
-        return new AdminPermission(uid, "", false, false, false, false, false);
+        return new AdminPermission(uid, "", false, false, false, false, false, false);
     }
 
     /**
@@ -144,14 +153,15 @@ public class AdminPermissionDAO {
             return true;
         }
         ensureTable();
-        String sql = "INSERT INTO tbl_admin_permission (uid, academic_perm, library_perm, course_perm, shop_perm, bank_perm) " +
-                "VALUES (?, ?, ?, ?, ?, ?) " +
+        String sql = "INSERT INTO tbl_admin_permission (uid, academic_perm, library_perm, course_perm, shop_perm, bank_perm, user_perm) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?) " +
                 "ON DUPLICATE KEY UPDATE " +
                 "academic_perm = VALUES(academic_perm), " +
                 "library_perm = VALUES(library_perm), " +
                 "course_perm = VALUES(course_perm), " +
                 "shop_perm = VALUES(shop_perm), " +
-                "bank_perm = VALUES(bank_perm)";
+                "bank_perm = VALUES(bank_perm), " +
+                "user_perm = VALUES(user_perm)";
 
         try (Connection conn = DBUtil.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -164,6 +174,7 @@ public class AdminPermissionDAO {
                 stmt.setInt(4, perm.isCoursePerm() ? 1 : 0);
                 stmt.setInt(5, perm.isShopPerm() ? 1 : 0);
                 stmt.setInt(6, perm.isBankPerm() ? 1 : 0);
+                stmt.setInt(7, perm.isUserPerm() ? 1 : 0);
                 stmt.addBatch();
             }
             stmt.executeBatch();

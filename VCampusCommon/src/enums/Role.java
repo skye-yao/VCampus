@@ -71,4 +71,20 @@ public enum Role {
         }
         return null;
     }
+
+    /**
+     * 根据中文描述或名称反查枚举
+     *
+     * @param description 中文描述或枚举名
+     * @return 对应的枚举值，找不到返回 null
+     */
+    public static Role fromDescription(String description) {
+        if (description == null) return null;
+        for (Role role : Role.values()) {
+            if (role.getDescription().equalsIgnoreCase(description.trim()) || role.name().equalsIgnoreCase(description.trim())) {
+                return role;
+            }
+        }
+        return null;
+    }
 }

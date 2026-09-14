@@ -23,6 +23,7 @@ public class UserHandler {
 
     private final UserService userService = new UserService();
     private final AdminPermissionDAO adminPermissionDAO = new AdminPermissionDAO();
+    private final service.CaptchaService captchaService = service.CaptchaService.getInstance();
 
     public Message handle(Message request) {
         String action = request.getAction();
@@ -37,6 +38,9 @@ public class UserHandler {
 
         try {
             switch (action.toLowerCase()) {
+                case "get_captcha":
+                case "getcaptcha":
+                    return handleGetCaptcha(request, response);
                 case "login":
                     return handleLogin(request, response);
                 case "sendsmscode":
@@ -67,6 +71,14 @@ public class UserHandler {
                     return handleUpdateAdminPermissions(request, response);
                 case "get_my_permissions":
                     return handleGetMyPermissions(request, response);
+                case "admin_list_users":
+                    return handleAdminListUsers(request, response);
+                case "admin_update_status":
+                    return handleAdminUpdateStatus(request, response);
+                case "admin_reset_password":
+                    return handleAdminResetPassword(request, response);
+                case "admin_update_user":
+                    return handleAdminUpdateUser(request, response);
                 default:
                     response.setCode(MessageCode.BAD_REQUEST);
                     response.setMessage("不支持的操作: " + action);
@@ -93,7 +105,21 @@ public class UserHandler {
         return cause==null||cause.getMessage()==null?"":"（"+cause.getMessage()+"）";
     }
 
+    private Message handleGetCaptcha(Message request, Message response) {
+        service.CaptchaService.CaptchaVO vo = captchaService.generateCaptcha();
+        response.setCode(MessageCode.SUCCESS);
+        response.setMessage("获取验证码成功");
+        response.putData("captchaId", vo.getCaptchaId());
+        response.putData("imageBase64", vo.getImageBase64());
+        return response;
+    }
+
     private Message handleLogin(Message request, Message response) throws BusinessException, DatabaseException {
+        // 校验图形验证码
+        String captchaId = request.getData("captchaId");
+        String captchaCode = request.getData("captchaCode");
+        captchaService.validateCaptcha(captchaId, captchaCode);
+
         String cardNo = request.getData("cardNo");
         String password = request.getData("password");
         String role = request.getData("role");
@@ -122,6 +148,11 @@ public class UserHandler {
     }
 
     private Message handleSendSmsCode(Message request, Message response) throws BusinessException, DatabaseException {
+        // 校验图形验证码（防短信轰炸/脚本高频调用）
+        String captchaId = request.getData("captchaId");
+        String captchaCode = request.getData("captchaCode");
+        captchaService.validateCaptcha(captchaId, captchaCode);
+
         String phone = request.getData("phone");
         String uid = request.getData("uid");
         String code = userService.sendVerificationCode(phone, uid);
@@ -133,6 +164,11 @@ public class UserHandler {
     }
 
     private Message handleSendResetCode(Message request, Message response) throws BusinessException, DatabaseException {
+        // 校验图形验证码（防短信轰炸/脚本高频调用）
+        String captchaId = request.getData("captchaId");
+        String captchaCode = request.getData("captchaCode");
+        captchaService.validateCaptcha(captchaId, captchaCode);
+
         String phone = request.getData("phone");
         String uid = request.getData("uid");
         String code = userService.sendResetPasswordCode(phone, uid);
@@ -295,6 +331,101 @@ public class UserHandler {
         response.setCode(MessageCode.SUCCESS);
         response.setMessage("获取当前权限成功");
         response.putData("adminPermission", perm);
+        return response;
+    }
+
+    private boolean checkUserPermission(Message request, Message response) throws SQLException {
+        String token = request.getToken();
+        UserSession session = SessionManager.getInstance().getSession(token);
+        String operatorUid = null;
+        if (session != null) {
+            operatorUid = session.getUsername();
+        } else if (request.getSender() != null && !request.getSender().isBlank()) {
+            operatorUid = request.getSender();
+        }
+
+        if (operatorUid == null) {
+            response.setCode(MessageCode.UNAUTHORIZED);
+            response.setMessage("登录会话已失效，请重新登录");
+            return false;
+        }
+
+        AdminPermission perm = adminPermissionDAO.findByUid(operatorUid);
+        if (perm == null || !perm.isUserPerm()) {
+            response.setCode(MessageCode.FORBIDDEN);
+            response.setMessage("权限不足：您没有用户管理权限");
+            return false;
+        }
+        return true;
+    }
+
+    private Message handleAdminListUsers(Message request, Message response) throws Exception {
+        if (!checkUserPermission(request, response)) {
+            return response;
+        }
+        String keyword = request.getData("keyword");
+        String role = request.getData("role");
+        String status = request.getData("status");
+
+        List<User> list = userService.listUsers(keyword, role, status);
+        response.setCode(MessageCode.SUCCESS);
+        response.setMessage("获取用户列表成功");
+        response.putData("users", list);
+        return response;
+    }
+
+    private Message handleAdminUpdateStatus(Message request, Message response) throws Exception {
+        if (!checkUserPermission(request, response)) {
+            return response;
+        }
+        String targetUid = request.getData("targetUid");
+        String status = request.getData("status");
+
+        userService.updateUserStatus(targetUid, status);
+        response.setCode(MessageCode.SUCCESS);
+        response.setMessage("账号状态更新成功");
+        return response;
+    }
+
+    private Message handleAdminResetPassword(Message request, Message response) throws Exception {
+        if (!checkUserPermission(request, response)) {
+            return response;
+        }
+        String targetUid = request.getData("targetUid");
+
+        userService.resetUserPassword(targetUid);
+        response.setCode(MessageCode.SUCCESS);
+        response.setMessage("用户密码已成功重置为 123456");
+        return response;
+    }
+
+    private Message handleAdminUpdateUser(Message request, Message response) throws Exception {
+        if (!checkUserPermission(request, response)) {
+            return response;
+        }
+        Object userObj = request.getData("user");
+        User user;
+        if (userObj != null) {
+            com.google.gson.Gson gson = new com.google.gson.Gson();
+            user = gson.fromJson(gson.toJson(userObj), User.class);
+        } else {
+            user = new User();
+            user.setUID(request.getData("uid"));
+            user.setName(request.getData("name"));
+            user.setGender(request.getData("gender"));
+            user.setCollege(request.getData("college"));
+            user.setMajor(request.getData("major"));
+            user.setPhone(request.getData("phone"));
+            user.setEmail(request.getData("email"));
+            String roleStr = request.getData("role");
+            if (roleStr != null && !roleStr.isEmpty()) {
+                user.setRole(enums.Role.fromDescription(roleStr));
+            }
+        }
+
+        userService.adminUpdateUser(user);
+        response.setCode(MessageCode.SUCCESS);
+        response.setMessage("用户资料更新成功");
         return response;
     }
 }

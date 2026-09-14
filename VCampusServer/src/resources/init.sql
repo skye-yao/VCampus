@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS `tbl_user` (
     `email` VARCHAR(100) DEFAULT '' COMMENT '邮箱',
     `avatar` LONGTEXT DEFAULT NULL COMMENT '头像图片Base64编码',
     `balance` DECIMAL(12,2) DEFAULT 10000.00 COMMENT '校园账户余额镜像，主余额见tbl_bank_account',
+    `status` VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' COMMENT '状态: ACTIVE-正常, FROZEN-已冻结, DELETED-已注销',
     `create_time` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     PRIMARY KEY (`UID`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户基本信息表';
@@ -31,6 +32,17 @@ SET @avatar_ddl = IF(@avatar_column_missing,
 PREPARE avatar_stmt FROM @avatar_ddl;
 EXECUTE avatar_stmt;
 DEALLOCATE PREPARE avatar_stmt;
+
+SET @status_column_missing = (
+    SELECT COUNT(*) = 0 FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tbl_user' AND COLUMN_NAME = 'status'
+);
+SET @status_ddl = IF(@status_column_missing,
+    'ALTER TABLE `tbl_user` ADD COLUMN `status` VARCHAR(20) NOT NULL DEFAULT ''ACTIVE'' COMMENT ''状态: ACTIVE-正常, FROZEN-已冻结, DELETED-已注销'' AFTER `balance`',
+    'SELECT 1');
+PREPARE status_stmt FROM @status_ddl;
+EXECUTE status_stmt;
+DEALLOCATE PREPARE status_stmt;
 
 -- 普通用户的校园账户统一采用10000元开户余额，并让镜像字段与银行主余额精度一致。
 ALTER TABLE `tbl_user` MODIFY COLUMN `balance` DECIMAL(12,2) DEFAULT 10000.00
@@ -637,6 +649,17 @@ WHERE NOT EXISTS (
     WHERE t.account_id=a.account_id AND t.transaction_type='INITIAL_BALANCE'
 );
 
+-- 以下四类流水都发生在用户与校园财务账户之间，对方固定是财务账户（admin）：
+-- 商店消费、商店退款、报销入账、学费缴纳。2026-09-02 及更早的开发版本把对方写成了 NULL，
+-- 导致历史流水在“对方用户编号”一列显示空白；这里做一次性回填，可重复执行。
+-- 开户初始资金（INITIAL_BALANCE）和历史余额调整（ACCOUNT_RECHARGE）本身没有对方用户，不在此列。
+UPDATE `tbl_bank_transaction` t
+JOIN `tbl_user` u ON u.`UID`='admin'
+SET t.`counterparty_user_id`=u.`UID`
+WHERE t.`counterparty_user_id` IS NULL
+  AND t.`transaction_type` IN
+      ('TUITION_PAYMENT','SHOP_PAYMENT','SHOP_REFUND','REIMBURSEMENT');
+
 -- ==================== 虚拟校园 AI 助手模块 ====================
 
 -- 1. AI 对话会话表
@@ -750,15 +773,15 @@ ON DUPLICATE KEY UPDATE `content`=VALUES(`content`);
 -- 1. 图书表 tblBook
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `tblBook` (
-                                         `id` INT NOT NULL AUTO_INCREMENT COMMENT '图书编号',
-                                         `isbn` VARCHAR(20) NOT NULL COMMENT 'ISBN编号',
-                                         `name` VARCHAR(100) NOT NULL COMMENT '图书名称',
-                                         `author` VARCHAR(100) NOT NULL COMMENT '图书作者',
-                                         `publisher` VARCHAR(100) DEFAULT '' COMMENT '出版社',
-                                         `price` DECIMAL(10,2) DEFAULT NULL COMMENT '图书赔偿价格，借出前录入',
-                                         `status` INT NOT NULL DEFAULT 0 COMMENT '状态: 0-可借, 1-已借, 2-预约, 3-遗失',
-                                         PRIMARY KEY (`id`),
-                                         UNIQUE KEY `uk_isbn` (`isbn`)
+`id` INT NOT NULL AUTO_INCREMENT COMMENT '图书编号',
+`isbn` VARCHAR(20) NOT NULL COMMENT 'ISBN编号',
+`name` VARCHAR(100) NOT NULL COMMENT '图书名称',
+`author` VARCHAR(100) NOT NULL COMMENT '图书作者',
+`publisher` VARCHAR(100) DEFAULT '' COMMENT '出版社',
+`price` DECIMAL(10,2) DEFAULT NULL COMMENT '图书赔偿价格，借出前录入',
+`status` INT NOT NULL DEFAULT 0 COMMENT '状态: 0-可借, 1-已借, 2-预约, 3-遗失',
+PRIMARY KEY (`id`),
+UNIQUE KEY `uk_isbn` (`isbn`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='图书基本信息表';
 
 -- ============================================================
@@ -886,14 +909,26 @@ CREATE TABLE IF NOT EXISTS `tbl_admin_permission` (
     `course_perm` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '选课管理权限: 0-无, 1-有',
     `shop_perm` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '商店管理权限: 0-无, 1-有',
     `bank_perm` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '银行管理权限: 0-无, 1-有',
+    `user_perm` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '用户管理权限: 0-无, 1-有',
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最后更新时间',
     PRIMARY KEY (`uid`),
     CONSTRAINT `fk_admin_perm_user` FOREIGN KEY (`uid`) REFERENCES `tbl_user` (`UID`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='管理员子系统分权表';
 
+SET @user_perm_column_missing = (
+    SELECT COUNT(*) = 0 FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tbl_admin_permission' AND COLUMN_NAME = 'user_perm'
+);
+SET @user_perm_ddl = IF(@user_perm_column_missing,
+    'ALTER TABLE `tbl_admin_permission` ADD COLUMN `user_perm` TINYINT(1) NOT NULL DEFAULT 0 COMMENT ''用户管理权限: 0-无, 1-有'' AFTER `bank_perm`',
+    'SELECT 1');
+PREPARE user_perm_stmt FROM @user_perm_ddl;
+EXECUTE user_perm_stmt;
+DEALLOCATE PREPARE user_perm_stmt;
+
 -- 主管理员 admin 默认全为 0 (无业务权限且只读)
-INSERT INTO `tbl_admin_permission` (`uid`, `academic_perm`, `library_perm`, `course_perm`, `shop_perm`, `bank_perm`)
-VALUES ('admin', 0, 0, 0, 0, 0)
-ON DUPLICATE KEY UPDATE `academic_perm`=0, `library_perm`=0, `course_perm`=0, `shop_perm`=0, `bank_perm`=0;
+INSERT INTO `tbl_admin_permission` (`uid`, `academic_perm`, `library_perm`, `course_perm`, `shop_perm`, `bank_perm`, `user_perm`)
+VALUES ('admin', 0, 0, 0, 0, 0, 0)
+ON DUPLICATE KEY UPDATE `academic_perm`=0, `library_perm`=0, `course_perm`=0, `shop_perm`=0, `bank_perm`=0, `user_perm`=0;
 
 

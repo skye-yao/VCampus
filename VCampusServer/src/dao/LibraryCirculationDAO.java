@@ -60,6 +60,13 @@ public class LibraryCirculationDAO {
                     user = rows.getString("userid");
                 }
             }
+            try (PreparedStatement stmt = conn.prepareStatement("SELECT role FROM tbl_user WHERE UID=?")) {
+                stmt.setString(1, user);
+                try (ResultSet rows = stmt.executeQuery()) {
+                    if (!rows.next() || rows.getInt("role") == enums.Role.ADMIN.getCode())
+                        throw new BusinessException("管理员不能借阅图书，请取消该预约");
+                }
+            }
             BigDecimal price;
             try (PreparedStatement stmt = conn.prepareStatement("SELECT price,status FROM tblBook WHERE id=? FOR UPDATE")) {
                 stmt.setInt(1,id);
@@ -123,6 +130,22 @@ public class LibraryCirculationDAO {
             return null;
         });
     }
+    /** 管理员确认公告中的图书已交回；所有状态和账单在同一事务中更新。 */
+    public boolean recoverLostNotice(int bookId) throws SQLException {
+        return transaction(conn -> {
+            lockBook(conn, bookId);
+            try (PreparedStatement stmt = conn.prepareStatement(
+                    "SELECT id FROM tblLossRecord WHERE bookid=? AND status=0 FOR UPDATE")) {
+                stmt.setInt(1, bookId);
+                try (ResultSet rows = stmt.executeQuery()) {
+                    if (!rows.next()) return false;
+                }
+            }
+            recoverBook(conn, bookId, LocalDateTime.now());
+            return true;
+        });
+    }
+
     /** 正常还书及遗失找回共用；已缴账单保留原实付，后续由管理员退款。 */
     static void recoverBook(Connection conn,int bookId,LocalDateTime now) throws SQLException {
         List<Integer> loans=new ArrayList<>();

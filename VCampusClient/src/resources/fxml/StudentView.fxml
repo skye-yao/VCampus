@@ -6,12 +6,11 @@
 <?import javafx.scene.layout.*?>
 <BorderPane xmlns="http://javafx.com/javafx/17" xmlns:fx="http://javafx.com/fxml/1" prefHeight="580" prefWidth="860" styleClass="main-window" stylesheets="@../css/style.css" fx:controller="controller.StudentController">
   <top>
-    <HBox alignment="CENTER_LEFT" prefHeight="56" spacing="12" styleClass="app-topbar">
+    <HBox alignment="CENTER_LEFT" prefHeight="58" spacing="12" styleClass="app-topbar">
       <padding>
-        <Insets left="22" right="22"/>
+        <Insets left="24" right="24"/>
       </padding>
-      <Button onAction="#handleBack" styleClass="btn-back" text="← 返回"/>
-      <Label fx:id="titleLabel" styleClass="brand-title" text="我的学籍"/>
+      <Label fx:id="titleLabel" styleClass="dash-main-title" text="我的学籍"/>
       <Region HBox.hgrow="ALWAYS"/>
       <Button onAction="#handleRefresh" styleClass="btn-secondary" text="刷新"/>
     </HBox>
@@ -391,8 +390,8 @@
                     <VBox prefWidth="260" spacing="12" styleClass="student-panel">
                       <Label styleClass="student-section-title" text="审核处理"/>
                       <HBox spacing="8"><Button fx:id="approveButton" disable="true" maxWidth="Infinity" onAction="#handleApprove" styleClass="btn-primary" text="通过" HBox.hgrow="ALWAYS"/><Button fx:id="rejectButton" disable="true" maxWidth="Infinity" onAction="#handleReject" styleClass="btn-secondary" text="不通过" HBox.hgrow="ALWAYS"/></HBox>
-                      <Label text="不通过理由"/>
-                      <TextArea fx:id="reviewRemarkArea" prefRowCount="12" promptText="选择不通过时必须填写理由" VBox.vgrow="ALWAYS"/>
+                      <Label text="审核意见（可选）"/>
+                      <TextArea fx:id="reviewRemarkArea" prefRowCount="12" promptText="可不填写，最多255个字符" VBox.vgrow="ALWAYS"/>
                     </VBox>
                   </HBox>
                 </VBox>

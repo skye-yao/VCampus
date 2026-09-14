@@ -40,6 +40,7 @@ public class PermissionController {
     @FXML private TableColumn<AdminPermission, Boolean> colCourse;
     @FXML private TableColumn<AdminPermission, Boolean> colShop;
     @FXML private TableColumn<AdminPermission, Boolean> colBank;
+    @FXML private TableColumn<AdminPermission, Boolean> colUser;
     @FXML private Label statusLabel;
 
     private final Gson gson = new Gson();
@@ -73,6 +74,9 @@ public class PermissionController {
 
         // 银行权限
         setupCheckBoxColumn(colBank, AdminPermission::isBankPerm, AdminPermission::setBankPerm);
+
+        // 用户管理权限
+        setupCheckBoxColumn(colUser, AdminPermission::isUserPerm, AdminPermission::setUserPerm);
     }
 
     /**

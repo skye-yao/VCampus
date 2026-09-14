@@ -10,11 +10,33 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * 用户数据访问对象 (UserDAO)
  */
 public class UserDAO {
+
+    private static volatile boolean userTableReady = false;
+
+    /**
+     * 确保数据表 tbl_user 具备 status 列（状态: ACTIVE-正常, FROZEN-已冻结, DELETED-已注销）
+     */
+    public static synchronized void ensureTable() {
+        if (userTableReady) return;
+        try (Connection conn = DBUtil.getConnection();
+             Statement stmt = conn.createStatement()) {
+            try (ResultSet cols = conn.getMetaData().getColumns(conn.getCatalog(), null, "tbl_user", "status")) {
+                if (!cols.next()) {
+                    stmt.execute("ALTER TABLE tbl_user ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' COMMENT '状态: ACTIVE, FROZEN, DELETED'");
+                }
+            }
+            userTableReady = true;
+        } catch (SQLException e) {
+            System.err.println("[UserDAO] ensureTable 补列 status 异常: " + e.getMessage());
+        }
+    }
 
     /**
      * 注册新用户：在同一事务中创建用户账号、银行账户和学籍档案
@@ -132,8 +154,9 @@ public class UserDAO {
      * @throws SQLException 数据库异常
      */
     public User findByUID(String UID) throws SQLException {
+        ensureTable();
         String sql = "SELECT u.UID,u.name,u.gender,u.password,u.salt,u.role,u.college,u.major," +
-                "u.phone,u.email,u.avatar,COALESCE(b.balance,u.balance) AS balance " +
+                "u.phone,u.email,u.avatar,COALESCE(b.balance,u.balance) AS balance,COALESCE(u.status,'ACTIVE') AS status " +
                 "FROM tbl_user u LEFT JOIN tbl_bank_account b ON b.user_id=u.UID WHERE u.UID=?";
         
         Connection conn = null;
@@ -160,6 +183,7 @@ public class UserDAO {
                 user.setEmail(rs.getString("email"));
                 user.setAvatar(rs.getString("avatar"));
                 user.setBalance(rs.getBigDecimal("balance"));
+                user.setStatus(rs.getString("status"));
                 return user;
             }
             return null;
@@ -298,6 +322,148 @@ public class UserDAO {
                     "SET u.balance = b.balance");
         } catch (SQLException e) {
             System.err.println("[UserDAO] syncAllUsers error: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 多条件模糊查询用户列表
+     *
+     * @param keyword 关键字（模糊匹配 UID, name, phone, email）
+     * @param roleStr 角色过滤（全部 / 学生 / 教师 / 管理员）
+     * @param statusStr 状态过滤（全部 / ACTIVE / FROZEN / DELETED）
+     */
+    public List<User> listUsers(String keyword, String roleStr, String statusStr) throws SQLException {
+        ensureTable();
+        StringBuilder sql = new StringBuilder("SELECT u.UID, u.name, u.gender, u.role, u.college, u.major, " +
+                "u.phone, u.email, u.avatar, COALESCE(b.balance, u.balance) AS balance, " +
+                "COALESCE(u.status, 'ACTIVE') AS status, u.create_time " +
+                "FROM tbl_user u LEFT JOIN tbl_bank_account b ON b.user_id = u.UID WHERE 1=1 ");
+
+        List<Object> params = new ArrayList<>();
+
+        if (keyword != null && !keyword.isBlank()) {
+            String kw = "%" + keyword.trim() + "%";
+            sql.append("AND (u.UID LIKE ? OR u.name LIKE ? OR u.phone LIKE ? OR u.email LIKE ?) ");
+            params.add(kw);
+            params.add(kw);
+            params.add(kw);
+            params.add(kw);
+        }
+
+        if (roleStr != null && !roleStr.isBlank() && !"全部".equals(roleStr) && !"ALL".equalsIgnoreCase(roleStr)) {
+            Role r = null;
+            if ("学生".equals(roleStr) || "STUDENT".equalsIgnoreCase(roleStr)) r = Role.STUDENT;
+            else if ("教师".equals(roleStr) || "TEACHER".equalsIgnoreCase(roleStr)) r = Role.TEACHER;
+            else if ("管理员".equals(roleStr) || "ADMIN".equalsIgnoreCase(roleStr)) r = Role.ADMIN;
+            if (r != null) {
+                sql.append("AND u.role = ? ");
+                params.add(r.getCode());
+            }
+        }
+
+        if (statusStr != null && !statusStr.isBlank() && !"全部".equals(statusStr) && !"ALL".equalsIgnoreCase(statusStr)) {
+            String st = statusStr.trim();
+            if (st.contains("正常") || "ACTIVE".equalsIgnoreCase(st)) st = "ACTIVE";
+            else if (st.contains("冻结") || "FROZEN".equalsIgnoreCase(st)) st = "FROZEN";
+            else if (st.contains("注销") || "DELETED".equalsIgnoreCase(st)) st = "DELETED";
+            sql.append("AND COALESCE(u.status, 'ACTIVE') = ? ");
+            params.add(st);
+        }
+
+        sql.append("ORDER BY CASE WHEN LOWER(u.UID) = 'admin' THEN 0 ELSE 1 END, u.create_time DESC, u.UID ASC");
+
+        List<User> list = new ArrayList<>();
+        try (Connection conn = DBUtil.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql.toString())) {
+            for (int i = 0; i < params.size(); i++) {
+                stmt.setObject(i + 1, params.get(i));
+            }
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    User user = new User();
+                    user.setUID(rs.getString("UID"));
+                    user.setName(rs.getString("name"));
+                    user.setGender(rs.getString("gender"));
+                    user.setRole(Role.fromCode(rs.getInt("role")));
+                    user.setCollege(rs.getString("college"));
+                    user.setMajor(rs.getString("major"));
+                    user.setPhone(rs.getString("phone"));
+                    user.setEmail(rs.getString("email"));
+                    user.setAvatar(rs.getString("avatar"));
+                    user.setBalance(rs.getBigDecimal("balance"));
+                    user.setStatus(rs.getString("status"));
+                    list.add(user);
+                }
+            }
+        }
+        return list;
+    }
+
+    /**
+     * 更新账号状态（ACTIVE-正常, FROZEN-已冻结, DELETED-已注销）
+     */
+    public boolean updateStatus(String uid, String status) throws SQLException {
+        ensureTable();
+        String sql = "UPDATE tbl_user SET status = ? WHERE UID = ?";
+        try (Connection conn = DBUtil.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, status);
+            stmt.setString(2, uid);
+            return stmt.executeUpdate() > 0;
+        }
+    }
+
+    /**
+     * 管理员修改用户基本资料并同步关联表
+     */
+    public boolean adminUpdateUser(User user) throws SQLException {
+        ensureTable();
+        String sql = "UPDATE tbl_user SET name = ?, gender = ?, college = ?, major = ?, phone = ?, email = ? WHERE UID = ?";
+        try (Connection conn = DBUtil.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, user.getName());
+            stmt.setString(2, user.getGender());
+            stmt.setString(3, user.getCollege() != null ? user.getCollege() : "");
+            stmt.setString(4, user.getMajor() != null ? user.getMajor() : "");
+            stmt.setString(5, user.getPhone() != null ? user.getPhone() : "");
+            stmt.setString(6, user.getEmail() != null ? user.getEmail() : "");
+            stmt.setString(7, user.getUID());
+            boolean ok = stmt.executeUpdate() > 0;
+            if (ok) {
+                syncToStudentOrTeacher(conn, user);
+            }
+            return ok;
+        }
+    }
+
+    private void syncToStudentOrTeacher(Connection conn, User user) {
+        if (user == null || user.getUID() == null) return;
+        try {
+            if (user.getRole() == Role.STUDENT) {
+                String sql = "UPDATE tblStudent SET name = ?, gender = ?, college = ?, major = ?, mobile = ? WHERE UID = ?";
+                try (PreparedStatement s = conn.prepareStatement(sql)) {
+                    s.setString(1, user.getName());
+                    s.setString(2, user.getGender());
+                    s.setString(3, user.getCollege());
+                    s.setString(4, user.getMajor());
+                    s.setString(5, user.getPhone());
+                    s.setString(6, user.getUID());
+                    s.executeUpdate();
+                }
+            } else if (user.getRole() == Role.TEACHER) {
+                String sql = "UPDATE tblTeacher SET name = ?, gender = ?, college = ?, title = ?, mobile = ? WHERE UID = ?";
+                try (PreparedStatement s = conn.prepareStatement(sql)) {
+                    s.setString(1, user.getName());
+                    s.setString(2, user.getGender());
+                    s.setString(3, user.getCollege());
+                    s.setString(4, user.getMajor());
+                    s.setString(5, user.getPhone());
+                    s.setString(6, user.getUID());
+                    s.executeUpdate();
+                }
+            }
+        } catch (SQLException e) {
+            System.err.println("[UserDAO] syncToStudentOrTeacher warn: " + e.getMessage());
         }
     }
 }
