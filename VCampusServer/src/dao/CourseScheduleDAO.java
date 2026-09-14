@@ -139,8 +139,8 @@ public class CourseScheduleDAO {
         return List.copyOf(entries);
     }
 
-    private static String scheduleText(int dayOfWeek, int startPeriod, int endPeriod,
-                                       String location) {
+    /** Shared by the student and teacher timetable queries; the wording is the rendered contract. */
+    static String scheduleText(int dayOfWeek, int startPeriod, int endPeriod, String location) {
         String day = switch (dayOfWeek) {
             case 1 -> "周一";
             case 2 -> "周二";

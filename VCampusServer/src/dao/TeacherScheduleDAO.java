@@ -19,6 +19,7 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -40,6 +41,9 @@ import java.util.Map;
  * {@code toLocalTime()}。
  */
 public class TeacherScheduleDAO {
+
+    /** Period clock strings are a fixed wire shape; {@code LocalTime.toString()} drops zero seconds. */
+    private static final DateTimeFormatter CLOCK = DateTimeFormatter.ofPattern("HH:mm:ss");
 
     private static final Comparator<TeacherScheduleEntryDTO> ENTRY_ORDER =
             Comparator.comparingInt(TeacherScheduleEntryDTO::getDayOfWeek)
@@ -185,8 +189,8 @@ public class TeacherScheduleDAO {
                     periods.add(new TeacherPeriodDTO(
                             rows.getDate("local_date").toLocalDate().toString(),
                             rows.getInt("period_no"),
-                            rows.getTime("start_time").toLocalTime().toString(),
-                            rows.getTime("end_time").toLocalTime().toString()));
+                            rows.getTime("start_time").toLocalTime().format(CLOCK),
+                            rows.getTime("end_time").toLocalTime().format(CLOCK)));
                 }
             }
         }
@@ -280,8 +284,9 @@ public class TeacherScheduleDAO {
                     teacher, location, localDate, effectiveWeek, weekday, startPeriod, endPeriod,
                     ScheduleDisplayKindDTO.NORMAL, null, null, null, null, true);
         }
-        String originalText = scheduleText(weekday, startPeriod, endPeriod, location);
-        String adjustedText = scheduleText(rows.getInt("new_weekday"),
+        String originalText = CourseScheduleDAO.scheduleText(weekday, startPeriod, endPeriod,
+                location);
+        String adjustedText = CourseScheduleDAO.scheduleText(rows.getInt("new_weekday"),
                 rows.getInt("new_start_period"), rows.getInt("new_end_period"),
                 rows.getString("adjusted_room_name"));
         return new TeacherScheduleEntryDTO(occurrenceId, offeringId, courseCode, courseName,
@@ -351,9 +356,10 @@ public class TeacherScheduleDAO {
         if (spot == null) return null;
         int startPeriod = rows.getInt("new_start_period");
         int endPeriod = rows.getInt("new_end_period");
-        String adjustedText = scheduleText(rows.getInt("new_weekday"), startPeriod, endPeriod,
+        String adjustedText = CourseScheduleDAO.scheduleText(rows.getInt("new_weekday"),
+                startPeriod, endPeriod,
                 rows.getString("adjusted_room_name"));
-        String originalText = scheduleText(rows.getInt("original_weekday"),
+        String originalText = CourseScheduleDAO.scheduleText(rows.getInt("original_weekday"),
                 rows.getInt("original_start_period"), rows.getInt("original_end_period"),
                 rows.getString("original_room_name"));
         return new TeacherScheduleEntryDTO(String.valueOf(rows.getLong("occurrence_id")),
@@ -392,22 +398,6 @@ public class TeacherScheduleDAO {
         if (teacher != null && !teacher.isBlank()) parts.add(teacher);
         if (assistant != null && !assistant.isBlank()) parts.add(assistant);
         return parts.isEmpty() ? null : String.join(", ", parts);
-    }
-
-    private static String scheduleText(int dayOfWeek, int startPeriod, int endPeriod,
-                                       String location) {
-        String day = switch (dayOfWeek) {
-            case 1 -> "周一";
-            case 2 -> "周二";
-            case 3 -> "周三";
-            case 4 -> "周四";
-            case 5 -> "周五";
-            case 6 -> "周六";
-            case 7 -> "周日";
-            default -> "周" + dayOfWeek;
-        };
-        return day + " 第" + startPeriod + "-" + endPeriod + "节"
-                + (location == null || location.isBlank() ? "" : " " + location);
     }
 
     private static int compareIds(String left, String right) {

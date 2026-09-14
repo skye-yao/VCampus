@@ -87,6 +87,9 @@ public final class TeacherScheduleMySqlTest {
         try (Connection connection = DBUtil.getConnection()) {
             require(TEST_DATABASE.equals(currentDatabase(connection)),
                     "Connected schema changed after URL validation");
+            // DBUtil.getConnection() is the very factory the DAO reads through, so asserting the
+            // session time zone here says something about the connection the DAO actually gets.
+            setUtc(connection);
             rebuildSchema(connection, root);
             insertFixtures();
             try {
@@ -100,31 +103,35 @@ public final class TeacherScheduleMySqlTest {
             } finally {
                 cleanFixtures();
             }
-            require(count("SELECT COUNT(*) FROM teaching_calendar WHERE id=8301") == 0,
-                    "cleanup must remove the fixture calendar");
-            require(count("SELECT COUNT(*) FROM calendar_date WHERE calendar_id=8301") == 0,
+            require(count("SELECT COUNT(*) FROM teaching_calendar WHERE id IN (8301,8302)") == 0,
+                    "cleanup must remove the fixture calendars");
+            require(count("SELECT COUNT(*) FROM calendar_date WHERE calendar_id IN (8301,8302)") == 0,
                     "cleanup must remove every fixture calendar date");
             require(count("SELECT COUNT(*) FROM period_definition"
-                    + " WHERE day_template_id IN (8851,8852)") == 0,
+                    + " WHERE day_template_id IN (8851,8852,8853)") == 0,
                     "cleanup must remove every fixture period definition");
             require(count("SELECT COUNT(*) FROM course_schedule_adjustment"
-                    + " WHERE adjustment_id BETWEEN 8751 AND 8754") == 0,
+                    + " WHERE adjustment_id BETWEEN 8751 AND 8756") == 0,
                     "cleanup must remove every fixture adjustment");
             require(count("SELECT COUNT(*) FROM course_schedule_adjustment_request"
-                    + " WHERE request_id BETWEEN 8701 AND 8704") == 0,
+                    + " WHERE request_id BETWEEN 8701 AND 8706") == 0,
                     "cleanup must remove every fixture adjustment request");
             require(count("SELECT COUNT(*) FROM course_occurrence"
-                    + " WHERE id BETWEEN 8601 AND 8609") == 0,
+                    + " WHERE id BETWEEN 8601 AND 8611") == 0,
                     "cleanup must remove every fixture occurrence");
             require(count("SELECT COUNT(*) FROM course_schedule_arrangement"
-                    + " WHERE arrangement_id BETWEEN 8501 AND 8503") == 0,
+                    + " WHERE arrangement_id BETWEEN 8501 AND 8504") == 0,
                     "cleanup must remove every fixture arrangement");
+            require(count("SELECT COUNT(*) FROM schedule_plan WHERE id BETWEEN 8401 AND 8403") == 0,
+                    "cleanup must remove every fixture plan");
             require(count("SELECT COUNT(*) FROM course_offering"
                     + " WHERE offering_id IN (8201,8202)") == 0,
                     "cleanup must remove every fixture offering");
             require(count("SELECT COUNT(*) FROM classroom WHERE id IN (8801,8802)") == 0,
                     "cleanup must remove every fixture classroom");
-            require(count("SELECT COUNT(*) FROM tbl_user WHERE UID LIKE 'ts-%'") == 0,
+            // LEFT(...) rather than LIKE 'ts-%': in LIKE the `_` is a single-character wildcard,
+            // so the deletion predicate must stay exactly as narrow as the fixture UID prefix.
+            require(count("SELECT COUNT(*) FROM tbl_user WHERE LEFT(UID, 3) = 'ts-'") == 0,
                     "cleanup must remove every fixture teacher");
             require(count("SELECT COUNT(*) FROM course_occurrence"
                             + " WHERE id IN (4201,4202,4203,4204)") == 4
@@ -182,12 +189,13 @@ public final class TeacherScheduleMySqlTest {
         require(periods.size() == 80,
                 "six 13-period weekdays plus a two-period Sunday must yield 80 rows, observed "
                         + periods.size());
-        require(period("2026-10-26", 1, periods).getStartTime().equals("08:00")
-                        && period("2026-10-26", 1, periods).getEndTime().equals("08:45"),
-                "the first period must be read as a local wall clock");
+        require(period("2026-10-26", 1, periods).getStartTime().equals("08:00:00")
+                        && period("2026-10-26", 1, periods).getEndTime().equals("08:45:00"),
+                "the first period must be read as a local wall clock in HH:mm:ss, observed "
+                        + period("2026-10-26", 1, periods).getStartTime());
         require(period("2026-10-31", 13, periods) != null,
                 "the 13th period must exist, so nothing may hardcode a ten-period day");
-        require(period("2026-11-01", 1, periods).getStartTime().equals("09:00")
+        require(period("2026-11-01", 1, periods).getStartTime().equals("09:00:00")
                         && period("2026-11-01", 3, periods) == null,
                 "Sunday must use its own day template, observed "
                         + period("2026-11-01", 1, periods).getStartTime());
@@ -197,8 +205,10 @@ public final class TeacherScheduleMySqlTest {
         require(summary(entries).equals(List.of(
                         "8608:NORMAL:1:7-8:2026-10-26:w8",
                         "8601:ADJUSTED_ORIGINAL:2:1-2:2026-10-27:w8",
+                        "8610:ADJUSTED_ORIGINAL:2:5-6:2026-10-27:w8",
                         "8605:ADJUSTED_ORIGINAL:3:3-4:2026-10-28:w8",
                         "8605:ADJUSTED_TARGET:4:5-6:2026-10-29:w8",
+                        "8610:ADJUSTED_TARGET:5:3-4:2026-10-30:w8",
                         "8604:NORMAL:5:13-13:2026-10-30:w8",
                         "8603:NORMAL:6:5-6:2026-10-31:w8")),
                 "week eight must return the effective blocks in a stable order, observed "
@@ -241,6 +251,23 @@ public final class TeacherScheduleMySqlTest {
                 "the 13th period block must keep its coordinates");
         require(entry(entries, "8603", ScheduleDisplayKindDTO.NORMAL).getDayOfWeek() == 6,
                 "a weekend block must appear in the week grid");
+
+        // An ACTIVE arrangement with no classroom must stay room-less, and the shared schedule
+        // text helper must then omit the location instead of printing "null".
+        TeacherScheduleEntryDTO roomless =
+                entry(entries, "8610", ScheduleDisplayKindDTO.ADJUSTED_ORIGINAL);
+        require(roomless.getLocation() == null
+                        && "TS Main Teacher".equals(roomless.getTeacher())
+                        && "周二 第5-6节".equals(roomless.getOriginalScheduleText())
+                        && "周五 第3-4节".equals(roomless.getAdjustedScheduleText()),
+                "a room-less arrangement must keep a null location and location-less text, observed "
+                        + roomless.getLocation() + "/" + roomless.getOriginalScheduleText());
+        TeacherScheduleEntryDTO roomlessTarget =
+                entry(entries, "8610", ScheduleDisplayKindDTO.ADJUSTED_TARGET);
+        require(roomlessTarget.getLocation() == null
+                        && "周五 第3-4节".equals(roomlessTarget.getAdjustedScheduleText()),
+                "the target half of a room-less adjustment must also stay room-less, observed "
+                        + roomlessTarget.getLocation());
     }
 
     private static void verifyCrossWeekTarget() throws Exception {
@@ -297,12 +324,27 @@ public final class TeacherScheduleMySqlTest {
     }
 
     private static void verifyOtherWeekAndUnrelatedTeacher() throws Exception {
+        // Week three uses a day template with no period_definition rows, so its UTC window is the
+        // empty set: the NORMAL and ADJUSTED_ORIGINAL paths still answer, while adjustedTargets
+        // must return early instead of widening the window or falling back to another week.
         TeacherScheduleWeekDTO weekThree = serviceAt(WEEK_EIGHT_INSTANT)
                 .loadTeachingSchedule("ts-owner", 2026, 3, 3);
         require(summary(weekThree.getEntries()).equals(List.of(
+                        "8611:ADJUSTED_ORIGINAL:2:3-4:2026-09-22:w3",
                         "8602:NORMAL:4:3-4:2026-09-24:w3")),
                 "another week must be filtered by its own occurrences, observed "
                         + summary(weekThree.getEntries()));
+        require(weekThree.getPeriods().isEmpty() && weekThree.getDates().size() == 7,
+                "a template without period rows must yield no periods yet keep seven dates, observed "
+                        + weekThree.getPeriods().size());
+        // The suppressed adjustment really does target a date inside week three, so its absence
+        // above can only be the empty UTC window, not a misplaced fixture.
+        require(count("SELECT COUNT(*) FROM course_schedule_adjustment j"
+                        + " JOIN calendar_date cd ON cd.calendar_id = 8301"
+                        + " AND cd.local_date = DATE(j.start_at_utc)"
+                        + " WHERE j.adjustment_id = 8756 AND j.status = 'ACTIVE'"
+                        + " AND cd.week_no = 3") == 1,
+                "the suppressed adjustment must really land inside week three");
         require(weekThree.getCurrentWeek() == 8,
                 "currentWeek must not change with the requested week");
 
@@ -324,7 +366,7 @@ public final class TeacherScheduleMySqlTest {
         TeacherScheduleWeekDTO inWeek = serviceAt(WEEK_EIGHT_INSTANT)
                 .loadTeachingSchedule("ts-owner", 2026, 3, null);
         require(inWeek.getWeek() == 8 && inWeek.getCurrentWeek() == 8
-                        && inWeek.getEntries().size() == 6,
+                        && inWeek.getEntries().size() == 8,
                 "a null week must fall back to the clock's teaching week, observed "
                         + inWeek.getWeek());
 
@@ -340,18 +382,26 @@ public final class TeacherScheduleMySqlTest {
 
     private static void verifyRejections() throws Exception {
         TeacherCourseQueryService service = serviceAt(WEEK_EIGHT_INSTANT);
+        expectInvalidMessage(() -> service.loadTeachingSchedule("ts-owner", -1, 3, 1),
+                "学年无效",
+                "a non-positive year must be rejected as an invalid term");
+        expectInvalidMessage(() -> service.loadTeachingSchedule("ts-owner", 2026, 9, 1),
+                "学期无效",
+                "an out-of-range semester must be rejected as an invalid term");
         expectInvalid(() -> service.loadTeachingSchedule("ts-owner", 2026, 3, 0),
                 "week zero must be rejected");
         expectInvalid(() -> service.loadTeachingSchedule("ts-owner", 2026, 3, 11),
                 "a week past maxWeek must be rejected");
         expectInvalid(() -> service.loadTeachingSchedule("ts-owner", 2026, 3, -1),
                 "a negative week must be rejected");
-        expectInvalidMessage(() -> service.loadTeachingSchedule("ts-owner", 2026, 1, 1),
+        expectInvalidMessage(() -> service.loadTeachingSchedule("ts-owner", 2025, 1, 1),
                 "该学期暂无已发布的教学日历",
                 "a term with no calendar must be rejected with a client-facing message");
-        expectInvalidMessage(() -> service.loadTeachingSchedule("ts-owner", 2026, 2, 1),
+        // 2026/1 is a fixture-owned calendar whose current pointer names a DRAFT plan, so this
+        // rejection does not depend on any shared seed row keeping a NULL pointer.
+        expectInvalidMessage(() -> service.loadTeachingSchedule("ts-owner", 2026, 1, 1),
                 "该学期暂无已发布的教学日历",
-                "a calendar without a published current plan must be rejected, not fall back");
+                "a calendar whose current plan is not published must be rejected, not fall back");
     }
 
     // ---------------------------------------------------------------- fixtures
@@ -374,24 +424,30 @@ public final class TeacherScheduleMySqlTest {
         execute("INSERT INTO classroom(id,name,capacity,electric) VALUES"
                 + "(8801,'TS Room A',40,1),(8802,'TS Room B',30,1)");
         execute("INSERT INTO day_template(id,name,version) VALUES"
-                + "(8851,'TS weekday',1),(8852,'TS short day',1)");
+                + "(8851,'TS weekday',1),(8852,'TS short day',1),(8853,'TS unconfigured day',1)");
         insertPeriods();
         execute("INSERT INTO teaching_calendar(id,name,academic_year,semester,week1_start_date,"
                 + "timezone,version,status) VALUES"
-                + "(8301,'TS calendar 2026-3',2026,3,'2026-09-07','Asia/Shanghai',1,'PUBLISHED')");
+                + "(8301,'TS calendar 2026-3',2026,3,'2026-09-07','Asia/Shanghai',1,'PUBLISHED'),"
+                + "(8302,'TS draft-only calendar 2026-1',2026,1,'2026-02-23','Asia/Shanghai',1,"
+                + "'PUBLISHED')");
         insertCalendarDates();
         execute("INSERT INTO schedule_plan(id,name,calendar_id,revision,status,created_at,"
                 + "updated_at) VALUES"
                 + "(8401,'TS published plan',8301,1,'PUBLISHED','2026-08-01 00:00:00',"
                 + "'2026-08-01 00:00:00'),"
                 + "(8402,'TS draft plan',8301,1,'DRAFT','2026-08-01 00:00:00',"
+                + "'2026-08-01 00:00:00'),"
+                + "(8403,'TS unpublished plan',8302,1,'DRAFT','2026-08-01 00:00:00',"
                 + "'2026-08-01 00:00:00')");
         execute("UPDATE teaching_calendar SET current_schedule_plan_id=8401 WHERE id=8301");
+        execute("UPDATE teaching_calendar SET current_schedule_plan_id=8403 WHERE id=8302");
         execute("INSERT INTO course_schedule_arrangement(arrangement_id,plan_id,offering_id,"
                 + "teacher_uid,assistant_uid,classroom_id,status,version) VALUES"
                 + "(8501,8401,8201,'ts-owner','ts-assistant',8801,'ACTIVE',1),"
                 + "(8502,8401,8202,'ts-original',NULL,8802,'ACTIVE',1),"
-                + "(8503,8401,8201,'ts-owner',NULL,NULL,'DISABLED',1)");
+                + "(8503,8401,8201,'ts-owner',NULL,NULL,'DISABLED',1),"
+                + "(8504,8401,8201,'ts-owner',NULL,NULL,'ACTIVE',1)");
         execute("INSERT INTO course_schedule_rule(id,plan_id,course_offering_id,arrangement_id,"
                 + "weekday,start_period,end_period,status) VALUES"
                 + "(8551,8401,8201,8501,2,1,2,'ACTIVE'),"
@@ -402,9 +458,12 @@ public final class TeacherScheduleMySqlTest {
                 + "(8556,8401,8201,8503,1,1,2,'ACTIVE'),"
                 + "(8557,8401,8202,8502,2,3,4,'ACTIVE'),"
                 + "(8558,8401,8201,8501,1,7,8,'ACTIVE'),"
-                + "(8559,8401,8202,8502,4,9,10,'DISABLED')");
+                + "(8559,8401,8202,8502,4,9,10,'DISABLED'),"
+                + "(8560,8401,8201,8504,2,5,6,'ACTIVE'),"
+                + "(8561,8401,8201,8501,2,3,4,'ACTIVE')");
         execute("INSERT INTO course_schedule_rule_week(rule_id,week_no) VALUES"
-                + "(8551,8),(8552,3),(8553,8),(8554,8),(8555,8),(8556,8),(8557,8),(8558,8),(8559,8)");
+                + "(8551,8),(8552,3),(8553,8),(8554,8),(8555,8),(8556,8),(8557,8),(8558,8),(8559,8),"
+                + "(8560,8),(8561,3)");
         execute("INSERT INTO course_occurrence(id,rule_id,plan_id,start_at,end_at,week_no,"
                 + "teaching_weekday) VALUES"
                 + "(8601,8551,8401,'2026-10-27 00:00:00','2026-10-27 01:40:00',8,2),"
@@ -415,7 +474,9 @@ public final class TeacherScheduleMySqlTest {
                 + "(8606,8556,8401,'2026-10-26 00:00:00','2026-10-26 01:40:00',8,1),"
                 + "(8607,8557,8401,'2026-10-27 02:00:00','2026-10-27 03:40:00',8,2),"
                 + "(8608,8558,8401,'2026-10-26 07:00:00','2026-10-26 08:40:00',8,1),"
-                + "(8609,8559,8401,'2026-10-29 03:00:00','2026-10-29 04:40:00',8,4)");
+                + "(8609,8559,8401,'2026-10-29 03:00:00','2026-10-29 04:40:00',8,4),"
+                + "(8610,8560,8401,'2026-10-27 04:00:00','2026-10-27 05:40:00',8,2),"
+                + "(8611,8561,8401,'2026-09-22 02:00:00','2026-09-22 03:40:00',3,2)");
         execute("INSERT INTO course_schedule_adjustment_request(request_id,offering_id,"
                 + "requested_by,reason,version,status,new_weekday,new_start_period,new_end_period,"
                 + "new_teacher_uid,new_assistant_uid,new_classroom_id,submitted_at,reviewed_by,"
@@ -427,7 +488,11 @@ public final class TeacherScheduleMySqlTest {
                 + "(8703,8202,'ts-original','TS substitute',1,'APPROVED',5,7,8,'ts-substitute',"
                 + "NULL,8801,'2026-10-20 00:00:00','admin-alpha','2026-10-21 00:00:00','ok'),"
                 + "(8704,8201,'ts-owner','TS cancelled',1,'APPROVED',1,9,10,'ts-owner',"
-                + "NULL,8802,'2026-10-20 00:00:00','admin-alpha','2026-10-21 00:00:00','ok')");
+                + "NULL,8802,'2026-10-20 00:00:00','admin-alpha','2026-10-21 00:00:00','ok'),"
+                + "(8705,8201,'ts-owner','TS room-less move',1,'APPROVED',5,3,4,'ts-owner',"
+                + "NULL,NULL,'2026-10-20 00:00:00','admin-alpha','2026-10-21 00:00:00','ok'),"
+                + "(8706,8201,'ts-owner','TS suppressed target',1,'APPROVED',3,5,6,'ts-owner',"
+                + "NULL,NULL,'2026-10-20 00:00:00','admin-alpha','2026-10-21 00:00:00','ok')");
         execute("INSERT INTO course_schedule_adjustment(adjustment_id,request_id,"
                 + "original_occurrence_id,start_at_utc,end_at_utc,teacher_uid,assistant_uid,"
                 + "classroom_id,status) VALUES"
@@ -441,7 +506,13 @@ public final class TeacherScheduleMySqlTest {
                 + "(8753,8703,8607,'2026-10-30 05:30:00','2026-10-30 07:10:00','ts-substitute',"
                 + "NULL,8801,'ACTIVE'),"
                 + "(8754,8704,8608,'2026-10-26 09:00:00','2026-10-26 10:40:00','ts-owner',"
-                + "NULL,8802,'CANCELLED')");
+                + "NULL,8802,'CANCELLED'),"
+                // 周 8 周二 → 周 8 周五，原教室与目标教室都为空。
+                + "(8755,8705,8610,'2026-10-30 02:00:00','2026-10-30 03:40:00','ts-owner',"
+                + "NULL,NULL,'ACTIVE'),"
+                // 目标确实落在周 3，但周 3 没有 period 行，窗口为空，因此必须被丢弃。
+                + "(8756,8706,8611,'2026-09-23 06:00:00','2026-09-23 07:40:00','ts-owner',"
+                + "NULL,NULL,'ACTIVE')");
     }
 
     private static void insertPeriods() throws Exception {
@@ -463,9 +534,13 @@ public final class TeacherScheduleMySqlTest {
         for (int week = 1; week <= 10; week++) {
             for (int weekday = 1; weekday <= 7; weekday++) {
                 LocalDate date = weekOne.plusDays((long) (week - 1) * 7 + (weekday - 1));
-                // 第 8 周周日与整个第 10 周不是教学日；第 8 周周日另用短日模板。
+                // 第 8 周周日与整个第 10 周不是教学日；第 8 周周日另用短日模板；
+                // 第 3 周整周使用没有任何 period_definition 行的模板，用来构造空 UTC 窗口。
                 int teachingDay = week == 10 || (week == 8 && weekday == 7) ? 0 : 1;
-                long template = week == 8 && weekday == 7 ? 8852 : 8851;
+                long template;
+                if (week == 3) template = 8853;
+                else if (week == 8 && weekday == 7) template = 8852;
+                else template = 8851;
                 rows.add("(8301,'" + date + "'," + week + "," + weekday + "," + template + ","
                         + teachingDay + ")");
             }
@@ -475,22 +550,24 @@ public final class TeacherScheduleMySqlTest {
     }
 
     private static void cleanFixtures() throws Exception {
-        execute("DELETE FROM course_schedule_adjustment WHERE adjustment_id BETWEEN 8751 AND 8754");
-        execute("DELETE FROM course_schedule_adjustment_request WHERE request_id BETWEEN 8701 AND 8704");
-        execute("DELETE FROM course_occurrence WHERE id BETWEEN 8601 AND 8609");
-        execute("DELETE FROM course_schedule_rule_week WHERE rule_id BETWEEN 8551 AND 8559");
-        execute("DELETE FROM course_schedule_rule WHERE id BETWEEN 8551 AND 8559");
-        execute("DELETE FROM course_schedule_arrangement WHERE arrangement_id BETWEEN 8501 AND 8503");
-        execute("UPDATE teaching_calendar SET current_schedule_plan_id=NULL WHERE id=8301");
-        execute("DELETE FROM schedule_plan WHERE id BETWEEN 8401 AND 8402");
-        execute("DELETE FROM calendar_date WHERE calendar_id=8301");
-        execute("DELETE FROM period_definition WHERE day_template_id IN (8851,8852)");
-        execute("DELETE FROM day_template WHERE id IN (8851,8852)");
+        execute("DELETE FROM course_schedule_adjustment WHERE adjustment_id BETWEEN 8751 AND 8756");
+        execute("DELETE FROM course_schedule_adjustment_request WHERE request_id BETWEEN 8701 AND 8706");
+        execute("DELETE FROM course_occurrence WHERE id BETWEEN 8601 AND 8611");
+        execute("DELETE FROM course_schedule_rule_week WHERE rule_id BETWEEN 8551 AND 8561");
+        execute("DELETE FROM course_schedule_rule WHERE id BETWEEN 8551 AND 8561");
+        execute("DELETE FROM course_schedule_arrangement WHERE arrangement_id BETWEEN 8501 AND 8504");
+        execute("UPDATE teaching_calendar SET current_schedule_plan_id=NULL WHERE id IN (8301,8302)");
+        execute("DELETE FROM schedule_plan WHERE id BETWEEN 8401 AND 8403");
+        execute("DELETE FROM calendar_date WHERE calendar_id IN (8301,8302)");
+        execute("DELETE FROM period_definition WHERE day_template_id IN (8851,8852,8853)");
+        execute("DELETE FROM day_template WHERE id IN (8851,8852,8853)");
         execute("DELETE FROM course_offering WHERE offering_id IN (8201,8202)");
         execute("DELETE FROM course WHERE course_id IN (8101,8102)");
         execute("DELETE FROM classroom WHERE id IN (8801,8802)");
-        execute("DELETE FROM teaching_calendar WHERE id=8301");
-        execute("DELETE FROM tbl_user WHERE UID LIKE 'ts-%'");
+        execute("DELETE FROM teaching_calendar WHERE id IN (8301,8302)");
+        // LEFT(...) instead of LIKE 'ts-%': `_` is a LIKE wildcard, so the deletion must not be
+        // able to reach a UID such as 'tsx-...'.
+        execute("DELETE FROM tbl_user WHERE LEFT(UID, 3) = 'ts-'");
     }
 
     // ------------------------------------------------------------------ checks
@@ -736,7 +813,6 @@ public final class TeacherScheduleMySqlTest {
                 serverUrl,
                 requiredProperty(properties, "db.username"),
                 requiredProperty(properties, "db.password"))) {
-            setUtc(connection);
             execute(connection, "CREATE DATABASE IF NOT EXISTS `" + TEST_DATABASE
                     + "` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
         }
@@ -774,9 +850,8 @@ public final class TeacherScheduleMySqlTest {
     }
 
     private static void setUtc(Connection connection) throws SQLException {
-        execute(connection, "SET time_zone = '+00:00'");
         require("+00:00".equals(queryString(connection, "SELECT @@session.time_zone")),
-                "the test connection must use UTC");
+                "a DBUtil connection must already use UTC");
     }
 
     private static String currentDatabase(Connection connection) throws SQLException {

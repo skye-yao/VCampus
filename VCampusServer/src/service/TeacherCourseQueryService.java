@@ -117,12 +117,13 @@ public class TeacherCourseQueryService {
     /**
      * 教师在某个教学日历周的课表：当周日期、节次与该教师实际生效的课次。
      *
-     * <p>{@code week} 为 null 时取今天所在教学周，今天不在学期内时取最小教学周。该学期没有已发布
-     * 的教学日历/方案、或 {@code week} 越界时抛 {@link IllegalArgumentException}，由上层映射为
-     * BAD_REQUEST，把原因显示在客户端提示区。
+     * <p>{@code week} 为 null 时取今天所在教学周，今天不在学期内时取最小教学周。学年/学期无效、
+     * 该学期没有已发布的教学日历/方案、或 {@code week} 越界时抛 {@link IllegalArgumentException}，
+     * 由上层映射为 BAD_REQUEST，把原因显示在客户端提示区。
      */
     public TeacherScheduleWeekDTO loadTeachingSchedule(String uid, int academicYear, int semester,
                                                        Integer week) {
+        requireTerm(academicYear, semester);
         return read(connection -> teacherScheduleDAO.loadTeachingSchedule(connection, uid,
                 academicYear, semester, week, clock));
     }
