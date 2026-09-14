@@ -81,7 +81,8 @@ $suites = @(
             'service.MockTeacherCourseServiceTest',
             'controller.TeacherCourseManagementControllerTest',
             'controller.TeacherOfferingControllerTest',
-            'controller.TeacherOfferingDetailControllerTest')
+            'controller.TeacherOfferingDetailControllerTest',
+            'service.MockTeacherScheduleTest')
         # TeacherScheduleMySqlTest also self-gates on the `mysql` argument: real MySQL only with
         # -WithMySql, otherwise it prints SKIP and is never reported as passing.
         Server = @('service.TeacherScheduleMySqlTest'); Tcp = @(); Gui = @() }

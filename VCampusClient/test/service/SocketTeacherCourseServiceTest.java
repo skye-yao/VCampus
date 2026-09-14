@@ -2,13 +2,18 @@ package service;
 
 import com.google.gson.Gson;
 import dto.course.CourseTermDTO;
+import dto.course.ScheduleDisplayKindDTO;
 import dto.course.admin.schedule.ScheduleArrangementDTO;
 import dto.course.admin.schedule.ScheduleResourceDTO;
 import dto.course.admin.schedule.ScheduleSlotDTO;
+import dto.course.teacher.TeacherCalendarDateDTO;
 import dto.course.teacher.TeacherOfferingDTO;
 import dto.course.teacher.TeacherOfferingDetailDTO;
 import dto.course.teacher.TeacherPageDTO;
+import dto.course.teacher.TeacherPeriodDTO;
 import dto.course.teacher.TeacherRosterRowDTO;
+import dto.course.teacher.TeacherScheduleEntryDTO;
+import dto.course.teacher.TeacherScheduleWeekDTO;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
@@ -32,6 +37,10 @@ public final class SocketTeacherCourseServiceTest {
     private static final String COURSE_ID = "9007199254740995";
     private static final String ENROLLMENT_ID = "9007199254740997";
     private static final String TEACHER_UID = "00001234";
+    private static final String CALENDAR_ID = "9007199254740001";
+    private static final String OCCURRENCE_ID = "9201";
+    private static final String ADJUSTMENT_ID = "9301";
+    private static final String SCHEDULE_DATE = "2026-10-26";
 
     public static void main(String[] args) {
         ClientSession.getInstance().login("teacher-alpha", "教师", TOKEN, null);
@@ -43,6 +52,11 @@ public final class SocketTeacherCourseServiceTest {
             listOfferingStudentsSendsFiltersAndParsesRosterPage();
             listOfferingStudentsOmitsOptionalFilters();
             listOfferingSchedulesUsesSchedulesKey();
+            loadTeachingScheduleSendsScalarArguments();
+            loadTeachingScheduleMapsEveryField();
+            loadTeachingScheduleMissingScheduleKeyBecomesError();
+            loadTeachingScheduleKeepsServerCodeAndMessage();
+            unsupportedDisplayKindIsRejectedNotDefaulted();
             requestsNeverCarryClientSuppliedIdentity();
             nonSuccessBecomesStableException();
             nullResponseBecomesError();
@@ -203,6 +217,205 @@ public final class SocketTeacherCourseServiceTest {
         require(arrangement.getSlots().size() == 1
                         && arrangement.getSlots().get(0).getStartPeriod() == 1,
                 "the arrangement slots must map");
+    }
+
+    /**
+     * 课表请求只带标量参数：{@code week} 为 null 时不出现该键（由服务端按教学日历决定），
+     * 非 null 时以 Integer 出行。
+     */
+    private static void loadTeachingScheduleSendsScalarArguments() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("schedule",
+                wireShaped(scheduleWeek(8, 8))));
+        SocketTeacherCourseService service = new SocketTeacherCourseService(transport);
+
+        service.loadTeachingSchedule(2025, 3, null).join();
+        requireEnvelope(transport, "loadTeachingSchedule");
+        require(Integer.valueOf(2025).equals(transport.lastRequest.getData("academicYear")),
+                "academicYear must travel as an Integer");
+        require(Integer.valueOf(3).equals(transport.lastRequest.getData("semester")),
+                "semester must travel as an Integer");
+        require(!transport.lastRequest.getData().containsKey("week"),
+                "a null week must be omitted so the server picks the calendar week");
+        require(transport.lastRequest.getData().size() == 2,
+                "a timetable request must not invent extra parameters, saw "
+                        + transport.lastRequest.getData().keySet());
+
+        transport.respond(message -> message.putData("schedule",
+                wireShaped(scheduleWeek(9, 8))));
+        service.loadTeachingSchedule(2025, 3, 9).join();
+        require(Integer.valueOf(9).equals(transport.lastRequest.getData("week")),
+                "an explicit week must travel as an Integer");
+        require(!transport.lastRequest.getData().containsKey("uid"),
+                "the timetable request must never carry a client-supplied identity");
+    }
+
+    /** 三层字段（dates/periods/entries）与可空的 currentWeek/adjustmentId 都要逐字段映射。 */
+    private static void loadTeachingScheduleMapsEveryField() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("schedule",
+                wireShaped(scheduleWeek(8, 8))));
+        SocketTeacherCourseService service = new SocketTeacherCourseService(transport);
+
+        TeacherScheduleWeekDTO week = service.loadTeachingSchedule(2025, 3, 8).join();
+        require(CALENDAR_ID.equals(week.getCalendarId()),
+                "calendarId must stay the exact decimal string");
+        require("Asia/Shanghai".equals(week.getTimezone()), "timezone must stay the IANA name");
+        require(week.getWeek() == 8 && week.getMinWeek() == 1 && week.getMaxWeek() == 16,
+                "the week bounds must map");
+        require(Integer.valueOf(8).equals(week.getCurrentWeek()), "currentWeek must map");
+
+        require(week.getDates().size() == 1, "the dates layer must map");
+        TeacherCalendarDateDTO date = week.getDates().get(0);
+        require(SCHEDULE_DATE.equals(date.getDate()) && date.getWeek() == 8
+                        && date.getTeachingWeekday() == 1 && date.isTeachingDay(),
+                "every calendar-date field must map");
+
+        require(week.getPeriods().size() == 1, "the periods layer must map");
+        TeacherPeriodDTO period = week.getPeriods().get(0);
+        require(SCHEDULE_DATE.equals(period.getDate()) && period.getPeriod() == 1
+                        && "08:00:00".equals(period.getStartTime())
+                        && "08:45:00".equals(period.getEndTime()),
+                "every period field must map, times included");
+
+        require(week.getEntries().size() == 1, "the entries layer must map");
+        TeacherScheduleEntryDTO entry = week.getEntries().get(0);
+        require(OCCURRENCE_ID.equals(entry.getOccurrenceId()),
+                "the occurrence ID must stay exact");
+        require(OFFERING_ID.equals(entry.getOfferingId()), "the offering ID must stay exact");
+        require("CS203".equals(entry.getCourseCode()) && "数据结构".equals(entry.getCourseName()),
+                "the course fields must map");
+        require("陈老师, 王助教".equals(entry.getTeacher()),
+                "the teacher and assistant must render as the server joins them");
+        require("A-101".equals(entry.getLocation()), "the location must map");
+        require(SCHEDULE_DATE.equals(entry.getLocalDate()),
+                "localDate must stay an ISO local date, never a UTC instant");
+        require(entry.getWeek() == 8 && entry.getDayOfWeek() == 1,
+                "the week and calendar weekday must map");
+        require(entry.getStartPeriod() == 1 && entry.getEndPeriod() == 2,
+                "the period span must map");
+        require(entry.getDisplayKind() == ScheduleDisplayKindDTO.ADJUSTED_ORIGINAL,
+                "a known displayKind must map to the existing enum");
+        require(ADJUSTMENT_ID.equals(entry.getAdjustmentId()),
+                "the adjustment ID must stay exact");
+        require("周一 第1-2节 A-101".equals(entry.getOriginalScheduleText()),
+                "the original schedule text must survive untouched");
+        require("周三 第3-4节 B-203".equals(entry.getAdjustedScheduleText()),
+                "the adjusted schedule text must survive untouched");
+        require("教师出差".equals(entry.getAdjustmentReason()),
+                "the adjustment reason must survive untouched");
+        require(!entry.isCanRequestAdjustment(), "the capability flag must map");
+
+        transport.respond(message -> message.putData("schedule",
+                wireShaped(scheduleWeek(8, null))));
+        TeacherScheduleWeekDTO outsideTerm = service.loadTeachingSchedule(2025, 2, 8).join();
+        require(outsideTerm.getCurrentWeek() == null,
+                "a null currentWeek must stay null, never a default");
+        require(outsideTerm.getWeek() == 8,
+                "the displayed week must still map when currentWeek is null");
+    }
+
+    private static void loadTeachingScheduleMissingScheduleKeyBecomesError() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> { });
+        SocketTeacherCourseService service = new SocketTeacherCourseService(transport);
+
+        boolean thrown = false;
+        try {
+            service.loadTeachingSchedule(2025, 3, 8).join();
+        } catch (CompletionException failure) {
+            if (failure.getCause()
+                    instanceof SocketTeacherCourseService.TeacherCourseServiceException error) {
+                thrown = true;
+                require("缺少响应字段: schedule".equals(error.getMessage()),
+                        "a missing schedule key must name the missing key, saw "
+                                + error.getMessage());
+            }
+        }
+        require(thrown, "a missing schedule key must fail with TeacherCourseServiceException");
+    }
+
+    private static void loadTeachingScheduleKeepsServerCodeAndMessage() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> {
+            message.setCode(MessageCode.NOT_FOUND);
+            message.setMessage("该学期暂无已发布的教学日历");
+        });
+        SocketTeacherCourseService service = new SocketTeacherCourseService(transport);
+
+        boolean thrown = false;
+        try {
+            service.loadTeachingSchedule(2025, 1, null).join();
+        } catch (CompletionException failure) {
+            if (failure.getCause()
+                    instanceof SocketTeacherCourseService.TeacherCourseServiceException error) {
+                thrown = true;
+                require(error.getCode() == MessageCode.NOT_FOUND,
+                        "the server code must survive the timetable mapping");
+                require("该学期暂无已发布的教学日历".equals(error.getMessage()),
+                        "the server message must survive the timetable mapping");
+            }
+        }
+        require(thrown, "a non-success timetable response must fail with the stable exception");
+    }
+
+    /**
+     * 未知 displayKind 绝不能退化成 NORMAL：Gson 会把无法识别的枚举常量解析成 null，所以实现必须
+     * 先看原始 JSON。缺失与显式 null 走同一条错误路径，消息里要带原始非法值。
+     */
+    private static void unsupportedDisplayKindIsRejectedNotDefaulted() {
+        requireUnsupportedKind("\"displayKind\":\"RESCHEDULED\",", "RESCHEDULED");
+        requireUnsupportedKind("\"displayKind\":\"rescheduled\",", "rescheduled");
+        requireUnsupportedKind("", "空值");
+        requireUnsupportedKind("\"displayKind\":null,", "空值");
+    }
+
+    private static void requireUnsupportedKind(String kindField, String expectedRaw) {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("schedule",
+                new Gson().fromJson(scheduleJson(kindField), Object.class)));
+        SocketTeacherCourseService service = new SocketTeacherCourseService(transport);
+
+        try {
+            TeacherScheduleWeekDTO mapped = service.loadTeachingSchedule(2025, 3, 8).join();
+            throw new AssertionError("an unsupported displayKind must not be accepted, mapped "
+                    + mapped.getEntries().get(0).getDisplayKind());
+        } catch (CompletionException failure) {
+            if (!(failure.getCause()
+                    instanceof SocketTeacherCourseService.TeacherCourseServiceException error)) {
+                throw new AssertionError("unexpected cause " + failure.getCause(),
+                        failure.getCause());
+            }
+            String message = error.getMessage();
+            require(message != null && message.contains(expectedRaw),
+                    "the mapping error must name the raw value " + expectedRaw + ", saw "
+                            + message);
+            require(message.contains("课表展示类型"),
+                    "the mapping error must be a clear display-kind error, saw " + message);
+        }
+    }
+
+    private static String scheduleJson(String displayKindField) {
+        return "{\"calendarId\":\"" + CALENDAR_ID + "\",\"timezone\":\"Asia/Shanghai\","
+                + "\"week\":8,\"minWeek\":1,\"maxWeek\":16,\"currentWeek\":8,"
+                + "\"dates\":[],\"periods\":[],\"entries\":[{" + displayKindField
+                + "\"occurrenceId\":\"" + OCCURRENCE_ID + "\",\"offeringId\":\"" + OFFERING_ID
+                + "\",\"courseCode\":\"CS203\",\"courseName\":\"数据结构\","
+                + "\"teacher\":\"陈老师\",\"location\":\"A-101\",\"localDate\":\""
+                + SCHEDULE_DATE + "\",\"week\":8,\"dayOfWeek\":1,\"startPeriod\":1,"
+                + "\"endPeriod\":2,\"adjustmentId\":null,\"originalScheduleText\":null,"
+                + "\"adjustedScheduleText\":null,\"adjustmentReason\":null,"
+                + "\"canRequestAdjustment\":true}]}";
+    }
+
+    private static TeacherScheduleWeekDTO scheduleWeek(int week, Integer currentWeek) {
+        return new TeacherScheduleWeekDTO(CALENDAR_ID, "Asia/Shanghai", week, 1, 16, currentWeek,
+                List.of(new TeacherCalendarDateDTO(SCHEDULE_DATE, week, 1, true)),
+                List.of(new TeacherPeriodDTO(SCHEDULE_DATE, 1, "08:00:00", "08:45:00")),
+                List.of(new TeacherScheduleEntryDTO(OCCURRENCE_ID, OFFERING_ID, "CS203", "数据结构",
+                        "陈老师, 王助教", "A-101", SCHEDULE_DATE, week, 1, 1, 2,
+                        ScheduleDisplayKindDTO.ADJUSTED_ORIGINAL, ADJUSTMENT_ID,
+                        "周一 第1-2节 A-101", "周三 第3-4节 B-203", "教师出差", false)));
     }
 
     /** The learner identity must never be smuggled through the request body. */

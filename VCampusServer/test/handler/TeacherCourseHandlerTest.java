@@ -1,13 +1,18 @@
 package handler;
 
 import dto.course.CourseTermDTO;
+import dto.course.ScheduleDisplayKindDTO;
 import dto.course.admin.schedule.ScheduleArrangementDTO;
 import dto.course.admin.schedule.ScheduleResourceDTO;
 import dto.course.admin.schedule.ScheduleSlotDTO;
+import dto.course.teacher.TeacherCalendarDateDTO;
 import dto.course.teacher.TeacherOfferingDTO;
 import dto.course.teacher.TeacherOfferingDetailDTO;
 import dto.course.teacher.TeacherPageDTO;
+import dto.course.teacher.TeacherPeriodDTO;
 import dto.course.teacher.TeacherRosterRowDTO;
+import dto.course.teacher.TeacherScheduleEntryDTO;
+import dto.course.teacher.TeacherScheduleWeekDTO;
 import exception.DatabaseException;
 import network.MessageDispatcher;
 import protocol.Message;
@@ -61,6 +66,7 @@ public final class TeacherCourseHandlerTest {
             responseKeysAndQueryArguments(handler, queries, teacherA);
             bigIntegerIdsStayExact(handler, queries, teacherA);
             malformedInputIsBadRequest(handler, teacherA);
+            teachingScheduleAccessAndParameters(handler, queries, teacherA, student, administrator);
             databaseFailureStaysInTheServerLog(handler, queries, teacherA);
             runtimeFailureStaysInTheServerLog(handler, queries, teacherA);
             dispatcherRoutesTheTeacherModule(handler, teacherA);
@@ -319,6 +325,135 @@ public final class TeacherCourseHandlerTest {
                 "enrollmentStatus 2 must be accepted");
     }
 
+    /**
+     * 教师课表的鉴权、参数与身份来源。
+     *
+     * <p>{@code week} 可缺省（服务端按教学日历决定当前周），但一旦出现就必须是合法整数；越界由服务
+     * 层判定并映射为 BAD_REQUEST。教师 UID 依然只来自 Session——伪造的 uid/teacherId/sender 不参与
+     * 任何判定。失败响应同样只有 code/message。
+     */
+    private static void teachingScheduleAccessAndParameters(TeacherCourseHandler handler,
+            FakeQueryService queries, UserSession teacher, UserSession student,
+            UserSession administrator) {
+        int before = queries.scheduleCalls;
+        Message missingToken = handler.handle(scheduleRequest(null, 2025, 3, null));
+        require(missingToken.getCode() == MessageCode.UNAUTHORIZED,
+                "a missing token must not reach the timetable query");
+        requireFailureOnlyCodeAndMessage(missingToken);
+        Message expiredToken = handler.handle(scheduleRequest("expired-token", 2025, 3, null));
+        require(expiredToken.getCode() == MessageCode.UNAUTHORIZED,
+                "an expired token must not reach the timetable query");
+        requireFailureOnlyCodeAndMessage(expiredToken);
+        Message deniedStudent = handler.handle(scheduleRequest(student.getToken(), 2025, 3, null));
+        require(deniedStudent.getCode() == MessageCode.FORBIDDEN,
+                "a student must not read a teacher timetable");
+        requireFailureOnlyCodeAndMessage(deniedStudent);
+        Message deniedAdministrator =
+                handler.handle(scheduleRequest(administrator.getToken(), 2025, 3, null));
+        require(deniedAdministrator.getCode() == MessageCode.FORBIDDEN,
+                "an administrator must not read a teacher timetable");
+        requireFailureOnlyCodeAndMessage(deniedAdministrator);
+        require(queries.scheduleCalls == before,
+                "a rejected request must not reach the timetable query");
+
+        Message defaultWeek = handler.handle(scheduleRequest(teacher.getToken(), 2025, 3, null));
+        require(defaultWeek.getCode() == MessageCode.SUCCESS,
+                "a teacher must read its own timetable");
+        requireOnlyKey(defaultWeek, "schedule");
+        require(defaultWeek.getData("schedule") instanceof TeacherScheduleWeekDTO,
+                "the schedule key must carry the week DTO");
+        require(TEACHER_A.equals(queries.lastUid),
+                "the timetable must run as the session teacher");
+        require(queries.lastYear == 2025 && queries.lastSemester == 3,
+                "the term must reach the timetable query");
+        require(queries.lastWeek == null,
+                "an absent week must reach the query as null so the server picks the week");
+
+        Message explicitWeek = handler.handle(scheduleRequest(teacher.getToken(), 2025, 3, 9));
+        require(explicitWeek.getCode() == MessageCode.SUCCESS, "an explicit week must succeed");
+        require(queries.lastWeek != null && queries.lastWeek == 9,
+                "an explicit week must reach the query unchanged");
+
+        Message forged = scheduleRequest(teacher.getToken(), 2025, 3, 8);
+        forged.putData("uid", TEACHER_B);
+        forged.putData("teacherId", TEACHER_B);
+        forged.setSender(TEACHER_B);
+        require(handler.handle(forged).getCode() == MessageCode.SUCCESS,
+                "a forged identity must not break the timetable read");
+        require(TEACHER_A.equals(queries.lastUid),
+                "the timetable must never run as a forged uid");
+
+        Message missingYear = courseTeacher("loadTeachingSchedule", teacher.getToken());
+        missingYear.putData("semester", 3);
+        require(handler.handle(missingYear).getCode() == MessageCode.BAD_REQUEST,
+                "a missing academicYear must be a bad request");
+
+        Message nonNumericWeek = handler.handle(scheduleRequest(teacher.getToken(), 2025, 3, "abc"));
+        require(nonNumericWeek.getCode() == MessageCode.BAD_REQUEST,
+                "a non-integer week must be a bad request");
+        Message outOfRangeWeek = handler.handle(scheduleRequest(teacher.getToken(), 2025, 3, 17));
+        require(outOfRangeWeek.getCode() == MessageCode.BAD_REQUEST,
+                "a week beyond maxWeek must be a bad request");
+        Message zeroWeek = handler.handle(scheduleRequest(teacher.getToken(), 2025, 3, 0));
+        require(zeroWeek.getCode() == MessageCode.BAD_REQUEST,
+                "week 0 must be a bad request");
+        for (Message rejected : new Message[] {nonNumericWeek, outOfRangeWeek, zeroWeek}) {
+            requireFailureOnlyCodeAndMessage(rejected);
+            String message = rejected.getMessage();
+            require(message != null && !message.contains(TEACHER_A) && !message.contains(TEACHER_B),
+                    "a rejection must not depend on the session identity, saw " + message);
+        }
+
+        queries.emptyTerm = true;
+        try {
+            Message emptyTerm = handler.handle(scheduleRequest(teacher.getToken(), 2025, 3, 8));
+            require(emptyTerm.getCode() == MessageCode.BAD_REQUEST,
+                    "a term without a published calendar must be a bad request");
+            require("该学期暂无已发布的教学日历".equals(emptyTerm.getMessage()),
+                    "the empty-term reason must be returned verbatim, saw " + emptyTerm.getMessage());
+        } finally {
+            queries.emptyTerm = false;
+        }
+
+        queries.mode = Mode.DATABASE;
+        PrintStream previousError = System.err;
+        ByteArrayOutputStream log = new ByteArrayOutputStream();
+        Message scheduleDatabaseFailure;
+        try {
+            System.setErr(new PrintStream(log, true, StandardCharsets.UTF_8));
+            scheduleDatabaseFailure =
+                    handler.handle(scheduleRequest(teacher.getToken(), 2025, 3, 8));
+        } finally {
+            System.setErr(previousError);
+            queries.mode = Mode.SUCCESS;
+        }
+        require(scheduleDatabaseFailure.getCode() == MessageCode.ERROR,
+                "a database failure on the timetable must be a server error");
+        require("教师课程服务暂不可用".equals(scheduleDatabaseFailure.getMessage()),
+                "a database failure must return the generic message");
+        String scheduleFailureMessage = scheduleDatabaseFailure.getMessage();
+        require(!scheduleFailureMessage.contains("SELECT")
+                        && !scheduleFailureMessage.contains("course_schedule")
+                        && !scheduleFailureMessage.contains("SQLException")
+                        && !scheduleFailureMessage.contains("at handler"),
+                "the timetable failure must not leak SQL, table names or a stack trace");
+    }
+
+    private static Message scheduleRequest(String token, Object academicYear, Object semester,
+            Object week) {
+        Message request = courseTeacher("loadTeachingSchedule", token);
+        if (academicYear != null) request.putData("academicYear", academicYear);
+        if (semester != null) request.putData("semester", semester);
+        if (week != null) request.putData("week", week);
+        return request;
+    }
+
+    private static void requireFailureOnlyCodeAndMessage(Message response) {
+        Map<String, Object> data = response.getData();
+        require(data == null || data.isEmpty(),
+                "a failure response must carry only code/message, saw " + data);
+    }
+
     private static void databaseFailureStaysInTheServerLog(TeacherCourseHandler handler,
             FakeQueryService queries, UserSession teacher) {
         queries.mode = Mode.DATABASE;
@@ -455,6 +590,9 @@ public final class TeacherCourseHandlerTest {
         private int lastPage;
         private int lastSize;
         private Integer lastEnrollmentStatus;
+        private Integer lastWeek;
+        private int scheduleCalls;
+        private boolean emptyTerm;
 
         @Override
         public List<CourseTermDTO> listTerms(String uid) {
@@ -516,6 +654,35 @@ public final class TeacherCourseHandlerTest {
                     new ScheduleResourceDTO("8001", uid, "陈老师", "teacher", 0), null,
                     new ScheduleResourceDTO("8101", "3001", "A-101", "classroom", 120),
                     List.of(new ScheduleSlotDTO(1, 1, 2)), 1, 16, "ACTIVE", 1));
+        }
+
+        /**
+         * 课表查询：先记录身份与参数，再按越界/空学期/数据库故障的顺序模拟真实服务的失败。
+         * Handler 未接线时这里永远不会被调用，测试会停在 BAD_REQUEST「不支持的教师课程操作」。
+         */
+        @Override
+        public TeacherScheduleWeekDTO loadTeachingSchedule(String uid, int academicYear,
+                int semester, Integer week) {
+            lastUid = uid;
+            lastYear = academicYear;
+            lastSemester = semester;
+            lastWeek = week;
+            scheduleCalls++;
+            failIfRequested();
+            requireTerm(academicYear, semester);
+            if (emptyTerm) {
+                throw new IllegalArgumentException("该学期暂无已发布的教学日历");
+            }
+            if (week != null && (week < 1 || week > 16)) {
+                throw new IllegalArgumentException("week 必须在 1..16 之间");
+            }
+            int selectedWeek = week == null ? 8 : week;
+            return new TeacherScheduleWeekDTO(PLAN_ID, "Asia/Shanghai", selectedWeek, 1, 16, 8,
+                    List.of(new TeacherCalendarDateDTO("2026-10-26", selectedWeek, 1, true)),
+                    List.of(new TeacherPeriodDTO("2026-10-26", 1, "08:00:00", "08:45:00")),
+                    List.of(new TeacherScheduleEntryDTO("9201", OFFERING_A, "CS203", "数据结构",
+                            "陈老师", "A-101", "2026-10-26", selectedWeek, 1, 1, 2,
+                            ScheduleDisplayKindDTO.NORMAL, null, null, null, null, true)));
         }
 
         private void requireOwner(String uid, String offeringId) {

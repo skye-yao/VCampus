@@ -19,9 +19,9 @@ import java.util.Map;
  * Session（{@link UserSession#getUsername()}），请求体里的 {@code uid}/{@code teacherId}/
  * {@code sender} 不参与任何判定，防止客户端用请求体替换真实身份。
  *
- * <p>本阶段只读：响应键为 terms、offerings、offering、students、schedules。列表类的 items 由
- * {@link dto.course.teacher.TeacherPageDTO} 承载（含 totalCount/page/size），客户端用 TypeToken
- * 解析泛型页。数据库异常只写服务端日志，响应里不出现 SQL、表名或堆栈。
+ * <p>本阶段只读：响应键为 terms、offerings、offering、students、schedules、schedule。列表类的
+ * items 由 {@link dto.course.teacher.TeacherPageDTO} 承载（含 totalCount/page/size），客户端用
+ * TypeToken 解析泛型页。数据库异常只写服务端日志，响应里不出现 SQL、表名或堆栈。
  */
 public class TeacherCourseHandler {
     private static final String MODULE = "courseTeacher";
@@ -75,6 +75,10 @@ public class TeacherCourseHandler {
                 }
                 case TeacherCourseActions.LIST_OFFERING_SCHEDULES -> response.putData("schedules",
                         queries.listOfferingSchedules(uid, decimalId(request, "offeringId")));
+                case TeacherCourseActions.LOAD_TEACHING_SCHEDULE -> response.putData("schedule",
+                        queries.loadTeachingSchedule(uid,
+                                integer(request, "academicYear"), integer(request, "semester"),
+                                optionalInteger(request, "week")));
                 default -> {
                     return failure(response, MessageCode.BAD_REQUEST, "不支持的教师课程操作");
                 }
@@ -138,6 +142,16 @@ public class TeacherCourseHandler {
             throw new IllegalArgumentException("enrollmentStatus 只接受 2（正常）或 3（退课）");
         }
         return status;
+    }
+
+    /**
+     * week 可缺省：缺省表示“由服务端按教学日历决定当前周”。出现时必须是合法整数（越界由服务层判定，
+     * 因为它们依赖教学日历的 minWeek/maxWeek）。
+     */
+    private static Integer optionalInteger(Message request, String key) {
+        Map<String, Object> data = request.getData();
+        if (data == null || data.get(key) == null) return null;
+        return integer(request, key);
     }
 
     private static void logFailure(String action, RuntimeException failure) {
