@@ -4,6 +4,8 @@ import com.google.gson.Gson;
 import dto.course.admin.AdminCourseActions;
 import dto.course.admin.catalog.CourseEditorRequestDTO;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
+import dto.course.admin.enrollment.AdminEnrollmentPageDTO;
+import dto.course.admin.enrollment.AdminEnrollmentRequestDTO;
 import dto.course.admin.result.AdminOperationResultDTO;
 import dto.course.admin.schedule.SaveArrangementRequestDTO;
 import exception.DatabaseException;
@@ -11,6 +13,7 @@ import protocol.Message;
 import protocol.MessageCode;
 import protocol.MessageType;
 import service.AdminCourseCatalogService;
+import service.AdminEnrollmentService;
 import service.AdminOfferingService;
 import service.ScheduleManagementService;
 import session.SessionManager;
@@ -18,17 +21,13 @@ import session.UserSession;
 
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 public class AdminCourseHandler {
     private static final String MODULE = "courseAdmin";
 
     /** 动作登记表里已定义、但由后续计划开放的管理员操作。 */
     private static final Set<String> UNAVAILABLE_ACTIONS = Set.of(
-            AdminCourseActions.SEARCH_STUDENTS,
-            AdminCourseActions.LIST_OFFERING_STUDENTS,
-            AdminCourseActions.PREVIEW_ADMIN_ENROLLMENT,
-            AdminCourseActions.ADD_STUDENT_TO_OFFERING,
-            AdminCourseActions.REMOVE_STUDENT_FROM_OFFERING,
             AdminCourseActions.LIST_ADJUSTMENT_REQUESTS,
             AdminCourseActions.GET_ADJUSTMENT_REQUEST,
             AdminCourseActions.REVIEW_ADJUSTMENT_REQUEST,
@@ -39,11 +38,12 @@ public class AdminCourseHandler {
     private final AdminCourseCatalogService catalog;
     private final AdminOfferingService offerings;
     private final ScheduleManagementService scheduling;
+    private final AdminEnrollmentService enrollment;
     private final Gson gson = new Gson();
 
     public AdminCourseHandler() {
         this(new AdminCourseCatalogService(), new AdminOfferingService(),
-                new ScheduleManagementService());
+                new ScheduleManagementService(), new AdminEnrollmentService());
     }
 
     /**
@@ -59,9 +59,17 @@ public class AdminCourseHandler {
     public AdminCourseHandler(AdminCourseCatalogService catalog,
                               AdminOfferingService offerings,
                               ScheduleManagementService scheduling) {
+        this(catalog, offerings, scheduling, null);
+    }
+
+    public AdminCourseHandler(AdminCourseCatalogService catalog,
+                              AdminOfferingService offerings,
+                              ScheduleManagementService scheduling,
+                              AdminEnrollmentService enrollment) {
         this.catalog = catalog;
         this.offerings = offerings;
         this.scheduling = scheduling;
+        this.enrollment = enrollment;
     }
 
     public Message handle(Message request) {
@@ -105,6 +113,22 @@ public class AdminCourseHandler {
                 case AdminCourseActions.DELETE_DRAFT_OFFERING -> mutation(response,
                         offerings.deleteDraft(uid, decimalId(request, "offeringId"),
                                 integer(request, "expectedVersion"), text(request, "operationId")));
+                case AdminCourseActions.SEARCH_STUDENTS -> enrollmentPage(response, "students",
+                        enrollment().searchStudents(enrollmentQuery(request, true),
+                                enrollmentPageNumber(request), enrollmentPageSize(request)));
+                case AdminCourseActions.LIST_OFFERING_STUDENTS -> enrollmentPage(response,
+                        "offeringStudents", enrollment().listOfferingStudents(
+                                enrollmentOfferingId(data(request, "offeringId")),
+                                enrollmentQuery(request, false), enrollmentPageNumber(request),
+                                enrollmentPageSize(request)));
+                case AdminCourseActions.PREVIEW_ADMIN_ENROLLMENT -> response.putData("preview",
+                        enrollment().previewAdminEnrollment(
+                                enrollmentOfferingId(data(request, "offeringId")),
+                                enrollmentStudentUid(data(request, "studentUid"))));
+                case AdminCourseActions.ADD_STUDENT_TO_OFFERING -> mutation(response,
+                        enrollment().addStudentToOffering(uid, enrollmentRequest(request)));
+                case AdminCourseActions.REMOVE_STUDENT_FROM_OFFERING -> mutation(response,
+                        enrollment().removeStudentFromOffering(uid, enrollmentRequest(request)));
                 case AdminCourseActions.LIST_SCHEDULE_RESOURCES -> response.putData("resources",
                         scheduling().listResources(optionalText(request, "type"),
                                 optionalText(request, "query")));
@@ -147,6 +171,11 @@ public class AdminCourseHandler {
             return failure(response, MessageCode.NOT_FOUND, failure.getMessage());
         } catch (ScheduleManagementService.ConflictException failure) {
             return scheduleConflict(response, failure);
+        } catch (AdminEnrollmentService.NotFoundException failure) {
+            return failure(response, MessageCode.NOT_FOUND, failure.getMessage());
+        } catch (AdminEnrollmentService.ConflictException failure) {
+            response.putData("conflicts", failure.getConflicts());
+            return conflict(response, failure.getMessage(), failure.getEntity());
         } catch (DatabaseException failure) {
             return failure(response, MessageCode.ERROR, "课程管理服务暂不可用");
         } catch (RuntimeException failure) {
@@ -194,6 +223,88 @@ public class AdminCourseHandler {
             throw new IllegalArgumentException("该管理员操作尚未开放");
         }
         return scheduling;
+    }
+
+    private AdminEnrollmentService enrollment() {
+        if (enrollment == null) {
+            throw new IllegalArgumentException("该管理员操作尚未开放");
+        }
+        return enrollment;
+    }
+
+    private static void enrollmentPage(Message response, String key,
+            AdminEnrollmentPageDTO<?> page) {
+        response.putData(key, page.getItems());
+        response.putData("totalCount", page.getTotalCount());
+        response.putData("pageNumber", page.getPageNumber());
+        response.putData("pageSize", page.getPageSize());
+    }
+
+    private static String enrollmentQuery(Message request, boolean required) {
+        String value = optionalText(request, "query");
+        String query = value == null ? "" : value.trim();
+        if (required && query.isEmpty()) throw new IllegalArgumentException("搜索条件不能为空");
+        return query;
+    }
+
+    private static int enrollmentPageNumber(Message request) {
+        int page = integer(request, "pageNumber");
+        if (page < 1) throw new IllegalArgumentException("pageNumber 必须大于 0");
+        return page;
+    }
+
+    private static int enrollmentPageSize(Message request) {
+        int size = integer(request, "pageSize");
+        if (size < 1 || size > 100) throw new IllegalArgumentException("pageSize 必须为 1 至 100");
+        return size;
+    }
+
+    private static String enrollmentOfferingId(Object value) {
+        String id = decimalId(value, "offeringId");
+        if (id.charAt(0) == '0') throw new IllegalArgumentException("offeringId 必须为正整数");
+        return id;
+    }
+
+    private static String enrollmentStudentUid(Object value) {
+        if (!(value instanceof String uid) || uid.trim().isEmpty() || uid.trim().length() > 32) {
+            throw new IllegalArgumentException("studentUid 必须为 1 至 32 个字符的字符串");
+        }
+        return uid.trim();
+    }
+
+    private AdminEnrollmentRequestDTO enrollmentRequest(Message request) {
+        Object value = request.getData() == null ? null : request.getData().get("request");
+        if (!(value instanceof Map<?, ?> values)) {
+            throw new IllegalArgumentException("request 必须为 JSON 对象");
+        }
+        // Validate raw JSON types before Gson can coerce numbers or strings into DTO fields.
+        enrollmentOfferingId(values.get("offeringId"));
+        enrollmentStudentUid(values.get("studentUid"));
+        Object operation = values.get("operationId");
+        try {
+            if (!(operation instanceof String id)
+                    || !UUID.fromString(id).toString().equalsIgnoreCase(id)) {
+                throw new IllegalArgumentException();
+            }
+        } catch (IllegalArgumentException failure) {
+            throw new IllegalArgumentException("operationId 必须是 UUID 字符串");
+        }
+        Object force = values.get("force");
+        if (values.containsKey("force") && !(force instanceof Boolean)) {
+            throw new IllegalArgumentException("force 必须为布尔值");
+        }
+        Object rawReason = values.get("overrideReason");
+        if (rawReason != null && !(rawReason instanceof String)) {
+            throw new IllegalArgumentException("overrideReason 必须为字符串");
+        }
+        String reason = rawReason == null ? null : ((String) rawReason).trim();
+        if (Boolean.TRUE.equals(force) && (reason == null || reason.isEmpty())) {
+            throw new IllegalArgumentException("强制操作必须填写原因");
+        }
+        if (reason != null && reason.length() > 500) {
+            throw new IllegalArgumentException("强制原因不能超过 500 字符");
+        }
+        return payload(request, AdminEnrollmentRequestDTO.class);
     }
 
     private SaveArrangementRequestDTO arrangementRequest(Message request) {
@@ -251,7 +362,10 @@ public class AdminCourseHandler {
     }
 
     private static String decimalId(Message request, String key) {
-        Object value = data(request, key);
+        return decimalId(data(request, key), key);
+    }
+
+    private static String decimalId(Object value, String key) {
         if (!(value instanceof String text) || !text.matches("[0-9]+")) {
             throw new IllegalArgumentException(key + " 必须为十进制字符串");
         }

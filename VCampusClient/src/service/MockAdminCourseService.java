@@ -1,13 +1,20 @@
 package service;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 import dto.course.admin.catalog.CourseEditorRequestDTO;
+import dto.course.admin.AdminCourseActions;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
+import dto.course.admin.enrollment.AdminEnrollmentPreviewDTO;
+import dto.course.admin.enrollment.AdminEnrollmentRequestDTO;
 import dto.course.admin.schedule.SaveArrangementRequestDTO;
 import dto.course.admin.schedule.ScheduleConflictDTO;
 import dto.course.admin.schedule.ScheduleConflictSeverityDTO;
@@ -15,10 +22,13 @@ import dto.course.admin.schedule.SchedulePlanDTO;
 import dto.course.admin.schedule.ScheduleResourceDTO;
 import dto.course.admin.schedule.ScheduleSlotDTO;
 import model.course.admin.AdminCourseView;
+import model.course.admin.AdminEnrollmentPageView;
 import model.course.admin.AdminOfferingView;
 import model.course.admin.AdminOperationResultView;
+import model.course.admin.OfferingStudentView;
 import model.course.admin.ScheduleArrangementView;
 import model.course.admin.SchedulePlanView;
+import model.course.admin.StudentSearchResultView;
 import protocol.MessageCode;
 import service.SocketAdminCourseService.AdminCourseServiceException;
 
@@ -44,10 +54,14 @@ public final class MockAdminCourseService implements AdminCourseService {
     private final Map<String, ScheduleArrangementView> arrangements = new LinkedHashMap<>();
     private final Map<String, AdminOperationResultView<?>> operationResults =
             new LinkedHashMap<>();
+    private final Map<String, EnrollmentStudent> students = new LinkedHashMap<>();
+    private final Map<String, EnrollmentState> enrollmentHistory = new LinkedHashMap<>();
+    private final Map<String, EnrollmentOperation> enrollmentOperations = new LinkedHashMap<>();
 
     private long nextCourseId = 401;
     private long nextOfferingId = 4001;
     private long nextArrangementId = 9002;
+    private long nextEnrollmentId = 50031;
     private PlanState plan = new PlanState(PLAN_ID, PLAN_NAME, PLAN_YEAR, PLAN_SEMESTER, 1,
             DRAFT, false);
 
@@ -74,6 +88,7 @@ public final class MockAdminCourseService implements AdminCourseService {
                 new ScheduleResourceDTO("8101", "3001", "A-101", CLASSROOM_RESOURCE, 120),
                 List.of(new ScheduleSlotDTO(1, 1, 2), new ScheduleSlotDTO(3, 3, 4)),
                 1, 16, DRAFT, 1));
+        seedEnrollmentStudents();
     }
 
     @Override
@@ -286,6 +301,10 @@ public final class MockAdminCourseService implements AdminCourseService {
                 throw conflict("只有未开放的教学班可以删除");
             }
             requireVersion(current.getVersion(), expectedVersion);
+            if (enrollmentHistory.values().stream()
+                    .anyMatch(state -> current.getOfferingId().equals(state.offeringId()))) {
+                throw conflict("教学班已有选课历史，无法删除");
+            }
             offerings.remove(current.getOfferingId());
             bumpOfferingCount(current.getCourseId(), -1);
             AdminOperationResultView<Void> result =
@@ -315,6 +334,285 @@ public final class MockAdminCourseService implements AdminCourseService {
         }
         return CompletableFuture.completedFuture(List.copyOf(result));
     }
+
+    @Override
+    public CompletableFuture<AdminEnrollmentPageView<StudentSearchResultView>> searchStudentsPage(
+            String query, int page, int size) {
+        try {
+            String filter = query == null ? "" : query.trim();
+            if (filter.isEmpty()) throw badRequest("搜索条件不能为空");
+            List<StudentSearchResultView> found = new ArrayList<>();
+            for (EnrollmentStudent profile : students.values()) {
+                StudentSearchResultView student = profile.view();
+                if (student.getUid().equals(filter) || matches(student.getName(), filter)) found.add(student);
+            }
+            found.sort(Comparator.comparing(StudentSearchResultView::getUid));
+            return CompletableFuture.completedFuture(enrollmentPage(found, page, size));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    @Override
+    public CompletableFuture<AdminEnrollmentPageView<OfferingStudentView>> listOfferingStudentsPage(
+            String offeringId, String query, int page, int size) {
+        try {
+            String id = enrollmentOfferingId(offeringId);
+            requireOffering(id);
+            String filter = query == null ? "" : query.trim();
+            List<OfferingStudentView> found = new ArrayList<>();
+            for (EnrollmentState state : enrollmentHistory.values()) {
+                if (!state.offeringId().equals(id) || !state.enrolled()) continue;
+                OfferingStudentView row = enrollmentView(state);
+                if (filter.isEmpty() || row.getUid().equals(filter) || matches(row.getName(), filter)) found.add(row);
+            }
+            found.sort(Comparator.comparing(OfferingStudentView::getUid));
+            return CompletableFuture.completedFuture(enrollmentPage(found, page, size));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    @Override
+    public CompletableFuture<AdminEnrollmentPreviewDTO> previewAdminEnrollment(String offeringId, String studentUid) {
+        try {
+            AdminOfferingView offering = requireOffering(enrollmentOfferingId(offeringId));
+            EnrollmentStudent student = requireEnrollmentStudent(enrollmentStudentUid(studentUid));
+            EnrollmentState current = enrollmentHistory.get(enrollmentKey(offeringId, student.view().getUid()));
+            return CompletableFuture.completedFuture(new AdminEnrollmentPreviewDTO(offeringId,
+                    student.view().getUid(), enrollmentRisks(student, offering, current, false)));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    @Override
+    public CompletableFuture<AdminOperationResultView<OfferingStudentView>> addStudentToOffering(
+            AdminEnrollmentRequestDTO request) {
+        return mutateEnrollment(request, false);
+    }
+
+    @Override
+    public CompletableFuture<AdminOperationResultView<OfferingStudentView>> removeStudentFromOffering(
+            AdminEnrollmentRequestDTO request) {
+        return mutateEnrollment(request, true);
+    }
+
+    private CompletableFuture<AdminOperationResultView<OfferingStudentView>> mutateEnrollment(
+            AdminEnrollmentRequestDTO raw, boolean removal) {
+        try {
+            AdminEnrollmentRequestDTO request = enrollmentRequest(raw);
+            String action = removal ? AdminCourseActions.REMOVE_STUDENT_FROM_OFFERING
+                    : AdminCourseActions.ADD_STUDENT_TO_OFFERING;
+            EnrollmentIntent intent = new EnrollmentIntent(action, request.getOfferingId(), request.getStudentUid(),
+                    request.isForce(), request.getOverrideReason());
+            EnrollmentOperation stored = enrollmentOperations.get(request.getOperationId());
+            if (stored != null) {
+                if (!stored.intent().equals(intent)) throw conflict("operationId 已用于不同的业务请求");
+                return CompletableFuture.completedFuture(stored.result());
+            }
+            AdminOfferingView offering = requireOffering(request.getOfferingId());
+            EnrollmentStudent student = requireEnrollmentStudent(request.getStudentUid());
+            String key = enrollmentKey(offering.getOfferingId(), request.getStudentUid());
+            EnrollmentState current = enrollmentHistory.get(key);
+            List<ScheduleConflictDTO> risks = enrollmentRisks(student, offering, current, removal);
+            OfferingStudentView latest = current == null ? null : enrollmentView(current);
+            if (risks.stream().anyMatch(r -> r.getSeverity() == ScheduleConflictSeverityDTO.BLOCKING)
+                    || (!request.isForce() && !risks.isEmpty())) {
+                throw new AdminCourseServiceException(MessageCode.CONFLICT,
+                        "当前条件不允许直接执行，请查看风险信息", latest, risks);
+            }
+            EnrollmentState updated;
+            String message;
+            if (removal) {
+                if (current == null || !current.enrolled()) {
+                    throw new AdminCourseServiceException(MessageCode.CONFLICT,
+                            "该学生当前未选中此教学班", latest, risks);
+                }
+                updated = new EnrollmentState(current.enrollmentId(), current.offeringId(), current.studentUid(),
+                        false, current.gradeLocked());
+                changeEnrollmentCount(offering, -1);
+                message = "已从教学班移除学生";
+            } else if (current != null && current.enrolled()) {
+                updated = current;
+                message = "该学生已在教学班中";
+            } else {
+                updated = new EnrollmentState(current == null ? Long.toString(nextEnrollmentId++) : current.enrollmentId(),
+                        offering.getOfferingId(), request.getStudentUid(), true, current != null && current.gradeLocked());
+                changeEnrollmentCount(offering, 1);
+                message = "已将学生加入教学班";
+            }
+            enrollmentHistory.put(key, updated);
+            AdminOperationResultView<OfferingStudentView> result = new AdminOperationResultView<>(
+                    request.getOperationId(), "OK", message, enrollmentView(updated));
+            enrollmentOperations.put(request.getOperationId(), new EnrollmentOperation(intent, result));
+            return CompletableFuture.completedFuture(result);
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    private List<ScheduleConflictDTO> enrollmentRisks(EnrollmentStudent student, AdminOfferingView offering,
+            EnrollmentState current, boolean removal) {
+        List<ScheduleConflictDTO> risks = new ArrayList<>();
+        String uid = student.view().getUid();
+        AdminCourseView course = requireCourse(offering.getCourseId());
+        if (!ACTIVE.equals(student.view().getAcademicStatus())) {
+            enrollmentRisk(risks, "INVALID_STUDENT_STATUS", ScheduleConflictSeverityDTO.BLOCKING,
+                    uid, offering.getOfferingId(), "学生角色或学籍状态不可用");
+        }
+        if ("CANCELLED".equals(offering.getStatus()) || !ACTIVE.equals(course.getStatus())) {
+            enrollmentRisk(risks, "CANCELLED_OFFERING", ScheduleConflictSeverityDTO.BLOCKING,
+                    uid, offering.getOfferingId(), "CANCELLED".equals(offering.getStatus()) ? "教学班已取消" : "课程已归档");
+        }
+        if (removal) {
+            if (current != null && current.gradeLocked()) {
+                enrollmentRisk(risks, "GRADE_WORKFLOW_LOCKED", ScheduleConflictSeverityDTO.BLOCKING,
+                        uid, offering.getOfferingId(), "该学生已进入成绩审批或已有发布成绩，不能移除");
+            }
+            return List.copyOf(risks);
+        }
+        if ((current != null && current.enrolled()) || !ACTIVE.equals(student.view().getAcademicStatus())) {
+            return List.copyOf(risks);
+        }
+        if (offering.getEnrolledCount() >= offering.getCapacity()) {
+            enrollmentRisk(risks, "CAPACITY", ScheduleConflictSeverityDTO.OVERRIDABLE,
+                    uid, offering.getOfferingId(), "教学班人数已达到容量");
+        }
+        for (EnrollmentState state : enrollmentHistory.values()) {
+            if (!state.enrolled() || !uid.equals(state.studentUid()) || state.offeringId().equals(offering.getOfferingId())) continue;
+            AdminOfferingView other = offerings.get(state.offeringId());
+            if (other != null && other.getCourseId().equals(offering.getCourseId())
+                    && other.getAcademicYear() == offering.getAcademicYear() && other.getSemester() == offering.getSemester()) {
+                enrollmentRisk(risks, "SAME_COURSE_ACTIVE", ScheduleConflictSeverityDTO.BLOCKING,
+                        uid, other.getOfferingId(), "该学生在同一学期已选中本课程的其他教学班");
+            }
+        }
+        for (ScheduleArrangementView arrangement : arrangements.values()) {
+            if (!arrangement.getOfferingId().equals(offering.getOfferingId())) continue;
+            ScheduleSlotDTO overlap = overlappingSlot(arrangement.getSlots(), student.busySlots());
+            if (overlap != null) {
+                risks.add(new ScheduleConflictDTO("STUDENT_SCHEDULE", ScheduleConflictSeverityDTO.OVERRIDABLE,
+                        uid, null, arrangement.getStartWeek(), overlap.getDayOfWeek(), overlap.getStartPeriod(),
+                        overlap.getEndPeriod(), "与该学生已选课程的上课时间冲突"));
+                break;
+            }
+        }
+        String prerequisites = course.getPrerequisites();
+        if (prerequisites != null) {
+            for (String part : prerequisites.split("[,;，；\\r\\n]+")) {
+                String required = part.trim();
+                if (required.isEmpty() || "无".equals(required) || "none".equalsIgnoreCase(required)) continue;
+                if (!student.passedPrerequisites().contains(required)) {
+                    enrollmentRisk(risks, "PREREQUISITE", ScheduleConflictSeverityDTO.OVERRIDABLE,
+                            uid, offering.getOfferingId(), "需要管理员确认先修要求：" + required);
+                }
+            }
+        }
+        return List.copyOf(risks);
+    }
+
+    private static void enrollmentRisk(List<ScheduleConflictDTO> risks, String type,
+            ScheduleConflictSeverityDTO severity, String uid, String offeringId, String message) {
+        risks.add(new ScheduleConflictDTO(type, severity, uid, offeringId, 0, 0, 0, 0, message));
+    }
+
+    private OfferingStudentView enrollmentView(EnrollmentState state) {
+        StudentSearchResultView student = students.get(state.studentUid()).view();
+        AdminOfferingView offering = requireOffering(state.offeringId());
+        String blocked = !state.enrolled() ? "该学生当前已退课"
+                : !ACTIVE.equals(student.getAcademicStatus()) ? "学生学籍状态不可用"
+                : "CANCELLED".equals(offering.getStatus()) ? "教学班已取消"
+                : !ACTIVE.equals(requireCourse(offering.getCourseId()).getStatus()) ? "课程已归档"
+                : state.gradeLocked() ? "该学生已进入成绩审批或已有发布成绩，不能移除" : null;
+        return new OfferingStudentView(state.enrollmentId(), student.getUid(), student.getName(), student.getMajor(),
+                student.getCohortYear(), state.enrolled() ? "ENROLLED" : "DROPPED", blocked == null, blocked);
+    }
+
+    private void changeEnrollmentCount(AdminOfferingView offering, int delta) {
+        addOffering(new AdminOfferingView(offering.getOfferingId(), offering.getOfferingCode(), offering.getCourseId(),
+                offering.getAcademicYear(), offering.getSemester(), offering.getCapacity(), offering.getEnrolledCount() + delta,
+                offering.getStatus(), offering.getTeacherUid(), offering.getTeacherName(), offering.getAssistantUid(),
+                offering.getAssistantName(), offering.getScheduleStatus(), offering.getVersion()));
+    }
+
+    private void seedEnrollmentStudents() {
+        for (int index = 1; index <= 34; index++) {
+            String uid = Integer.toString(20240000 + index);
+            String name = switch (index) {
+                case 1 -> "张明";
+                case 2 -> "李静";
+                case 31 -> "陈晨";
+                case 32 -> "王晓雨";
+                case 33 -> "刘洋";
+                case 34 -> "休学学生";
+                default -> String.format(Locale.ROOT, "示例同学%02d", index);
+            };
+            students.put(uid, new EnrollmentStudent(new StudentSearchResultView(uid, name, "软件工程", 2024,
+                    index == 34 ? "SUSPENDED" : ACTIVE),
+                    index == 32 ? List.of(new ScheduleSlotDTO(1, 1, 2)) : List.of(),
+                    index == 33 ? Set.of() : Set.of("程序设计基础", "数据结构", "CS203")));
+            if (index <= 30) {
+                enrollmentHistory.put(enrollmentKey("1001", uid), new EnrollmentState(
+                        Integer.toString(50000 + index), "1001", uid, true, index == 1));
+            }
+        }
+    }
+
+    private EnrollmentStudent requireEnrollmentStudent(String uid) {
+        EnrollmentStudent student = students.get(uid);
+        if (student == null) throw notFound("学生不存在");
+        return student;
+    }
+
+    private static <T> AdminEnrollmentPageView<T> enrollmentPage(List<T> rows, int page, int size) {
+        if (page < 1 || size < 1 || size > 100) throw badRequest("页码必须大于 0，每页条数必须为 1 至 100");
+        long offset = (long) (page - 1) * size;
+        List<T> items = offset >= rows.size() ? List.of()
+                : rows.subList((int) offset, (int) Math.min(offset + size, rows.size()));
+        return new AdminEnrollmentPageView<>(items, rows.size(), page, size);
+    }
+
+    private static AdminEnrollmentRequestDTO enrollmentRequest(AdminEnrollmentRequestDTO request) {
+        if (request == null) throw badRequest("请求不能为空");
+        String operation = request.getOperationId();
+        try {
+            if (operation == null || !UUID.fromString(operation).toString().equalsIgnoreCase(operation)) {
+                throw new IllegalArgumentException();
+            }
+        } catch (IllegalArgumentException failure) {
+            throw badRequest("operationId 必须是 UUID");
+        }
+        String reason = request.getOverrideReason() == null ? null : request.getOverrideReason().trim();
+        if (request.isForce() && (reason == null || reason.isEmpty())) throw badRequest("强制操作必须填写原因");
+        if (reason != null && reason.length() > 500) throw badRequest("强制原因不能超过 500 字符");
+        return new AdminEnrollmentRequestDTO(UUID.fromString(operation).toString(),
+                enrollmentOfferingId(request.getOfferingId()), enrollmentStudentUid(request.getStudentUid()),
+                request.isForce(), reason);
+    }
+
+    private static String enrollmentOfferingId(String value) {
+        if (value == null || !value.matches("[1-9][0-9]*")) throw badRequest("offeringId 必须为正整数");
+        try { Long.parseLong(value); }
+        catch (NumberFormatException failure) { throw badRequest("offeringId 超出有效范围"); }
+        return value;
+    }
+
+    private static String enrollmentStudentUid(String value) {
+        if (value == null || value.trim().isEmpty() || value.trim().length() > 32) {
+            throw badRequest("studentUid 必须为 1 至 32 个字符");
+        }
+        return value.trim();
+    }
+
+    private static String enrollmentKey(String offeringId, String uid) { return offeringId + ":" + uid; }
+
+    private record EnrollmentStudent(StudentSearchResultView view, List<ScheduleSlotDTO> busySlots,
+                                     Set<String> passedPrerequisites) { }
+    private record EnrollmentState(String enrollmentId, String offeringId, String studentUid,
+                                   boolean enrolled, boolean gradeLocked) { }
+    private record EnrollmentIntent(String action, String offeringId, String studentUid, boolean force, String reason) { }
+    private record EnrollmentOperation(EnrollmentIntent intent, AdminOperationResultView<OfferingStudentView> result) { }
 
     @Override
     public CompletableFuture<SchedulePlanDTO> loadSchedulePlan(int academicYear, int semester) {

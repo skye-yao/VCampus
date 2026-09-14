@@ -14,6 +14,10 @@ import dto.course.admin.catalog.AdminCourseDTO;
 import dto.course.admin.catalog.AdminOfferingDTO;
 import dto.course.admin.catalog.CourseEditorRequestDTO;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
+import dto.course.admin.enrollment.AdminEnrollmentPreviewDTO;
+import dto.course.admin.enrollment.AdminEnrollmentRequestDTO;
+import dto.course.admin.enrollment.OfferingStudentDTO;
+import dto.course.admin.enrollment.StudentSearchResultDTO;
 import dto.course.admin.result.AdminOperationResultDTO;
 import dto.course.admin.schedule.SaveArrangementRequestDTO;
 import dto.course.admin.schedule.ScheduleArrangementDTO;
@@ -21,10 +25,13 @@ import dto.course.admin.schedule.ScheduleConflictDTO;
 import dto.course.admin.schedule.SchedulePlanDTO;
 import dto.course.admin.schedule.ScheduleResourceDTO;
 import model.course.admin.AdminCourseView;
+import model.course.admin.AdminEnrollmentPageView;
 import model.course.admin.AdminOfferingView;
 import model.course.admin.AdminOperationResultView;
+import model.course.admin.OfferingStudentView;
 import model.course.admin.ScheduleArrangementView;
 import model.course.admin.SchedulePlanView;
+import model.course.admin.StudentSearchResultView;
 import protocol.Message;
 import protocol.MessageCode;
 import protocol.MessageType;
@@ -43,6 +50,8 @@ public final class SocketAdminCourseService implements AdminCourseService {
             AdminOperationResultDTO.class, ScheduleArrangementDTO.class).getType();
     private static final Type PLAN_RESULT_TYPE = TypeToken.getParameterized(
             AdminOperationResultDTO.class, SchedulePlanDTO.class).getType();
+    private static final Type ENROLLMENT_RESULT_TYPE = TypeToken.getParameterized(
+            AdminOperationResultDTO.class, OfferingStudentDTO.class).getType();
 
     private final AdminCourseTransport transport;
     private final Gson gson = new Gson();
@@ -149,6 +158,86 @@ public final class SocketAdminCourseService implements AdminCourseService {
         return map(request,
                 response -> courseResult(read(response, "result", COURSE_RESULT_TYPE)),
                 this::latestCourse);
+    }
+
+    @Override
+    public CompletableFuture<AdminEnrollmentPageView<StudentSearchResultView>> searchStudentsPage(
+            String query, int page, int size) {
+        Message request = request(AdminCourseActions.SEARCH_STUDENTS);
+        request.putData("query", query);
+        putPage(request, page, size);
+        return map(request, response -> {
+            List<StudentSearchResultView> students = new ArrayList<>();
+            for (StudentSearchResultDTO dto : list(response, "students", StudentSearchResultDTO.class)) {
+                students.add(new StudentSearchResultView(dto.getUid(), dto.getName(), dto.getMajor(),
+                        dto.getCohortYear(), dto.getAcademicStatus()));
+            }
+            return enrollmentPage(response, students);
+        });
+    }
+
+    @Override
+    public CompletableFuture<AdminEnrollmentPageView<OfferingStudentView>> listOfferingStudentsPage(
+            String offeringId, String query, int page, int size) {
+        Message request = request(AdminCourseActions.LIST_OFFERING_STUDENTS);
+        request.putData("offeringId", offeringId);
+        if (query != null) request.putData("query", query);
+        putPage(request, page, size);
+        return map(request, response -> {
+            List<OfferingStudentView> students = new ArrayList<>();
+            for (OfferingStudentDTO dto : list(response, "offeringStudents", OfferingStudentDTO.class)) {
+                students.add(offeringStudent(dto));
+            }
+            return enrollmentPage(response, students);
+        });
+    }
+
+    @Override
+    public CompletableFuture<AdminEnrollmentPreviewDTO> previewAdminEnrollment(
+            String offeringId, String studentUid) {
+        Message request = request(AdminCourseActions.PREVIEW_ADMIN_ENROLLMENT);
+        request.putData("offeringId", offeringId);
+        request.putData("studentUid", studentUid);
+        return map(request, response -> read(response, "preview", AdminEnrollmentPreviewDTO.class));
+    }
+
+    @Override
+    public CompletableFuture<AdminOperationResultView<OfferingStudentView>> addStudentToOffering(
+            AdminEnrollmentRequestDTO request) {
+        return enrollmentMutation(AdminCourseActions.ADD_STUDENT_TO_OFFERING, request);
+    }
+
+    @Override
+    public CompletableFuture<AdminOperationResultView<OfferingStudentView>> removeStudentFromOffering(
+            AdminEnrollmentRequestDTO request) {
+        return enrollmentMutation(AdminCourseActions.REMOVE_STUDENT_FROM_OFFERING, request);
+    }
+
+    private CompletableFuture<AdminOperationResultView<OfferingStudentView>> enrollmentMutation(
+            String action, AdminEnrollmentRequestDTO payload) {
+        Message request = request(action);
+        request.putData("request", payload);
+        return map(request, response -> {
+            AdminOperationResultDTO<OfferingStudentDTO> dto = read(response, "result", ENROLLMENT_RESULT_TYPE);
+            return new AdminOperationResultView<>(dto.getOperationId(), dto.getOutcomeCode(),
+                    dto.getMessage(), dto.getEntity() == null ? null : offeringStudent(dto.getEntity()));
+        }, value -> offeringStudent(gson.fromJson(gson.toJson(value), OfferingStudentDTO.class)));
+    }
+
+    private static void putPage(Message request, int page, int size) {
+        request.putData("pageNumber", page);
+        request.putData("pageSize", size);
+    }
+
+    private <T> AdminEnrollmentPageView<T> enrollmentPage(Message response, List<T> items) {
+        return new AdminEnrollmentPageView<>(items, read(response, "totalCount", Long.class),
+                read(response, "pageNumber", Integer.class), read(response, "pageSize", Integer.class));
+    }
+
+    private static OfferingStudentView offeringStudent(OfferingStudentDTO dto) {
+        return new OfferingStudentView(dto.getEnrollmentId(), dto.getUid(), dto.getName(),
+                dto.getMajor(), dto.getCohortYear(), dto.getEnrollmentStatus(), dto.isRemovable(),
+                dto.getBlockedReason());
     }
 
     @Override
@@ -309,7 +398,7 @@ public final class SocketAdminCourseService implements AdminCourseService {
         });
     }
 
-    private static void requireSuccess(Message response, Function<Object, Object> latestMapper) {
+    private void requireSuccess(Message response, Function<Object, Object> latestMapper) {
         if (response == null) {
             throw new AdminCourseServiceException(MessageCode.ERROR, "课程管理服务无响应");
         }
@@ -319,7 +408,10 @@ public final class SocketAdminCourseService implements AdminCourseService {
         Object rawLatest = response.getData() == null ? null : response.getData().get("latest");
         Object latest = rawLatest == null || latestMapper == null ? null
                 : latestMapper.apply(rawLatest);
-        throw new AdminCourseServiceException(response.getCode(), message, latest);
+        List<ScheduleConflictDTO> conflicts = response.getData() == null
+                || response.getData().get("conflicts") == null ? List.of()
+                : list(response, "conflicts", ScheduleConflictDTO.class);
+        throw new AdminCourseServiceException(response.getCode(), message, latest, conflicts);
     }
 
     private AdminCourseView latestCourse(Object value) {
@@ -374,15 +466,22 @@ public final class SocketAdminCourseService implements AdminCourseService {
         private static final long serialVersionUID = 1L;
         private final MessageCode code;
         private final Object latest;
+        private final List<ScheduleConflictDTO> conflicts;
 
         public AdminCourseServiceException(MessageCode code, String message) {
             this(code, message, null);
         }
 
         public AdminCourseServiceException(MessageCode code, String message, Object latest) {
+            this(code, message, latest, List.of());
+        }
+
+        public AdminCourseServiceException(MessageCode code, String message, Object latest,
+                List<ScheduleConflictDTO> conflicts) {
             super(message);
             this.code = code;
             this.latest = latest;
+            this.conflicts = conflicts == null ? List.of() : List.copyOf(conflicts);
         }
 
         public MessageCode getCode() {
@@ -391,6 +490,10 @@ public final class SocketAdminCourseService implements AdminCourseService {
 
         public Object getLatest() {
             return latest;
+        }
+
+        public List<ScheduleConflictDTO> getConflicts() {
+            return conflicts;
         }
     }
 }

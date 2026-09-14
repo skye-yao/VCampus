@@ -6,6 +6,10 @@ import dto.course.admin.catalog.AdminCourseDTO;
 import dto.course.admin.catalog.AdminOfferingDTO;
 import dto.course.admin.catalog.CourseEditorRequestDTO;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
+import dto.course.admin.enrollment.AdminEnrollmentPreviewDTO;
+import dto.course.admin.enrollment.AdminEnrollmentRequestDTO;
+import dto.course.admin.enrollment.OfferingStudentDTO;
+import dto.course.admin.enrollment.StudentSearchResultDTO;
 import dto.course.admin.result.AdminOperationResultDTO;
 import dto.course.admin.schedule.SaveArrangementRequestDTO;
 import dto.course.admin.schedule.ScheduleArrangementDTO;
@@ -23,8 +27,11 @@ import java.util.concurrent.CompletionException;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import model.course.admin.AdminCourseView;
+import model.course.admin.AdminEnrollmentPageView;
 import model.course.admin.AdminOfferingView;
 import model.course.admin.AdminOperationResultView;
+import model.course.admin.OfferingStudentView;
+import model.course.admin.StudentSearchResultView;
 import model.course.admin.ScheduleArrangementView;
 import model.course.admin.SchedulePlanView;
 import protocol.Message;
@@ -62,6 +69,12 @@ public final class SocketAdminCourseServiceTest {
             deleteArrangementSendsTargetKeysAndMapsNullEntity();
             publishSchedulePlanSendsTargetKeysAndMapsPlanView();
             schedulingConflictMapsLatestArrangement();
+            studentSearchMapsPageAndListAdapter();
+            offeringStudentsMapPageAndListAdapter();
+            enrollmentPreviewMapsExactTargetsAndRiskSeverities();
+            enrollmentMutationsMapTypedHistoryRows();
+            enrollmentConflictsKeepTypedRisksAndLatestRow();
+            enrollmentPageRequiresServerMetadata();
         } finally {
             ClientSession.getInstance().logout();
         }
@@ -622,6 +635,164 @@ public final class SocketAdminCourseServiceTest {
 
     private static ScheduleResourceDTO resource() {
         return new ScheduleResourceDTO("8001", "T1001", "张老师", "teacher", 0);
+    }
+
+    private static void studentSearchMapsPageAndListAdapter() {
+        FakeTransport transport = new FakeTransport();
+        Consumer<Message> response = message -> {
+            message.putData("students", List.of(wireShaped(new StudentSearchResultDTO(
+                    "20240031", "陈晨", "软件工程", 2024, "ACTIVE"))));
+            message.putData("totalCount", 35.0);
+            message.putData("pageNumber", 2.0);
+            message.putData("pageSize", 10.0);
+        };
+        transport.respond(response);
+        AdminCourseService service = new SocketAdminCourseService(transport);
+        AdminEnrollmentPageView<StudentSearchResultView> page = service.searchStudentsPage(" 陈 ", 2, 10).join();
+        requireEnvelope(transport, AdminCourseActions.SEARCH_STUDENTS);
+        require(" 陈 ".equals(transport.lastRequest.getData("query"))
+                        && Integer.valueOf(2).equals(transport.lastRequest.getData("pageNumber"))
+                        && Integer.valueOf(10).equals(transport.lastRequest.getData("pageSize")),
+                "search must send query and the pageNumber/pageSize wire contract");
+        require(page.getTotalCount() == 35 && page.getPageNumber() == 2 && page.getPageSize() == 10,
+                "search must preserve authoritative server pagination");
+        StudentSearchResultView row = page.getItems().get(0);
+        require("20240031".equals(row.getUid()) && "陈晨".equals(row.getName())
+                        && "软件工程".equals(row.getMajor()) && row.getCohortYear() == 2024
+                        && "ACTIVE".equals(row.getAcademicStatus()),
+                "search must map complete StudentSearchResultView rows");
+        transport.respond(response);
+        require("陈晨".equals(service.searchStudents("陈", 2, 10).join().get(0).getName()),
+                "the original List adapter must delegate to the real page implementation");
+    }
+
+    private static void offeringStudentsMapPageAndListAdapter() {
+        FakeTransport transport = new FakeTransport();
+        Consumer<Message> response = message -> {
+            message.putData("offeringStudents", List.of(wireShaped(enrollmentRow("ENROLLED", false))));
+            message.putData("totalCount", 30.0);
+            message.putData("pageNumber", 1.0);
+            message.putData("pageSize", 20.0);
+        };
+        transport.respond(response);
+        AdminCourseService service = new SocketAdminCourseService(transport);
+        AdminEnrollmentPageView<OfferingStudentView> page = service.listOfferingStudentsPage(
+                OFFERING_ID, null, 1, 20).join();
+        requireEnvelope(transport, AdminCourseActions.LIST_OFFERING_STUDENTS);
+        require(OFFERING_ID.equals(transport.lastRequest.getData("offeringId"))
+                        && transport.lastRequest.getData("query") == null,
+                "roster must preserve exact target IDs and an optional filter");
+        require(page.getTotalCount() == 30 && page.getPageNumber() == 1 && page.getPageSize() == 20,
+                "roster totals and page coordinates must map");
+        OfferingStudentView row = page.getItems().get(0);
+        require("9007199254740997".equals(row.getEnrollmentId()) && !row.isRemovable()
+                        && "成绩已发布".equals(row.getBlockedReason()) && "ENROLLED".equals(row.getEnrollmentStatus()),
+                "exact enrollment IDs and grade-removal restrictions must map");
+        transport.respond(response);
+        require(service.listOfferingStudents(OFFERING_ID, "陈", 1, 20).join().size() == 1,
+                "the original roster List adapter must remain usable");
+        require("陈".equals(transport.lastRequest.getData("query")), "roster filter must travel");
+    }
+
+    private static void enrollmentPreviewMapsExactTargetsAndRiskSeverities() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("preview", wireShaped(new AdminEnrollmentPreviewDTO(
+                OFFERING_ID, "20240031", enrollmentRisks()))));
+        SocketAdminCourseService service = new SocketAdminCourseService(transport);
+        AdminEnrollmentPreviewDTO preview = service.previewAdminEnrollment(OFFERING_ID, "20240031").join();
+        requireEnvelope(transport, AdminCourseActions.PREVIEW_ADMIN_ENROLLMENT);
+        require(OFFERING_ID.equals(transport.lastRequest.getData("offeringId"))
+                        && "20240031".equals(transport.lastRequest.getData("studentUid")),
+                "preview targets must be scalar exact strings");
+        require(OFFERING_ID.equals(preview.getOfferingId()) && "20240031".equals(preview.getStudentUid())
+                        && preview.getRisks().get(0).getSeverity() == ScheduleConflictSeverityDTO.OVERRIDABLE
+                        && preview.getRisks().get(1).getSeverity() == ScheduleConflictSeverityDTO.BLOCKING,
+                "preview must deserialize enum risks rather than raw maps");
+    }
+
+    private static void enrollmentMutationsMapTypedHistoryRows() {
+        FakeTransport transport = new FakeTransport();
+        SocketAdminCourseService service = new SocketAdminCourseService(transport);
+        AdminEnrollmentRequestDTO request = new AdminEnrollmentRequestDTO(
+                "30000000-0000-0000-0000-000000000002", OFFERING_ID, "20240031", true, "  教务批准  ");
+        for (boolean removal : new boolean[] {false, true}) {
+            transport.respond(message -> message.putData("result", wireShaped(new AdminOperationResultDTO<>(
+                    request.getOperationId(), "OK", removal ? "已移除" : "已添加",
+                    enrollmentRow(removal ? "DROPPED" : "ENROLLED", !removal), enrollmentRisks()))));
+            AdminOperationResultView<OfferingStudentView> result = removal
+                    ? service.removeStudentFromOffering(request).join() : service.addStudentToOffering(request).join();
+            requireEnvelope(transport, removal ? AdminCourseActions.REMOVE_STUDENT_FROM_OFFERING
+                    : AdminCourseActions.ADD_STUDENT_TO_OFFERING);
+            require(transport.lastRequest.getData("request") == request
+                            && transport.lastRequest.getData("uid") == null,
+                    "enrollment DTO must travel under request with identity supplied only by token");
+            require(request.getOperationId().equals(result.getOperationId())
+                            && "OK".equals(result.getOutcomeCode())
+                            && "9007199254740997".equals(result.getEntity().getEnrollmentId())
+                            && (removal ? "DROPPED" : "ENROLLED").equals(result.getEntity().getEnrollmentStatus()),
+                    "add/remove must map typed immutable history results");
+        }
+    }
+
+    private static void enrollmentConflictsKeepTypedRisksAndLatestRow() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> {
+            message.setCode(MessageCode.CONFLICT);
+            message.setMessage("需要确认风险");
+            message.putData("latest", wireShaped(enrollmentRow("ENROLLED", false)));
+            message.putData("conflicts", wireShaped(enrollmentRisks()));
+        });
+        SocketAdminCourseService service = new SocketAdminCourseService(transport);
+        try {
+            service.removeStudentFromOffering(new AdminEnrollmentRequestDTO(
+                    "30000000-0000-0000-0000-000000000003", OFFERING_ID, "20240031", false, null)).join();
+            throw new AssertionError("a conflict must fail the future");
+        } catch (CompletionException failure) {
+            require(failure.getCause() instanceof SocketAdminCourseService.AdminCourseServiceException,
+                    "conflict must use the stable service exception");
+            SocketAdminCourseService.AdminCourseServiceException error =
+                    (SocketAdminCourseService.AdminCourseServiceException) failure.getCause();
+            require(error.getCode() == MessageCode.CONFLICT && error.getLatest() instanceof OfferingStudentView latest
+                            && "9007199254740997".equals(latest.getEnrollmentId()) && !latest.isRemovable(),
+                    "latest must be an OfferingStudentView with exact ID and restrictions");
+            require(error.getConflicts().size() == 2
+                            && error.getConflicts().get(0).getSeverity() == ScheduleConflictSeverityDTO.OVERRIDABLE
+                            && error.getConflicts().get(1).getSeverity() == ScheduleConflictSeverityDTO.BLOCKING,
+                    "dialogs must retain typed rejection risks");
+            try {
+                error.getConflicts().clear();
+                throw new AssertionError("exception conflict snapshots must be immutable");
+            } catch (UnsupportedOperationException expected) { }
+        }
+        require(new SocketAdminCourseService.AdminCourseServiceException(MessageCode.ERROR, "old").getConflicts().isEmpty()
+                        && new SocketAdminCourseService.AdminCourseServiceException(MessageCode.CONFLICT, "old", "latest")
+                                .getLatest().equals("latest"),
+                "existing exception constructors must remain compatible");
+    }
+
+    private static void enrollmentPageRequiresServerMetadata() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("students", List.of()));
+        try {
+            new SocketAdminCourseService(transport).searchStudentsPage("陈", 1, 20).join();
+            throw new AssertionError("missing totals must not silently turn into a fabricated page");
+        } catch (CompletionException failure) {
+            require(failure.getCause() instanceof SocketAdminCourseService.AdminCourseServiceException error
+                            && error.getCode() == MessageCode.ERROR,
+                    "missing page metadata must become a stable service error");
+        }
+    }
+
+    private static OfferingStudentDTO enrollmentRow(String status, boolean removable) {
+        return new OfferingStudentDTO("9007199254740997", "20240031", "陈晨", "软件工程", 2024,
+                status, removable, removable ? null : "成绩已发布");
+    }
+
+    private static List<ScheduleConflictDTO> enrollmentRisks() {
+        return List.of(new ScheduleConflictDTO("CAPACITY", ScheduleConflictSeverityDTO.OVERRIDABLE,
+                        "20240031", OFFERING_ID, 0, 0, 0, 0, "人数已满"),
+                new ScheduleConflictDTO("GRADE_WORKFLOW_LOCKED", ScheduleConflictSeverityDTO.BLOCKING,
+                        "20240031", OFFERING_ID, 0, 0, 0, 0, "成绩已发布"));
     }
 
     private static ScheduleConflictDTO conflict() {
