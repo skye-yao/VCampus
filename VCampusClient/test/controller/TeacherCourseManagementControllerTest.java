@@ -39,21 +39,20 @@ import service.TeacherCourseServices;
  * {@code disable} 这类属性存在。静态检查仍无法证明任意属性名是可写属性，那只有真正的
  * {@code FXMLLoader} 加载能证明，属于 T6 的 {@code ui.*} 冒烟范围。
  *
- * <p>导航部分用一个真实的 {@link TeacherOfferingController} 与 {@link TeacherOfferingDetailController}
- * 装配到外壳：工作台必须把列表页保存的学期/搜索/页码在往返详情后保持不变，并在离开子页时释放它，
- * 而不是长期保留一个过期的子页控制器。
+ * <p>导航部分用真实的 {@link TeacherOfferingController}、{@link TeacherOfferingDetailController} 与
+ * {@link TeacherScheduleController} 装配到外壳：工作台必须把列表页保存的学期/搜索/页码在往返详情后
+ * 保持不变，在离开子页时释放它，并在“教学课程表”入口上激活课表子页而不改写首页文案。
  */
 public final class TeacherCourseManagementControllerTest {
     private static final String VIEW = "/resources/fxml/TeacherCourseManagementView.fxml";
     private static final String CSS = "/resources/css/teacher-course.css";
     private static final String STAGING_NOTICE = "该功能将在后续阶段接入";
-    private static final String HOME_NOTICE = "教学班已接入；教学课程表、成绩录入、我的申请将在后续阶段接入。";
+    private static final String HOME_NOTICE = "教学班、教学课程表已接入；成绩录入、我的申请将在后续阶段接入。";
     private static final String HOME_VIEW = "/resources/fxml/MainView.fxml";
     private static final String OFFERING = "9007199254740993";
     private static final String APP_STYLESHEET = "@../css/style.css";
     private static final String VIEW_STYLESHEET = "@../css/teacher-course.css";
-    private static final List<String> STAGED_ENTRIES =
-            List.of("教学课程表", "成绩录入", "我的申请");
+    private static final List<String> STAGED_ENTRIES = List.of("成绩录入", "我的申请");
 
     private TeacherCourseManagementControllerTest() {
     }
@@ -69,10 +68,11 @@ public final class TeacherCourseManagementControllerTest {
 
         openingTheOfferingsEntryActivatesTheListPage();
         openingADetailReleasesTheListAndReturnsToIt();
+        openingTheTimetableEntryActivatesTheSchedulePage();
         stagedEntriesOnlyShowTheStagingNotice();
 
         viewIsTheTeacherWorkspaceShell(view);
-        entriesAreWiredAndOnlyTheOfferingsEntryIsEnabled(view);
+        entriesAreWiredAndOnlyTheOfferingsAndTimetableEntriesAreEnabled(view);
         noElementUsesTheReadOnlyDisabledAttribute(view);
         everyFxIdAndOnActionResolvesOnTheController(view);
         everyStyleClassExistsInTheStylesheet(view, readResource(CSS));
@@ -133,7 +133,7 @@ public final class TeacherCourseManagementControllerTest {
         TeacherOfferingController offerings = offerings(service);
         TeacherOfferingDetailController detail = detail(service);
         TeacherCourseManagementController controller = controller(service);
-        controller.wire(null, null, offerings, null, detail);
+        controller.wire(null, null, offerings, null, detail, null, null);
 
         controller.openOfferings();
 
@@ -152,7 +152,7 @@ public final class TeacherCourseManagementControllerTest {
         TeacherOfferingController offerings = offerings(service);
         TeacherOfferingDetailController detail = detail(service);
         TeacherCourseManagementController controller = controller(service);
-        controller.wire(null, null, offerings, null, detail);
+        controller.wire(null, null, offerings, null, detail, null, null);
 
         controller.openOfferings();
         offerings.applyFilters("CS");
@@ -180,27 +180,52 @@ public final class TeacherCourseManagementControllerTest {
                 "the detail page must not retain the released class data");
     }
 
+    /** 教学课程表入口现在真的打开课表子页，并且不改变首页文案（不再显示 staging notice）。 */
+    private static void openingTheTimetableEntryActivatesTheSchedulePage() {
+        FakeService service = new FakeService();
+        TeacherOfferingController offerings = offerings(service);
+        TeacherOfferingDetailController detail = detail(service);
+        TeacherScheduleController schedule = schedule(service);
+        TeacherCourseManagementController controller = controller(service);
+        controller.wire(null, null, offerings, null, detail, null, schedule);
+        controller.openOfferings();
+
+        controller.openTimetable();
+
+        require(TeacherCourseManagementController.PAGE_SCHEDULE.equals(controller.currentPage()),
+                "the timetable entry must show the schedule page, saw " + controller.currentPage());
+        require(schedule.active() && !offerings.active() && !detail.active(),
+                "only the schedule page may be active after opening 教学课程表");
+        require(schedule.term() != null && service.scheduleCalls == 1,
+                "the schedule page must load its own week, saw " + service.scheduleCalls + " calls");
+        require(controller.noticeText().equals(HOME_NOTICE),
+                "opening the timetable must not change the home notice, saw "
+                        + controller.noticeText());
+        require(service.detailCalls.isEmpty(),
+                "opening the timetable must not load an offering, saw " + service.detailCalls);
+    }
+
     private static void stagedEntriesOnlyShowTheStagingNotice() {
         FakeService service = new FakeService();
         TeacherOfferingController offerings = offerings(service);
         TeacherOfferingDetailController detail = detail(service);
+        TeacherScheduleController schedule = schedule(service);
         TeacherCourseManagementController controller = controller(service);
-        controller.wire(null, null, offerings, null, detail);
+        controller.wire(null, null, offerings, null, detail, null, schedule);
         controller.openOfferings();
-
-        controller.openTimetable();
-        requireStaging(controller, "教学课程表");
 
         controller.openApplications();
         requireStaging(controller, "我的申请");
 
         controller.openGrades(OFFERING);
         requireStaging(controller, "成绩录入");
-        require(!offerings.active() && !detail.active(),
+        require(!offerings.active() && !detail.active() && !schedule.active(),
                 "a staged entry must leave no hidden page active");
-        require(service.detailCalls.isEmpty() && service.rosterCalls.isEmpty(),
+        require(service.detailCalls.isEmpty() && service.rosterCalls.isEmpty()
+                        && service.scheduleCalls == 0,
                 "the staged grade route must not start any read or write request, saw details "
-                        + service.detailCalls + " rosters " + service.rosterCalls);
+                        + service.detailCalls + " rosters " + service.rosterCalls + " schedules "
+                        + service.scheduleCalls);
     }
 
     private static void requireStaging(TeacherCourseManagementController controller,
@@ -253,10 +278,11 @@ public final class TeacherCourseManagementControllerTest {
     }
 
     /**
-     * 教学班入口必须可用且接到它的处理函数；其余三个仍是带 {@code disable="true"} 的占位。
-     * 按 {@code text} 定位元素，因此注释或被注释掉的元素块都无法满足断言。
+     * 教学班与教学课程表入口必须可用且接到各自的处理函数；其余两个仍是带 {@code disable="true"}
+     * 的占位。按 {@code text} 定位元素，因此注释或被注释掉的元素块都无法满足断言。
      */
-    private static void entriesAreWiredAndOnlyTheOfferingsEntryIsEnabled(Document view) {
+    private static void entriesAreWiredAndOnlyTheOfferingsAndTimetableEntriesAreEnabled(
+            Document view) {
         Element offerings = buttonWithText(view, "教学班");
         require(offerings != null, "the top-right entries must include 教学班");
         require(!offerings.hasAttribute("disable") || "false".equals(
@@ -266,6 +292,16 @@ public final class TeacherCourseManagementControllerTest {
         require("#handleOpenOfferings".equals(offerings.getAttribute("onAction")),
                 "教学班 must be wired to #handleOpenOfferings, saw "
                         + offerings.getAttribute("onAction"));
+
+        Element timetable = buttonWithText(view, "教学课程表");
+        require(timetable != null, "the top-right entries must include 教学课程表");
+        require(!timetable.hasAttribute("disable") || "false".equals(
+                        timetable.getAttribute("disable")),
+                "教学课程表 must be enabled now that the page exists, saw disable=\""
+                        + timetable.getAttribute("disable") + "\"");
+        require("#handleOpenTimetable".equals(timetable.getAttribute("onAction")),
+                "教学课程表 must be wired to #handleOpenTimetable, saw "
+                        + timetable.getAttribute("onAction"));
 
         for (String entry : STAGED_ENTRIES) {
             Element button = buttonWithText(view, entry);
@@ -359,6 +395,10 @@ public final class TeacherCourseManagementControllerTest {
         return new TeacherOfferingDetailController(service, Runnable::run);
     }
 
+    private static TeacherScheduleController schedule(TeacherCourseService service) {
+        return new TeacherScheduleController(service, Runnable::run);
+    }
+
     private static Document parseView() throws Exception {
         DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
         factory.setNamespaceAware(false);
@@ -438,6 +478,7 @@ public final class TeacherCourseManagementControllerTest {
         private final List<String> offeringCalls = new ArrayList<>();
         private final List<String> detailCalls = new ArrayList<>();
         private final List<String> rosterCalls = new ArrayList<>();
+        private int scheduleCalls;
 
         @Override
         public CompletableFuture<List<CourseTermDTO>> listTerms() {
@@ -491,6 +532,7 @@ public final class TeacherCourseManagementControllerTest {
         @Override
         public CompletableFuture<TeacherScheduleWeekDTO> loadTeachingSchedule(
                 int academicYear, int semester, Integer week) {
+            scheduleCalls++;
             return CompletableFuture.completedFuture(new TeacherScheduleWeekDTO(
                     "9007199254740991", "Asia/Shanghai", week == null ? 1 : week, 1, 16, 1,
                     List.of(), List.of(), List.of()));

@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.ComboBox?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.layout.GridPane?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.layout.StackPane?>
+<?import javafx.scene.layout.VBox?>
+
+<!--
+  教师教学课程表（设计 §3）：日期列、节次行与可滚动网格都由控制器按响应动态生成，这里只声明外壳。
+  网格放进 ScrollPane（fitToWidth/fitToHeight 关闭），因此 860x580 里可以横向与纵向滚动；页面自身
+  不声明比外壳更大的 pref 尺寸。样式全部来自 teacher-course.css。
+-->
+<VBox spacing="10.0" styleClass="teacher-course-page" xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.TeacherScheduleController">
+    <children>
+        <HBox alignment="CENTER_LEFT" spacing="10.0" styleClass="teacher-course-toolbar">
+            <children>
+                <ComboBox fx:id="termFilter" prefWidth="200.0" promptText="学期" styleClass="teacher-course-term-filter" />
+                <Region HBox.hgrow="ALWAYS" />
+                <Button fx:id="currentWeekButton" onAction="#handleBackToCurrentWeek" styleClass="teacher-course-page-button" text="回到本周" />
+                <Button fx:id="previousWeekButton" onAction="#handlePreviousWeek" styleClass="teacher-course-page-button" text="上一周" />
+                <Label fx:id="weekLabel" styleClass="teacher-schedule-week-label" text="" />
+                <Button fx:id="nextWeekButton" onAction="#handleNextWeek" styleClass="teacher-course-page-button" text="下一周" />
+                <Button fx:id="refreshButton" onAction="#refresh" styleClass="teacher-course-refresh-button" text="刷新" />
+            </children>
+        </HBox>
+        <StackPane styleClass="teacher-course-list-area" VBox.vgrow="ALWAYS">
+            <children>
+                <ScrollPane fx:id="scheduleScroll" fitToHeight="false" fitToWidth="false" maxHeight="1.7976931348623157E308" maxWidth="1.7976931348623157E308" styleClass="teacher-schedule-scroll" StackPane.alignment="CENTER">
+                    <content>
+                        <GridPane fx:id="scheduleGrid" maxHeight="1.7976931348623157E308" maxWidth="1.7976931348623157E308" styleClass="teacher-schedule-grid" />
+                    </content>
+                </ScrollPane>
+                <VBox alignment="CENTER" maxHeight="-Infinity" spacing="10.0" styleClass="teacher-course-state-area" StackPane.alignment="BOTTOM_CENTER">
+                    <children>
+                        <Label fx:id="loadingLabel" managed="false" styleClass="teacher-course-loading-text" text="正在加载课表..." visible="false" />
+                        <Label fx:id="emptyLabel" managed="false" styleClass="teacher-course-empty-state" text="本周没有课程" visible="false" />
+                        <Label fx:id="errorLabel" managed="false" maxWidth="520.0" styleClass="teacher-course-error-text" text="" visible="false" />
+                        <Button fx:id="errorRetryButton" managed="false" onAction="#refresh" styleClass="teacher-course-retry-button" text="重试" visible="false" />
+                    </children>
+                    <padding>
+                        <Insets bottom="12.0" />
+                    </padding>
+                </VBox>
+            </children>
+        </StackPane>
+    </children>
+</VBox>

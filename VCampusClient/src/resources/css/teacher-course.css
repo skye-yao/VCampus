@@ -269,3 +269,153 @@
     -fx-padding: 8px 10px 8px 10px;
 }
 
+/* ================= 8. 教学课程表与课次详情 ================= */
+
+.teacher-schedule-week-label {
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #151E49;
+    -fx-padding: 0 6px 0 6px;
+}
+
+.teacher-schedule-scroll {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-padding: 0;
+}
+
+.teacher-schedule-scroll > .viewport {
+    -fx-background-color: transparent;
+}
+
+.teacher-schedule-grid {
+    -fx-background-color: #ffffff;
+    -fx-hgap: 2px;
+    -fx-vgap: 2px;
+}
+
+.teacher-schedule-header {
+    -fx-background-color: #eaf0ea;
+    -fx-background-radius: 3px;
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #3f553f;
+    -fx-padding: 4px 6px 4px 6px;
+}
+
+.teacher-schedule-period-label {
+    -fx-background-color: #f6f8f6;
+    -fx-background-radius: 3px;
+    -fx-font-size: 11px;
+    -fx-text-fill: #657067;
+    -fx-padding: 4px 6px 4px 6px;
+}
+
+.teacher-schedule-cell {
+    -fx-background-color: #fbfcfb;
+    -fx-background-radius: 3px;
+    -fx-border-color: #eef2ee;
+    -fx-border-radius: 3px;
+}
+
+/* 非教学日仍然占一整列，只是整列灰显，不用“过滤掉这一天”代替。 */
+.teacher-schedule-non-teaching {
+    -fx-background-color: #f0f1f0;
+    -fx-text-fill: #9aa39a;
+}
+
+.teacher-schedule-component {
+    -fx-background-color: transparent;
+}
+
+.teacher-schedule-card {
+    -fx-background-color: #eaf2ea;
+    -fx-background-radius: 4px;
+    -fx-border-color: #587558;
+    -fx-border-radius: 4px;
+    -fx-border-width: 1px 1px 1px 3px;
+    -fx-padding: 5px 7px 5px 7px;
+    -fx-alignment: center-left;
+    -fx-cursor: hand;
+}
+
+.teacher-schedule-card:hover {
+    -fx-background-color: #dcebdc;
+}
+
+.teacher-schedule-card-title {
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #151E49;
+}
+
+.teacher-schedule-card-meta {
+    -fx-font-size: 10px;
+    -fx-text-fill: #4f5b52;
+}
+
+.teacher-schedule-badge {
+    -fx-background-color: #587558;
+    -fx-background-radius: 3px;
+    -fx-font-size: 9px;
+    -fx-text-fill: #ffffff;
+    -fx-padding: 1px 5px 1px 5px;
+}
+
+/* 旧位置只是提示层：灰显并带“原安排”角标，不额外占列。 */
+.teacher-schedule-adjusted-original {
+    -fx-background-color: #edeeed;
+    -fx-border-color: #b6bdb6;
+}
+
+.teacher-schedule-adjusted-original .teacher-schedule-card-title {
+    -fx-text-fill: #6b736b;
+}
+
+/* 调整后的新位置是真实占用的课次。 */
+.teacher-schedule-adjusted-target {
+    -fx-background-color: #fff6df;
+    -fx-border-color: #f6ab00;
+}
+
+.teacher-course-dialog {
+    -fx-background-color: #f6f8f6;
+}
+
+.teacher-course-dialog-title {
+    -fx-font-size: 16px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #151E49;
+}
+
+.teacher-schedule-dialog-section {
+    -fx-background-color: #ffffff;
+    -fx-background-radius: 6px;
+    -fx-border-color: #dce4dc;
+    -fx-border-radius: 6px;
+    -fx-padding: 12px;
+}
+
+.teacher-schedule-dialog-line {
+    -fx-font-size: 13px;
+    -fx-text-fill: #2b332b;
+}
+
+.teacher-schedule-dialog-adjustment {
+    -fx-background-color: #fff9ec;
+    -fx-background-radius: 6px;
+    -fx-border-color: #f0dcb4;
+    -fx-border-radius: 6px;
+    -fx-padding: 10px 12px 10px 12px;
+}
+
+.teacher-schedule-dialog-adjustment-line {
+    -fx-font-size: 13px;
+    -fx-text-fill: #6b4d12;
+}
+
+.teacher-schedule-dialog-hint {
+    -fx-font-size: 12px;
+    -fx-text-fill: #8a6d1f;
+}
+

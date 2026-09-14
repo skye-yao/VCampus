@@ -12,17 +12,17 @@ import service.TeacherCourseServices;
 /**
  * 教师工作台外壳：左上“返回首页”，右上四入口（教学课程表、教学班、成绩录入、我的申请）。
  *
- * <p>子页托管沿用 {@link AdminCourseManagementController} 的机制：三个页面（工作台首页、教学班列表、
- * 教学班详情）都由 FXML 的 {@code fx:include} 一次性装入，外壳只切换它们的 {@code visible/managed}，
- * 并在页面被激活时调用子页自己的 {@code activate}/{@code showOffering} 加载数据。选它是因为仓库里
- * 所有壳页（学生端 {@code CourseManagementView}、管理员后台、审批控制台）都是同一套机制，子页控制器
- * 还能在无工具包的测试里直接装配。
+ * <p>子页托管沿用 {@link AdminCourseManagementController} 的机制：四个页面（工作台首页、教学班列表、
+ * 教学班详情、教学课程表）都由 FXML 的 {@code fx:include} 一次性装入，外壳只切换它们的
+ * {@code visible/managed}，并在页面被激活时调用子页自己的 {@code activate}/{@code showOffering}
+ * 加载数据。选它是因为仓库里所有壳页（学生端 {@code CourseManagementView}、管理员后台、审批控制台）
+ * 都是同一套机制，子页控制器还能在无工具包的测试里直接装配。
  *
  * <p>导航语义：列表页保存的学期、搜索文本与页码在往返详情后保持不变（只重新加载当前页）；离开一个
  * 子页时它会被 {@code unload}/{@code release}，在途请求的响应随即失效，详情页也不保留上一个教学班的
  * 数据，因此不存在长期驻留的过期子页控制器。
  *
- * <p>分阶段边界：教学班已接入；教学课程表、成绩录入、我的申请仍属于后续阶段，入口保持禁用并把
+ * <p>分阶段边界：教学班与教学课程表已接入；成绩录入、我的申请仍属于后续阶段，入口保持禁用并把
  * {@link #STAGING_NOTICE} 显示在首页。详情页的“成绩录入”按钮只把教学班交回工作台的
  * {@link #openGrades(String)}，本阶段不打开任何成绩页、也不发起任何写请求。
  */
@@ -30,13 +30,14 @@ public final class TeacherCourseManagementController {
     /** 供未交付入口使用的阶段性提示文案。 */
     static final String STAGING_NOTICE = "该功能将在后续阶段接入";
     /** 首页默认文案：说明已接入与待接入的功能。 */
-    static final String HOME_NOTICE = "教学班已接入；教学课程表、成绩录入、我的申请将在后续阶段接入。";
+    static final String HOME_NOTICE = "教学班、教学课程表已接入；成绩录入、我的申请将在后续阶段接入。";
     /** “返回首页”的目标视图。 */
     static final String HOME_VIEW = "/resources/fxml/MainView.fxml";
     /** 当前显示的子页。 */
     static final String PAGE_HOME = "home";
     static final String PAGE_OFFERINGS = "offerings";
     static final String PAGE_DETAIL = "detail";
+    static final String PAGE_SCHEDULE = "schedule";
 
     private final TeacherCourseService service;
     private Runnable backAction = () -> ClientMain.switchScene(HOME_VIEW);
@@ -48,6 +49,8 @@ public final class TeacherCourseManagementController {
     @FXML private TeacherOfferingController offeringsPageController;
     @FXML private Node detailPage;
     @FXML private TeacherOfferingDetailController detailPageController;
+    @FXML private Node schedulePage;
+    @FXML private TeacherScheduleController schedulePageController;
     @FXML private Label statusLabel;
 
     public TeacherCourseManagementController() {
@@ -60,29 +63,36 @@ public final class TeacherCourseManagementController {
 
     @FXML
     public void initialize() {
-        wire(homePanel, offeringsPage, offeringsPageController, detailPage, detailPageController);
+        wire(homePanel, offeringsPage, offeringsPageController, detailPage, detailPageController,
+                schedulePage, schedulePageController);
     }
 
     /**
-     * 装配已加载的子页：把打开详情、返回列表与成绩入口接上，然后回到首页。
+     * 装配已加载的子页：把打开详情、返回列表、成绩入口与课表的“查看教学班”导航接上，然后回到首页。
      *
      * <p>节点可以为 {@code null}（控制器测试不加载 FXML）；子页控制器为 {@code null} 时导航只切换
      * 当前页，不做任何加载。子页控制器由 {@code FXMLLoader} 用无参构造创建，与外壳一样取用
      * {@link TeacherCourseServices#current()} 这个共享实例，因此生产路径上只有一份教师课程服务。
      */
     void wire(Node homePanel, Node offeringsPage, TeacherOfferingController offeringsPageController,
-            Node detailPage, TeacherOfferingDetailController detailPageController) {
+            Node detailPage, TeacherOfferingDetailController detailPageController,
+            Node schedulePage, TeacherScheduleController schedulePageController) {
         this.homePanel = homePanel;
         this.offeringsPage = offeringsPage;
         this.offeringsPageController = offeringsPageController;
         this.detailPage = detailPage;
         this.detailPageController = detailPageController;
+        this.schedulePage = schedulePage;
+        this.schedulePageController = schedulePageController;
         if (offeringsPageController != null) {
             offeringsPageController.setOnShowOffering(this::showOffering);
         }
         if (detailPageController != null) {
             detailPageController.setBackAction(this::backToOfferings);
             detailPageController.setOpenGrades(this::openGrades);
+        }
+        if (schedulePageController != null) {
+            schedulePageController.setOpenOffering(this::showOffering);
         }
         showHome();
     }
@@ -101,7 +111,7 @@ public final class TeacherCourseManagementController {
         return service;
     }
 
-    // 四个入口：教学班已接入，其余三个按分阶段计划仍是占位。
+    // 四个入口：教学班与教学课程表已接入，成绩录入与我的申请按分阶段计划仍是占位。
 
     @FXML
     void handleOpenOfferings(Event event) {
@@ -123,10 +133,13 @@ public final class TeacherCourseManagementController {
         openApplications();
     }
 
-    /** 打开教学班列表；离开详情页时释放它，列表页保留自己的学期、搜索与页码。 */
+    /** 打开教学班列表；离开详情页与课表页时卸下它们，列表页保留自己的学期、搜索与页码。 */
     void openOfferings() {
         if (detailPageController != null) {
             detailPageController.release();
+        }
+        if (schedulePageController != null) {
+            schedulePageController.unload();
         }
         if (offeringsPageController != null) {
             offeringsPageController.activate();
@@ -135,11 +148,17 @@ public final class TeacherCourseManagementController {
         render();
     }
 
-    /** 打开某个教学班的详情；列表页被卸下，因此在途响应不会再写界面。 */
+    /**
+     * 打开某个教学班的详情；列表页与课表页都被卸下，因此在途响应不会再写界面。
+     * 课次详情弹窗的“查看教学班”也走这里。
+     */
     void showOffering(String offeringId) {
         if (offeringId == null || offeringId.isBlank()) return;
         if (offeringsPageController != null) {
             offeringsPageController.unload();
+        }
+        if (schedulePageController != null) {
+            schedulePageController.unload();
         }
         if (detailPageController != null) {
             detailPageController.showOffering(offeringId);
@@ -153,9 +172,19 @@ public final class TeacherCourseManagementController {
         openOfferings();
     }
 
+    /** 打开教学课程表：卸下其它子页并激活课表页，首页文案保持不变。 */
     void openTimetable() {
-        showHome();
-        showStagingNotice();
+        if (offeringsPageController != null) {
+            offeringsPageController.unload();
+        }
+        if (detailPageController != null) {
+            detailPageController.release();
+        }
+        if (schedulePageController != null) {
+            schedulePageController.activate();
+        }
+        currentPage = PAGE_SCHEDULE;
+        render();
     }
 
     /**
@@ -171,13 +200,16 @@ public final class TeacherCourseManagementController {
         showStagingNotice();
     }
 
-    /** 回到工作台首页，同时卸下两个子页。 */
+    /** 回到工作台首页，同时卸下三个子页。 */
     void showHome() {
         if (offeringsPageController != null) {
             offeringsPageController.unload();
         }
         if (detailPageController != null) {
             detailPageController.release();
+        }
+        if (schedulePageController != null) {
+            schedulePageController.unload();
         }
         currentPage = PAGE_HOME;
         render();
@@ -192,6 +224,7 @@ public final class TeacherCourseManagementController {
         setPageState(homePanel, PAGE_HOME.equals(currentPage));
         setPageState(offeringsPage, PAGE_OFFERINGS.equals(currentPage));
         setPageState(detailPage, PAGE_DETAIL.equals(currentPage));
+        setPageState(schedulePage, PAGE_SCHEDULE.equals(currentPage));
         if (statusLabel != null) {
             statusLabel.setText(noticeText);
         }
