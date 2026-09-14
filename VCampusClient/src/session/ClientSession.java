@@ -100,4 +100,8 @@ public class ClientSession {
     public synchronized boolean hasFinancePermission() {
         return adminPermission != null && adminPermission.isFinancePerm();
     }
+
+    public synchronized boolean hasUserPermission() {
+        return adminPermission != null && adminPermission.isUserPerm();
+    }
 }

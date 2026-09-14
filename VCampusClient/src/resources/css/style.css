@@ -662,6 +662,12 @@
     -fx-padding: 14px 16px;
 }
 
+.chat-bubble-ai-active {
+    -fx-border-color: -fx-seu-green;
+    -fx-border-width: 1.5px;
+    -fx-background-color: #f2f7f2;
+}
+
 .chat-bubble-ai-text {
     -fx-text-fill: -fx-seu-dark;
     -fx-font-size: 14px;
@@ -983,4 +989,112 @@
 
 .perm-table .table-row-cell:selected {
     -fx-background-color: #eaf0ea;
+}
+
+/* ================= 7. 用户管理模块样式 ================= */
+.tag-status-active {
+    -fx-background-color: #dcfce7;
+    -fx-text-fill: #15803d;
+    -fx-font-weight: bold;
+    -fx-font-size: 11.5px;
+    -fx-padding: 3 8 3 8;
+    -fx-background-radius: 4px;
+}
+
+.tag-status-frozen {
+    -fx-background-color: #fee2e2;
+    -fx-text-fill: #b91c1c;
+    -fx-font-weight: bold;
+    -fx-font-size: 11.5px;
+    -fx-padding: 3 8 3 8;
+    -fx-background-radius: 4px;
+}
+
+.tag-status-deleted {
+    -fx-background-color: #f3f4f6;
+    -fx-text-fill: #6b7280;
+    -fx-font-weight: bold;
+    -fx-font-size: 11.5px;
+    -fx-padding: 3 8 3 8;
+    -fx-background-radius: 4px;
+}
+
+.tag-role-student {
+    -fx-background-color: #e0f2fe;
+    -fx-text-fill: #0369a1;
+    -fx-font-weight: bold;
+    -fx-font-size: 11.5px;
+    -fx-padding: 3 8 3 8;
+    -fx-background-radius: 4px;
+}
+
+.tag-role-teacher {
+    -fx-background-color: #fef3c7;
+    -fx-text-fill: #b45309;
+    -fx-font-weight: bold;
+    -fx-font-size: 11.5px;
+    -fx-padding: 3 8 3 8;
+    -fx-background-radius: 4px;
+}
+
+.tag-role-admin {
+    -fx-background-color: #ede9fe;
+    -fx-text-fill: #6d28d9;
+    -fx-font-weight: bold;
+    -fx-font-size: 11.5px;
+    -fx-padding: 3 8 3 8;
+    -fx-background-radius: 4px;
+}
+
+.btn-table-action {
+    -fx-font-size: 11.5px;
+    -fx-padding: 3 8 3 8;
+    -fx-background-radius: 4px;
+    -fx-cursor: hand;
+    -fx-font-weight: bold;
+}
+
+.btn-table-edit {
+    -fx-background-color: #e0f2fe;
+    -fx-text-fill: #0369a1;
+}
+
+.btn-table-edit:hover {
+    -fx-background-color: #bae6fd;
+}
+
+.btn-table-freeze {
+    -fx-background-color: #fef3c7;
+    -fx-text-fill: #b45309;
+}
+
+.btn-table-freeze:hover {
+    -fx-background-color: #fde68a;
+}
+
+.btn-table-unfreeze {
+    -fx-background-color: #dcfce7;
+    -fx-text-fill: #15803d;
+}
+
+.btn-table-unfreeze:hover {
+    -fx-background-color: #bbf7d0;
+}
+
+.btn-table-reset {
+    -fx-background-color: #f1f5f9;
+    -fx-text-fill: #475569;
+}
+
+.btn-table-reset:hover {
+    -fx-background-color: #e2e8f0;
+}
+
+.btn-table-delete {
+    -fx-background-color: #fee2e2;
+    -fx-text-fill: #b91c1c;
+}
+
+.btn-table-delete:hover {
+    -fx-background-color: #fecaca;
 }

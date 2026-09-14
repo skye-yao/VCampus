@@ -47,6 +47,7 @@ public class MainController {
     @FXML private Button navStoreBtn;
     @FXML private Button navBankBtn;
     @FXML private Button navAiBtn;
+    @FXML private Button userNavBtn;
     @FXML private Button permissionNavBtn;
     @FXML private Button navLogoutBtn;
 
@@ -61,6 +62,7 @@ public class MainController {
     @FXML private Label permStatusCourse;
     @FXML private Label permStatusShop;
     @FXML private Label permStatusBank;
+    @FXML private Label permStatusUser;
     @FXML private Label myPermDetailText;
 
     // ===== 学生与教师“学籍信息”卡片 =====
@@ -184,6 +186,13 @@ public class MainController {
             permissionNavBtn.setVisible(isSuperAdmin);
             permissionNavBtn.setManaged(isSuperAdmin);
         }
+        if (userNavBtn != null) {
+            userNavBtn.setVisible(isAdmin);
+            userNavBtn.setManaged(isAdmin);
+        }
+        if (navStudentBtn != null) {
+            navStudentBtn.setText(isTeacher ? "🎓   教职信息" : "🎓   学籍信息");
+        }
         if (adminPermissionCard != null) {
             adminPermissionCard.setVisible(isAdmin);
             adminPermissionCard.setManaged(isAdmin);
@@ -191,6 +200,12 @@ public class MainController {
         if (studentAcademicCard != null) {
             studentAcademicCard.setVisible(!isAdmin);
             studentAcademicCard.setManaged(!isAdmin);
+            if (academicCardTitle != null) {
+                academicCardTitle.setText(isTeacher ? "🎓  教职信息" : "🎓  学籍信息");
+            }
+            if (academicStatusKeyLabel != null) {
+                academicStatusKeyLabel.setText(isTeacher ? "在任状态" : "学籍状态");
+            }
         }
 
         if (isAdmin) {
@@ -375,6 +390,15 @@ public class MainController {
     }
 
     @FXML
+    public void handleNavigateUserManage(ActionEvent event) {
+        if (!ClientSession.getInstance().hasUserPermission()) {
+            AlertUtil.showWarning("权限不足", "您没有用户管理权限");
+            return;
+        }
+        ClientMain.switchScene("/resources/fxml/UserView.fxml");
+    }
+
+    @FXML
     public void openAI(ActionEvent event) {
         ClientMain.switchScene("/resources/fxml/AIview.fxml");
     }
@@ -443,6 +467,7 @@ public class MainController {
         boolean course = session.hasCoursePermission();
         boolean shop = session.hasShopPermission();
         boolean bank = session.hasBankPermission();
+        boolean userPerm = session.hasUserPermission();
 
         // 第二行各个模块的只读状态指示
         setPermBadge(permStatusAcademic, academic);
@@ -450,6 +475,7 @@ public class MainController {
         setPermBadge(permStatusCourse, course);
         setPermBadge(permStatusShop, shop);
         setPermBadge(permStatusBank, bank);
+        setPermBadge(permStatusUser, userPerm);
 
         // 文字总结
         List<String> authorized = new java.util.ArrayList<>();
@@ -458,6 +484,7 @@ public class MainController {
         if (course) authorized.add("选课");
         if (shop) authorized.add("商店");
         if (bank) authorized.add("银行");
+        if (userPerm) authorized.add("用户管理");
 
         if (isSuperAdmin) {
             if (authorized.isEmpty()) {
@@ -511,7 +538,7 @@ public class MainController {
             return;
         }
         if (isTeacher) {
-            if (academicCardTitle != null) academicCardTitle.setText("🎓  学籍信息");
+            if (academicCardTitle != null) academicCardTitle.setText("🎓  教职信息");
             if (academicStatusKeyLabel != null) academicStatusKeyLabel.setText("在任状态");
             Message request = new Message(MessageType.TEACHER_OVERVIEW_QUERY, "teacher", "overview");
             SocketClient.getInstance().sendAsync(request).thenAccept(response -> {

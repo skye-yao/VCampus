@@ -46,8 +46,12 @@ public class User implements Serializable {
     /** 校园账户余额镜像；主数据存放于校园银行账户表。 */
     private BigDecimal balance;
 
+    /** 账号状态: ACTIVE-正常, FROZEN-已冻结, DELETED-已注销 */
+    private String status = "ACTIVE";
+
     public User() {
         this.balance = BigDecimal.ZERO;
+        this.status = "ACTIVE";
     }
 
     public User(String UID, String name, Role role) {
@@ -151,6 +155,14 @@ public class User implements Serializable {
         this.balance = balance;
     }
 
+    public String getStatus() {
+        return status != null ? status : "ACTIVE";
+    }
+
+    public void setStatus(String status) {
+        this.status = status;
+    }
+
     @Override
     public String toString() {
         return "User{" +
@@ -163,6 +175,7 @@ public class User implements Serializable {
                 ", phone='" + phone + '\'' +
                 ", email='" + email + '\'' +
                 ", balance=" + balance +
+                ", status='" + status + '\'' +
                 '}';
     }
 }

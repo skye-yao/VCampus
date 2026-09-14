@@ -22,8 +22,11 @@ public class LoginController {
     @FXML private ComboBox<String> roleComboBox;
     @FXML private TextField usernameField;
     @FXML private PasswordField passwordField;
+    @FXML private TextField captchaField;
+    @FXML private javafx.scene.image.ImageView captchaImageView;
     @FXML private Button loginButton;
 
+    private String currentCaptchaId;
     private final Gson gson = new Gson();
 
     @FXML
@@ -42,6 +45,34 @@ public class LoginController {
         if (passwordField != null) {
             passwordField.setOnAction(this::handleLogin);
         }
+        if (captchaField != null) {
+            captchaField.setOnAction(this::handleLogin);
+        }
+
+        loadCaptcha();
+    }
+
+    @FXML
+    private void handleRefreshCaptcha(javafx.scene.input.MouseEvent event) {
+        loadCaptcha();
+    }
+
+    public void loadCaptcha() {
+        Message req = new Message(MessageType.REQUEST, "user", "get_captcha");
+        SocketClient.getInstance().sendAsync(req).thenAccept(res -> Platform.runLater(() -> {
+            if (res.getCode() == MessageCode.SUCCESS) {
+                currentCaptchaId = res.getData("captchaId");
+                String base64 = res.getData("imageBase64");
+                if (base64 != null && captchaImageView != null) {
+                    try {
+                        byte[] bytes = java.util.Base64.getDecoder().decode(base64);
+                        captchaImageView.setImage(new javafx.scene.image.Image(new java.io.ByteArrayInputStream(bytes)));
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+        })).exceptionally(e -> null);
     }
 
     @FXML
@@ -60,11 +91,20 @@ public class LoginController {
             return;
         }
 
+        String captcha = captchaField != null ? captchaField.getText() : null;
+        if (captcha == null || captcha.trim().isEmpty()) {
+            AlertUtil.showWarning("提示", "请输入图形验证码！");
+            if (captchaField != null) captchaField.requestFocus();
+            return;
+        }
+
         // 构造登录请求消息
         Message request = new Message(MessageType.REQUEST, "user", "login");
         request.putData("cardNo", username.trim());
         request.putData("password", password.trim());
         request.putData("role", role);
+        request.putData("captchaId", currentCaptchaId);
+        request.putData("captchaCode", captcha.trim());
 
         if (loginButton != null) {
             loginButton.setDisable(true);
@@ -115,6 +155,8 @@ public class LoginController {
                         ClientMain.switchScene("/resources/fxml/MainView.fxml");
                     } else {
                         AlertUtil.showError("登录失败", response.getMessage() != null ? response.getMessage() : "用户名或密码错误");
+                        loadCaptcha();
+                        if (captchaField != null) captchaField.clear();
                     }
                 }))
                 .exceptionally(ex -> {
@@ -124,6 +166,7 @@ public class LoginController {
                             loginButton.setText("登 录");
                         }
                         AlertUtil.showError("网络异常", "连接服务端失败，请确认服务端已启动！\n" + ex.getMessage());
+                        loadCaptcha();
                     });
                     return null;
                 });

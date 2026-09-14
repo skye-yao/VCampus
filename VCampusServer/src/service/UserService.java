@@ -45,6 +45,14 @@ public class UserService {
             throw new BusinessException("用户不存在");
         }
 
+        // 校验账号状态
+        if ("FROZEN".equalsIgnoreCase(user.getStatus())) {
+            throw new BusinessException("该账号已被冻结，请联系系统管理员");
+        }
+        if ("DELETED".equalsIgnoreCase(user.getStatus())) {
+            throw new BusinessException("该账号已被注销");
+        }
+
         // 校验身份角色
         if (roleStr != null && !roleStr.trim().isEmpty()) {
             Role expectedRole = user.getRole();
@@ -375,6 +383,88 @@ public class UserService {
             System.out.println("[找回密码服务] 用户 " + uid + " 密码重置成功");
         } catch (SQLException e) {
             throw new DatabaseException("更新密码数据库异常", e);
+        }
+    }
+
+    /**
+     * 管理员多条件查询用户列表（脱敏）
+     */
+    public java.util.List<User> listUsers(String keyword, String role, String status) throws DatabaseException {
+        try {
+            java.util.List<User> list = userDAO.listUsers(keyword, role, status);
+            for (User u : list) {
+                u.setPassword(null);
+                u.setSalt(null);
+            }
+            return list;
+        } catch (SQLException e) {
+            throw new DatabaseException("查询用户列表失败", e);
+        }
+    }
+
+    /**
+     * 管理员修改用户状态（正常 ACTIVE、冻结 FROZEN、注销 DELETED）
+     * 若为冻结或注销，且该用户在线，则立即强制踢其下线。
+     */
+    public void updateUserStatus(String targetUid, String newStatus) throws BusinessException, DatabaseException {
+        if (targetUid == null || targetUid.trim().isEmpty()) {
+            throw new BusinessException("目标用户UID不能为空");
+        }
+        if (newStatus == null || (!"ACTIVE".equalsIgnoreCase(newStatus) && !"FROZEN".equalsIgnoreCase(newStatus) && !"DELETED".equalsIgnoreCase(newStatus))) {
+            throw new BusinessException("非法的状态参数");
+        }
+        newStatus = newStatus.toUpperCase();
+        try {
+            boolean ok = userDAO.updateStatus(targetUid.trim(), newStatus);
+            if (!ok) {
+                throw new BusinessException("用户不存在或状态更新失败");
+            }
+
+            // 若账号被冻结或注销，则将其强制踢下线
+            if ("FROZEN".equals(newStatus)) {
+                SessionManager.getInstance().kickUser(targetUid.trim(), "您的账号已被管理员冻结，已被强制下线。如需解冻请联系管理员。");
+            } else if ("DELETED".equals(newStatus)) {
+                SessionManager.getInstance().kickUser(targetUid.trim(), "您的账号已被管理员注销，已被强制下线。");
+            }
+        } catch (SQLException e) {
+            throw new DatabaseException("更新账号状态失败", e);
+        }
+    }
+
+    /**
+     * 管理员重置用户密码为默认密码 "123456"
+     */
+    public void resetUserPassword(String targetUid) throws BusinessException, DatabaseException {
+        if (targetUid == null || targetUid.trim().isEmpty()) {
+            throw new BusinessException("目标用户UID不能为空");
+        }
+        String defaultPwd = "123456";
+        String salt = PasswordUtil.generateSalt();
+        String hash = PasswordUtil.hashPassword(defaultPwd, salt);
+        try {
+            boolean ok = userDAO.updatePassword(targetUid.trim(), hash, salt);
+            if (!ok) {
+                throw new BusinessException("用户不存在或密码重置失败");
+            }
+        } catch (SQLException e) {
+            throw new DatabaseException("重置密码失败", e);
+        }
+    }
+
+    /**
+     * 管理员修改用户资料
+     */
+    public void adminUpdateUser(User user) throws BusinessException, DatabaseException {
+        if (user == null || user.getUID() == null || user.getUID().trim().isEmpty()) {
+            throw new BusinessException("用户信息不完整");
+        }
+        try {
+            boolean ok = userDAO.adminUpdateUser(user);
+            if (!ok) {
+                throw new BusinessException("用户不存在或更新失败");
+            }
+        } catch (SQLException e) {
+            throw new DatabaseException("更新用户资料失败", e);
         }
     }
 }

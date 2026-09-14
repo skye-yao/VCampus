@@ -9,6 +9,7 @@
 <?import javafx.scene.control.Label?>
 <?import javafx.scene.control.PasswordField?>
 <?import javafx.scene.control.TextField?>
+<?import javafx.scene.image.ImageView?>
 <?import javafx.scene.layout.HBox?>
 <?import javafx.scene.layout.StackPane?>
 <?import javafx.scene.layout.VBox?>
@@ -64,6 +65,23 @@
                     <children>
                         <Label styleClass="form-label" text="手机号码" />
                         <TextField fx:id="phoneField" prefHeight="36.0" promptText="请输入11位手机号码" styleClass="form-control" />
+                    </children>
+                </VBox>
+
+                <!-- 图形验证码 -->
+                <VBox spacing="4.0">
+                    <children>
+                        <Label styleClass="form-label" text="图形验证码" />
+                        <HBox alignment="CENTER_LEFT" spacing="8.0">
+                            <children>
+                                <TextField fx:id="captchaField" prefHeight="36.0" promptText="请输入4位验证码" styleClass="form-control" HBox.hgrow="ALWAYS" />
+                                <StackPane maxHeight="36.0" maxWidth="100.0" minHeight="36.0" minWidth="100.0" onMouseClicked="#handleRefreshCaptcha" prefHeight="36.0" prefWidth="100.0" style="-fx-cursor: hand; -fx-background-color: #f1f5f9; -fx-background-radius: 6px; -fx-border-color: #cbd5e1; -fx-border-radius: 6px;">
+                                    <children>
+                                        <ImageView fx:id="captchaImageView" fitHeight="34.0" fitWidth="98.0" pickOnBounds="true" preserveRatio="true" />
+                                    </children>
+                                </StackPane>
+                            </children>
+                        </HBox>
                     </children>
                 </VBox>
 

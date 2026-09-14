@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<BorderPane prefHeight="760.0" prefWidth="1180.0" style="-fx-background-color: #f4f6f8;"
+            stylesheets="@../css/style.css"
+            xmlns="http://javafx.com/javafx/17" xmlns:fx="http://javafx.com/fxml/1"
+            fx:controller="controller.UserController">
+    <!-- 顶部导航条 -->
+    <top>
+        <HBox alignment="CENTER_LEFT" prefHeight="64.0" spacing="14.0"
+              style="-fx-background-color: #ffffff; -fx-border-color: #e5e7eb; -fx-border-width: 0 0 1 0; -fx-padding: 0 24 0 24;">
+            <children>
+                <Button onAction="#handleBack" styleClass="btn-secondary" text="← 退出至主页" />
+                <Separator orientation="VERTICAL" maxHeight="24.0" />
+                <VBox alignment="CENTER_LEFT" spacing="2.0">
+                    <children>
+                        <Label style="-fx-font-size: 17px; -fx-font-weight: bold; -fx-text-fill: #151E49;" text="用户账号管理" />
+                        <Label style="-fx-font-size: 11px; -fx-text-fill: #6b7280; -fx-font-weight: bold;" text="USER ACCOUNT MANAGEMENT · 账号信息维护与权限生命周期控制" />
+                    </children>
+                </VBox>
+                <Region HBox.hgrow="ALWAYS" />
+                <Button onAction="#handleRefresh" styleClass="btn-secondary" text="🔄 刷新列表" />
+            </children>
+        </HBox>
+    </top>
+
+    <!-- 中心内容区域 -->
+    <center>
+        <ScrollPane fitToWidth="true" styleClass="content-scroll-pane">
+            <content>
+                <VBox spacing="18.0" styleClass="dash-content-pane">
+                    <padding>
+                        <Insets top="20.0" left="24.0" right="24.0" bottom="24.0" />
+                    </padding>
+                    <children>
+                        <!-- 卡片容器 -->
+                        <VBox spacing="16.0" styleClass="dashboard-card">
+                            <children>
+                                <HBox alignment="CENTER_LEFT">
+                                    <children>
+                                        <Label styleClass="dashboard-card-title" text="👥  全校用户账号管理" />
+                                        <Region HBox.hgrow="ALWAYS" />
+                                        <Label fx:id="statusLabel" style="-fx-font-size: 12px; -fx-text-fill: #587558;" text="" />
+                                    </children>
+                                </HBox>
+
+                                <!-- 提示信息框 -->
+                                <HBox alignment="CENTER_LEFT" spacing="8.0"
+                                      style="-fx-background-color: #f0fdf4; -fx-border-color: #bbf7d0; -fx-border-radius: 6px; -fx-background-radius: 6px; -fx-padding: 10 14 10 14;">
+                                    <children>
+                                        <Label style="-fx-font-size: 13px; -fx-text-fill: #166534;"
+                                               text="💡 提示：管理员可在此检索所有学生、教师与管理员账号。支持修改基本信息、冻结/解冻账号、重置默认密码（123456）以及注销账号。对在线账号执行冻结或注销将立即强制踢其下线。"
+                                               wrapText="true" />
+                                    </children>
+                                </HBox>
+
+                                <!-- 筛选检索工具栏 -->
+                                <HBox alignment="CENTER_LEFT" spacing="12.0"
+                                      style="-fx-background-color: #f8fafc; -fx-padding: 12 16 12 16; -fx-background-radius: 8px; -fx-border-color: #e2e8f0; -fx-border-radius: 8px;">
+                                    <children>
+                                        <Label style="-fx-font-weight: bold; -fx-font-size: 13px; -fx-text-fill: #374151;" text="关键词:" />
+                                        <TextField fx:id="searchField" prefWidth="220.0" promptText="一卡通号 / 姓名 / 手机 / 邮箱" styleClass="form-control" />
+
+                                        <Label style="-fx-font-weight: bold; -fx-font-size: 13px; -fx-text-fill: #374151;" text="身份角色:" />
+                                        <ComboBox fx:id="roleFilterComboBox" prefWidth="120.0" promptText="全部角色" />
+
+                                        <Label style="-fx-font-weight: bold; -fx-font-size: 13px; -fx-text-fill: #374151;" text="账号状态:" />
+                                        <ComboBox fx:id="statusFilterComboBox" prefWidth="120.0" promptText="全部状态" />
+
+                                        <Button onAction="#handleSearch" styleClass="btn-primary" text="🔍 查询" />
+                                        <Button onAction="#handleResetFilter" styleClass="btn-secondary" text="重置" />
+                                    </children>
+                                </HBox>
+
+                                <!-- 用户数据表格 -->
+                                <TableView fx:id="userTable" minHeight="420.0" prefHeight="480.0" styleClass="perm-table">
+                                    <columns>
+                                        <TableColumn fx:id="colUid" prefWidth="100.0" text="一卡通号" />
+                                        <TableColumn fx:id="colName" prefWidth="90.0" text="姓名" />
+                                        <TableColumn fx:id="colRole" prefWidth="80.0" text="身份" />
+                                        <TableColumn fx:id="colGender" prefWidth="60.0" text="性别" />
+                                        <TableColumn fx:id="colCollege" prefWidth="120.0" text="学院 / 部门" />
+                                        <TableColumn fx:id="colMajor" prefWidth="110.0" text="专业 / 职务" />
+                                        <TableColumn fx:id="colPhone" prefWidth="110.0" text="联系电话" />
+                                        <TableColumn fx:id="colEmail" prefWidth="140.0" text="电子邮箱" />
+                                        <TableColumn fx:id="colStatus" prefWidth="80.0" text="状态" />
+                                        <TableColumn fx:id="colActions" prefWidth="250.0" text="管理操作" />
+                                    </columns>
+                                    <columnResizePolicy>
+                                        <TableView fx:constant="CONSTRAINED_RESIZE_POLICY" />
+                                    </columnResizePolicy>
+                                </TableView>
+
+                                <!-- 底部工具栏 -->
+                                <HBox alignment="CENTER_RIGHT" spacing="14.0">
+                                    <children>
+                                        <Button onAction="#handleBack" prefHeight="38.0" styleClass="btn-secondary" text="退出至主页" />
+                                    </children>
+                                </HBox>
+                            </children>
+                        </VBox>
+                    </children>
+                </VBox>
+            </content>
+        </ScrollPane>
+    </center>
+</BorderPane>

@@ -67,6 +67,7 @@
                                         <TableColumn fx:id="colCourse" prefWidth="110.0" text="选课权限" />
                                         <TableColumn fx:id="colShop" prefWidth="110.0" text="商店权限" />
                                         <TableColumn fx:id="colBank" prefWidth="110.0" text="银行权限" />
+                                        <TableColumn fx:id="colUser" prefWidth="110.0" text="用户管理权限" />
                                     </columns>
                                     <columnResizePolicy>
                                         <TableView fx:constant="CONSTRAINED_RESIZE_POLICY" />
