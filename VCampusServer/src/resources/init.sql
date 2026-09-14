@@ -739,15 +739,15 @@ ON DUPLICATE KEY UPDATE `content`=VALUES(`content`);
 -- 1. 图书表 tblBook
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `tblBook` (
-                                         `id` INT NOT NULL AUTO_INCREMENT COMMENT '图书编号',
-                                         `isbn` VARCHAR(20) NOT NULL COMMENT 'ISBN编号',
-                                         `name` VARCHAR(100) NOT NULL COMMENT '图书名称',
-                                         `author` VARCHAR(100) NOT NULL COMMENT '图书作者',
-                                         `publisher` VARCHAR(100) DEFAULT '' COMMENT '出版社',
-                                         `price` DECIMAL(10,2) DEFAULT NULL COMMENT '图书赔偿价格，借出前录入',
-                                         `status` INT NOT NULL DEFAULT 0 COMMENT '状态: 0-可借, 1-已借, 2-预约, 3-遗失',
-                                         PRIMARY KEY (`id`),
-                                         UNIQUE KEY `uk_isbn` (`isbn`)
+`id` INT NOT NULL AUTO_INCREMENT COMMENT '图书编号',
+`isbn` VARCHAR(20) NOT NULL COMMENT 'ISBN编号',
+`name` VARCHAR(100) NOT NULL COMMENT '图书名称',
+`author` VARCHAR(100) NOT NULL COMMENT '图书作者',
+`publisher` VARCHAR(100) DEFAULT '' COMMENT '出版社',
+`price` DECIMAL(10,2) DEFAULT NULL COMMENT '图书赔偿价格，借出前录入',
+`status` INT NOT NULL DEFAULT 0 COMMENT '状态: 0-可借, 1-已借, 2-预约, 3-遗失',
+PRIMARY KEY (`id`),
+UNIQUE KEY `uk_isbn` (`isbn`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='图书基本信息表';
 
 -- ============================================================

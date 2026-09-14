@@ -128,6 +128,14 @@ public class LibraryHandler {
                         response.setMessage("只能取消本人仍在预约中的记录，请刷新后重试");
                     }
                     return response;
+                case "deletepubliclossnotice":
+                    if (!isAdmin(role)) return forbidden(response);
+                    Integer noticeBookId = getIntegerData(request, "bookId");
+                    if (noticeBookId == null || noticeBookId <= 0) throw new IllegalArgumentException("请选择挂失公告");
+                    boolean deleted = new dao.LibraryCirculationDAO().recoverLostNotice(noticeBookId);
+                    response.setCode(deleted ? MessageCode.SUCCESS : MessageCode.CONFLICT);
+                    response.setMessage(deleted ? "图书已找回入库，挂失已解除，公告已删除" : "公告已撤下，请刷新列表");
+                    return response;
                 case "getpubliclossnotices":
                     response.putData("notices", libraryService.getPublicLossNotices());
                     response.setCode(MessageCode.SUCCESS);
@@ -146,6 +154,11 @@ public class LibraryHandler {
                 // 图书预约 / 借阅信息
                 // =========================
                 case "reservebook":
+                    if (isAdmin(role)) {
+                        response.setCode(MessageCode.FORBIDDEN);
+                        response.setMessage("管理员不能预约或借阅图书");
+                        return response;
+                    }
                     return handleReserveBook(request, response, userId);
 
                 case "getborrowhistory":
@@ -185,6 +198,7 @@ public class LibraryHandler {
                     return handleGetFineRecords(response, userId);
 
                 case "payfine":
+                    if (isAdmin(role)) return forbidden(response);
                     return handlePayFine(request, response, userId);
 
                 // =========================
@@ -759,7 +773,7 @@ public class LibraryHandler {
     }
 
     private boolean isAdmin(String role) {
-        return Role.ADMIN.getDescription().equals(role);
+        return Role.ADMIN.getDescription().equals(role) || "ADMIN".equalsIgnoreCase(role);
     }
 
     /**

@@ -116,6 +116,24 @@ public class LibraryController {
     }
 
     @FXML private Tab adminTab;
+    @FXML private Tab myLibraryTab;
+    @FXML private Tab fineTab;
+    @FXML private Button reserveButton;
+    @FXML private Button deleteNoticeButton;
+    private boolean administrator;
+
+    @FXML private void handleDeleteLossNotice() {
+        if (!administrator || !ClientSession.getInstance().hasLibraryPermission()) return;
+        vo.LostBookNotice notice = lossNoticeList.getSelectionModel().getSelectedItem();
+        if (notice == null) { AlertUtil.showWarning("提示", "请选择要删除的挂失公告"); return; }
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
+                "确认《" + notice.getName() + "》已找回并交回图书馆？\n确认后将删除公告、解除挂失、结束借阅并恢复可借。"
+                        + "\n未缴赔偿将取消；逾期费按原规则结算。已缴费用请在罚款缴费页面办理退款。",
+                ButtonType.OK, ButtonType.CANCEL);
+        if (confirm.showAndWait().orElse(ButtonType.CANCEL) != ButtonType.OK) return;
+        runAction(service.deletePublicLossNotice(notice.getBookId()), "图书已找回入库，挂失已解除，公告已删除",
+                () -> { refreshLossNotices(); handleSearch(); });
+    }
     @FXML private TabPane libraryTabs;
     @FXML private TextField searchField;
     @FXML private TableView<Book> bookTable;
@@ -176,13 +194,19 @@ public class LibraryController {
     @FXML private Label fineDetailLabel;
     @FXML private Button adminRefundButton;
     private boolean finePaymentBusy;
-    @FXML private void handleAdminRefund() { new LibraryCirculationController().show(2); refreshMyLibrary(); }
+    @FXML private void handleAdminRefund() {
+        if (administrator && ClientSession.getInstance().hasLibraryPermission())
+            libraryTabs.getSelectionModel().select(fineTab);
+    }
 
     @FXML
     public void initialize() {
         updateEbookButtons();
         configureTables();
-        boolean administrator="管理员".equals(ClientSession.getInstance().getRole());
+        administrator = "管理员".equals(ClientSession.getInstance().getRole())
+                || "ADMIN".equalsIgnoreCase(ClientSession.getInstance().getRole());
+        myLibraryTab.setDisable(administrator);
+        reserveButton.setDisable(administrator);
         adminRefundButton.setVisible(administrator);adminRefundButton.setManaged(administrator);
         fineTable.getSelectionModel().selectedItemProperty().addListener((obs,old,fine)->showFine(fine));
         fineTable.getItems().addListener((javafx.collections.ListChangeListener<FineRecord>) change->{
@@ -205,8 +229,16 @@ public class LibraryController {
         if (adminTab != null && !canManageLibrary) {
             adminTab.setDisable(true);
         }
+        fineTab.setDisable(administrator && !canManageLibrary);
+        if (canManageLibrary) new LibraryCirculationController().configureFineTab(fineTab);
+        deleteNoticeButton.setVisible(canManageLibrary);
+        deleteNoticeButton.setManaged(canManageLibrary);
+        deleteNoticeButton.disableProperty().bind(lossNoticeList.getSelectionModel().selectedItemProperty().isNull());
         bookTable.getSelectionModel().selectedItemProperty().addListener((obs, oldBook, newBook) -> showBook(newBook));
         libraryTabs.getSelectionModel().selectedItemProperty().addListener((obs, oldTab, newTab) -> {
+            if (administrator && newTab == fineTab) {
+                return;
+            }
             if (newTab != adminTab) {
                 handleSearch();
                 refreshMyLibrary();
@@ -299,6 +331,7 @@ public class LibraryController {
     }
 
     @FXML private void handleReserve() {
+        if (administrator) return;
         if (!requireSelectedBook()) return;
         if (selectedBook.getStatus() != BookStatus.AVAILABLE.getCode()) {
             AlertUtil.showWarning("暂不可预约", "该书当前状态为：" + bookStatus(selectedBook.getStatus()));
@@ -329,6 +362,7 @@ public class LibraryController {
     }
 
     @FXML private void refreshMyLibrary() {
+        if (administrator) { refreshLossNotices(); return; }
         long version = ++myLibraryVersion;
         service.searchBooks("").whenComplete((books, error) -> Platform.runLater(() -> {
             if (version != myLibraryVersion) return;
@@ -369,6 +403,7 @@ public class LibraryController {
     }
 
     @FXML private void handlePayFine() {
+        if (administrator) { handleAdminRefund(); return; }
         if(finePaymentBusy)return;
         FineRecord fine = fineTable.getSelectionModel().getSelectedItem();
         if (fine == null) { AlertUtil.showWarning("提示", "请选择一条罚款记录"); return; }

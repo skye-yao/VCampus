@@ -46,6 +46,10 @@ public class LibraryClientService {
                 .thenApply(r -> list(r, "notices", new TypeToken<List<vo.LostBookNotice>>() {}.getType()));
     }
 
+    public CompletableFuture<Void> deletePublicLossNotice(int bookId) {
+        return bookAction("deletepubliclossnotice", bookId);
+    }
+
     public CompletableFuture<List<Book>> searchBooks(String keyword) {
         Message request = request("searchbook");
         request.putData("keyword", keyword == null ? "" : keyword.trim());

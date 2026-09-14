@@ -31,7 +31,7 @@
                                 <TextField fx:id="searchField" onAction="#handleSearch" promptText="输入书名、作者或 ISBN" HBox.hgrow="ALWAYS"/>
                                 <Button onAction="#handleSearch" styleClass="btn-primary" text="搜索"/>
                                 <Button onAction="#handleShowAll" styleClass="btn-secondary" text="显示全部"/>
-                                <Button onAction="#handleReserve" styleClass="btn-secondary" text="预约选中图书"/>
+                                <Button fx:id="reserveButton" onAction="#handleReserve" styleClass="btn-secondary" text="预约选中图书"/>
                             </HBox>
                         </top>
                         <center>
@@ -70,7 +70,7 @@
                         </center>
                     </BorderPane>
                 </Tab>
-                <Tab text="我的图书馆">
+                <Tab fx:id="myLibraryTab" text="我的图书馆">
                     <VBox spacing="9.0" styleClass="content-pane">
                         <padding><Insets bottom="12.0" left="14.0" right="14.0" top="12.0"/></padding>
                         <HBox alignment="CENTER_LEFT" spacing="9.0">
@@ -123,7 +123,7 @@
                         </SplitPane>
                     </VBox>
                 </Tab>
-                <Tab text="罚款缴费">
+                <Tab fx:id="fineTab" text="罚款缴费">
                     <VBox spacing="10.0" styleClass="content-pane">
                         <padding><Insets bottom="14.0" left="14.0" right="14.0" top="14.0"/></padding>
                         <HBox alignment="CENTER_LEFT">
@@ -150,7 +150,10 @@
                         <padding><Insets top="16.0" right="16.0" bottom="16.0" left="16.0"/></padding>
                         <Label text="帮助找回遗失图书" styleClass="panel-title"/>
                         <Label text="师生均可查看。发现图书请交至图书馆服务台；解除挂失后公告自动撤下。" wrapText="true"/>
-                        <Button text="刷新挂失公告" onAction="#refreshLossNotices" styleClass="btn-secondary"/>
+                        <HBox spacing="10.0">
+                            <Button text="刷新挂失公告" onAction="#refreshLossNotices" styleClass="btn-secondary"/>
+                            <Button fx:id="deleteNoticeButton" text="删除选中公告" onAction="#handleDeleteLossNotice" styleClass="btn-danger-soft" visible="false" managed="false"/>
+                        </HBox>
                         <ListView fx:id="lossNoticeList" VBox.vgrow="ALWAYS"/>
                     </VBox>
                 </Tab>

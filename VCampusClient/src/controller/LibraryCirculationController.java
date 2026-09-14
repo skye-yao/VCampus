@@ -56,6 +56,17 @@ public class LibraryCirculationController {
     }
 
     private Tab panel(String title,String kind,String actionText) {
+        Tab tab = new Tab(title);
+        configurePanel(tab, kind, actionText);
+        return tab;
+    }
+
+    /** 将费用管理直接放入图书馆主页面，不创建窗口或借还标签。 */
+    void configureFineTab(Tab tab) {
+        configurePanel(tab, "fine", "办理退款");
+    }
+
+    private void configurePanel(Tab tab,String kind,String actionText) {
         boolean fine=kind.equals("fine"),checkout=kind.equals("checkout");
         TableView<Map<String,String>> table=new TableView<>();
         table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
@@ -154,8 +165,9 @@ public class LibraryCirculationController {
         refresh.setOnAction(e->load.run());
         HBox tools=new HBox(10,filter,refresh);HBox.setHgrow(filter,Priority.ALWAYS);
         VBox root=new VBox(12,metrics,note,tools,table,selectedCard);root.getStyleClass().add("circulation-panel");VBox.setVgrow(table,Priority.ALWAYS);
-        Tab tab=new Tab(title,root);tab.setOnSelectionChanged(e->{if(tab.isSelected())load.run();});
-        return tab;
+        tab.setContent(root);
+        tab.setOnSelectionChanged(e->{if(tab.isSelected())load.run();});
+        if(tab.isSelected())load.run();
     }
 
     DialogPane refundPane(Map<String,String> row) {
