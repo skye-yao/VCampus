@@ -1372,3 +1372,70 @@
     -fx-padding: 3px 12px;
     -fx-font-size: 11px;
 }
+
+.course-admin-add-student-button {
+    -fx-padding: 3px 12px;
+    -fx-font-size: 11px;
+}
+
+.course-admin-offering-remove-student-item {
+    -fx-text-fill: #8a3d32;
+}
+
+.course-admin-enrollment-dialog {
+    -fx-background-color: #ffffff;
+}
+
+.course-admin-enrollment-context {
+    -fx-font-size: 12px;
+    -fx-text-fill: #5a635c;
+}
+
+.course-admin-enrollment-scroll,
+.course-admin-enrollment-scroll > .viewport {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+}
+
+.course-admin-student-list {
+    -fx-padding: 2px 0 0 0;
+}
+
+.course-admin-student-row {
+    -fx-background-color: #f7f9f7;
+    -fx-background-radius: 4px;
+    -fx-border-color: #e2e8e2;
+    -fx-border-radius: 4px;
+    -fx-padding: 6px 10px;
+}
+
+.course-admin-student-name {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #151E49;
+}
+
+.course-admin-student-meta {
+    -fx-font-size: 11px;
+    -fx-text-fill: #6b746c;
+}
+
+.course-admin-student-select,
+.course-admin-student-remove {
+    -fx-padding: 3px 12px;
+    -fx-font-size: 11px;
+}
+
+.course-admin-student-remove {
+    -fx-text-fill: #8a3d32;
+}
+
+.course-admin-student-blocked {
+    -fx-font-size: 11px;
+    -fx-text-fill: #8a3d32;
+}
+
+.course-admin-pagination-text {
+    -fx-font-size: 11px;
+    -fx-text-fill: #6b746c;
+}

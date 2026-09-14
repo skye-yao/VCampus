@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.control.TextField?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.layout.VBox?>
+
+<VBox fx:id="dialogRoot" prefWidth="860.0" prefHeight="580.0" spacing="10.0" styleClass="course-admin-dialog, course-admin-enrollment-dialog" stylesheets="@../css/style.css" xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.RemoveOfferingStudentDialogController">
+    <padding>
+        <Insets bottom="16.0" left="20.0" right="20.0" top="16.0" />
+    </padding>
+    <children>
+        <Label styleClass="course-admin-dialog-title" text="删除学生" />
+        <Label fx:id="offeringContextLabel" styleClass="course-admin-enrollment-context" text="" />
+        <HBox alignment="CENTER_LEFT" spacing="8.0">
+            <children>
+                <TextField fx:id="queryField" promptText="按学号或姓名过滤学生" styleClass="course-admin-dialog-field" HBox.hgrow="ALWAYS" />
+                <Button fx:id="filterButton" onAction="#handleFilter" styleClass="course-admin-action" text="过滤" />
+            </children>
+        </HBox>
+        <ScrollPane fitToWidth="true" hbarPolicy="NEVER" minHeight="0.0" styleClass="course-admin-enrollment-scroll" VBox.vgrow="ALWAYS">
+            <content>
+                <VBox spacing="8.0">
+                    <padding><Insets right="10.0" /></padding>
+                    <children>
+                        <Label fx:id="loadingLabel" managed="false" styleClass="course-admin-loading-text" text="正在加载学生名单..." visible="false" />
+                        <Label fx:id="errorLabel" managed="false" styleClass="course-admin-error-text" text="" visible="false" />
+                        <Button fx:id="errorRetryButton" managed="false" onAction="#handleRetry" styleClass="course-admin-action" text="重试" visible="false" />
+                        <Label fx:id="emptyLabel" managed="false" styleClass="course-admin-placeholder-text" text="该教学班当前没有学生" visible="false" />
+                        <VBox fx:id="studentList" spacing="6.0" styleClass="course-admin-student-list" />
+                        <HBox alignment="CENTER_LEFT" spacing="8.0">
+                            <children>
+                                <Label fx:id="paginationLabel" managed="false" styleClass="course-admin-pagination-text" text="" visible="false" />
+                                <Region HBox.hgrow="ALWAYS" />
+                                <Button fx:id="prevPageButton" managed="false" onAction="#handlePrevPage" styleClass="course-admin-action" text="上一页" visible="false" />
+                                <Button fx:id="nextPageButton" managed="false" onAction="#handleNextPage" styleClass="course-admin-action" text="下一页" visible="false" />
+                            </children>
+                        </HBox>
+                    </children>
+                </VBox>
+            </content>
+        </ScrollPane>
+        <Label fx:id="validationLabel" managed="false" styleClass="course-admin-validation-text" text="" visible="false" />
+        <HBox alignment="CENTER_RIGHT" spacing="10.0">
+            <children>
+                <Button fx:id="cancelButton" onAction="#handleCancel" styleClass="course-admin-dialog-cancel" text="关闭" />
+            </children>
+        </HBox>
+    </children>
+</VBox>

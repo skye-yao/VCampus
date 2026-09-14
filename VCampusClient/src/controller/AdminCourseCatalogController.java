@@ -21,6 +21,7 @@ import javafx.application.Platform;
 import javafx.fxml.FXML;
 import javafx.fxml.FXMLLoader;
 import javafx.geometry.Pos;
+import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
@@ -70,6 +71,7 @@ public final class AdminCourseCatalogController {
     private final Set<String> pendingWrites = new HashSet<>();
     private final Map<String, List<Consumer<Boolean>>> writeControls = new HashMap<>();
     private final Set<String> failedOfferingCourses = new HashSet<>();
+    private final Map<String, Long> offeringReloads = new HashMap<>();
 
     private List<AdminCourseView> courses = List.of();
     private String query = "";
@@ -388,14 +390,15 @@ public final class AdminCourseCatalogController {
                         return;
                     }
                     for (AdminOfferingView offering : loaded) {
-                        container.getChildren().add(createOfferingRow(offering));
+                        container.getChildren().add(createOfferingRow(offering, container));
                     }
                 }));
     }
 
-    private VBox createOfferingRow(AdminOfferingView offering) {
+    private VBox createOfferingRow(AdminOfferingView offering, VBox container) {
         VBox row = new VBox(3.0);
         row.getStyleClass().add("course-admin-offering-row");
+        row.setUserData(offering.getOfferingId());
 
         HBox header = new HBox(8.0,
                 styledLabel(offering.getOfferingCode(), "course-admin-offering-code"),
@@ -432,8 +435,12 @@ public final class AdminCourseCatalogController {
         scheduleButton.setDisable(CANCELLED.equals(offering.getStatus()));
         scheduleButton.setOnAction(event -> openScheduleDialog(offering));
 
-        HBox actions = new HBox(6.0, spacer(), scheduleButton, editButton, cancelButton,
-                offeringMenu(offering));
+        Button addStudentButton = actionButton("添加学生", "course-admin-add-student-button");
+        addStudentButton.setDisable(CANCELLED.equals(offering.getStatus()));
+        addStudentButton.setOnAction(event -> openAddStudentDialog(offering, container));
+
+        HBox actions = new HBox(6.0, spacer(), addStudentButton, scheduleButton, editButton,
+                cancelButton, offeringMenu(offering, container));
         actions.setAlignment(Pos.CENTER_RIGHT);
         actions.getStyleClass().add("course-admin-offering-actions");
 
@@ -441,11 +448,16 @@ public final class AdminCourseCatalogController {
         return row;
     }
 
-    private MenuButton offeringMenu(AdminOfferingView offering) {
+    private MenuButton offeringMenu(AdminOfferingView offering, VBox container) {
         MenuButton menu = new MenuButton("更多");
         menu.getStyleClass().add("course-admin-offering-menu");
         String key = "offering:" + offering.getOfferingId() + ":delete";
         registerWriteControl(key, menu::setDisable);
+
+        MenuItem removeStudent = new MenuItem("删除学生");
+        removeStudent.getStyleClass().add("course-admin-offering-remove-student-item");
+        removeStudent.setOnAction(event -> openRemoveStudentDialog(offering, container));
+        menu.getItems().add(removeStudent);
 
         MenuItem delete = new MenuItem("删除教学班");
         delete.getStyleClass().add("course-admin-offering-delete-item");
@@ -533,6 +545,83 @@ public final class AdminCourseCatalogController {
         dialogController.setOnChanged(this::refresh);
         dialogController.prepareForOffering(offering);
         showDialog(root, "排课", dialogController::dispose);
+    }
+
+    /**
+     * 打开添加学生对话框。成功加入后只重载该教学班行，保持其余行的展开状态。
+     */
+    private void openAddStudentDialog(AdminOfferingView offering, VBox container) {
+        FXMLLoader loader = new FXMLLoader(AdminCourseCatalogController.class.getResource(
+                "/resources/fxml/AddOfferingStudentDialog.fxml"));
+        Parent root;
+        try {
+            root = loader.load();
+        } catch (IOException | RuntimeException failure) {
+            errorReporter.accept("打开失败", "无法打开添加学生窗口：" + errorMessage(failure));
+            return;
+        }
+        AddOfferingStudentDialogController dialogController = loader.getController();
+        dialogController.setOnChanged(() -> reloadOfferingRow(offering, container));
+        dialogController.prepareForOffering(offering);
+        showDialog(root, "添加学生", dialogController::dispose);
+    }
+
+    /**
+     * 打开删除学生对话框。对话框自行加载权威花名册；移除成功后只重载该教学班行。
+     */
+    private void openRemoveStudentDialog(AdminOfferingView offering, VBox container) {
+        FXMLLoader loader = new FXMLLoader(AdminCourseCatalogController.class.getResource(
+                "/resources/fxml/RemoveOfferingStudentDialog.fxml"));
+        Parent root;
+        try {
+            root = loader.load();
+        } catch (IOException | RuntimeException failure) {
+            errorReporter.accept("打开失败", "无法打开删除学生窗口：" + errorMessage(failure));
+            return;
+        }
+        RemoveOfferingStudentDialogController dialogController = loader.getController();
+        dialogController.setOnChanged(() -> reloadOfferingRow(offering, container));
+        dialogController.prepareForOffering(offering);
+        dialogController.loadStudents();
+        showDialog(root, "删除学生", dialogController::dispose);
+    }
+
+    /**
+     * 用服务端权威数据替换单个教学班行；课程被移除、容器已脱离场景或结果过期时保持原状。
+     */
+    private void reloadOfferingRow(AdminOfferingView offering, VBox container) {
+        String offeringId = offering.getOfferingId();
+        String courseId = offering.getCourseId();
+        long generation = offeringReloads.merge(offeringId, 1L, Long::sum);
+        service.listOfferings(courseId).whenComplete((loaded, failure) ->
+                fxExecutor.accept(() -> {
+                    if (container.getScene() == null) return;
+                    if (generation != offeringReloads.getOrDefault(offeringId, 0L)) return;
+                    if (failure != null) {
+                        errorReporter.accept("教学班加载失败", errorMessage(failure));
+                        return;
+                    }
+                    AdminOfferingView refreshed = null;
+                    for (AdminOfferingView candidate : loaded == null
+                            ? List.<AdminOfferingView>of() : loaded) {
+                        if (offeringId.equals(candidate.getOfferingId())) {
+                            refreshed = candidate;
+                            break;
+                        }
+                    }
+                    if (refreshed == null) return;
+                    int index = indexOfOfferingRow(container, offeringId);
+                    if (index < 0) return;
+                    container.getChildren().set(index, createOfferingRow(refreshed, container));
+                }));
+    }
+
+    private static int indexOfOfferingRow(VBox container, String offeringId) {
+        for (int index = 0; index < container.getChildren().size(); index++) {
+            Node child = container.getChildren().get(index);
+            if (offeringId.equals(child.getUserData())) return index;
+        }
+        return -1;
     }
 
     private void showDialog(Parent root, String title) {

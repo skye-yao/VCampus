@@ -27,6 +27,7 @@ import javafx.scene.control.ComboBox;
 import javafx.scene.control.DialogPane;
 import javafx.scene.control.Label;
 import javafx.scene.control.MenuButton;
+import javafx.scene.control.MenuItem;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextField;
 import javafx.scene.image.WritableImage;
@@ -40,16 +41,21 @@ import controller.CourseEditorDialogController;
 import controller.OfferingEditorDialogController;
 import dto.course.admin.catalog.CourseEditorRequestDTO;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
+import dto.course.admin.enrollment.AdminEnrollmentPreviewDTO;
+import dto.course.admin.enrollment.AdminEnrollmentRequestDTO;
 import dto.course.admin.schedule.SaveArrangementRequestDTO;
 import dto.course.admin.schedule.ScheduleConflictDTO;
 import dto.course.admin.schedule.ScheduleConflictSeverityDTO;
 import dto.course.admin.schedule.SchedulePlanDTO;
 import dto.course.admin.schedule.ScheduleResourceDTO;
 import model.course.admin.AdminCourseView;
+import model.course.admin.AdminEnrollmentPageView;
 import model.course.admin.AdminOfferingView;
 import model.course.admin.AdminOperationResultView;
+import model.course.admin.OfferingStudentView;
 import model.course.admin.ScheduleArrangementView;
 import model.course.admin.SchedulePlanView;
+import model.course.admin.StudentSearchResultView;
 import service.AdminCourseService;
 import service.AdminCourseServices;
 import service.MockAdminCourseService;
@@ -75,13 +81,34 @@ public final class AdminCourseUiSmokeTest {
             "catalog-error.png", "course-editor.png", "offering-editor.png",
             "destroy-confirm.png", "schedule-normal.png", "schedule-blocking.png",
             "schedule-overridable.png", "schedule-two-slot.png", "schedule-force-publish.png",
-            "schedule-many-conflicts.png"
+            "schedule-many-conflicts.png", "enrollment-normal.png", "enrollment-warning.png",
+            "enrollment-blocked.png", "enrollment-empty.png", "enrollment-long-name.png",
+            "enrollment-over-capacity.png", "enrollment-remove-roster.png",
+            "enrollment-remove-confirm.png"
     };
-    private static final Path OUTPUT =
-            Path.of(".codex-tmp", "admin-course-ui-snapshots");
+    private static final String OUTPUT_PROPERTY = "admin.course.ui.output";
+    private static final Path OUTPUT = resolveOutputDirectory();
+
+    /**
+     * 截图目录可用系统属性覆盖，默认沿用 {@code .codex-tmp/admin-course-ui-snapshots}。
+     */
+    private static Path resolveOutputDirectory() {
+        String configured = System.getProperty(OUTPUT_PROPERTY);
+        if (configured == null || configured.isBlank()) {
+            return Path.of(".codex-tmp", "admin-course-ui-snapshots");
+        }
+        return Path.of(configured.trim());
+    }
     private static final double SHELL_WIDTH = 860.0;
     private static final double SHELL_HEIGHT = 580.0;
     private static final String EDITED_COURSE_NAME = "数据结构（修订）";
+    private static final String ENROLLMENT_OFFERING_CAPACITY = "30/120";
+    private static final String ENROLLMENT_STUDENT_UID = "20240031";
+    private static final String REMOVABLE_STUDENT_UID = "20240002";
+    private static final String LOCKED_STUDENT_UID = "20240001";
+    private static final String LONG_STUDENT_UID = "20240099";
+    private static final String LONG_STUDENT_NAME = "欧阳娜娜·阿卜杜拉·穆罕默德·阿尔萨利赫（国际交换生）";
+    private static final String LONG_STUDENT_MAJOR = "计算机科学与技术（中外合作办学项目）";
     private static final String ARCHIVE_MESSAGE =
             "确认归档“" + EDITED_COURSE_NAME + "”？归档后学生将无法选课。";
 
@@ -584,6 +611,10 @@ public final class AdminCourseUiSmokeTest {
         private VBox detachedOfferingPanel;
         private Window scheduleDialog;
         private Scene scheduleScene;
+        private Window enrollmentDialog;
+        private Scene enrollmentScene;
+        private int enrollmentMutationsBefore;
+        private int removeConfirmationAttempts;
         private int scheduleMutationsBefore;
         private int expectedOfferingRows = -1;
         private final List<String> variantFailures = new ArrayList<>();
@@ -634,6 +665,34 @@ public final class AdminCourseUiSmokeTest {
             steps.add(this::requireDetachedResponseIgnored);
             steps.add(this::requireCurrentRowStillLoads);
             steps.add(this::requireCurrentRowRendered);
+            steps.add(this::openAddStudentDialogFromOfferingRow);
+            steps.add(this::prepareEnrollmentNormal);
+            steps.add(this::selectEnrollmentNormal);
+            steps.add(this::captureEnrollmentNormal);
+            steps.add(this::prepareEnrollmentWarning);
+            steps.add(this::selectEnrollmentWarning);
+            steps.add(this::captureEnrollmentWarning);
+            steps.add(this::prepareEnrollmentBlocked);
+            steps.add(this::selectEnrollmentBlocked);
+            steps.add(this::captureEnrollmentBlocked);
+            steps.add(this::prepareEnrollmentEmpty);
+            steps.add(this::captureEnrollmentEmpty);
+            steps.add(this::prepareEnrollmentLongName);
+            steps.add(this::captureEnrollmentLongName);
+            steps.add(this::prepareEnrollmentOverCapacity);
+            steps.add(this::selectEnrollmentOverCapacity);
+            steps.add(this::captureEnrollmentOverCapacity);
+            steps.add(this::cancelAddStudentDialog);
+            steps.add(this::startAddStudentFromOfferingRow);
+            steps.add(this::selectAddStudentRow);
+            steps.add(this::confirmAddStudentFromOfferingRow);
+            steps.add(this::verifyAddReachedService);
+            steps.add(this::verifyOfferingCountAfterAdd);
+            steps.add(this::openRemoveStudentDialogFromOfferingRow);
+            steps.add(this::verifyRosterBeforeRemoval);
+            steps.add(this::removeStudentWithConfirmation);
+            steps.add(this::verifyRemovalReachedService);
+            steps.add(this::verifyOfferingCountAfterRemove);
             steps.add(this::showStandaloneOfferingEditor);
             steps.add(this::captureStandaloneOfferingEditor);
             steps.add(this::openScheduleDialogFromOfferingRow);
@@ -1189,6 +1248,515 @@ public final class AdminCourseUiSmokeTest {
             if (ok instanceof Button button) button.fire();
         }
 
+        // ------------------------------------------------------- 添加/删除学生对话框
+
+        /** 从教学班行上真实的“添加学生”控件打开对话框，并断言骨架控件齐备。 */
+        private void openAddStudentDialogFromOfferingRow() {
+            offeringActionButton(".course-admin-add-student-button", "添加学生").fire();
+            openEnrollmentDialog("添加学生");
+            for (String selector : List.of("#queryField", "#searchButton", "#studentResultList",
+                    "#selectedStudentLabel", "#previewButton", "#addButton", "#overrideReasonField",
+                    "#cancelButton", "#offeringContextLabel", "#riskArea")) {
+                requireEnrollmentNode(selector, "enrollment control " + selector);
+            }
+            enrollmentMutationsBefore = service.enrollmentMutationCalls();
+        }
+
+        private void openEnrollmentDialog(String description) {
+            enrollmentDialog = findAppDialogWindow("course-admin-enrollment-dialog");
+            if (enrollmentDialog == null) {
+                throw new IllegalStateException(
+                        description + " must open the rendered enrollment dialog");
+            }
+            enrollmentScene = enrollmentDialog.getScene();
+        }
+
+        private Button offeringActionButton(String selector, String description) {
+            VBox panel = offeringPanel();
+            Node node = panel == null ? null : panel.lookup(selector);
+            if (!(node instanceof Button button) || button.isDisabled() || !button.isVisible()) {
+                throw new IllegalStateException(
+                        "an OPEN offering row must expose a usable " + description + " action");
+            }
+            return button;
+        }
+
+        private void prepareEnrollmentNormal() {
+            service.installPreviewConflicts(List.of());
+            searchEnrollmentStudent(ENROLLMENT_STUDENT_UID);
+        }
+
+        private void selectEnrollmentNormal() {
+            fireEnrollmentRowSelect(ENROLLMENT_STUDENT_UID);
+        }
+
+        private void captureEnrollmentNormal() throws Exception {
+            if (service.enrollmentSearchCalls() == 0) {
+                throw new IllegalStateException("the 搜索 action must reach the Service");
+            }
+            requireEnrollmentRiskCount(0, "a conflict-free");
+            Button add = (Button) requireEnrollmentNode("#addButton", "add button");
+            if (add.isDisabled()) {
+                throw new IllegalStateException("a conflict-free preview must enable 加入教学班");
+            }
+            captureEnrollmentDialog("enrollment-normal.png");
+        }
+
+        private void prepareEnrollmentWarning() {
+            service.installPreviewConflicts(List.of(overridableConflict()));
+            searchEnrollmentStudent("20240032");
+        }
+
+        private void selectEnrollmentWarning() {
+            fireEnrollmentRowSelect("20240032");
+        }
+
+        private void captureEnrollmentWarning() throws Exception {
+            if (enrollmentRiskCount(".course-admin-conflict-overridable") != 1) {
+                throw new IllegalStateException(
+                        "an OVERRIDABLE risk must render in the overridable group, saw "
+                                + enrollmentRiskCount(".course-admin-conflict-overridable"));
+            }
+            Node force = requireEnrollmentNode("#forceAddButton", "force add button");
+            if (!force.isVisible() || !force.isManaged()) {
+                throw new IllegalStateException("an OVERRIDABLE risk must expose 填写原因并加入");
+            }
+            if (!"填写原因并加入".equals(((Button) force).getText())) {
+                throw new IllegalStateException(
+                        "the force action must read 填写原因并加入, saw " + ((Button) force).getText());
+            }
+            Button add = (Button) requireEnrollmentNode("#addButton", "add button");
+            if (!add.isDisabled()) {
+                throw new IllegalStateException(
+                        "an OVERRIDABLE risk must not leave the ordinary add path enabled");
+            }
+            ((TextField) requireEnrollmentNode("#overrideReasonField", "override reason field"))
+                    .setText("已与学生确认时间冲突");
+            captureEnrollmentDialog("enrollment-warning.png");
+        }
+
+        private void prepareEnrollmentBlocked() {
+            service.installPreviewConflicts(List.of(blockingConflict()));
+            searchEnrollmentStudent("20240034");
+        }
+
+        private void selectEnrollmentBlocked() {
+            fireEnrollmentRowSelect("20240034");
+        }
+
+        private void captureEnrollmentBlocked() throws Exception {
+            if (enrollmentRiskCount(".course-admin-conflict-blocking") != 1) {
+                throw new IllegalStateException(
+                        "a BLOCKING risk must render in the blocking group, saw "
+                                + enrollmentRiskCount(".course-admin-conflict-blocking"));
+            }
+            Node force = requireEnrollmentNode("#forceAddButton", "force add button");
+            if (force.isVisible() || force.isManaged()) {
+                throw new IllegalStateException("a BLOCKING risk must remove the force add path");
+            }
+            Button add = (Button) requireEnrollmentNode("#addButton", "add button");
+            if (!add.isDisabled()) {
+                throw new IllegalStateException("a BLOCKING risk must not leave adding enabled");
+            }
+            captureEnrollmentDialog("enrollment-blocked.png");
+        }
+
+        private void prepareEnrollmentEmpty() {
+            service.installPreviewConflicts(null);
+            searchEnrollmentStudent("ZZZZ");
+        }
+
+        private void captureEnrollmentEmpty() throws Exception {
+            Node empty = requireEnrollmentNode("#resultEmptyLabel", "empty result label");
+            if (!empty.isVisible()) {
+                throw new IllegalStateException("an unmatched query must show 没有匹配的学生");
+            }
+            if (enrollmentList("#studentResultList")
+                    .lookupAll(".course-admin-student-row").size() != 0) {
+                throw new IllegalStateException("an unmatched query must render no student rows");
+            }
+            captureEnrollmentDialog("enrollment-empty.png");
+        }
+
+        private void prepareEnrollmentLongName() {
+            service.installSearchResults(List.of(new StudentSearchResultView(LONG_STUDENT_UID,
+                    LONG_STUDENT_NAME, LONG_STUDENT_MAJOR, 2024, "ACTIVE")));
+            searchEnrollmentStudent(LONG_STUDENT_UID);
+        }
+
+        private void captureEnrollmentLongName() throws Exception {
+            Node list = enrollmentList("#studentResultList");
+            Node row = list.lookup(".course-admin-student-row");
+            if (row == null) {
+                throw new IllegalStateException("the injected long-name student must be listed");
+            }
+            Node nameNode = row.lookup(".course-admin-student-name");
+            if (!(nameNode instanceof Label name) || !LONG_STUDENT_NAME.equals(name.getText())) {
+                throw new IllegalStateException(
+                        "a long student name must render in full, saw " + nameNode);
+            }
+            layoutEnrollmentDialog();
+            Bounds bounds = row.localToScene(row.getBoundsInLocal());
+            if (bounds.getMaxX() > enrollmentScene.getWidth() + 1
+                    || bounds.getMinX() < -1) {
+                throw new IllegalStateException(
+                        "a long student name must not widen the dialog, saw row " + bounds
+                                + " in a " + enrollmentScene.getWidth() + " wide dialog");
+            }
+            captureEnrollmentDialog("enrollment-long-name.png");
+        }
+
+        private void prepareEnrollmentOverCapacity() {
+            service.installSearchResults(null);
+            service.installPreviewConflicts(List.of(capacityConflict()));
+            searchEnrollmentStudent(ENROLLMENT_STUDENT_UID);
+        }
+
+        private void selectEnrollmentOverCapacity() {
+            fireEnrollmentRowSelect(ENROLLMENT_STUDENT_UID);
+        }
+
+        private void captureEnrollmentOverCapacity() throws Exception {
+            if (enrollmentRiskCount(".course-admin-conflict-overridable") != 1) {
+                throw new IllegalStateException(
+                        "a full offering must warn about capacity, saw "
+                                + enrollmentRiskCount(".course-admin-conflict-overridable"));
+            }
+            Node risk = requireEnrollmentNode("#riskArea", "risk area")
+                    .lookup(".course-admin-conflict-overridable");
+            if (!(risk instanceof Label label) || !label.getText().contains("容量")) {
+                throw new IllegalStateException(
+                        "the capacity warning must explain the over-capacity state, saw " + risk);
+            }
+            captureEnrollmentDialog("enrollment-over-capacity.png");
+        }
+
+        /** 取消不产生任何写入，且必须关闭对话框。 */
+        private void cancelAddStudentDialog() {
+            fireEnrollment("#cancelButton");
+            if (enrollmentDialog != null && enrollmentDialog.isShowing()) {
+                throw new IllegalStateException("取消必须关闭添加学生对话框");
+            }
+            if (service.enrollmentMutationCalls() != enrollmentMutationsBefore) {
+                throw new IllegalStateException(
+                        "cancelling the enrollment dialog must not write, saw "
+                                + (service.enrollmentMutationCalls() - enrollmentMutationsBefore)
+                                + " calls");
+            }
+            service.installPreviewConflicts(null);
+            service.installSearchResults(null);
+            enrollmentScene = null;
+        }
+
+        private void startAddStudentFromOfferingRow() {
+            requireOfferingCapacity(ENROLLMENT_OFFERING_CAPACITY);
+            offeringActionButton(".course-admin-add-student-button", "添加学生").fire();
+            openEnrollmentDialog("添加学生");
+            enrollmentMutationsBefore = service.enrollmentMutationCalls();
+            searchEnrollmentStudent(ENROLLMENT_STUDENT_UID);
+        }
+
+        private void selectAddStudentRow() {
+            fireEnrollmentRowSelect(ENROLLMENT_STUDENT_UID);
+        }
+
+        private void confirmAddStudentFromOfferingRow() {
+            Button add = (Button) requireEnrollmentNode("#addButton", "add button");
+            if (add.isDisabled()) {
+                throw new IllegalStateException(
+                        "a conflict-free preview for " + ENROLLMENT_STUDENT_UID
+                                + " must enable 加入教学班");
+            }
+            add.fire();
+        }
+
+        private void verifyAddReachedService() {
+            AdminEnrollmentRequestDTO request = service.lastAddRequest();
+            if (request == null) {
+                throw new IllegalStateException("加入教学班 must reach the Service");
+            }
+            UUID.fromString(request.getOperationId());
+            if (!"1001".equals(request.getOfferingId())
+                    || !ENROLLMENT_STUDENT_UID.equals(request.getStudentUid()) || request.isForce()) {
+                throw new IllegalStateException(
+                        "the add request must carry the offering and student without force, saw "
+                                + request.getOfferingId() + " " + request.getStudentUid()
+                                + " force=" + request.isForce());
+            }
+            if (enrollmentDialog != null && enrollmentDialog.isShowing()) {
+                throw new IllegalStateException("a successful add must close the enrollment dialog");
+            }
+            enrollmentScene = null;
+        }
+
+        /** 成功加入只重载该教学班行：展开状态保留，人数来自服务端。 */
+        private void verifyOfferingCountAfterAdd() {
+            requireOfferingCapacity("31/120");
+            VBox panel = offeringPanel();
+            if (panel == null || !panel.isVisible() || panelOfferingRows(panel) <= 0) {
+                throw new IllegalStateException(
+                        "a successful add must keep the offering panel expanded");
+            }
+        }
+
+        private void openRemoveStudentDialogFromOfferingRow() {
+            VBox panel = offeringPanel();
+            Node node = panel == null ? null : panel.lookup(".course-admin-offering-menu");
+            if (!(node instanceof MenuButton menu)) {
+                throw new IllegalStateException("an offering row must expose a 更多 menu");
+            }
+            MenuItem remove = null;
+            for (MenuItem item : menu.getItems()) {
+                if ("删除学生".equals(item.getText())) remove = item;
+            }
+            if (remove == null) {
+                throw new IllegalStateException(
+                        "an offering row must offer 删除学生, saw " + menu.getItems());
+            }
+            remove.fire();
+            openEnrollmentDialog("删除学生");
+            requireEnrollmentNode("#studentList", "roster list");
+            requireEnrollmentNode("#paginationLabel", "roster pagination");
+            requireEnrollmentNode("#cancelButton", "roster close button");
+            enrollmentMutationsBefore = service.enrollmentMutationCalls();
+        }
+
+        /** 花名册展示权威名单、分页，并显式暴露不可移除的原因。 */
+        private void verifyRosterBeforeRemoval() throws Exception {
+            Node list = enrollmentList("#studentList");
+            int rows = list.lookupAll(".course-admin-student-row").size();
+            if (rows != 10) {
+                throw new IllegalStateException(
+                        "a 31-student roster must render one 10-student page, saw " + rows);
+            }
+            Label pagination = (Label) requireEnrollmentNode("#paginationLabel", "roster pagination");
+            if (!pagination.isVisible() || !pagination.getText().contains("31")) {
+                throw new IllegalStateException(
+                        "a 31-student roster must show paging, saw " + pagination.getText());
+            }
+            if (requireEnrollmentNode("#nextPageButton", "next page button").isDisabled()) {
+                throw new IllegalStateException("the first roster page must offer 下一页");
+            }
+            if (!requireEnrollmentNode("#prevPageButton", "previous page button").isDisabled()) {
+                throw new IllegalStateException("the first roster page must not offer 上一页");
+            }
+
+            Node blocked = enrollmentRow(list, LOCKED_STUDENT_UID, ".course-admin-student-blocked");
+            if (!(blocked instanceof Label reason)) {
+                throw new IllegalStateException(
+                        "a grade-locked student must show the blocked reason, saw " + blocked);
+            }
+            if (!reason.getText().contains("成绩")) {
+                throw new IllegalStateException(
+                        "a grade-locked student must show the blocked reason, saw " + reason.getText());
+            }
+            if (!enrollmentRowButton(list, LOCKED_STUDENT_UID, ".course-admin-student-remove")
+                    .isDisabled()) {
+                throw new IllegalStateException("a grade-locked student must not be removable");
+            }
+            if (enrollmentRowButton(list, REMOVABLE_STUDENT_UID, ".course-admin-student-remove")
+                    .isDisabled()) {
+                throw new IllegalStateException("a removable student must enable 移除");
+            }
+            captureEnrollmentDialog("enrollment-remove-roster.png");
+        }
+
+        private void removeStudentWithConfirmation() {
+            Node list = enrollmentList("#studentList");
+            Button remove = enrollmentRowButton(
+                    list, REMOVABLE_STUDENT_UID, ".course-admin-student-remove");
+            if (remove.isDisabled()) {
+                throw new IllegalStateException(
+                        "the removable student must still be removable after inspection");
+            }
+            removeConfirmationAttempts = 0;
+            Platform.runLater(this::captureAndConfirmRemoval);
+            remove.fire();
+        }
+
+        /** 在确认框的嵌套事件循环里运行：断言文案、截图，然后确认。 */
+        private void captureAndConfirmRemoval() {
+            DialogPane pane = renderedConfirmationPane();
+            if (pane == null) {
+                if (++removeConfirmationAttempts > 60) {
+                    fail(new IllegalStateException(
+                            "移除 must render a confirmation window"));
+                    return;
+                }
+                Platform.runLater(this::captureAndConfirmRemoval);
+                return;
+            }
+            try {
+                Window window = pane.getScene().getWindow();
+                String title = window instanceof Stage stage ? stage.getTitle() : null;
+                if (!"移除学生".equals(title)) {
+                    throw new IllegalStateException(
+                            "the removal confirmation must be produced by the 移除 action, saw title "
+                                    + title);
+                }
+                String content = pane.getContentText();
+                if (content == null || !content.contains("李静") || !content.contains("20240002")
+                        || !content.contains("OFF-1001")) {
+                    throw new IllegalStateException(
+                            "the removal confirmation must name the student, UID and offering, saw "
+                                    + content);
+                }
+                requireImage(capture(pane, "enrollment-remove-confirm.png"),
+                        "enrollment-remove-confirm.png");
+                Node ok = pane.lookupButton(ButtonType.OK);
+                if (!(ok instanceof Button button)) {
+                    throw new IllegalStateException(
+                            "the removal confirmation must offer a confirm button");
+                }
+                button.fire();
+            } catch (Throwable failure) {
+                fail(failure);
+            }
+        }
+
+        private void verifyRemovalReachedService() {
+            AdminEnrollmentRequestDTO request = service.lastRemoveRequest();
+            if (request == null) {
+                throw new IllegalStateException("移除 must reach the Service");
+            }
+            UUID.fromString(request.getOperationId());
+            if (!"1001".equals(request.getOfferingId())
+                    || !REMOVABLE_STUDENT_UID.equals(request.getStudentUid()) || request.isForce()) {
+                throw new IllegalStateException(
+                        "the removal request must carry the offering and student, saw "
+                                + request.getOfferingId() + " " + request.getStudentUid());
+            }
+            Node list = enrollmentList("#studentList");
+            if (enrollmentRow(list, REMOVABLE_STUDENT_UID, ".course-admin-student-remove") != null) {
+                throw new IllegalStateException(
+                        "the reloaded roster must drop the removed student");
+            }
+        }
+
+        /** 移除生效后教学班行重新显示权威人数，且该行保持展开。 */
+        private void verifyOfferingCountAfterRemove() {
+            requireOfferingCapacity(ENROLLMENT_OFFERING_CAPACITY);
+            fireEnrollment("#cancelButton");
+            if (enrollmentDialog != null && enrollmentDialog.isShowing()) {
+                throw new IllegalStateException("关闭 must close the roster dialog");
+            }
+            enrollmentScene = null;
+        }
+
+        private void searchEnrollmentStudent(String query) {
+            ((TextField) requireEnrollmentNode("#queryField", "enrollment query field"))
+                    .setText(query);
+            fireEnrollment("#searchButton");
+        }
+
+        private void fireEnrollment(String selector) {
+            Node node = requireEnrollmentNode(selector, "enrollment control " + selector);
+            if (!(node instanceof Button button)) {
+                throw new IllegalStateException(selector + " must be a button");
+            }
+            button.fire();
+        }
+
+        private void fireEnrollmentRowSelect(String uid) {
+            Button select = enrollmentRowButton(
+                    enrollmentList("#studentResultList"), uid, ".course-admin-student-select");
+            if (select.isDisabled()) {
+                throw new IllegalStateException("the student " + uid + " must be selectable");
+            }
+            select.fire();
+        }
+
+        private Node enrollmentList(String selector) {
+            return requireEnrollmentNode(selector, "enrollment list " + selector);
+        }
+
+        private Node enrollmentRow(Node list, String uid, String styleClass) {
+            for (Node row : list.lookupAll(".course-admin-student-row")) {
+                Node meta = row.lookup(".course-admin-student-meta");
+                if (meta instanceof Label label && label.getText().startsWith(uid + " ")) {
+                    Node action = row.lookup(styleClass);
+                    if (action != null) return action;
+                }
+            }
+            return null;
+        }
+
+        private Button enrollmentRowButton(Node list, String uid, String styleClass) {
+            Node action = enrollmentRow(list, uid, styleClass);
+            if (!(action instanceof Button button)) {
+                throw new IllegalStateException(
+                        "the student " + uid + " must expose " + styleClass + " inside the roster");
+            }
+            return button;
+        }
+
+        private int enrollmentRiskCount(String styleClass) {
+            Node area = requireEnrollmentNode("#riskArea", "enrollment risk area");
+            int count = 0;
+            for (Node child : area.lookupAll(styleClass)) {
+                if (child.isVisible() && child.isManaged()) count++;
+            }
+            return count;
+        }
+
+        private void requireEnrollmentRiskCount(int expected, String description) {
+            int blocking = enrollmentRiskCount(".course-admin-conflict-blocking");
+            int overridable = enrollmentRiskCount(".course-admin-conflict-overridable");
+            if (blocking + overridable != expected) {
+                throw new IllegalStateException(description + " preview must show " + expected
+                        + " enrollment risk(s) but showed blocking " + blocking
+                        + " and overridable " + overridable);
+            }
+        }
+
+        /** 以 860x580 验收视口截取对话框，并断言内容没有被窗口裁掉。 */
+        private void captureEnrollmentDialog(String file) throws Exception {
+            layoutEnrollmentDialog();
+            requireImage(captureWindow(enrollmentDialog, file), SHELL_WIDTH, SHELL_HEIGHT, file);
+        }
+
+        private void layoutEnrollmentDialog() {
+            if (enrollmentScene == null) return;
+            enrollmentScene.getRoot().applyCss();
+            enrollmentScene.getRoot().layout();
+        }
+
+        private Node requireEnrollmentNode(String selector, String description) {
+            if (enrollmentScene == null) {
+                throw new IllegalStateException(
+                        "No enrollment dialog open while looking for " + description);
+            }
+            layoutEnrollmentDialog();
+            Node node = enrollmentScene.lookup(selector);
+            if (node == null && "#dialogRoot".equals(selector)) {
+                node = enrollmentScene.getRoot();
+            }
+            if (node == null) {
+                throw new IllegalStateException(
+                        "Missing " + description + " for enrollment selector " + selector);
+            }
+            return node;
+        }
+
+        private String offeringCapacityText() {
+            VBox panel = offeringPanel();
+            Node node = panel == null ? null : panel.lookup(".course-admin-capacity");
+            return node instanceof Label label ? label.getText() : null;
+        }
+
+        private void requireOfferingCapacity(String expected) {
+            String actual = offeringCapacityText();
+            if (!expected.equals(actual)) {
+                throw new IllegalStateException(
+                        "the offering row must show " + expected + " but showed " + actual);
+            }
+        }
+
+        private static ScheduleConflictDTO capacityConflict() {
+            return new ScheduleConflictDTO("CAPACITY", ScheduleConflictSeverityDTO.OVERRIDABLE,
+                    ENROLLMENT_STUDENT_UID, "1001", 0, 0, 0, 0, "教学班人数已达到容量（120/120）");
+        }
+
         private void showStandaloneOfferingEditor() throws Exception {
             FXMLLoader loader = new FXMLLoader(getClass().getResource(OFFERING_EDITOR_PATH));
             Parent dialogRoot = loader.load();
@@ -1402,6 +1970,11 @@ public final class AdminCourseUiSmokeTest {
         private int publishCalls;
         private boolean lastPublishForce;
         private String lastPublishReason;
+        private List<StudentSearchResultView> injectedSearchResults;
+        private int enrollmentSearchCalls;
+        private int enrollmentMutationCalls;
+        private AdminEnrollmentRequestDTO lastAddRequest;
+        private AdminEnrollmentRequestDTO lastRemoveRequest;
 
         void holdNextArrangementSave() {
             heldArrangementSave = new CompletableFuture<>();
@@ -1428,6 +2001,27 @@ public final class AdminCourseUiSmokeTest {
         /** 注入权威安排列表；传 {@code null} 恢复为委托给 MockAdminCourseService。 */
         void installArrangements(List<ScheduleArrangementView> arrangements) {
             injectedArrangements = arrangements == null ? null : List.copyOf(arrangements);
+        }
+
+        /** 注入搜索结果；传 {@code null} 恢复为委托给 MockAdminCourseService。 */
+        void installSearchResults(List<StudentSearchResultView> results) {
+            injectedSearchResults = results == null ? null : List.copyOf(results);
+        }
+
+        int enrollmentSearchCalls() {
+            return enrollmentSearchCalls;
+        }
+
+        int enrollmentMutationCalls() {
+            return enrollmentMutationCalls;
+        }
+
+        AdminEnrollmentRequestDTO lastAddRequest() {
+            return lastAddRequest;
+        }
+
+        AdminEnrollmentRequestDTO lastRemoveRequest() {
+            return lastRemoveRequest;
         }
 
         SaveArrangementRequestDTO lastArrangementSave() {
@@ -1540,6 +2134,49 @@ public final class AdminCourseUiSmokeTest {
                 String offeringId, int expectedVersion, String operationId) {
             mutationCalls++;
             return delegate.deleteDraftOffering(offeringId, expectedVersion, operationId);
+        }
+
+        @Override
+        public CompletableFuture<AdminEnrollmentPageView<StudentSearchResultView>> searchStudentsPage(
+                String query, int page, int size) {
+            enrollmentSearchCalls++;
+            if (injectedSearchResults != null) {
+                return CompletableFuture.completedFuture(new AdminEnrollmentPageView<>(
+                        injectedSearchResults, injectedSearchResults.size(), page, size));
+            }
+            return delegate.searchStudentsPage(query, page, size);
+        }
+
+        @Override
+        public CompletableFuture<AdminEnrollmentPageView<OfferingStudentView>> listOfferingStudentsPage(
+                String offeringId, String query, int page, int size) {
+            return delegate.listOfferingStudentsPage(offeringId, query, page, size);
+        }
+
+        @Override
+        public CompletableFuture<AdminEnrollmentPreviewDTO> previewAdminEnrollment(
+                String offeringId, String studentUid) {
+            if (injectedConflicts != null) {
+                return CompletableFuture.completedFuture(
+                        new AdminEnrollmentPreviewDTO(offeringId, studentUid, injectedConflicts));
+            }
+            return delegate.previewAdminEnrollment(offeringId, studentUid);
+        }
+
+        @Override
+        public CompletableFuture<AdminOperationResultView<OfferingStudentView>> addStudentToOffering(
+                AdminEnrollmentRequestDTO request) {
+            enrollmentMutationCalls++;
+            lastAddRequest = request;
+            return delegate.addStudentToOffering(request);
+        }
+
+        @Override
+        public CompletableFuture<AdminOperationResultView<OfferingStudentView>> removeStudentFromOffering(
+                AdminEnrollmentRequestDTO request) {
+            enrollmentMutationCalls++;
+            lastRemoveRequest = request;
+            return delegate.removeStudentFromOffering(request);
         }
 
         @Override
