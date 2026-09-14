@@ -1,5 +1,10 @@
 package service;
 
+import dto.course.AdjustmentRequestStatusDTO;
+import dto.course.admin.approval.AdjustmentRequestDetailDTO;
+import dto.course.admin.approval.AdjustmentRequestPageDTO;
+import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
+import dto.course.admin.approval.ApprovalDecisionRequestDTO;
 import dto.course.admin.catalog.CourseEditorRequestDTO;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
 import java.util.List;
@@ -22,7 +27,86 @@ public final class MockAdminCourseServiceTest {
         offeringCreateAndUpdateBumpVersions();
         emptyDraftIsDeletableWhileOtherOfferingIsNot();
         operationIdReplayDoesNotApplyTwice();
+        adjustmentListProvidesEveryFourStateValue();
+        reviewDecisionChangesTheAdjustmentQueries();
         System.out.println("MockAdminCourseServiceTest: PASS");
+    }
+
+    /**
+     * 调课列表的 mock 必须覆盖四态，尤其是教师撤销的 WITHDRAWN（审批页与 T5 的已撤销显示路径）。
+     * {@code listAdjustmentRequestsByStatus} 是 T4 起的主查询名，旧名必须返回同一份快照。
+     */
+    private static void adjustmentListProvidesEveryFourStateValue() {
+        MockAdminCourseService service = new MockAdminCourseService();
+
+        require(AdjustmentRequestStatusDTO.values().length == 4,
+                "the adjustment status domain must stay four-state");
+        for (AdjustmentRequestStatusDTO status : AdjustmentRequestStatusDTO.values()) {
+            AdjustmentRequestPageDTO page =
+                    service.listAdjustmentRequestsByStatus(status, 1, 20).join();
+            require(!page.getItems().isEmpty(),
+                    "the mock must seed at least one " + status + " adjustment request");
+            require(page.getItems().stream().allMatch(item -> item.getStatus() == status),
+                    "the " + status + " filter must return only " + status + " rows");
+        }
+
+        AdjustmentRequestPageDTO withdrawn =
+                service.listAdjustmentRequestsByStatus(AdjustmentRequestStatusDTO.WITHDRAWN, 1, 20)
+                        .join();
+        require(withdrawn.getItems().size() == 1
+                        && withdrawn.getItems().get(0).getStatus()
+                        == AdjustmentRequestStatusDTO.WITHDRAWN,
+                "a WITHDRAWN row must be visible to the approval list");
+        String withdrawnId = withdrawn.getItems().get(0).getRequestId();
+        require(service.getAdjustmentRequest(withdrawnId).join().getStatus()
+                        == AdjustmentRequestStatusDTO.WITHDRAWN,
+                "the WITHDRAWN detail must stay readable");
+
+        require(service.listAdjustmentRequestsPage(AdjustmentRequestStatusDTO.WITHDRAWN, 1, 20)
+                        .join().getItems().size() == 1,
+                "the legacy page alias must return the same snapshot");
+        List<AdjustmentRequestSummaryDTO> legacyList =
+                service.listAdjustmentRequests(AdjustmentRequestStatusDTO.WITHDRAWN, 1, 20).join();
+        require(legacyList.size() == 1 && withdrawnId.equals(legacyList.get(0).getRequestId()),
+                "the legacy list adapter must return the same rows");
+    }
+
+    /**
+     * 审批必须改变查询快照而不仅是界面：版本递增、PENDING 列表缩一、APPROVED 列表增一。
+     */
+    private static void reviewDecisionChangesTheAdjustmentQueries() {
+        MockAdminCourseService service = new MockAdminCourseService();
+        AdjustmentRequestPageDTO pendingBefore =
+                service.listAdjustmentRequestsByStatus(AdjustmentRequestStatusDTO.PENDING, 1, 20)
+                        .join();
+        AdjustmentRequestSummaryDTO target = pendingBefore.getItems().stream()
+                .filter(item -> "9001".equals(item.getRequestId()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("fixture 9001 must be PENDING"));
+        AdjustmentRequestDetailDTO before = service.getAdjustmentRequest("9001").join();
+
+        AdminOperationResultView<AdjustmentRequestDetailDTO> decided =
+                service.reviewAdjustmentRequest(new ApprovalDecisionRequestDTO(
+                        "60000000-0000-0000-0000-000000000001", "9001", before.getVersion(), true,
+                        false, null, "同意")).join();
+        require(decided.getEntity() != null
+                        && decided.getEntity().getStatus()
+                        == AdjustmentRequestStatusDTO.APPROVED
+                        && decided.getEntity().getVersion() == before.getVersion() + 1,
+                "approving must publish a new immutable snapshot with the incremented version");
+        require(service.getAdjustmentRequest("9001").join().getVersion()
+                        == before.getVersion() + 1,
+                "the detail query snapshot must change after the decision");
+        require(service.listAdjustmentRequestsByStatus(AdjustmentRequestStatusDTO.APPROVED, 1, 20)
+                        .join().getItems().stream()
+                        .anyMatch(item -> "9001".equals(item.getRequestId())),
+                "the APPROVED list must show the decided request");
+        require(service.listAdjustmentRequestsByStatus(AdjustmentRequestStatusDTO.PENDING, 1, 20)
+                        .join().getItems().stream()
+                        .noneMatch(item -> "9001".equals(item.getRequestId())),
+                "the PENDING list must no longer show the decided request");
+        require(target.getStatus() == AdjustmentRequestStatusDTO.PENDING,
+                "the fixture must have started PENDING");
     }
 
     private static void offeringCountMatchesServerDefinitionAndCancellation() {

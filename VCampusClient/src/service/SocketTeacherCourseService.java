@@ -2,6 +2,7 @@ package service;
 
 import java.lang.reflect.Type;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 
@@ -9,15 +10,24 @@ import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.reflect.TypeToken;
 
+import dto.course.AdjustmentRequestStatusDTO;
 import dto.course.CourseTermDTO;
 import dto.course.ScheduleDisplayKindDTO;
+import dto.course.admin.approval.AdjustmentRequestDetailDTO;
+import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
 import dto.course.admin.schedule.ScheduleArrangementDTO;
+import dto.course.admin.schedule.ScheduleConflictDTO;
+import dto.course.teacher.TeacherAdjustmentOptionsDTO;
+import dto.course.teacher.TeacherAdjustmentPreviewDTO;
+import dto.course.teacher.TeacherAdjustmentWriteDTO;
 import dto.course.teacher.TeacherCourseActions;
 import dto.course.teacher.TeacherOfferingDTO;
 import dto.course.teacher.TeacherOfferingDetailDTO;
+import dto.course.teacher.TeacherOperationResultDTO;
 import dto.course.teacher.TeacherPageDTO;
 import dto.course.teacher.TeacherRosterRowDTO;
 import dto.course.teacher.TeacherScheduleWeekDTO;
+import dto.course.teacher.WithdrawTeacherAdjustmentRequestDTO;
 import protocol.Message;
 import protocol.MessageCode;
 import protocol.MessageType;
@@ -37,6 +47,10 @@ public final class SocketTeacherCourseService implements TeacherCourseService {
             TeacherPageDTO.class, TeacherOfferingDTO.class).getType();
     private static final Type ROSTER_PAGE_TYPE = TypeToken.getParameterized(
             TeacherPageDTO.class, TeacherRosterRowDTO.class).getType();
+    private static final Type APPLICATIONS_PAGE_TYPE = TypeToken.getParameterized(
+            TeacherPageDTO.class, AdjustmentRequestSummaryDTO.class).getType();
+    private static final Type WRITE_RESULT_TYPE = TypeToken.getParameterized(
+            TeacherOperationResultDTO.class, AdjustmentRequestDetailDTO.class).getType();
 
     private final TeacherCourseTransport transport;
     private final Gson gson = new Gson();
@@ -102,6 +116,61 @@ public final class SocketTeacherCourseService implements TeacherCourseService {
         return map(request, this::readSchedule);
     }
 
+    // ------------------------------------------------------------------ 调课申请
+
+    @Override
+    public CompletableFuture<TeacherAdjustmentOptionsDTO> getAdjustmentOptions(
+            String offeringId, String originalOccurrenceId) {
+        Message request = request(TeacherCourseActions.GET_ADJUSTMENT_OPTIONS);
+        request.putData("offeringId", offeringId);
+        request.putData("originalOccurrenceId", originalOccurrenceId);
+        return map(request, response -> read(response, "options",
+                TeacherAdjustmentOptionsDTO.class));
+    }
+
+    @Override
+    public CompletableFuture<TeacherAdjustmentPreviewDTO> previewAdjustment(
+            TeacherAdjustmentWriteDTO write) {
+        Message request = request(TeacherCourseActions.PREVIEW_ADJUSTMENT);
+        request.putData("request", write);
+        // 预览结果（含 canSubmit）整体位于 conflicts 键，与规格的响应命名一致。
+        return map(request, response -> read(response, "conflicts",
+                TeacherAdjustmentPreviewDTO.class));
+    }
+
+    @Override
+    public CompletableFuture<TeacherOperationResultDTO<AdjustmentRequestDetailDTO>>
+            submitAdjustment(TeacherAdjustmentWriteDTO write) {
+        Message request = request(TeacherCourseActions.SUBMIT_ADJUSTMENT);
+        request.putData("request", write);
+        return map(request, response -> read(response, "result", WRITE_RESULT_TYPE));
+    }
+
+    @Override
+    public CompletableFuture<TeacherOperationResultDTO<AdjustmentRequestDetailDTO>>
+            withdrawAdjustment(WithdrawTeacherAdjustmentRequestDTO withdrawal) {
+        Message request = request(TeacherCourseActions.WITHDRAW_ADJUSTMENT);
+        request.putData("request", withdrawal);
+        return map(request, response -> read(response, "result", WRITE_RESULT_TYPE));
+    }
+
+    @Override
+    public CompletableFuture<AdjustmentRequestDetailDTO> getAdjustmentRequest(String requestId) {
+        Message request = request(TeacherCourseActions.GET_ADJUSTMENT_REQUEST);
+        request.putData("requestId", requestId);
+        return map(request, response -> read(response, "adjustmentRequest",
+                AdjustmentRequestDetailDTO.class));
+    }
+
+    @Override
+    public CompletableFuture<TeacherPageDTO<AdjustmentRequestSummaryDTO>> listMyAdjustmentRequests(
+            AdjustmentRequestStatusDTO status, int page, int size) {
+        Message request = request(TeacherCourseActions.LIST_MY_ADJUSTMENT_REQUESTS);
+        if (status != null) request.putData("status", status.name());
+        putPaging(request, page, size);
+        return map(request, response -> read(response, "applications", APPLICATIONS_PAGE_TYPE));
+    }
+
     /**
      * 课表映射在反序列化前显式拒绝未知 {@code displayKind}。
      *
@@ -165,6 +234,10 @@ public final class SocketTeacherCourseService implements TeacherCourseService {
         });
     }
 
+    /**
+     * 失败映射保留服务端 code/message；CONFLICT 额外带出类型化冲突与最新可见详情（可能没有），
+     * 让调课界面可以刷新并分类型展示，而不是只拿到一句文本。与管理员审批客户端的形状一致。
+     */
     private void requireSuccess(Message response) {
         if (response == null) {
             throw new TeacherCourseServiceException(MessageCode.ERROR, "教师课程服务无响应");
@@ -172,7 +245,15 @@ public final class SocketTeacherCourseService implements TeacherCourseService {
         if (response.getCode() == MessageCode.SUCCESS) return;
         String message = response.getMessage() == null
                 ? response.getCode().getMessage() : response.getMessage();
-        throw new TeacherCourseServiceException(response.getCode(), message);
+        Map<String, Object> data = response.getData();
+        if (response.getCode() != MessageCode.CONFLICT || data == null) {
+            throw new TeacherCourseServiceException(response.getCode(), message);
+        }
+        List<ScheduleConflictDTO> conflicts = data.get("conflicts") == null ? List.of()
+                : list(response, "conflicts", ScheduleConflictDTO.class);
+        AdjustmentRequestDetailDTO latest = data.get("latest") == null ? null
+                : read(response, "latest", AdjustmentRequestDetailDTO.class);
+        throw new TeacherCourseServiceException(response.getCode(), message, conflicts, latest);
     }
 
     private <T> List<T> list(Message response, String key, Class<T> type) {
@@ -188,18 +269,38 @@ public final class SocketTeacherCourseService implements TeacherCourseService {
         return gson.fromJson(gson.toJson(value), type);
     }
 
-    /** 教师课程请求的稳定失败契约：保留服务端 code 与 message，供界面区分无权限与参数错误。 */
+    /**
+     * 教师课程请求的稳定失败契约：保留服务端 code 与 message，供界面区分无权限与参数错误。
+     * CONFLICT 时额外携带类型化冲突与最新可见详情（调课冲突对话框用）。
+     */
     public static final class TeacherCourseServiceException extends RuntimeException {
         private static final long serialVersionUID = 1L;
         private final MessageCode code;
+        private final List<ScheduleConflictDTO> conflicts;
+        private final AdjustmentRequestDetailDTO latest;
 
         public TeacherCourseServiceException(MessageCode code, String message) {
+            this(code, message, List.of(), null);
+        }
+
+        public TeacherCourseServiceException(MessageCode code, String message,
+                List<ScheduleConflictDTO> conflicts, AdjustmentRequestDetailDTO latest) {
             super(message);
             this.code = code;
+            this.conflicts = conflicts == null ? List.of() : List.copyOf(conflicts);
+            this.latest = latest;
         }
 
         public MessageCode getCode() {
             return code;
+        }
+
+        public List<ScheduleConflictDTO> getConflicts() {
+            return conflicts;
+        }
+
+        public AdjustmentRequestDetailDTO getLatest() {
+            return latest;
         }
     }
 }

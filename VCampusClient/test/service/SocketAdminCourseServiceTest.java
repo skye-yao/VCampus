@@ -91,6 +91,7 @@ public final class SocketAdminCourseServiceTest {
             enrollmentPageRequiresServerMetadata();
             adjustmentMethodsAreDeclaredInTheService();
             adjustmentListSendsFiltersAndMapsItsPage();
+            adjustmentListByStatusStaysThePrimaryTransport();
             adjustmentDetailAndDecisionMapTypedPayloads();
             adjustmentConflictKeepsTypedRisksAndLatestDetail();
             gradeMethodsAreDeclaredInTheService();
@@ -807,8 +808,57 @@ public final class SocketAdminCourseServiceTest {
 
     private static void adjustmentMethodsAreDeclaredInTheService() {
         declared("listAdjustmentRequestsPage", AdjustmentRequestStatusDTO.class, int.class, int.class);
+        declared("listAdjustmentRequestsByStatus", AdjustmentRequestStatusDTO.class, int.class,
+                int.class);
         declared("getAdjustmentRequest", String.class);
         declared("reviewAdjustmentRequest", ApprovalDecisionRequestDTO.class);
+    }
+
+    /**
+     * T4 起四态查询以 {@code listAdjustmentRequestsByStatus} 为主名，旧名必须继续按同一信封工作；
+     * 成绩筛选保持三态，不能被调课的四态污染。
+     */
+    private static void adjustmentListByStatusStaysThePrimaryTransport() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> {
+            message.putData("adjustmentRequests", List.of(wireShaped(adjustmentSummary())));
+            message.putData("totalCount", 1L);
+            message.putData("pageNumber", 1);
+            message.putData("pageSize", 20);
+        });
+        SocketAdminCourseService service = new SocketAdminCourseService(transport);
+
+        AdjustmentRequestPageDTO page = service.listAdjustmentRequestsByStatus(
+                AdjustmentRequestStatusDTO.WITHDRAWN, 1, 20).join();
+        requireEnvelope(transport, AdminCourseActions.LIST_ADJUSTMENT_REQUESTS);
+        require("WITHDRAWN".equals(transport.lastRequest.getData("status")),
+                "the primary four-state query must send WITHDRAWN by name");
+        require(page.getItems().size() == 1
+                        && page.getItems().get(0).getStatus()
+                        == AdjustmentRequestStatusDTO.APPROVED,
+                "the primary query must map the page rows");
+
+        transport.respond(message -> {
+            message.putData("adjustmentRequests", List.of());
+            message.putData("totalCount", 0L);
+            message.putData("pageNumber", 1);
+            message.putData("pageSize", 20);
+        });
+        require(new SocketAdminCourseService(transport).listAdjustmentRequestsPage(
+                        AdjustmentRequestStatusDTO.WITHDRAWN, 1, 20).join().getItems().isEmpty(),
+                "the legacy page alias must delegate to the same transport");
+        requireEnvelope(transport, AdminCourseActions.LIST_ADJUSTMENT_REQUESTS);
+        require("WITHDRAWN".equals(transport.lastRequest.getData("status")),
+                "the alias must keep sending the four-state status");
+
+        require(AdjustmentRequestStatusDTO.values().length == 4,
+                "the adjustment status domain must stay four-state");
+        require(ApprovalStatusDTO.values().length == 3,
+                "the grade approval enum must stay three-state, WITHDRAWN is not a grade state");
+        for (ApprovalStatusDTO gradeStatus : ApprovalStatusDTO.values()) {
+            require(!"WITHDRAWN".equals(gradeStatus.name()),
+                    "no grade status may ever be named WITHDRAWN");
+        }
     }
 
     private static void adjustmentListSendsFiltersAndMapsItsPage() {

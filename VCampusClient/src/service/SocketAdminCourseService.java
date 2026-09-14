@@ -336,7 +336,7 @@ public final class SocketAdminCourseService implements AdminCourseService {
     }
 
     @Override
-    public CompletableFuture<AdjustmentRequestPageDTO> listAdjustmentRequestsPage(
+    public CompletableFuture<AdjustmentRequestPageDTO> listAdjustmentRequestsByStatus(
             AdjustmentRequestStatusDTO status, int page, int size) {
         Message request = request(AdminCourseActions.LIST_ADJUSTMENT_REQUESTS);
         if (status != null) request.putData("status", status.name());
@@ -346,6 +346,13 @@ public final class SocketAdminCourseService implements AdminCourseService {
                 read(response, "totalCount", Long.class),
                 read(response, "pageNumber", Integer.class),
                 read(response, "pageSize", Integer.class)));
+    }
+
+    /** 旧名兼容别名：与四态主查询共用同一信封，既有调用方不受影响。 */
+    @Override
+    public CompletableFuture<AdjustmentRequestPageDTO> listAdjustmentRequestsPage(
+            AdjustmentRequestStatusDTO status, int page, int size) {
+        return listAdjustmentRequestsByStatus(status, page, size);
     }
 
     @Override

@@ -1078,7 +1078,7 @@ public final class MockAdminCourseService implements AdminCourseService {
     private static final int MAX_REASON = 500;
 
     @Override
-    public CompletableFuture<AdjustmentRequestPageDTO> listAdjustmentRequestsPage(
+    public CompletableFuture<AdjustmentRequestPageDTO> listAdjustmentRequestsByStatus(
             AdjustmentRequestStatusDTO status, int page, int size) {
         try {
             AdjustmentRequestStatusDTO filter = status == null
@@ -1100,6 +1100,13 @@ public final class MockAdminCourseService implements AdminCourseService {
         } catch (RuntimeException failure) {
             return failed(failure);
         }
+    }
+
+    /** 旧名兼容别名：与四态主查询返回同一份快照。 */
+    @Override
+    public CompletableFuture<AdjustmentRequestPageDTO> listAdjustmentRequestsPage(
+            AdjustmentRequestStatusDTO status, int page, int size) {
+        return listAdjustmentRequestsByStatus(status, page, size);
     }
 
     @Override
@@ -1305,6 +1312,12 @@ public final class MockAdminCourseService implements AdminCourseService {
                 new ScheduleResourceDTO("8101", "3001", "A-101", CLASSROOM_RESOURCE, 120),
                 List.of(target("7005", 5, "2026-10-06T00:00:00Z", "张老师")),
                 List.of(), "2026-09-10T06:00:00Z", REVIEWER, MOCK_NOW, "材料不足"));
+        // 教师撤销是申请人自己结束的终态：审核字段为空，审批页与 T5 的“已撤销”显示路径需要它。
+        addAdjustmentRequest(new AdjustmentRequestDetailDTO("9005", "2002", "T2003", "临时调课",
+                AdjustmentRequestStatusDTO.WITHDRAWN, 2, 2, 3, 4,
+                new ScheduleResourceDTO("8003", "T2003", "王老师", TEACHER_RESOURCE, 0), null, null,
+                List.of(target("7006", 6, "2026-10-13T02:00:00Z", "王老师")),
+                List.of(), "2026-09-10T05:00:00Z", null, null, null));
     }
 
     private void addAdjustmentRequest(AdjustmentRequestDetailDTO request) {

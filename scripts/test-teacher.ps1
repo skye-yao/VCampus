@@ -107,7 +107,13 @@ $suites = @(
     # 管理员审批接口仍然可用。V006 迁移测试自带 `mysql` 开关，只有 -WithMySql 才跑真实库。
     [pscustomobject]@{ Name = 'Adjustment'
         Common = @('dto.course.teacher.TeacherAdjustmentDtoJsonTest')
-        Client = @()
+        # T4 的教师调课客户端契约：Socket 服务的六个调课方法、泛型 applications 页、CONFLICT 形状，
+        # 以及 MockTeacherCourseService 的四态夹具/提交/撤销快照。管理员客户端测试（Socket/Mock）
+        # 在 T4 增加了 listAdjustmentRequestsByStatus 主名与旧名别名、WITHDRAWN 夹具，一起登记。
+        Client = @('service.SocketTeacherCourseServiceTest',
+            'service.MockTeacherCourseServiceTest',
+            'service.SocketAdminCourseServiceTest',
+            'service.MockAdminCourseServiceTest')
         # TeacherAdjustmentConflictMySqlTest 自带 `mysql` 开关（-WithMySql 才跑真实库）。
         # CourseConflictMySqlTest 是既有排课冲突引擎的回归：它不解析 `mysql` 参数，只按
         # db.properties 指向受保护测试库来运行，登记它是为了证明共用检查没有改动旧行为。
@@ -115,8 +121,12 @@ $suites = @(
         # 才跑真实库，未传时打印 SKIP 且不算通过。ScheduleAdjustmentApprovalMySqlTest（T1 迁到四态后
         # 一直没有套件保护）与 CourseConflictMySqlTest 一样不解析 `mysql`，只要 db.properties 指向
         # 受保护测试库就会真跑，登记它即代表每次运行都真正执行。
+        # TeacherAdjustmentHandlerTest（T4 新增）是 DB-free 的教师调课入口回归；AdminCourseHandlerTest
+        # 一直没进任何套件，T4 在它里面钉住“调课四态可筛 / 成绩筛选仍拒绝 WITHDRAWN”，必须登记。
         Server = @('database.TeacherAdjustmentMigrationTest',
             'handler.ScheduleAdjustmentApprovalHandlerTest',
+            'handler.TeacherAdjustmentHandlerTest',
+            'handler.AdminCourseHandlerTest',
             'service.TeacherAdjustmentConflictMySqlTest',
             'service.ScheduleAdjustmentApprovalMySqlTest',
             'service.TeacherAdjustmentApplicationMySqlTest',

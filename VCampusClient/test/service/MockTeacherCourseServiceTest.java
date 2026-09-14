@@ -1,5 +1,7 @@
 package service;
 
+import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
@@ -9,11 +11,23 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.function.Supplier;
 
+import dto.course.AdjustmentRequestStatusDTO;
 import dto.course.CourseTermDTO;
+import dto.course.admin.approval.AdjustmentRequestDetailDTO;
+import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
+import dto.course.admin.approval.AdjustmentTargetDTO;
 import dto.course.admin.schedule.ScheduleArrangementDTO;
+import dto.course.admin.schedule.ScheduleConflictDTO;
+import dto.course.admin.schedule.ScheduleConflictSeverityDTO;
+import dto.course.teacher.TeacherAdjustmentOptionsDTO;
+import dto.course.teacher.TeacherAdjustmentPreviewDTO;
+import dto.course.teacher.TeacherAdjustmentTargetInputDTO;
+import dto.course.teacher.TeacherAdjustmentWriteDTO;
 import dto.course.teacher.TeacherOfferingDTO;
+import dto.course.teacher.TeacherOperationResultDTO;
 import dto.course.teacher.TeacherPageDTO;
 import dto.course.teacher.TeacherRosterRowDTO;
+import dto.course.teacher.WithdrawTeacherAdjustmentRequestDTO;
 import protocol.MessageCode;
 import service.SocketTeacherCourseService.TeacherCourseServiceException;
 
@@ -35,6 +49,10 @@ public final class MockTeacherCourseServiceTest {
     private static final int SPRING = 3;
     private static final int AUTUMN = 2;
     private static final String LONG_NAME = "欧阳阿依古丽·买买提江·吐尔逊超长姓名测试";
+    /** 调课夹具的固定教学日历第 1 周周一，与 mock 的日期推导保持同一把尺。 */
+    private static final LocalDate WEEK_ONE_START = LocalDate.of(2026, 9, 7);
+    private static final String WITHDRAW_OPERATION = "50000000-0000-0000-0000-000000000001";
+    private static final String SUBMIT_OPERATION = "50000000-0000-0000-0000-000000000002";
 
     private MockTeacherCourseServiceTest() {
     }
@@ -49,6 +67,12 @@ public final class MockTeacherCourseServiceTest {
         capabilityFieldsMatchTheServerContract();
         offeringStatusesStayWithinTheServerDomain();
         filtersAndPagingSurfaceAsFailedFutures();
+        adjustmentRequestsCoverTheFourStatesAndBothWeekPatterns();
+        adjustmentOptionsStayInsideTheTeachingCalendar();
+        previewDistinguishesSameWeekConflictsFromCrossWeekAvailability();
+        submitAddsAPendingRequestVisibleInQueries();
+        withdrawIncrementsTheVersionAndChangesTheQuerySnapshot();
+        adjustmentFailuresStayFailedFutures();
         System.out.println("MockTeacherCourseServiceTest: PASS");
     }
 
@@ -272,6 +296,253 @@ public final class MockTeacherCourseServiceTest {
         requireCode(MessageCode.BAD_REQUEST,
                 () -> service.listOfferingStudents(FULL_ROSTER_ID, null, null, 1, 101),
                 "an out-of-range roster size must be BAD_REQUEST");
+    }
+
+    /**
+     * 四种状态各至少一条，且目标覆盖同周与跨周：这是 T5 的“我的调课申请”页与已撤销显示路径
+     * 依赖的确定性数据契约。
+     */
+    private static void adjustmentRequestsCoverTheFourStatesAndBothWeekPatterns() {
+        MockTeacherCourseService service = new MockTeacherCourseService();
+        Set<String> seen = new LinkedHashSet<>();
+        boolean sameWeek = false;
+        boolean crossWeek = false;
+
+        for (AdjustmentRequestStatusDTO status : AdjustmentRequestStatusDTO.values()) {
+            TeacherPageDTO<AdjustmentRequestSummaryDTO> page =
+                    service.listMyAdjustmentRequests(status, 1, PAGE_SIZE).join();
+            require(!page.getItems().isEmpty(),
+                    "the mock must seed at least one " + status + " request");
+            require(page.getItems().stream().allMatch(item -> item.getStatus() == status),
+                    "the " + status + " filter must return only " + status + " rows");
+            for (AdjustmentRequestSummaryDTO summary : page.getItems()) {
+                seen.add(summary.getStatus().name());
+                AdjustmentRequestDetailDTO detail =
+                        service.getAdjustmentRequest(summary.getRequestId()).join();
+                require(detail.getTargets().size() >= 1,
+                        "a summary must resolve to a detail with its targets");
+                for (AdjustmentTargetDTO target : detail.getTargets()) {
+                    String targetDate = target.getTargetDate();
+                    require(targetDate != null,
+                            "a teacher-submitted target must carry its ISO target date");
+                    int targetWeek = teachingWeek(targetDate);
+                    if (targetWeek == target.getWeek()) sameWeek = true;
+                    else crossWeek = true;
+                }
+            }
+        }
+        require(seen.containsAll(Set.of("PENDING", "APPROVED", "REJECTED", "WITHDRAWN")),
+                "the mock must provide every four-state value, saw " + seen);
+        require(sameWeek && crossWeek,
+                "the fixtures must cover both a same-week and a cross-week target");
+
+        TeacherPageDTO<AdjustmentRequestSummaryDTO> defaulted =
+                service.listMyAdjustmentRequests(null, 1, PAGE_SIZE).join();
+        require(defaulted.getItems().stream()
+                        .allMatch(item -> item.getStatus() == AdjustmentRequestStatusDTO.PENDING),
+                "a null status must keep the server's PENDING default");
+    }
+
+    private static void adjustmentOptionsStayInsideTheTeachingCalendar() {
+        MockTeacherCourseService service = new MockTeacherCourseService();
+        TeacherOfferingDTO offering = offeringByCode(service, ACADEMIC_YEAR, SPRING, "CS301-01");
+
+        TeacherAdjustmentOptionsDTO options = service.getAdjustmentOptions(
+                offering.getOfferingId(), "9203").join();
+        require(options.getCalendarId() != null && "Asia/Shanghai".equals(options.getTimezone()),
+                "the options must expose the teaching calendar identity");
+        require(options.getDates().stream().allMatch(date -> date.isTeachingDay()
+                        && date.getTeachingWeekday() >= 1 && date.getTeachingWeekday() <= 6),
+                "every option date must be a teaching day of the mock calendar");
+        require(!options.getClassrooms().isEmpty()
+                        && options.getClassrooms().stream()
+                        .allMatch(room -> room.getResourceId() != null
+                                && room.getCapacity() >= 0),
+                "the classroom resources must carry exact IDs and capacities");
+        require(options.getPeriods().stream()
+                        .allMatch(period -> period.getDate() != null && period.getPeriod() >= 1),
+                "the period template must be keyed by teaching date");
+    }
+
+    private static void previewDistinguishesSameWeekConflictsFromCrossWeekAvailability() {
+        MockTeacherCourseService service = new MockTeacherCourseService();
+        String offeringId = offeringByCode(service, ACADEMIC_YEAR, SPRING, "CS301-01")
+                .getOfferingId();
+
+        TeacherAdjustmentPreviewDTO busy = service.previewAdjustment(adjustmentWrite(
+                "not-a-uuid", offeringId, "9203", "2026-10-26", 1, 2, "8103",
+                "教师出差")).join();
+        require(!busy.isCanSubmit() && !busy.getConflicts().isEmpty(),
+                "a same-week target that collides with the teacher's own class must not be submittable");
+        require(busy.getConflicts().stream().anyMatch(
+                        conflict -> "TEACHER_OVERLAP".equals(conflict.getType())
+                                && conflict.getSeverity() == ScheduleConflictSeverityDTO.BLOCKING),
+                "the collision must be reported as a blocking teacher overlap");
+
+        TeacherAdjustmentPreviewDTO free = service.previewAdjustment(adjustmentWrite(
+                "not-a-uuid", offeringId, "9203", "2026-11-02", 1, 2, "8103",
+                "教师出差")).join();
+        require(free.isCanSubmit() && free.getConflicts().isEmpty(),
+                "a cross-week target on a free slot must be submittable");
+
+        TeacherAdjustmentPreviewDTO sunday = service.previewAdjustment(adjustmentWrite(
+                "not-a-uuid", offeringId, "9203", "2026-11-01", 1, 2, "8103",
+                "教师出差")).join();
+        require(!sunday.isCanSubmit() && sunday.getConflicts().stream().anyMatch(
+                        conflict -> "ADJUSTMENT_SLOT_INVALID".equals(conflict.getType())),
+                "a non-teaching day target must be a blocking slot conflict");
+
+        requireCode(MessageCode.BAD_REQUEST,
+                () -> service.previewAdjustment(adjustmentWrite("not-a-uuid", offeringId, "9203",
+                        "2026-10-31", 12, 13, "8105", "教师出差")),
+                "an unchanged arrangement must be BAD_REQUEST, not a phantom conflict");
+    }
+
+    private static void submitAddsAPendingRequestVisibleInQueries() {
+        MockTeacherCourseService service = new MockTeacherCourseService();
+        String offeringId = offeringByCode(service, ACADEMIC_YEAR, SPRING, "CS301-01")
+                .getOfferingId();
+        long before = service.listMyAdjustmentRequests(AdjustmentRequestStatusDTO.PENDING, 1,
+                PAGE_SIZE).join().getTotalCount();
+        TeacherAdjustmentWriteDTO write = adjustmentWrite(SUBMIT_OPERATION, offeringId, "9203",
+                "2026-11-02", 1, 2, "8103", "教师出差");
+
+        TeacherOperationResultDTO<AdjustmentRequestDetailDTO> result =
+                service.submitAdjustment(write).join();
+        AdjustmentRequestDetailDTO created = result.getValue();
+        require(created != null && created.getStatus() == AdjustmentRequestStatusDTO.PENDING
+                        && created.getVersion() == 1 && !result.isReplayed(),
+                "a submit must create a fresh PENDING request at version 1");
+        require("2026-11-02".equals(created.getTargets().get(0).getTargetDate()),
+                "the created request must keep the requested target date");
+        require(created.getNewTeacher() == null && created.getNewAssistant() == null,
+                "the mock must never invent a substituted teacher or assistant");
+
+        require(created.getRequestId().equals(
+                        service.getAdjustmentRequest(created.getRequestId()).join().getRequestId()),
+                "the created request must be readable by ID");
+        TeacherPageDTO<AdjustmentRequestSummaryDTO> pending =
+                service.listMyAdjustmentRequests(AdjustmentRequestStatusDTO.PENDING, 1, PAGE_SIZE)
+                        .join();
+        require(pending.getTotalCount() == before + 1
+                        && pending.getItems().stream().anyMatch(item -> created.getRequestId()
+                        .equals(item.getRequestId())),
+                "the query snapshot must show the new PENDING request, not just the returned value");
+
+        TeacherOperationResultDTO<AdjustmentRequestDetailDTO> replay =
+                service.submitAdjustment(write).join();
+        require(replay.isReplayed()
+                        && created.getRequestId().equals(replay.getValue().getRequestId()),
+                "the same operationId and content must replay the stored result");
+        require(service.listMyAdjustmentRequests(AdjustmentRequestStatusDTO.PENDING, 1, PAGE_SIZE)
+                        .join().getTotalCount() == before + 1,
+                "a replay must not write a second request");
+    }
+
+    private static void withdrawIncrementsTheVersionAndChangesTheQuerySnapshot() {
+        MockTeacherCourseService service = new MockTeacherCourseService();
+        String pendingId = service.listMyAdjustmentRequests(AdjustmentRequestStatusDTO.PENDING, 1,
+                PAGE_SIZE).join().getItems().get(0).getRequestId();
+        AdjustmentRequestDetailDTO before = service.getAdjustmentRequest(pendingId).join();
+        require(before.getStatus() == AdjustmentRequestStatusDTO.PENDING
+                        && before.getVersion() == 1,
+                "the withdrawable fixture must start PENDING at version 1");
+
+        TeacherOperationResultDTO<AdjustmentRequestDetailDTO> withdrawn =
+                service.withdrawAdjustment(new WithdrawTeacherAdjustmentRequestDTO(
+                        WITHDRAW_OPERATION, pendingId, before.getVersion())).join();
+        require(withdrawn.getValue().getStatus() == AdjustmentRequestStatusDTO.WITHDRAWN
+                        && withdrawn.getValue().getVersion() == before.getVersion() + 1,
+                "a withdraw must move the request to WITHDRAWN and increment its version");
+        require(service.getAdjustmentRequest(pendingId).join().getStatus()
+                        == AdjustmentRequestStatusDTO.WITHDRAWN,
+                "the detail query snapshot must change after the withdraw");
+        require(service.listMyAdjustmentRequests(AdjustmentRequestStatusDTO.PENDING, 1, PAGE_SIZE)
+                        .join().getItems().stream().noneMatch(
+                                item -> pendingId.equals(item.getRequestId())),
+                "the PENDING list must no longer contain the withdrawn request");
+        require(service.listMyAdjustmentRequests(AdjustmentRequestStatusDTO.WITHDRAWN, 1, PAGE_SIZE)
+                        .join().getItems().stream().anyMatch(
+                                item -> pendingId.equals(item.getRequestId())),
+                "the WITHDRAWN list must show the withdrawn request");
+
+        TeacherOperationResultDTO<AdjustmentRequestDetailDTO> replay =
+                service.withdrawAdjustment(new WithdrawTeacherAdjustmentRequestDTO(
+                        WITHDRAW_OPERATION, pendingId, before.getVersion())).join();
+        require(replay.isReplayed()
+                        && replay.getValue().getVersion() == before.getVersion() + 1,
+                "a repeated withdraw must replay, never increment twice");
+    }
+
+    private static void adjustmentFailuresStayFailedFutures() {
+        MockTeacherCourseService service = new MockTeacherCourseService();
+        String offeringId = offeringByCode(service, ACADEMIC_YEAR, SPRING, "CS301-01")
+                .getOfferingId();
+        String approvedId = service.listMyAdjustmentRequests(AdjustmentRequestStatusDTO.APPROVED,
+                1, PAGE_SIZE).join().getItems().get(0).getRequestId();
+
+        requireCode(MessageCode.NOT_FOUND, () -> service.getAdjustmentRequest("1234567890123"),
+                "an unknown request must be NOT_FOUND");
+        requireCode(MessageCode.BAD_REQUEST, () -> service.getAdjustmentRequest("abc"),
+                "a non-decimal request ID must be BAD_REQUEST");
+        requireCode(MessageCode.FORBIDDEN, () -> service.getAdjustmentOptions(
+                        "1234567890123", "9203"),
+                "an unknown offering must not expose adjustment options");
+        requireCode(MessageCode.FORBIDDEN, () -> service.getAdjustmentOptions(offeringId, "9201"),
+                "an occurrence of another offering must be denied");
+
+        requireCode(MessageCode.BAD_REQUEST, () -> service.previewAdjustment(
+                        adjustmentWrite("not-a-uuid", offeringId, "9203", "2026/11/02", 1, 2,
+                                "8103", "教师出差")),
+                "a non-ISO target date must be BAD_REQUEST");
+        requireCode(MessageCode.BAD_REQUEST, () -> service.submitAdjustment(
+                        adjustmentWrite("not-a-uuid", offeringId, "9203", "2026-11-02", 1, 2,
+                                "8103", "教师出差")),
+                "a non-UUID operationId must be BAD_REQUEST on submit");
+        requireCode(MessageCode.BAD_REQUEST, () -> service.submitAdjustment(
+                        adjustmentWrite(SUBMIT_OPERATION, offeringId, "9203", "2026-11-02", 1, 2,
+                                "8103", "   ")),
+                "submit must require a reason while preview does not");
+        requireCode(MessageCode.CONFLICT, () -> service.submitAdjustment(
+                        adjustmentWrite(SUBMIT_OPERATION, offeringId, "9203", "2026-10-26", 1, 2,
+                                "8103", "教师出差")),
+                "a colliding target must be CONFLICT on submit");
+        requireCode(MessageCode.BAD_REQUEST, () -> service.withdrawAdjustment(
+                        new WithdrawTeacherAdjustmentRequestDTO("not-a-uuid", approvedId, 1)),
+                "a non-UUID withdraw operationId must be BAD_REQUEST");
+        requireCode(MessageCode.CONFLICT, () -> service.withdrawAdjustment(
+                        new WithdrawTeacherAdjustmentRequestDTO(WITHDRAW_OPERATION, approvedId, 2)),
+                "a terminal request must not be withdrawable");
+        requireCode(MessageCode.BAD_REQUEST, () -> service.listMyAdjustmentRequests(null, 0,
+                        PAGE_SIZE), "page 0 must be BAD_REQUEST");
+        requireCode(MessageCode.BAD_REQUEST, () -> service.listMyAdjustmentRequests(null, 1, 101),
+                "size 101 must be BAD_REQUEST");
+
+        AdjustmentRequestDetailDTO approved = service.getAdjustmentRequest(approvedId).join();
+        try {
+            service.withdrawAdjustment(new WithdrawTeacherAdjustmentRequestDTO(
+                    "50000000-0000-0000-0000-000000000009", approvedId,
+                    approved.getVersion())).join();
+            throw new AssertionError("a terminal request must not be withdrawable");
+        } catch (CompletionException failure) {
+            TeacherCourseServiceException error =
+                    (TeacherCourseServiceException) failure.getCause();
+            require(error.getLatest() != null
+                            && approvedId.equals(error.getLatest().getRequestId()),
+                    "the conflict must carry the latest detail so the page can refresh");
+        }
+    }
+
+    private static int teachingWeek(String isoDate) {
+        return (int) (ChronoUnit.DAYS.between(WEEK_ONE_START, LocalDate.parse(isoDate)) / 7) + 1;
+    }
+
+    private static TeacherAdjustmentWriteDTO adjustmentWrite(String operationId, String offeringId,
+            String occurrenceId, String targetDate, int startPeriod, int endPeriod,
+            String classroomId, String reason) {
+        return new TeacherAdjustmentWriteDTO(operationId, offeringId,
+                List.of(new TeacherAdjustmentTargetInputDTO(occurrenceId, targetDate)),
+                startPeriod, endPeriod, classroomId, reason);
     }
 
     private static String fullRosterOfferingId(MockTeacherCourseService service) {

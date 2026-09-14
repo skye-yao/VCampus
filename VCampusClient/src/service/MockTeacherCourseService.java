@@ -3,27 +3,44 @@ package service;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
+import dto.course.AdjustmentRequestStatusDTO;
 import dto.course.CourseTermDTO;
 import dto.course.ScheduleDisplayKindDTO;
+import dto.course.admin.approval.AdjustmentRequestDetailDTO;
+import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
+import dto.course.admin.approval.AdjustmentTargetDTO;
 import dto.course.admin.schedule.ScheduleArrangementDTO;
+import dto.course.admin.schedule.ScheduleConflictDTO;
+import dto.course.admin.schedule.ScheduleConflictSeverityDTO;
 import dto.course.admin.schedule.ScheduleResourceDTO;
 import dto.course.admin.schedule.ScheduleSlotDTO;
+import dto.course.teacher.TeacherAdjustmentOptionsDTO;
+import dto.course.teacher.TeacherAdjustmentPreviewDTO;
+import dto.course.teacher.TeacherAdjustmentTargetInputDTO;
+import dto.course.teacher.TeacherAdjustmentWriteDTO;
 import dto.course.teacher.TeacherCalendarDateDTO;
 import dto.course.teacher.TeacherOfferingDTO;
 import dto.course.teacher.TeacherOfferingDetailDTO;
+import dto.course.teacher.TeacherOperationResultDTO;
 import dto.course.teacher.TeacherPageDTO;
 import dto.course.teacher.TeacherPeriodDTO;
 import dto.course.teacher.TeacherRosterRowDTO;
 import dto.course.teacher.TeacherScheduleEntryDTO;
 import dto.course.teacher.TeacherScheduleWeekDTO;
+import dto.course.teacher.WithdrawTeacherAdjustmentRequestDTO;
 import protocol.MessageCode;
 import service.SocketTeacherCourseService.TeacherCourseServiceException;
 
@@ -96,6 +113,19 @@ public final class MockTeacherCourseService implements TeacherCourseService {
     private static final String CROSS_WEEK_REASON = "教师出差";
     private static final String SAME_WEEK_REASON = "临时调课";
 
+    // 调课 mock 的确定性约定：申请人、时间戳、教室资源与四个状态夹具。T5 的“我的调课申请”
+    // 页面与已撤销显示路径直接依赖这些值；提交/撤销会真实改变查询快照（版本递增）。
+    private static final String ADJUSTMENT_APPLICANT = "00001234";
+    private static final String ADJUSTMENT_TEACHER = "陈老师";
+    private static final String ADJUSTMENT_ASSISTANT = "王助教";
+    private static final String ADJUSTMENT_REVIEWER = "admin-alpha";
+    private static final String ADJUSTMENT_SUBMITTED_AT = "2026-09-14T08:00:00Z";
+    private static final String ADJUSTMENT_REVIEWED_AT = "2026-09-14T09:00:00Z";
+    private static final int ADJUSTMENT_MAX_REASON = 500;
+    private static final String CLASSROOM_A_101 = "8101";
+    private static final String CLASSROOM_B_203 = "8103";
+    private static final String CLASSROOM_C_301 = "8105";
+
     private final List<CourseTermDTO> terms = List.of(
             new CourseTermDTO(2025, 3, "2025-2026 春学期"),
             new CourseTermDTO(2025, 2, "2025-2026 秋学期"));
@@ -104,6 +134,9 @@ public final class MockTeacherCourseService implements TeacherCourseService {
     private final Map<String, TeacherOfferingDetailDTO> details = new LinkedHashMap<>();
     private final Map<String, List<TeacherRosterRowDTO>> rosters = new LinkedHashMap<>();
     private final Map<String, List<ScheduleArrangementDTO>> schedules = new LinkedHashMap<>();
+    private final Map<String, AdjustmentRequestDetailDTO> adjustmentRequests = new LinkedHashMap<>();
+    private final Map<String, RecordedAdjustmentOperation> adjustmentOperations = new LinkedHashMap<>();
+    private long nextAdjustmentRequestId = 9406;
 
     public MockTeacherCourseService() {
         seedOfferings();
@@ -111,6 +144,7 @@ public final class MockTeacherCourseService implements TeacherCourseService {
         seedEmptyOffering();
         seedAutumnOffering();
         seedSchedules();
+        seedAdjustmentRequests();
     }
 
     @Override
@@ -229,6 +263,466 @@ public final class MockTeacherCourseService implements TeacherCourseService {
         } catch (RuntimeException failure) {
             return failed(failure);
         }
+    }
+
+    // ------------------------------------------------------------------ 调课申请
+
+    /**
+     * 原课次的可选目标域：mock 与教师周课表共用同一教学日历，只返回教学日（周一到周六）的日期与
+     * 这些日期的节次模板，教室为固定三间。日期不过滤“已过去”，与真实服务一致（由界面置灰）。
+     */
+    @Override
+    public CompletableFuture<TeacherAdjustmentOptionsDTO> getAdjustmentOptions(
+            String offeringId, String originalOccurrenceId) {
+        try {
+            TeacherOfferingDTO offering = offeringId == null ? null : offerings.get(offeringId);
+            if (offering == null) throw forbidden("没有该教学班的调课权限");
+            requireOccurrence(offeringId, originalOccurrenceId);
+            CalendarSpec calendar = calendarFor(offering.getAcademicYear(), offering.getSemester());
+            if (calendar == null) throw notFound("该学期暂无已发布的教学日历");
+            List<TeacherCalendarDateDTO> dates = new ArrayList<>();
+            List<TeacherPeriodDTO> periods = new ArrayList<>();
+            for (int week = MIN_TEACHING_WEEK; week <= MAX_TEACHING_WEEK; week++) {
+                for (int weekday = 1; weekday <= LAST_TEACHING_WEEKDAY; weekday++) {
+                    String date = localDate(week, weekday);
+                    dates.add(new TeacherCalendarDateDTO(date, week, weekday, true));
+                    for (int period = 1; period <= PERIOD_COUNT; period++) {
+                        LocalTime start = FIRST_PERIOD_START
+                                .plusMinutes((long) (period - 1) * PERIOD_INTERVAL_MINUTES);
+                        periods.add(new TeacherPeriodDTO(date, period,
+                                start.format(PERIOD_TIME),
+                                start.plusMinutes(PERIOD_LENGTH_MINUTES).format(PERIOD_TIME)));
+                    }
+                }
+            }
+            return CompletableFuture.completedFuture(new TeacherAdjustmentOptionsDTO(
+                    calendar.calendarId(), SCHEDULE_TIMEZONE, dates, periods,
+                    List.of(room(CLASSROOM_A_101), room(CLASSROOM_B_203), room(CLASSROOM_C_301))));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    /**
+     * 纯预检查：不做写操作、忽略 operationId、不要求原因。结果区分同周与跨周——目标落在教师已有
+     * 课的时间段（且不是被调课次自己）报告 BLOCKING TEACHER_OVERLAP，非教学日报告 SLOT_INVALID，
+     * 其余可提交。
+     */
+    @Override
+    public CompletableFuture<TeacherAdjustmentPreviewDTO> previewAdjustment(
+            TeacherAdjustmentWriteDTO write) {
+        try {
+            Assessment assessment = assessAdjustment(write, false);
+            return CompletableFuture.completedFuture(new TeacherAdjustmentPreviewDTO(
+                    assessment.conflicts(), assessment.conflicts().isEmpty()));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    /**
+     * 提交：与预览同一套校验，但要求 UUID operationId 与非空原因；任何冲突都拒绝（教师没有 force）。
+     * 成功后写入一条 PENDING（version=1）申请，查询快照立即改变；同 operationId 同内容重放。
+     */
+    @Override
+    public CompletableFuture<TeacherOperationResultDTO<AdjustmentRequestDetailDTO>>
+            submitAdjustment(TeacherAdjustmentWriteDTO write) {
+        try {
+            String operationId = requireOperationId(write == null ? null : write.getOperationId());
+            String digest = adjustmentDigest("submit", write);
+            TeacherOperationResultDTO<AdjustmentRequestDetailDTO> stored =
+                    replayAdjustment(operationId, digest);
+            if (stored != null) return CompletableFuture.completedFuture(stored);
+            Assessment assessment = assessAdjustment(write, true);
+            if (!assessment.conflicts().isEmpty()) {
+                throw conflict("存在冲突，无法提交调课申请", null, assessment.conflicts());
+            }
+            AdjustmentRequestDetailDTO created = new AdjustmentRequestDetailDTO(
+                    Long.toString(nextAdjustmentRequestId++),
+                    requiredDecimal(write.getOfferingId(), "offeringId"),
+                    ADJUSTMENT_APPLICANT, blankToNull(write.getReason()),
+                    AdjustmentRequestStatusDTO.PENDING, 1, assessment.newWeekday(),
+                    write.getNewStartPeriod(), write.getNewEndPeriod(), null, null,
+                    classroomResource(blankToNull(write.getNewClassroomId())),
+                    assessment.targets(), List.of(), ADJUSTMENT_SUBMITTED_AT, null, null, null);
+            adjustmentRequests.put(created.getRequestId(), created);
+            TeacherOperationResultDTO<AdjustmentRequestDetailDTO> result =
+                    new TeacherOperationResultDTO<>(operationId, "调课申请已提交", created, false);
+            adjustmentOperations.put(operationId, new RecordedAdjustmentOperation(digest, result));
+            return CompletableFuture.completedFuture(result);
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    /**
+     * 撤销：只允许本人 PENDING 且版本匹配；成功把状态改为 WITHDRAWN、version 递增并刷新查询快照。
+     * 终态或版本过期抛 CONFLICT（携带最新详情），未知申请抛 NOT_FOUND，同 operationId 重放。
+     */
+    @Override
+    public CompletableFuture<TeacherOperationResultDTO<AdjustmentRequestDetailDTO>>
+            withdrawAdjustment(WithdrawTeacherAdjustmentRequestDTO withdrawal) {
+        try {
+            String operationId = requireOperationId(withdrawal == null ? null
+                    : withdrawal.getOperationId());
+            String requestId = withdrawal == null ? null
+                    : requiredDecimal(withdrawal.getRequestId(), "requestId");
+            int expectedVersion = withdrawal == null ? 0 : withdrawal.getExpectedVersion();
+            if (expectedVersion <= 0) throw badRequest("expectedVersion 必须为正整数");
+            String digest = "withdraw|" + requestId + "|" + expectedVersion;
+            TeacherOperationResultDTO<AdjustmentRequestDetailDTO> stored =
+                    replayAdjustment(operationId, digest);
+            if (stored != null) return CompletableFuture.completedFuture(stored);
+
+            AdjustmentRequestDetailDTO current = adjustmentRequests.get(requestId);
+            if (current == null) throw notFound("调课申请不存在");
+            if (current.getStatus() != AdjustmentRequestStatusDTO.PENDING) {
+                throw conflict("调课申请已被处理，请刷新后重试", current, List.of());
+            }
+            if (current.getVersion() != expectedVersion) {
+                throw conflict("调课申请版本已变化，请刷新后重试", current, List.of());
+            }
+            AdjustmentRequestDetailDTO withdrawn = new AdjustmentRequestDetailDTO(
+                    current.getRequestId(), current.getOfferingId(), current.getApplicantUid(),
+                    current.getReason(), AdjustmentRequestStatusDTO.WITHDRAWN,
+                    current.getVersion() + 1, current.getNewDayOfWeek(), current.getNewStartPeriod(),
+                    current.getNewEndPeriod(), current.getNewTeacher(), current.getNewAssistant(),
+                    current.getNewClassroom(), current.getTargets(), List.of(),
+                    current.getSubmittedAt(), null, null, null);
+            adjustmentRequests.put(withdrawn.getRequestId(), withdrawn);
+            TeacherOperationResultDTO<AdjustmentRequestDetailDTO> result =
+                    new TeacherOperationResultDTO<>(operationId, "调课申请已撤销", withdrawn, false);
+            adjustmentOperations.put(operationId, new RecordedAdjustmentOperation(digest, result));
+            return CompletableFuture.completedFuture(result);
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    @Override
+    public CompletableFuture<AdjustmentRequestDetailDTO> getAdjustmentRequest(String requestId) {
+        try {
+            String id = requiredDecimal(requestId, "requestId");
+            AdjustmentRequestDetailDTO request = adjustmentRequests.get(id);
+            if (request == null) throw notFound("调课申请不存在");
+            return CompletableFuture.completedFuture(request);
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    /** 我的申请：只含 mock 自己的申请，按提交时间倒序；status 缺省与真实服务一样按 PENDING。 */
+    @Override
+    public CompletableFuture<TeacherPageDTO<AdjustmentRequestSummaryDTO>> listMyAdjustmentRequests(
+            AdjustmentRequestStatusDTO status, int page, int size) {
+        try {
+            AdjustmentRequestStatusDTO filter = status == null
+                    ? AdjustmentRequestStatusDTO.PENDING : status;
+            List<AdjustmentRequestSummaryDTO> matching = new ArrayList<>();
+            for (AdjustmentRequestDetailDTO request : adjustmentRequests.values()) {
+                if (request.getStatus() == filter) matching.add(adjustmentSummary(request));
+            }
+            matching.sort(Comparator.comparing(AdjustmentRequestSummaryDTO::getSubmittedAt)
+                    .reversed()
+                    .thenComparing(AdjustmentRequestSummaryDTO::getRequestId,
+                            Comparator.reverseOrder()));
+            return CompletableFuture.completedFuture(page(matching, page, size));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    // ------------------------------------------------------------------ 调课夹具与校验
+
+    /**
+     * mock 认为教师实际要去上的课次。9201/9202 已有生效调课（周课表里是 ADJUSTED_*），
+     * 不能再申请；9203 未调整，是提交/预览演示的唯一可申请课次。
+     */
+    private static final List<MockOccurrence> MOCK_OCCURRENCES = List.of(
+            new MockOccurrence("9201", FULL_ROSTER_OFFERING, 8, 1, 1, 2, CLASSROOM_A_101,
+                    "A-101", "2026-10-26T00:00:00Z", "2026-10-26T01:35:00Z", false,
+                    ADJUSTMENT_ASSISTANT),
+            new MockOccurrence("9202", INTERACTION_OFFERING, 8, 2, 1, 2, CLASSROOM_A_101,
+                    "A-101", "2026-10-27T00:00:00Z", "2026-10-27T01:35:00Z", false, null),
+            new MockOccurrence("9203", OPERATING_SYSTEM_OFFERING, 8, 6, 12, 13, CLASSROOM_C_301,
+                    "C-301", "2026-10-31T04:00:00Z", "2026-10-31T05:35:00Z", true, null));
+
+    /**
+     * 教师已有课的时间段（含生效调课的新位置）；目标落进其中一段且不是被调课次自己，
+     * 预检查报告 TEACHER_OVERLAP。这就是 mock 的“同周冲突 / 跨周可用”语义来源。
+     */
+    private static final List<BusySlot> BUSY_SLOTS = List.of(
+            new BusySlot(8, 1, 1, 2, "9201"), new BusySlot(8, 2, 1, 2, "9202"),
+            new BusySlot(8, 5, 5, 6, "9202"), new BusySlot(8, 6, 12, 13, "9203"),
+            new BusySlot(9, 3, 3, 4, "9201"));
+
+    private record MockOccurrence(String occurrenceId, String offeringId, int week, int weekday,
+            int startPeriod, int endPeriod, String classroomId, String classroomName,
+            String startAt, String endAt, boolean canRequestAdjustment, String assistant) {
+    }
+
+    private record BusySlot(int week, int weekday, int startPeriod, int endPeriod,
+            String occurrenceId) {
+    }
+
+    private record RecordedAdjustmentOperation(String digest,
+            TeacherOperationResultDTO<AdjustmentRequestDetailDTO> result) {
+    }
+
+    /** 预检查/提交的解析结果：冲突、目标快照与请求头的教学星期。 */
+    private record Assessment(List<ScheduleConflictDTO> conflicts, List<AdjustmentTargetDTO> targets,
+            int newWeekday) {
+    }
+
+    private static MockOccurrence requireOccurrence(String offeringId, String occurrenceId) {
+        String id = requiredDecimal(occurrenceId, "originalOccurrenceId");
+        for (MockOccurrence occurrence : MOCK_OCCURRENCES) {
+            if (occurrence.occurrenceId().equals(id)
+                    && occurrence.offeringId().equals(offeringId)) {
+                return occurrence;
+            }
+        }
+        throw forbidden("没有该课次的调课权限");
+    }
+
+    /**
+     * 与真实服务同形的校验顺序：请求体 → 教学班 → 目标 → 原因 → 每个目标的日期/星期/冲突。
+     * 冲突以列表报告（预览可显示），提交再按“非空即拒绝”处理；教师没有 force。
+     */
+    private Assessment assessAdjustment(TeacherAdjustmentWriteDTO write, boolean requireReason) {
+        if (write == null) throw badRequest("请求体不能为空");
+        String offeringId = requiredDecimal(write.getOfferingId(), "offeringId");
+        if (!offerings.containsKey(offeringId)) {
+            throw forbidden("没有该教学班的调课权限");
+        }
+        if (write.getTargets().isEmpty()) throw badRequest("调课目标不能为空");
+        if (write.getNewStartPeriod() <= 0) throw badRequest("newStartPeriod 必须为正整数");
+        if (write.getNewEndPeriod() < write.getNewStartPeriod()) {
+            throw badRequest("newEndPeriod 不能小于 newStartPeriod");
+        }
+        String reason = blankToNull(write.getReason());
+        if (requireReason && reason == null) throw badRequest("调课原因不能为空");
+        if (reason != null && reason.length() > ADJUSTMENT_MAX_REASON) {
+            throw badRequest("调课原因不能超过 " + ADJUSTMENT_MAX_REASON + " 字符");
+        }
+        String newClassroomId = blankToNull(write.getNewClassroomId());
+        if (newClassroomId != null) {
+            requiredDecimal(newClassroomId, "newClassroomId");
+            if (!Set.of(CLASSROOM_A_101, CLASSROOM_B_203, CLASSROOM_C_301)
+                    .contains(newClassroomId)) {
+                throw badRequest("教室不存在");
+            }
+        }
+
+        List<ScheduleConflictDTO> conflicts = new ArrayList<>();
+        List<AdjustmentTargetDTO> targets = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
+        int newWeekday = 0;
+        for (TeacherAdjustmentTargetInputDTO target : write.getTargets()) {
+            String occurrenceId = requiredDecimal(target.getOriginalOccurrenceId(),
+                    "originalOccurrenceId");
+            if (!seen.add(occurrenceId)) {
+                throw badRequest("同一课次不能在同一申请里重复出现");
+            }
+            MockOccurrence occurrence = requireOccurrence(offeringId, occurrenceId);
+            String text = blankToNull(target.getTargetDate());
+            if (text == null) throw badRequest("targetDate 不能为空");
+            LocalDate date;
+            try {
+                date = LocalDate.parse(text);
+            } catch (DateTimeParseException invalid) {
+                throw badRequest("targetDate 必须是 ISO 本地日期");
+            }
+            int week = teachingWeek(date);
+            int weekday = date.getDayOfWeek().getValue();
+            if (!occurrence.canRequestAdjustment()) {
+                conflicts.add(slotConflict("ADJUSTMENT_TARGET_ADJUSTED", occurrenceId, offeringId,
+                        occurrence.week(), occurrence.weekday(), write,
+                        "该课程实例已有生效的调课记录"));
+                continue;
+            }
+            if (week == occurrence.week() && weekday == occurrence.weekday()
+                    && write.getNewStartPeriod() == occurrence.startPeriod()
+                    && write.getNewEndPeriod() == occurrence.endPeriod()
+                    && (newClassroomId == null || newClassroomId.equals(occurrence.classroomId()))) {
+                throw badRequest("新日期、节次与教室和原安排相同，无需调课");
+            }
+            if (week < MIN_TEACHING_WEEK || week > MAX_TEACHING_WEEK
+                    || weekday > LAST_TEACHING_WEEKDAY) {
+                conflicts.add(slotConflict("ADJUSTMENT_SLOT_INVALID", occurrenceId, offeringId,
+                        week, weekday, write, "目标日期不在教学日历范围内"));
+                continue;
+            }
+            if (newWeekday == 0) {
+                newWeekday = weekday;
+            } else if (newWeekday != weekday) {
+                throw badRequest("一次申请的目标必须落在同一教学星期");
+            }
+            for (BusySlot busy : BUSY_SLOTS) {
+                if (busy.week() == week && busy.weekday() == weekday
+                        && !busy.occurrenceId().equals(occurrenceId)
+                        && busy.startPeriod() <= write.getNewEndPeriod()
+                        && write.getNewStartPeriod() <= busy.endPeriod()) {
+                    conflicts.add(slotConflict("TEACHER_OVERLAP", busy.occurrenceId(), offeringId,
+                            busy.week(), busy.weekday(), write, "任课教师在该时间已有其他课程"));
+                }
+            }
+            targets.add(new AdjustmentTargetDTO(occurrenceId, occurrence.week(),
+                    occurrence.startAt(), occurrence.endAt(), ADJUSTMENT_TEACHER,
+                    occurrence.assistant(), occurrence.classroomName(), date.toString()));
+        }
+
+        for (AdjustmentRequestDetailDTO pending : adjustmentRequests.values()) {
+            if (pending.getStatus() != AdjustmentRequestStatusDTO.PENDING
+                    || !pending.getOfferingId().equals(offeringId)) {
+                continue;
+            }
+            for (AdjustmentTargetDTO existing : pending.getTargets()) {
+                if (seen.contains(existing.getOriginalOccurrenceId())) {
+                    conflicts.add(slotConflict("ADJUSTMENT_TARGET_ADJUSTED",
+                            existing.getOriginalOccurrenceId(), offeringId, existing.getWeek(),
+                            pending.getNewDayOfWeek(), write,
+                            "该课程实例已有待审批的调课申请"));
+                }
+            }
+        }
+        // 全部目标都不可用时 weekday 没有业务含义（冲突列表已让预览/提交失败），保持 1 以免 0。
+        if (newWeekday == 0) newWeekday = 1;
+        return new Assessment(List.copyOf(conflicts), List.copyOf(targets), newWeekday);
+    }
+
+    private static ScheduleConflictDTO slotConflict(String type, String subjectId,
+            String offeringId, int week, int weekday, TeacherAdjustmentWriteDTO write,
+            String message) {
+        return new ScheduleConflictDTO(type, ScheduleConflictSeverityDTO.BLOCKING, subjectId,
+                offeringId, week, weekday, write.getNewStartPeriod(), write.getNewEndPeriod(),
+                message);
+    }
+
+    private void seedAdjustmentRequests() {
+        addAdjustmentRequest(new AdjustmentRequestDetailDTO("9401", INTERACTION_OFFERING,
+                ADJUSTMENT_APPLICANT, SAME_WEEK_REASON, AdjustmentRequestStatusDTO.APPROVED, 2, 5,
+                5, 6, null, null, room(CLASSROOM_B_203),
+                List.of(target("9202", 8, "2026-10-27T00:00:00Z", "2026-10-27T01:35:00Z",
+                        "A-101", ADJUSTMENT_TEACHER, null, "2026-10-30")),
+                List.of(), "2026-09-12T08:00:00Z", ADJUSTMENT_REVIEWER, ADJUSTMENT_REVIEWED_AT,
+                "同意"));
+        addAdjustmentRequest(new AdjustmentRequestDetailDTO("9402", FULL_ROSTER_OFFERING,
+                ADJUSTMENT_APPLICANT, CROSS_WEEK_REASON, AdjustmentRequestStatusDTO.APPROVED, 2, 3,
+                3, 4, null, null, room(CLASSROOM_B_203),
+                List.of(target("9201", 8, "2026-10-26T00:00:00Z", "2026-10-26T01:35:00Z",
+                        "A-101", ADJUSTMENT_TEACHER, ADJUSTMENT_ASSISTANT, "2026-11-04")),
+                List.of(), "2026-09-12T07:00:00Z", ADJUSTMENT_REVIEWER, ADJUSTMENT_REVIEWED_AT,
+                "已协调教室"));
+        addAdjustmentRequest(new AdjustmentRequestDetailDTO("9403", OPERATING_SYSTEM_OFFERING,
+                ADJUSTMENT_APPLICANT, "材料不全的申请", AdjustmentRequestStatusDTO.REJECTED, 2, 4, 7,
+                8, null, null, room(CLASSROOM_B_203),
+                List.of(target("9203", 8, "2026-10-31T04:00:00Z", "2026-10-31T05:35:00Z",
+                        "C-301", ADJUSTMENT_TEACHER, null, "2026-10-29")),
+                List.of(), "2026-09-12T06:00:00Z", ADJUSTMENT_REVIEWER, ADJUSTMENT_REVIEWED_AT,
+                "材料不足"));
+        addAdjustmentRequest(new AdjustmentRequestDetailDTO("9404", OPERATING_SYSTEM_OFFERING,
+                ADJUSTMENT_APPLICANT, CROSS_WEEK_REASON, AdjustmentRequestStatusDTO.WITHDRAWN, 2, 5,
+                12, 13, null, null, room(CLASSROOM_B_203),
+                List.of(target("9203", 8, "2026-10-31T04:00:00Z", "2026-10-31T05:35:00Z",
+                        "C-301", ADJUSTMENT_TEACHER, null, "2026-11-06")),
+                List.of(), "2026-09-12T05:00:00Z", null, null, null));
+        // PENDING 挂在 9202：它不占用 9203（唯一可申请课次），否则预览/提交演示会被重复 PENDING
+        // 检查拦下；9202 的这条申请仍可撤销，撤销后状态与版本按真实语义递增。
+        addAdjustmentRequest(new AdjustmentRequestDetailDTO("9405", INTERACTION_OFFERING,
+                ADJUSTMENT_APPLICANT, SAME_WEEK_REASON, AdjustmentRequestStatusDTO.PENDING, 1, 5,
+                5, 6, null, null, room(CLASSROOM_B_203),
+                List.of(target("9202", 8, "2026-10-27T00:00:00Z", "2026-10-27T01:35:00Z",
+                        "A-101", ADJUSTMENT_TEACHER, null, "2026-11-06")),
+                List.of(), "2026-09-14T07:00:00Z", null, null, null));
+    }
+
+    private void addAdjustmentRequest(AdjustmentRequestDetailDTO request) {
+        adjustmentRequests.put(request.getRequestId(), request);
+    }
+
+    private static AdjustmentTargetDTO target(String occurrenceId, int week, String startAt,
+            String endAt, String classroom, String teacher, String assistant, String targetDate) {
+        return new AdjustmentTargetDTO(occurrenceId, week, startAt, endAt, teacher, assistant,
+                classroom, targetDate);
+    }
+
+    private AdjustmentRequestSummaryDTO adjustmentSummary(AdjustmentRequestDetailDTO request) {
+        TeacherOfferingDTO offering = offerings.get(request.getOfferingId());
+        return new AdjustmentRequestSummaryDTO(request.getRequestId(),
+                offering == null ? "" : offering.getCourseName(),
+                offering == null ? "" : offering.getOfferingCode(), request.getApplicantUid(),
+                ADJUSTMENT_TEACHER, request.getTargets().size(), request.getStatus(),
+                request.getSubmittedAt());
+    }
+
+    private static ScheduleResourceDTO room(String classroomId) {
+        return switch (classroomId) {
+            case CLASSROOM_A_101 -> new ScheduleResourceDTO(CLASSROOM_A_101, "3001", "A-101",
+                    "classroom", 120);
+            case CLASSROOM_C_301 -> new ScheduleResourceDTO(CLASSROOM_C_301, "3005", "C-301",
+                    "classroom", 90);
+            default -> new ScheduleResourceDTO(CLASSROOM_B_203, "3003", "B-203", "classroom", 60);
+        };
+    }
+
+    private static ScheduleResourceDTO classroomResource(String classroomId) {
+        return classroomId == null ? null : room(classroomId);
+    }
+
+    /** 教学日历里 (week, teachingWeekday) 对应的 ISO 本地日期（与周课表 fixture 同一把尺）。 */
+    private static int teachingWeek(LocalDate date) {
+        long days = ChronoUnit.DAYS.between(WEEK_ONE_START, date);
+        return days < 0 ? 0 : (int) (days / CALENDAR_DAYS_PER_WEEK) + 1;
+    }
+
+    private TeacherOperationResultDTO<AdjustmentRequestDetailDTO> replayAdjustment(
+            String operationId, String digest) {
+        RecordedAdjustmentOperation stored = adjustmentOperations.get(operationId);
+        if (stored == null) return null;
+        if (!stored.digest().equals(digest)) {
+            throw conflict("operationId 已用于不同的业务请求", null, List.of());
+        }
+        TeacherOperationResultDTO<AdjustmentRequestDetailDTO> first = stored.result();
+        return new TeacherOperationResultDTO<>(first.getOperationId(), first.getMessage(),
+                first.getValue(), true);
+    }
+
+    private static String adjustmentDigest(String action, TeacherAdjustmentWriteDTO write) {
+        if (write == null) return action + "|<null>";
+        List<String> targets = new ArrayList<>();
+        for (TeacherAdjustmentTargetInputDTO target : write.getTargets()) {
+            targets.add(String.valueOf(target.getOriginalOccurrenceId()) + "@"
+                    + String.valueOf(target.getTargetDate()));
+        }
+        return action + "|" + write.getOfferingId() + "|" + targets + "|"
+                + write.getNewStartPeriod() + "|" + write.getNewEndPeriod() + "|"
+                + write.getNewClassroomId() + "|" + write.getReason();
+    }
+
+    private static String requireOperationId(String operationId) {
+        try {
+            if (operationId == null || operationId.isBlank()
+                    || !UUID.fromString(operationId).toString().equalsIgnoreCase(operationId)) {
+                throw new IllegalArgumentException();
+            }
+        } catch (IllegalArgumentException failure) {
+            throw badRequest("operationId 必须是 UUID");
+        }
+        return operationId;
+    }
+
+    private static String requiredDecimal(String value, String key) {
+        String text = blankToNull(value);
+        if (text == null || !text.matches("[0-9]+")) {
+            throw badRequest(key + " 必须为十进制字符串");
+        }
+        try {
+            if (Long.parseLong(text) <= 0) throw badRequest(key + " 必须为正整数");
+        } catch (NumberFormatException failure) {
+            throw badRequest(key + " 超出 BIGINT 范围");
+        }
+        return text;
     }
 
     // ------------------------------------------------------------------ 固定数据
@@ -408,6 +902,16 @@ public final class MockTeacherCourseService implements TeacherCourseService {
 
     private static TeacherCourseServiceException notFound(String message) {
         return new TeacherCourseServiceException(MessageCode.NOT_FOUND, message);
+    }
+
+    private static TeacherCourseServiceException forbidden(String message) {
+        return new TeacherCourseServiceException(MessageCode.FORBIDDEN, message);
+    }
+
+    /** 调课冲突：与真实服务一致地携带类型化冲突与最新可见详情，供界面刷新与分类展示。 */
+    private static TeacherCourseServiceException conflict(String message,
+            AdjustmentRequestDetailDTO latest, List<ScheduleConflictDTO> conflicts) {
+        return new TeacherCourseServiceException(MessageCode.CONFLICT, message, conflicts, latest);
     }
 
     private static <T> CompletableFuture<T> failed(Throwable error) {

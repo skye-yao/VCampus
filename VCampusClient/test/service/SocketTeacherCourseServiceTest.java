@@ -1,19 +1,31 @@
 package service;
 
 import com.google.gson.Gson;
+import dto.course.AdjustmentRequestStatusDTO;
 import dto.course.CourseTermDTO;
 import dto.course.ScheduleDisplayKindDTO;
+import dto.course.admin.approval.AdjustmentRequestDetailDTO;
+import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
+import dto.course.admin.approval.AdjustmentTargetDTO;
 import dto.course.admin.schedule.ScheduleArrangementDTO;
+import dto.course.admin.schedule.ScheduleConflictDTO;
+import dto.course.admin.schedule.ScheduleConflictSeverityDTO;
 import dto.course.admin.schedule.ScheduleResourceDTO;
 import dto.course.admin.schedule.ScheduleSlotDTO;
+import dto.course.teacher.TeacherAdjustmentOptionsDTO;
+import dto.course.teacher.TeacherAdjustmentPreviewDTO;
+import dto.course.teacher.TeacherAdjustmentTargetInputDTO;
+import dto.course.teacher.TeacherAdjustmentWriteDTO;
 import dto.course.teacher.TeacherCalendarDateDTO;
 import dto.course.teacher.TeacherOfferingDTO;
 import dto.course.teacher.TeacherOfferingDetailDTO;
+import dto.course.teacher.TeacherOperationResultDTO;
 import dto.course.teacher.TeacherPageDTO;
 import dto.course.teacher.TeacherPeriodDTO;
 import dto.course.teacher.TeacherRosterRowDTO;
 import dto.course.teacher.TeacherScheduleEntryDTO;
 import dto.course.teacher.TeacherScheduleWeekDTO;
+import dto.course.teacher.WithdrawTeacherAdjustmentRequestDTO;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
@@ -41,6 +53,10 @@ public final class SocketTeacherCourseServiceTest {
     private static final String OCCURRENCE_ID = "9201";
     private static final String ADJUSTMENT_ID = "9301";
     private static final String SCHEDULE_DATE = "2026-10-26";
+    private static final String REQUEST_ID = "9007199254740994";
+    private static final String OPERATION_ID = "30000000-0000-0000-0000-000000000001";
+    private static final String CLASSROOM_ID = "8103";
+    private static final String TARGET_DATE = "2026-11-04";
 
     public static void main(String[] args) {
         ClientSession.getInstance().login("teacher-alpha", "教师", TOKEN, null);
@@ -57,6 +73,13 @@ public final class SocketTeacherCourseServiceTest {
             loadTeachingScheduleMissingScheduleKeyBecomesError();
             loadTeachingScheduleKeepsServerCodeAndMessage();
             unsupportedDisplayKindIsRejectedNotDefaulted();
+            adjustmentOptionsUseTheOptionsKeyAndKeepExactIds();
+            adjustmentPreviewMapsConflictsAndCanSubmit();
+            adjustmentWriteMethodsMapTheOperationResult();
+            adjustmentWithdrawMapsTheOperationResult();
+            adjustmentDetailMapsFourStateStatusAndTargetDate();
+            adjustmentApplicationsParseTheGenericPageAndOmitNullStatus();
+            adjustmentConflictKeepsTypedConflictsAndLatestDetail();
             requestsNeverCarryClientSuppliedIdentity();
             nonSuccessBecomesStableException();
             nullResponseBecomesError();
@@ -416,6 +439,235 @@ public final class SocketTeacherCourseServiceTest {
                         "陈老师, 王助教", "A-101", SCHEDULE_DATE, week, 1, 1, 2,
                         ScheduleDisplayKindDTO.ADJUSTED_ORIGINAL, ADJUSTMENT_ID,
                         "周一 第1-2节 A-101", "周三 第3-4节 B-203", "教师出差", false)));
+    }
+
+    private static void adjustmentOptionsUseTheOptionsKeyAndKeepExactIds() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("options",
+                wireShaped(new TeacherAdjustmentOptionsDTO(CALENDAR_ID, "Asia/Shanghai",
+                        List.of(new TeacherCalendarDateDTO("2026-11-04", 9, 3, true)),
+                        List.of(new TeacherPeriodDTO("2026-11-04", 3, "10:00:00", "10:45:00")),
+                        List.of(new ScheduleResourceDTO("8103", "3003", "B-203", "classroom", 60))))));
+        SocketTeacherCourseService service = new SocketTeacherCourseService(transport);
+
+        TeacherAdjustmentOptionsDTO options =
+                service.getAdjustmentOptions(OFFERING_ID, OCCURRENCE_ID).join();
+        requireEnvelope(transport, "getAdjustmentOptions");
+        require(OFFERING_ID.equals(transport.lastRequest.getData("offeringId")),
+                "the offeringId must travel as the exact decimal string");
+        require(OCCURRENCE_ID.equals(transport.lastRequest.getData("originalOccurrenceId")),
+                "the originalOccurrenceId must travel as the exact decimal string");
+        require(transport.lastRequest.getData("uid") == null,
+                "the options read must never carry a client-supplied identity");
+        require(CALENDAR_ID.equals(options.getCalendarId())
+                        && "Asia/Shanghai".equals(options.getTimezone()),
+                "the calendar identity and timezone must map");
+        require(options.getDates().size() == 1 && "2026-11-04".equals(
+                        options.getDates().get(0).getDate()),
+                "the teaching dates must map");
+        require(options.getPeriods().size() == 1 && options.getPeriods().get(0).getPeriod() == 3,
+                "the period template must map");
+        require(options.getClassrooms().size() == 1
+                        && "8103".equals(options.getClassrooms().get(0).getResourceId()),
+                "the classroom resources must map with exact IDs");
+    }
+
+    private static void adjustmentPreviewMapsConflictsAndCanSubmit() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("conflicts", wireShaped(
+                new TeacherAdjustmentPreviewDTO(List.of(adjustmentConflict()), false))));
+        SocketTeacherCourseService service = new SocketTeacherCourseService(transport);
+
+        TeacherAdjustmentWriteDTO write = writeDto();
+        TeacherAdjustmentPreviewDTO preview = service.previewAdjustment(write).join();
+        requireEnvelope(transport, "previewAdjustment");
+        require(transport.lastRequest.getData("request") == write,
+                "the typed write DTO must travel under request unchanged");
+        require(!preview.isCanSubmit(), "the canSubmit flag must survive the mapping");
+        require(preview.getConflicts().size() == 1
+                        && preview.getConflicts().get(0).getSeverity()
+                        == ScheduleConflictSeverityDTO.BLOCKING,
+                "the typed conflicts must survive the mapping");
+
+        transport.respond(message -> message.putData("conflicts",
+                wireShaped(new TeacherAdjustmentPreviewDTO(List.of(), true))));
+        require(service.previewAdjustment(write).join().isCanSubmit(),
+                "a conflict-free preview must report canSubmit");
+    }
+
+    private static void adjustmentWriteMethodsMapTheOperationResult() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("result", wireShaped(
+                new TeacherOperationResultDTO<>(OPERATION_ID, "调课申请已提交",
+                        adjustmentDetail(), false))));
+        SocketTeacherCourseService service = new SocketTeacherCourseService(transport);
+
+        TeacherAdjustmentWriteDTO write = writeDto();
+        TeacherOperationResultDTO<AdjustmentRequestDetailDTO> result =
+                service.submitAdjustment(write).join();
+        requireEnvelope(transport, "submitAdjustment");
+        require(transport.lastRequest.getData("request") == write,
+                "the submit must travel as the typed write DTO under request");
+        require(transport.lastRequest.getData("uid") == null,
+                "the submit must not carry a client-supplied identity");
+        require(OPERATION_ID.equals(result.getOperationId())
+                        && "调课申请已提交".equals(result.getMessage())
+                        && !result.isReplayed(),
+                "the operation result envelope must map");
+        require(result.getValue() != null && REQUEST_ID.equals(result.getValue().getRequestId())
+                        && result.getValue().getVersion() == 1,
+                "the write result value must carry the created detail");
+    }
+
+    private static void adjustmentWithdrawMapsTheOperationResult() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("result", wireShaped(
+                new TeacherOperationResultDTO<>(OPERATION_ID, "调课申请已撤销",
+                        withdrawnDetail(), false))));
+        SocketTeacherCourseService service = new SocketTeacherCourseService(transport);
+
+        WithdrawTeacherAdjustmentRequestDTO withdrawal =
+                new WithdrawTeacherAdjustmentRequestDTO(OPERATION_ID, REQUEST_ID, 1);
+        TeacherOperationResultDTO<AdjustmentRequestDetailDTO> result =
+                service.withdrawAdjustment(withdrawal).join();
+        requireEnvelope(transport, "withdrawAdjustment");
+        require(transport.lastRequest.getData("request") == withdrawal,
+                "the withdraw must travel as the typed DTO under request");
+        require(result.getValue() != null
+                        && result.getValue().getStatus() == AdjustmentRequestStatusDTO.WITHDRAWN,
+                "the withdrawn status must map from the write result");
+    }
+
+    private static void adjustmentDetailMapsFourStateStatusAndTargetDate() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("adjustmentRequest",
+                wireShaped(withdrawnDetail())));
+        SocketTeacherCourseService service = new SocketTeacherCourseService(transport);
+
+        AdjustmentRequestDetailDTO detail = service.getAdjustmentRequest(REQUEST_ID).join();
+        requireEnvelope(transport, "getAdjustmentRequest");
+        require(REQUEST_ID.equals(transport.lastRequest.getData("requestId")),
+                "the detail read must send the exact decimal request ID");
+        require(detail.getStatus() == AdjustmentRequestStatusDTO.WITHDRAWN,
+                "the four-state status must map, WITHDRAWN included");
+        require(detail.getVersion() == 2, "the version needed for withdraw must map");
+        require(detail.getTargets().size() == 1
+                        && TARGET_DATE.equals(detail.getTargets().get(0).getTargetDate()),
+                "each target must keep its ISO local target date");
+        require(detail.getNewTeacher() == null && detail.getNewAssistant() == null,
+                "teacher-submitted requests never carry a substituted person");
+    }
+
+    private static void adjustmentApplicationsParseTheGenericPageAndOmitNullStatus() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("applications",
+                wireShaped(new TeacherPageDTO<>(List.of(adjustmentSummary()), 7L, 2, 20))));
+        SocketTeacherCourseService service = new SocketTeacherCourseService(transport);
+
+        TeacherPageDTO<AdjustmentRequestSummaryDTO> page = service.listMyAdjustmentRequests(
+                AdjustmentRequestStatusDTO.WITHDRAWN, 2, 20).join();
+        requireEnvelope(transport, "listMyAdjustmentRequests");
+        require("WITHDRAWN".equals(transport.lastRequest.getData("status")),
+                "the four-state filter must travel by name");
+        require(Integer.valueOf(2).equals(transport.lastRequest.getData("page"))
+                        && Integer.valueOf(20).equals(transport.lastRequest.getData("size")),
+                "the paging must travel under page/size");
+        require(page.getTotalCount() == 7L && page.getPage() == 2 && page.getSize() == 20,
+                "the generic page metadata must survive the parse");
+        require(page.getItems().size() == 1
+                        && page.getItems().get(0).getStatus()
+                        == AdjustmentRequestStatusDTO.WITHDRAWN,
+                "the four-state summary status must survive the generic parse");
+        require(REQUEST_ID.equals(page.getItems().get(0).getRequestId()),
+                "the summary request ID must stay exact");
+
+        transport.respond(message -> message.putData("applications",
+                wireShaped(new TeacherPageDTO<>(List.of(), 0L, 1, 20))));
+        service.listMyAdjustmentRequests(null, 1, 20).join();
+        require(transport.lastRequest.getData("status") == null,
+                "a null status must be omitted so the server keeps its PENDING default");
+    }
+
+    private static void adjustmentConflictKeepsTypedConflictsAndLatestDetail() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> {
+            message.setCode(MessageCode.CONFLICT);
+            message.setMessage("存在冲突，无法提交调课申请");
+            message.putData("conflicts", wireShaped(List.of(adjustmentConflict())));
+            message.putData("latest", wireShaped(adjustmentDetail()));
+        });
+        SocketTeacherCourseService service = new SocketTeacherCourseService(transport);
+
+        try {
+            service.submitAdjustment(writeDto()).join();
+            throw new AssertionError("a conflict must fail the future");
+        } catch (CompletionException failure) {
+            if (!(failure.getCause()
+                    instanceof SocketTeacherCourseService.TeacherCourseServiceException error)) {
+                throw new AssertionError("unexpected cause " + failure.getCause(),
+                        failure.getCause());
+            }
+            require(error.getCode() == MessageCode.CONFLICT,
+                    "a conflict must keep the CONFLICT code");
+            require(error.getConflicts().size() == 1
+                            && error.getConflicts().get(0).getSeverity()
+                            == ScheduleConflictSeverityDTO.BLOCKING,
+                    "the typed conflicts must be available to the dialog");
+            require(error.getLatest() != null && REQUEST_ID.equals(error.getLatest().getRequestId())
+                            && error.getLatest().getVersion() == 1,
+                    "the latest detail must be available to refresh the dialog");
+        }
+
+        FakeTransport bare = new FakeTransport();
+        bare.respond(message -> {
+            message.setCode(MessageCode.CONFLICT);
+            message.setMessage("operationId 已用于不同的业务请求");
+            message.putData("conflicts", wireShaped(List.of()));
+        });
+        try {
+            new SocketTeacherCourseService(bare).submitAdjustment(writeDto()).join();
+            throw new AssertionError("a bare conflict must fail the future");
+        } catch (CompletionException failure) {
+            SocketTeacherCourseService.TeacherCourseServiceException error =
+                    (SocketTeacherCourseService.TeacherCourseServiceException) failure.getCause();
+            require(error.getConflicts().isEmpty() && error.getLatest() == null,
+                    "a conflict without an entity must stay empty, never fabricated");
+        }
+    }
+
+    private static TeacherAdjustmentWriteDTO writeDto() {
+        return new TeacherAdjustmentWriteDTO("not-a-uuid", OFFERING_ID,
+                List.of(new TeacherAdjustmentTargetInputDTO(OCCURRENCE_ID, TARGET_DATE)),
+                3, 4, CLASSROOM_ID, "教师出差");
+    }
+
+    private static AdjustmentRequestDetailDTO adjustmentDetail() {
+        return new AdjustmentRequestDetailDTO(REQUEST_ID, OFFERING_ID, TEACHER_UID, "教师出差",
+                AdjustmentRequestStatusDTO.PENDING, 1, 3, 3, 4,
+                null, null, new ScheduleResourceDTO(CLASSROOM_ID, "3003", "B-203", "classroom", 60),
+                List.of(new AdjustmentTargetDTO(OCCURRENCE_ID, 8, "2026-10-26T00:00:00Z",
+                        "2026-10-26T01:35:00Z", "陈老师", null, "A-101", TARGET_DATE)),
+                List.of(), "2026-09-14T08:00:00Z", null, null, null);
+    }
+
+    private static AdjustmentRequestDetailDTO withdrawnDetail() {
+        return new AdjustmentRequestDetailDTO(REQUEST_ID, OFFERING_ID, TEACHER_UID, "教师出差",
+                AdjustmentRequestStatusDTO.WITHDRAWN, 2, 3, 3, 4,
+                null, null, new ScheduleResourceDTO(CLASSROOM_ID, "3003", "B-203", "classroom", 60),
+                List.of(new AdjustmentTargetDTO(OCCURRENCE_ID, 8, "2026-10-26T00:00:00Z",
+                        "2026-10-26T01:35:00Z", "陈老师", null, "A-101", TARGET_DATE)),
+                List.of(), "2026-09-14T08:00:00Z", null, null, null);
+    }
+
+    private static AdjustmentRequestSummaryDTO adjustmentSummary() {
+        return new AdjustmentRequestSummaryDTO(REQUEST_ID, "数据结构与算法基础", "CS203-01",
+                TEACHER_UID, "陈老师", 1, AdjustmentRequestStatusDTO.WITHDRAWN,
+                "2026-09-14T08:00:00Z");
+    }
+
+    private static ScheduleConflictDTO adjustmentConflict() {
+        return new ScheduleConflictDTO("TEACHER_OVERLAP", ScheduleConflictSeverityDTO.BLOCKING,
+                OCCURRENCE_ID, OFFERING_ID, 8, 3, 3, 4, "任课教师在该时间已有其他课程");
     }
 
     /** The learner identity must never be smuggled through the request body. */

@@ -139,10 +139,21 @@ public interface AdminCourseService {
                 .thenApply(AdjustmentRequestPageDTO::getItems);
     }
 
+    /**
+     * 四态调课列表（Task 4 起的主查询名）：WITHDRAWN 是教师撤销的终态，必须能被筛出来。
+     * 旧的 {@link #listAdjustmentRequestsPage} 与 {@link #listAdjustmentRequests} 保留为委托别名，
+     * 既有调用方与测试不需要改名。成绩筛选走独立的 {@code ApprovalStatusDTO} 方法，不受影响。
+     */
+    default CompletableFuture<AdjustmentRequestPageDTO> listAdjustmentRequestsByStatus(
+            AdjustmentRequestStatusDTO status, int page, int size) {
+        throw new UnsupportedOperationException("listAdjustmentRequestsByStatus");
+    }
+
     // Defaults keep existing implementations compatible until approval transport is provided.
+    /** 旧名兼容别名：委托给四态主查询，行为与参数完全一致。 */
     default CompletableFuture<AdjustmentRequestPageDTO> listAdjustmentRequestsPage(
             AdjustmentRequestStatusDTO status, int page, int size) {
-        throw new UnsupportedOperationException("listAdjustmentRequestsPage");
+        return listAdjustmentRequestsByStatus(status, page, size);
     }
 
     default CompletableFuture<AdjustmentRequestDetailDTO> getAdjustmentRequest(
