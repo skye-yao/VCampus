@@ -63,7 +63,12 @@ public final class TeacherScheduleController {
     /** 课次详情弹窗的资源路径；标题由 {@link TeacherCourseDetailDialogController#TITLE} 固定。 */
     static final String DIALOG_VIEW = "/resources/fxml/TeacherCourseDetailDialog.fxml";
 
-    private static final double PERIOD_COLUMN_WIDTH = 96.0;
+    /**
+     * 节次列要放下 {@code 第 13 节 18:00:00-18:45:00}（11px 字号约 120px 字形 + 12px 内边距），
+     * 因此固定宽度必须比 96 宽，否则 {@code Label} 默认的 {@code TextOverrun.ELLIPSIS} 会把它裁成
+     * {@code 第 1 节 08:00…}——秒与结束时间都看不见。整表因此比 860 窗口宽，横向滚动由 ScrollPane 负责。
+     */
+    private static final double PERIOD_COLUMN_WIDTH = 150.0;
     private static final double DAY_COLUMN_MIN_WIDTH = 96.0;
     private static final double DAY_COLUMN_PREF_WIDTH = 112.0;
     private static final double HEADER_ROW_HEIGHT = 34.0;
