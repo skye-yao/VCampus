@@ -13,7 +13,6 @@ import dto.course.admin.approval.ApprovalDecisionRequestDTO;
 import dto.course.AdjustmentRequestStatusDTO;
 import dto.course.admin.result.AdminOperationResultDTO;
 import dto.course.admin.schedule.ScheduleConflictDTO;
-import dto.course.admin.schedule.ScheduleSlotDTO;
 import exception.DatabaseException;
 import util.DBUtil;
 
@@ -28,6 +27,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -77,17 +77,18 @@ public class ScheduleAdjustmentApprovalService {
 
     private final ScheduleAdjustmentDAO dao;
     private final AdminCourseOperationDAO operations;
-    private final CourseConflictService conflicts;
+    private final ScheduleAdjustmentConflictService conflicts;
     private final Clock clock;
 
     public ScheduleAdjustmentApprovalService() {
-        this(new ScheduleAdjustmentDAO(), new AdminCourseOperationDAO(), new CourseConflictService(),
-                Clock.systemUTC());
+        this(new ScheduleAdjustmentDAO(), new AdminCourseOperationDAO(),
+                new ScheduleAdjustmentConflictService(), Clock.systemUTC());
     }
 
     public ScheduleAdjustmentApprovalService(ScheduleAdjustmentDAO dao,
                                              AdminCourseOperationDAO operations,
-                                             CourseConflictService conflicts, Clock clock) {
+                                             ScheduleAdjustmentConflictService conflicts,
+                                             Clock clock) {
         this.dao = dao;
         this.operations = operations;
         this.conflicts = conflicts;
@@ -195,6 +196,9 @@ public class ScheduleAdjustmentApprovalService {
         for (ScheduleAdjustmentDAO.TargetRow target : targets) {
             originals.add(target.originalOccurrenceId());
         }
+        // Design section 7 fixes the order request -> offering -> occurrences for both the teacher
+        // submit and this approval, so the two can never form a lock cycle.
+        dao.lockOffering(connection, row.offeringId());
         dao.lockOccurrencesAscending(connection, originals);
         Assessment assessment = inspect(connection, row, targets, calendars);
 
@@ -234,12 +238,15 @@ public class ScheduleAdjustmentApprovalService {
             ScheduleAdjustmentDAO.RequestRow row, List<ScheduleAdjustmentDAO.TargetRow> targets,
             Assessment assessment, Calendars calendars) throws SQLException {
         for (ScheduleAdjustmentDAO.TargetRow target : targets) {
-            ScheduleAdjustmentDAO.OccurrenceRow occurrence =
-                    assessment.occurrences().get(target.originalOccurrenceId());
+            ResolvedTarget spot = assessment.targets().get(target.targetId());
+            if (spot == null) throw new ConflictException("调课目标无法映射到教学日历");
+            // The concrete day comes from the explicit V006 target date; legacy NULL rows keep the
+            // original_week_no + request.new_weekday derivation resolved during inspection.
             AdminScheduleDAO.CalendarContext calendar =
-                    calendars.get(connection, occurrence.calendarId());
-            AdminScheduleDAO.Window window = calendar == null ? null : calendar.window(target.week(),
-                    row.newDayOfWeek(), row.newStartPeriod(), row.newEndPeriod());
+                    calendars.get(connection, assessment.occurrences()
+                            .get(target.originalOccurrenceId()).calendarId());
+            AdminScheduleDAO.Window window = calendar == null ? null : calendar.window(spot.week(),
+                    spot.weekday(), row.newStartPeriod(), row.newEndPeriod());
             if (window == null) throw new ConflictException("周次或节次超出教学日历范围");
             // A null proposed resource keeps that target's own snapshot, so a time-only request
             // can still resolve to a concrete teacher the adjustment column requires.
@@ -303,9 +310,13 @@ public class ScheduleAdjustmentApprovalService {
     // -------------------------------------------------------------- assessment
 
     /**
-     * Every target's blocking reason and overlap conflicts, merged and deduplicated in stable
-     * week/type/subject order. Targets that cannot be approved are reported and skipped instead of
-     * being handed to the conflict engine, so a malformed request is always typed rather than fatal.
+     * Every target's blocking reason, its resolved teaching day and the shared conflict engine's
+     * results, merged and deduplicated in stable week/type/subject order. Targets that cannot be
+     * approved are reported and skipped instead of being handed to the conflict engine, so a
+     * malformed request is always typed rather than fatal.
+     *
+     * <p>The proposed day is resolved per target: an explicit V006 {@code target_calendar_date_id}
+     * first, and legacy rows keep the {@code original_week_no + request.new_weekday} derivation.
      */
     private Assessment inspect(Connection connection, ScheduleAdjustmentDAO.RequestRow row,
                                List<ScheduleAdjustmentDAO.TargetRow> targets, Calendars calendars)
@@ -317,63 +328,68 @@ public class ScheduleAdjustmentApprovalService {
         Map<Long, ScheduleAdjustmentDAO.OccurrenceRow> occurrences = dao.findOccurrences(connection, ids);
         List<ScheduleConflictDTO> found = new ArrayList<>();
         Set<String> seen = new LinkedHashSet<>();
-        List<ScheduleAdjustmentDAO.TargetRow> usable = new ArrayList<>();
-        // One proposed slot serves every target, so two targets in one week would be written twice
-        // into the same window; targets arrive ordered by week, which is the order reported here.
-        Set<Integer> weeks = new LinkedHashSet<>();
+        Map<Long, ResolvedTarget> resolved = new LinkedHashMap<>();
+        List<ScheduleAdjustmentConflictService.Candidate> candidates = new ArrayList<>();
         for (ScheduleAdjustmentDAO.TargetRow target : targets) {
             ScheduleAdjustmentDAO.OccurrenceRow occurrence =
                     occurrences.get(target.originalOccurrenceId());
             String subject = Long.toString(target.originalOccurrenceId());
-            if (!weeks.add(target.week())) {
-                add(found, seen, blocking(CourseConflictService.OFFERING_OVERLAP, subject, row,
-                        target.week(), "同一申请在同一周次内重复指定相同的新时间段"));
-            } else if (!matches(row, target, occurrence)) {
+            if (!matches(row, target, occurrence)) {
                 add(found, seen, blocking(TARGET_INVALID, subject, row, target.week(),
                         "调课目标与当前正式课表不一致"));
-            } else if (occurrence.adjusted()) {
+                continue;
+            }
+            if (occurrence.adjusted()) {
                 add(found, seen, blocking(TARGET_ADJUSTED, subject, row, target.week(),
                         "该课程实例已有生效的调课记录"));
-            } else if (calendarWindow(calendars.get(connection, occurrence.calendarId()), row,
-                    target.week()) == null) {
+                continue;
+            }
+            ScheduleAdjustmentDAO.CalendarDateRow day = target.targetCalendarDateId() != null
+                    ? dao.findCalendarDate(connection, target.targetCalendarDateId())
+                    : dao.findCalendarDate(connection, occurrence.calendarId(), target.week(),
+                            row.newDayOfWeek());
+            if (day == null || !day.teachingDay() || day.calendarId() != occurrence.calendarId()) {
+                add(found, seen, blocking(SLOT_INVALID, subject, row, target.week(),
+                        "目标日期不在教学日历范围内"));
+                continue;
+            }
+            AdminScheduleDAO.CalendarContext calendar =
+                    calendars.get(connection, occurrence.calendarId());
+            AdminScheduleDAO.Window window = calendar == null ? null : calendar.window(day.weekNo(),
+                    day.teachingWeekday(), row.newStartPeriod(), row.newEndPeriod());
+            if (window == null) {
                 add(found, seen, blocking(SLOT_INVALID, subject, row, target.week(),
                         "新时间段不在教学日历范围内"));
-            } else {
-                usable.add(target);
+                continue;
             }
+            // A null proposed resource keeps that target's own snapshot, so a time-only request
+            // can still resolve to a concrete teacher the adjustment column requires.
+            String teacher = row.newTeacherUid() != null ? row.newTeacherUid() : target.teacherUid();
+            String assistant = row.newAssistantUid() != null ? row.newAssistantUid()
+                    : target.assistantUid();
+            Long classroom = row.newClassroomId() != null ? row.newClassroomId()
+                    : target.classroomId();
+            resolved.put(target.targetId(), new ResolvedTarget(day.weekNo(), day.teachingWeekday()));
+            candidates.add(new ScheduleAdjustmentConflictService.Candidate(day.calendarDateId(),
+                    day.weekNo(), day.teachingWeekday(), row.newStartPeriod(),
+                    row.newEndPeriod(), ScheduleAdjustmentDAO.instant(window.start()),
+                    ScheduleAdjustmentDAO.instant(window.end()), teacher, assistant, classroom));
         }
-        if (!usable.isEmpty()) {
+        if (!candidates.isEmpty()) {
             Set<Long> excluded = new LinkedHashSet<>(ids);
-            for (ScheduleAdjustmentDAO.TargetRow target : usable) {
-                ScheduleAdjustmentDAO.OccurrenceRow occurrence =
-                        occurrences.get(target.originalOccurrenceId());
-                CourseConflictService.Candidate candidate = new CourseConflictService.Candidate(
-                        occurrence.planId(), null, row.offeringId(),
-                        row.newTeacherUid() != null ? row.newTeacherUid() : target.teacherUid(),
-                        row.newAssistantUid() != null ? row.newAssistantUid() : target.assistantUid(),
-                        row.newClassroomId() != null ? row.newClassroomId() : target.classroomId(),
-                        List.of(new ScheduleSlotDTO(row.newDayOfWeek(), row.newStartPeriod(),
-                                row.newEndPeriod())),
-                        target.week(), target.week());
-                for (ScheduleConflictDTO conflict : conflicts.check(connection, candidate, excluded)) {
-                    add(found, seen, conflict);
-                }
+            for (ScheduleConflictDTO conflict : conflicts.check(connection, row.offeringId(),
+                    candidates, excluded)) {
+                add(found, seen, conflict);
             }
         }
         found.sort(CONFLICT_ORDER);
-        return new Assessment(occurrences, List.copyOf(found));
+        return new Assessment(occurrences, List.copyOf(found), Map.copyOf(resolved));
     }
 
     private static ScheduleConflictDTO blocking(String type, String subject,
             ScheduleAdjustmentDAO.RequestRow row, int week, String message) {
         return new ScheduleConflictDTO(type, BLOCKING, subject, Long.toString(row.offeringId()),
                 week, row.newDayOfWeek(), row.newStartPeriod(), row.newEndPeriod(), message);
-    }
-
-    private static AdminScheduleDAO.Window calendarWindow(AdminScheduleDAO.CalendarContext calendar,
-            ScheduleAdjustmentDAO.RequestRow row, int week) {
-        return calendar == null ? null : calendar.window(week, row.newDayOfWeek(),
-                row.newStartPeriod(), row.newEndPeriod());
     }
 
     /**
@@ -460,7 +476,8 @@ public class ScheduleAdjustmentApprovalService {
                     target.week(), ScheduleAdjustmentDAO.instantText(target.startAt()),
                     ScheduleAdjustmentDAO.instantText(target.endAt()),
                     name(connection, target.teacherUid()), name(connection, target.assistantUid()),
-                    classroomName(connection, target.classroomId())));
+                    classroomName(connection, target.classroomId()),
+                    target.targetDate() == null ? null : target.targetDate().toString()));
         }
         return new AdjustmentRequestDetailDTO(Long.toString(row.requestId()),
                 Long.toString(row.offeringId()), row.applicantUid(), row.reason(), row.status(),
@@ -570,7 +587,12 @@ public class ScheduleAdjustmentApprovalService {
     }
 
     private record Assessment(Map<Long, ScheduleAdjustmentDAO.OccurrenceRow> occurrences,
-                             List<ScheduleConflictDTO> conflicts) {
+                             List<ScheduleConflictDTO> conflicts,
+                             Map<Long, ResolvedTarget> targets) {
+    }
+
+    /** One target's resolved teaching day; the UTC window is derived from it at write time. */
+    private record ResolvedTarget(int week, int weekday) {
     }
 
     public static class NotFoundException extends RuntimeException {

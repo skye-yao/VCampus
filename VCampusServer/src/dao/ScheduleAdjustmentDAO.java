@@ -106,10 +106,13 @@ public class ScheduleAdjustmentDAO {
     }
 
     public List<TargetRow> listTargets(Connection connection, long requestId) throws SQLException {
-        String sql = "SELECT target_id,original_occurrence_id,original_week_no,original_start_at,"
-                + "original_end_at,original_teacher_uid,original_assistant_uid,original_classroom_id"
-                + " FROM course_schedule_adjustment_target WHERE request_id=?"
-                + " ORDER BY original_week_no,original_occurrence_id";
+        String sql = "SELECT t.target_id,t.original_occurrence_id,t.original_week_no,"
+                + "t.original_start_at,t.original_end_at,t.original_teacher_uid,"
+                + "t.original_assistant_uid,t.original_classroom_id,t.target_calendar_date_id,"
+                + "cd.local_date FROM course_schedule_adjustment_target t"
+                + " LEFT JOIN calendar_date cd ON cd.id=t.target_calendar_date_id"
+                + " WHERE t.request_id=?"
+                + " ORDER BY t.original_week_no,t.original_occurrence_id";
         List<TargetRow> targets = new ArrayList<>();
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setLong(1, requestId);
@@ -189,6 +192,40 @@ public class ScheduleAdjustmentDAO {
         return scheduleDAO.loadCalendar(connection, calendarId);
     }
 
+    // ------------------------------------------------------------- target dates
+
+    /**
+     * One calendar_date row, addressed either by id (the explicit V006 target date) or by the
+     * legacy {@code (calendar, week, new_weekday)} derivation. A missing row means the proposed
+     * target cannot be placed and the caller reports it as a slot conflict.
+     */
+    public CalendarDateRow findCalendarDate(Connection connection, long calendarDateId)
+            throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT id,calendar_id,local_date,week_no,teaching_weekday,is_teaching_day"
+                        + " FROM calendar_date WHERE id=?")) {
+            statement.setLong(1, calendarDateId);
+            try (ResultSet rows = statement.executeQuery()) {
+                return rows.next() ? calendarDateRow(rows) : null;
+            }
+        }
+    }
+
+    public CalendarDateRow findCalendarDate(Connection connection, long calendarId, int weekNo,
+                                            int weekday) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT id,calendar_id,local_date,week_no,teaching_weekday,is_teaching_day"
+                        + " FROM calendar_date WHERE calendar_id=? AND week_no=?"
+                        + " AND teaching_weekday=?")) {
+            statement.setLong(1, calendarId);
+            statement.setInt(2, weekNo);
+            statement.setInt(3, weekday);
+            try (ResultSet rows = statement.executeQuery()) {
+                return rows.next() ? calendarDateRow(rows) : null;
+            }
+        }
+    }
+
     // ------------------------------------------------------------------- locks
 
     public void lockRequest(Connection connection, long requestId) throws SQLException {
@@ -196,6 +233,20 @@ public class ScheduleAdjustmentDAO {
                 "SELECT request_id FROM course_schedule_adjustment_request WHERE request_id=?"
                         + " FOR UPDATE")) {
             statement.setLong(1, requestId);
+            try (ResultSet rows = statement.executeQuery()) {
+                rows.next();
+            }
+        }
+    }
+
+    /**
+     * The teaching offering serializes submits and approvals of the same offering before any
+     * occurrence is locked, which is the order design section 7 requires from both sides.
+     */
+    public void lockOffering(Connection connection, long offeringId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT offering_id FROM course_offering WHERE offering_id=? FOR UPDATE")) {
+            statement.setLong(1, offeringId);
             try (ResultSet rows = statement.executeQuery()) {
                 rows.next();
             }
@@ -311,10 +362,20 @@ public class ScheduleAdjustmentDAO {
     private static TargetRow targetRow(ResultSet rows) throws SQLException {
         long classroomId = rows.getLong("original_classroom_id");
         Long classroom = rows.wasNull() ? null : classroomId;
+        long dateId = rows.getLong("target_calendar_date_id");
+        Long targetCalendarDateId = rows.wasNull() ? null : dateId;
+        java.sql.Date local = rows.getDate("local_date");
         return new TargetRow(rows.getLong("target_id"), rows.getLong("original_occurrence_id"),
                 rows.getInt("original_week_no"), rows.getTimestamp("original_start_at"),
                 rows.getTimestamp("original_end_at"), rows.getString("original_teacher_uid"),
-                rows.getString("original_assistant_uid"), classroom);
+                rows.getString("original_assistant_uid"), classroom, targetCalendarDateId,
+                local == null ? null : local.toLocalDate());
+    }
+
+    private static CalendarDateRow calendarDateRow(ResultSet rows) throws SQLException {
+        return new CalendarDateRow(rows.getLong("id"), rows.getLong("calendar_id"),
+                rows.getDate("local_date").toLocalDate(), rows.getInt("week_no"),
+                rows.getInt("teaching_weekday"), rows.getBoolean("is_teaching_day"));
     }
 
     private static OccurrenceRow occurrenceRow(ResultSet rows) throws SQLException {
@@ -353,7 +414,14 @@ public class ScheduleAdjustmentDAO {
 
     public record TargetRow(long targetId, long originalOccurrenceId, int week, Timestamp startAt,
                             Timestamp endAt, String teacherUid, String assistantUid,
-                            Long classroomId) {
+                            Long classroomId, Long targetCalendarDateId,
+                            java.time.LocalDate targetDate) {
+    }
+
+    /** A resolved teaching-calendar day; {@code targetCalendarDateId} is the V006 explicit target. */
+    public record CalendarDateRow(long calendarDateId, long calendarId,
+                                  java.time.LocalDate localDate, int weekNo, int teachingWeekday,
+                                  boolean teachingDay) {
     }
 
     public record OccurrenceRow(long occurrenceId, long ruleId, long planId, int weekNo,

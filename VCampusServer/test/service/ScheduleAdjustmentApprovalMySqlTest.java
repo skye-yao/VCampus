@@ -1,8 +1,6 @@
 package service;
 
 import dao.AdminCourseOperationDAO;
-import dao.AdminScheduleConflictDAO;
-import dao.AdminScheduleDAO;
 import dao.ScheduleAdjustmentDAO;
 import dto.course.admin.approval.AdjustmentRequestDetailDTO;
 import dto.course.admin.approval.AdjustmentRequestPageDTO;
@@ -715,8 +713,7 @@ public final class ScheduleAdjustmentApprovalMySqlTest {
 
     private static ScheduleAdjustmentApprovalService service(ScheduleAdjustmentDAO dao) {
         return new ScheduleAdjustmentApprovalService(dao, new AdminCourseOperationDAO(),
-                new CourseConflictService(new AdminScheduleDAO(), new AdminScheduleConflictDAO()),
-                CLOCK);
+                new ScheduleAdjustmentConflictService(), CLOCK);
     }
 
     private static ApprovalDecisionRequestDTO decision(String operationId, long requestId,

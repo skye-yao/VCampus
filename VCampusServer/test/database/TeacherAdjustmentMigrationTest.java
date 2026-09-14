@@ -171,6 +171,11 @@ public final class TeacherAdjustmentMigrationTest {
                     "VCampusServer/src/resources/seed-course-test.sql"));
             applyScript(connection, root.resolve(
                     "VCampusServer/src/resources/migrations/V004_admin_course_management.sql"));
+            // The live V006 upgrade always runs on a schema that already carries V005 (the teacher
+            // operation log), so the rebuilt fixture schema must apply it too; otherwise every
+            // teacher write test in this suite would run against a schema production never sees.
+            applyScript(connection, root.resolve(
+                    "VCampusServer/src/resources/migrations/V005_teacher_course_foundation.sql"));
             insertRequestFixtures(connection);
             applyScript(connection, root.resolve(MIGRATION));
             // Re-applying proves the guarded columns and the replace-then-add constraint
