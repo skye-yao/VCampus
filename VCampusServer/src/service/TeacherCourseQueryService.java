@@ -2,6 +2,7 @@ package service;
 
 import dao.AdminScheduleDAO;
 import dao.TeacherCourseQueryDAO;
+import dao.TeacherScheduleDAO;
 import dto.course.CourseTermDTO;
 import dto.course.admin.schedule.ScheduleArrangementDTO;
 import dto.course.admin.schedule.ScheduleResourceDTO;
@@ -9,11 +10,13 @@ import dto.course.teacher.TeacherOfferingDTO;
 import dto.course.teacher.TeacherOfferingDetailDTO;
 import dto.course.teacher.TeacherPageDTO;
 import dto.course.teacher.TeacherRosterRowDTO;
+import dto.course.teacher.TeacherScheduleWeekDTO;
 import exception.DatabaseException;
 import util.DBUtil;
 
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.time.Clock;
 import java.util.List;
 
 /**
@@ -29,11 +32,22 @@ public class TeacherCourseQueryService {
     private final TeacherCourseQueryDAO queryDAO;
     private final AdminScheduleDAO scheduleDAO;
     private final TeacherAccessPolicy accessPolicy;
+    private final TeacherScheduleDAO teacherScheduleDAO;
+    private final Clock clock;
 
     public TeacherCourseQueryService() {
-        this.queryDAO = new TeacherCourseQueryDAO();
-        this.scheduleDAO = new AdminScheduleDAO();
-        this.accessPolicy = new TeacherAccessPolicy();
+        this(new TeacherCourseQueryDAO(), new AdminScheduleDAO(), new TeacherAccessPolicy(),
+                Clock.systemUTC());
+    }
+
+    /** 供测试注入固定 {@link Clock}，从而不依赖运行当天的真实日期。 */
+    public TeacherCourseQueryService(TeacherCourseQueryDAO queryDAO, AdminScheduleDAO scheduleDAO,
+                                     TeacherAccessPolicy accessPolicy, Clock clock) {
+        this.queryDAO = queryDAO;
+        this.scheduleDAO = scheduleDAO;
+        this.accessPolicy = accessPolicy;
+        this.teacherScheduleDAO = new TeacherScheduleDAO();
+        this.clock = clock;
     }
 
     public List<CourseTermDTO> listTerms(String uid) {
@@ -98,6 +112,19 @@ public class TeacherCourseQueryService {
             }
             return scheduleDAO.listArrangements(connection, planId, id);
         });
+    }
+
+    /**
+     * 教师在某个教学日历周的课表：当周日期、节次与该教师实际生效的课次。
+     *
+     * <p>{@code week} 为 null 时取今天所在教学周，今天不在学期内时取最小教学周。该学期没有已发布
+     * 的教学日历/方案、或 {@code week} 越界时抛 {@link IllegalArgumentException}，由上层映射为
+     * BAD_REQUEST，把原因显示在客户端提示区。
+     */
+    public TeacherScheduleWeekDTO loadTeachingSchedule(String uid, int academicYear, int semester,
+                                                       Integer week) {
+        return read(connection -> teacherScheduleDAO.loadTeachingSchedule(connection, uid,
+                academicYear, semester, week, clock));
     }
 
     // ------------------------------------------------------------------ 校验

@@ -82,7 +82,9 @@ $suites = @(
             'controller.TeacherCourseManagementControllerTest',
             'controller.TeacherOfferingControllerTest',
             'controller.TeacherOfferingDetailControllerTest')
-        Server = @(); Tcp = @(); Gui = @() }
+        # TeacherScheduleMySqlTest also self-gates on the `mysql` argument: real MySQL only with
+        # -WithMySql, otherwise it prints SKIP and is never reported as passing.
+        Server = @('service.TeacherScheduleMySqlTest'); Tcp = @(); Gui = @() }
     [pscustomobject]@{ Name = 'Adjustment'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }
     [pscustomobject]@{ Name = 'GradeBook'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }
     [pscustomobject]@{ Name = 'ImportExport'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }
