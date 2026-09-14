@@ -30,8 +30,10 @@ import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -413,50 +415,58 @@ public class TeacherAdjustmentApplicationService {
     }
 
     /**
-     * 详情页对 PENDING 申请重新计算一次资源冲突；历史 NULL 目标日期退回
-     * {@code original_week_no + new_weekday}。读取失败（例如方案已下架）只说明无法检查，不能
-     * 让本人详情不可读。
+     * 详情页对 PENDING 申请重新计算一次资源冲突；显式目标日期按
+     * {@code target_calendar_date_id} 解析（提交时存下的那一天永远优先，方案/日历之后变化也不改写
+     * 快照），历史 NULL 行退回 {@code original_week_no + new_weekday}。方案下架、日历缺失等“当前
+     * 无法检查”只降级成空快照，绝不让本人详情（含撤销需要的 version）不可读。
      */
     private List<ScheduleConflictDTO> detailConflicts(Connection connection,
             ScheduleAdjustmentDAO.RequestRow row, List<ScheduleAdjustmentDAO.TargetRow> targets)
             throws SQLException {
         if (targets.isEmpty()) return List.of();
-        TeacherAdjustmentDAO.OfferingCalendar calendar =
-                dao.offeringCalendar(connection, row.offeringId());
-        if (calendar == null) return List.of();
-        AdminScheduleDAO.CalendarContext context =
-                adjustments.loadCalendar(connection, calendar.calendarId());
-        if (context == null) return List.of();
-        List<ScheduleAdjustmentConflictService.Candidate> candidates = new ArrayList<>();
-        Set<Long> originals = new LinkedHashSet<>();
-        for (ScheduleAdjustmentDAO.TargetRow target : targets) {
-            originals.add(target.originalOccurrenceId());
-            TeacherAdjustmentDAO.CalendarDateRow date = target.targetCalendarDateId() != null
-                    ? dao.calendarDate(connection, calendar.calendarId(), target.targetDate())
-                    : dao.calendarDate(connection, calendar.calendarId(), target.week(),
-                            row.newDayOfWeek());
-            if (date == null) continue;
-            AdminScheduleDAO.Window window = context.window(date.weekNo(), date.teachingWeekday(),
-                    row.newStartPeriod(), row.newEndPeriod());
-            if (window == null) continue;
-            String teacher = row.newTeacherUid() != null ? row.newTeacherUid() : target.teacherUid();
-            String assistant = row.newAssistantUid() != null ? row.newAssistantUid()
-                    : target.assistantUid();
-            Long classroom = row.newClassroomId() != null ? row.newClassroomId()
-                    : target.classroomId();
-            candidates.add(new ScheduleAdjustmentConflictService.Candidate(date.calendarDateId(),
-                    date.weekNo(), date.teachingWeekday(), row.newStartPeriod(), row.newEndPeriod(),
-                    ScheduleAdjustmentDAO.instant(window.start()),
-                    ScheduleAdjustmentDAO.instant(window.end()), teacher, assistant, classroom));
-        }
-        if (candidates.isEmpty()) return List.of();
         try {
-            List<ScheduleConflictDTO> found = conflicts.check(connection, row.offeringId(),
-                    candidates, originals);
-            List<ScheduleConflictDTO> sorted = new ArrayList<>(found);
+            TeacherAdjustmentDAO.OfferingCalendar calendar =
+                    dao.offeringCalendar(connection, row.offeringId());
+            if (calendar == null) return List.of();
+            Map<Long, AdminScheduleDAO.CalendarContext> contexts = new HashMap<>();
+            List<ScheduleAdjustmentConflictService.Candidate> candidates = new ArrayList<>();
+            Set<Long> originals = new LinkedHashSet<>();
+            for (ScheduleAdjustmentDAO.TargetRow target : targets) {
+                originals.add(target.originalOccurrenceId());
+                TeacherAdjustmentDAO.CalendarDateRow date = target.targetCalendarDateId() != null
+                        ? dao.calendarDateById(connection, target.targetCalendarDateId())
+                        : dao.calendarDate(connection, calendar.calendarId(), target.week(),
+                                row.newDayOfWeek());
+                if (date == null) continue;
+                AdminScheduleDAO.CalendarContext context = contexts.get(date.calendarId());
+                if (context == null) {
+                    context = adjustments.loadCalendar(connection, date.calendarId());
+                    if (context == null) continue;
+                    contexts.put(date.calendarId(), context);
+                }
+                AdminScheduleDAO.Window window = context.window(date.weekNo(), date.teachingWeekday(),
+                        row.newStartPeriod(), row.newEndPeriod());
+                if (window == null) continue;
+                String teacher = row.newTeacherUid() != null ? row.newTeacherUid()
+                        : target.teacherUid();
+                String assistant = row.newAssistantUid() != null ? row.newAssistantUid()
+                        : target.assistantUid();
+                Long classroom = row.newClassroomId() != null ? row.newClassroomId()
+                        : target.classroomId();
+                candidates.add(new ScheduleAdjustmentConflictService.Candidate(
+                        date.calendarDateId(), date.weekNo(), date.teachingWeekday(),
+                        row.newStartPeriod(), row.newEndPeriod(),
+                        ScheduleAdjustmentDAO.instant(window.start()),
+                        ScheduleAdjustmentDAO.instant(window.end()), teacher, assistant, classroom));
+            }
+            if (candidates.isEmpty()) return List.of();
+            List<ScheduleConflictDTO> sorted = new ArrayList<>(conflicts.check(connection,
+                    row.offeringId(), candidates, originals));
             sorted.sort(CONFLICT_ORDER);
             return List.copyOf(sorted);
         } catch (IllegalArgumentException unavailable) {
+            // The term currently has no published plan (or its calendar is broken): the request
+            // itself is still the teacher's own data, only the conflict snapshot cannot be checked.
             return List.of();
         }
     }

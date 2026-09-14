@@ -41,6 +41,7 @@ import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Properties;
@@ -114,10 +115,13 @@ public final class TeacherAdjustmentApplicationMySqlTest {
     private static final long OCC_MAIN_W4D2 = 945604L;
     private static final long OCC_SHARED_W3D4 = 945613L;
     private static final long OCC_OTHER_W3D3 = 945623L;
+    private static final long OCC_MAIN_W2D1 = 945632L;
     private static final long OCC_MAIN_W3D1 = 945633L;
     private static final long OCC_MAIN_W4D1 = 945634L;
 
     private static final long REQUEST_APPROVED = 945801L;
+    private static final long LEGACY_REQUEST = 945802L;
+    private static final long LEGACY_TARGET = 945803L;
     private static final long ADJUSTMENT_ACTIVE = 945701L;
 
     private static long cleanRequestId;
@@ -147,11 +151,14 @@ public final class TeacherAdjustmentApplicationMySqlTest {
             verifyOwnership(service);
             verifyActiveAdjustedTarget(service);
             verifyPendingDuplicateTarget(service);
+            verifyLegacyTargetDate(service);
             verifyDateDomain(service);
             verifyWithdraw(service);
             verifyWithdrawnIsNotApprovable();
             verifyInjectedFailureRollback();
+            verifyConcurrentDuplicateSubmit(service);
             verifyListMineAndGet(service);
+            verifyDetailSurvivesUnavailablePlan(service);
             verifyWithdrawApproveRace(service);
         } finally {
             cleanup();
@@ -365,7 +372,8 @@ public final class TeacherAdjustmentApplicationMySqlTest {
                         List.of(target(OCC_MAIN_W1D2, localDate(3, 5))), 3, 4, ROOM_MAIN, "教师出差")),
                 "an original occurrence in the past is rejected");
         int requests = count("SELECT COUNT(*) FROM course_schedule_adjustment_request WHERE"
-                + " requested_by='" + TEACHER_A + "' AND request_id<>" + REQUEST_APPROVED);
+                + " requested_by='" + TEACHER_A + "' AND request_id NOT IN (" + REQUEST_APPROVED
+                + "," + LEGACY_REQUEST + ")");
         require(requests == 1,
                 "every validation failure leaves the single clean request untouched (observed "
                         + requests + " rows: " + text("SELECT GROUP_CONCAT(CONCAT(request_id,':',"
@@ -446,6 +454,73 @@ public final class TeacherAdjustmentApplicationMySqlTest {
         require(count("SELECT COUNT(*) FROM course_schedule_adjustment_target WHERE"
                         + " original_occurrence_id=" + OCC_MAIN_W2D2) == 1,
                 "the refused duplicate leaves exactly one pending target");
+    }
+
+    /**
+     * The term's published plan can disappear after submission. The request is still the teacher's
+     * own row, so the detail (and the version withdraw needs) must stay readable and only the fresh
+     * conflict snapshot degrades to empty, never to BAD_REQUEST.
+     */
+    private static void verifyDetailSurvivesUnavailablePlan(
+            TeacherAdjustmentApplicationService service) throws Exception {
+        execute("UPDATE schedule_plan SET status='DRAFT' WHERE id=" + PLAN);
+        try {
+            AdjustmentRequestDetailDTO detail = service.get(TEACHER_A,
+                    Long.toString(pendingRequestId));
+            require(detail.getStatus() == PENDING && detail.getVersion() == 1
+                            && Long.toString(pendingRequestId).equals(detail.getRequestId())
+                            && detail.getTargets().size() == 1,
+                    "a pending detail stays readable while the term has no published plan");
+            require(detail.getConflicts().isEmpty(),
+                    "the unverifiable conflict snapshot degrades to empty, never an error");
+            require(containsId(service.listMine(TEACHER_A, AdjustmentRequestStatusDTO.PENDING, 1, 100),
+                            pendingRequestId),
+                    "the pending list still shows the request without a published plan");
+            // The version the detail still exposes is exactly what withdraw needs.
+            TeacherOperationResultDTO<AdjustmentRequestDetailDTO> withdrawn = service.withdraw(
+                    TEACHER_A, new WithdrawTeacherAdjustmentRequestDTO(op(36),
+                            Long.toString(pendingRequestId), detail.getVersion()));
+            require(withdrawn.getValue().getStatus() == WITHDRAWN,
+                    "the readable version still allows withdrawing without a published plan");
+        } finally {
+            execute("UPDATE schedule_plan SET status='PUBLISHED' WHERE id=" + PLAN);
+        }
+    }
+
+    /**
+     * A legacy target without an explicit V006 date resolves through
+     * {@code original_week_no + new_weekday}; when that lands on a non-teaching day the approval is
+     * a blocking slot conflict and the teacher detail reports it too. Requiring a teaching day is
+     * the documented semantics, so this pins the behaviour instead of inheriting it by accident.
+     */
+    private static void verifyLegacyTargetDate(TeacherAdjustmentApplicationService service)
+            throws Exception {
+        AdjustmentRequestDetailDTO detail = service.get(TEACHER_A, Long.toString(LEGACY_REQUEST));
+        require(detail.getStatus() == PENDING && detail.getVersion() == 1
+                        && detail.getTargets().size() == 1
+                        && detail.getTargets().get(0).getTargetDate() == null
+                        && detail.getConflicts().stream().anyMatch(conflict ->
+                        ScheduleAdjustmentConflictService.SLOT_INVALID.equals(conflict.getType())
+                                && BLOCKING == conflict.getSeverity()),
+                "a legacy target maps in the teacher detail and reports its blocking slot conflict"
+                        + " (observed " + describe(detail.getConflicts()) + ")");
+
+        ScheduleAdjustmentApprovalService approvals = approvals();
+        ScheduleAdjustmentApprovalService.ConflictException refusal = expect(
+                ScheduleAdjustmentApprovalService.ConflictException.class,
+                () -> approvals.review(ADMIN, new ApprovalDecisionRequestDTO(op(37),
+                        Long.toString(LEGACY_REQUEST), 1, true, false, null, null)),
+                "a legacy target resolving to a non-teaching day is not approvable");
+        require(refusal.getConflicts().stream().anyMatch(conflict ->
+                        ScheduleAdjustmentApprovalService.SLOT_INVALID.equals(conflict.getType())
+                                && BLOCKING == conflict.getSeverity() && conflict.getWeek() == 2),
+                "the refusal carries the blocking slot conflict (observed "
+                        + describe(refusal.getConflicts()) + ")");
+        require(count("SELECT COUNT(*) FROM course_schedule_adjustment WHERE request_id="
+                        + LEGACY_REQUEST) == 0
+                        && count("SELECT COUNT(*) FROM course_schedule_adjustment_request WHERE"
+                        + " request_id=" + LEGACY_REQUEST + " AND status='PENDING' AND version=1") == 1,
+                "the refused legacy approval writes nothing");
     }
 
     private static void verifyDateDomain(TeacherAdjustmentApplicationService service) throws Exception {
@@ -565,15 +640,70 @@ public final class TeacherAdjustmentApplicationMySqlTest {
         String operationId = op(31);
         expect(DatabaseException.class,
                 () -> failing.submit(TEACHER_A, write(operationId, OFFERING_MAIN,
-                        List.of(target(OCC_MAIN_W4D1, localDate(3, 5))), 1, 2, ROOM_MAIN, "回滚夹具")),
+                        List.of(target(OCC_MAIN_W3D1, localDate(3, 5))), 1, 2, ROOM_MAIN, "回滚夹具")),
                 "an injected failure after the request insert surfaces as a database failure");
         require(count("SELECT COUNT(*) FROM course_schedule_adjustment_request WHERE requested_by='"
                         + TEACHER_A + "' AND reason='回滚夹具'") == 0
                         && count("SELECT COUNT(*) FROM course_schedule_adjustment_target WHERE"
-                        + " original_occurrence_id=" + OCC_MAIN_W4D1) == 0
+                        + " original_occurrence_id=" + OCC_MAIN_W3D1) == 0
                         && count("SELECT COUNT(*) FROM teacher_course_operation_log WHERE teacher_uid='"
                         + TEACHER_A + "' AND operation_id='" + operationId + "'") == 0,
                 "the failed submit rolls the request, its targets and the operation log back");
+    }
+
+    // ------------------------------------------------- concurrent duplicate submit
+
+    /**
+     * Two identical submits (same teacher, same operationId, same payload) race on the operation
+     * log primary key: exactly one commits and the other must recover through
+     * {@code auditOrRecover} into a replay of the winner's stored result, not a driver error and
+     * not a second request.
+     */
+    private static void verifyConcurrentDuplicateSubmit(TeacherAdjustmentApplicationService service)
+            throws Exception {
+        String operationId = op(38);
+        TeacherAdjustmentWriteDTO request = write(operationId, OFFERING_MAIN,
+                List.of(target(OCC_MAIN_W4D1, localDate(4, 5))), 3, 4, ROOM_MAIN, "并发提交夹具");
+        CyclicBarrier barrier = new CyclicBarrier(2);
+        List<TeacherOperationResultDTO<AdjustmentRequestDetailDTO>> results =
+                Collections.synchronizedList(new ArrayList<>());
+        List<Throwable> unexpected = new ArrayList<>();
+        Runnable attempt = () -> {
+            try {
+                barrier.await();
+                results.add(service.submit(TEACHER_A, request));
+            } catch (Throwable other) {
+                synchronized (unexpected) {
+                    unexpected.add(other);
+                }
+            }
+        };
+        Thread first = new Thread(attempt, "duplicate-submit-a");
+        Thread second = new Thread(attempt, "duplicate-submit-b");
+        first.start();
+        second.start();
+        first.join();
+        second.join();
+
+        require(unexpected.isEmpty(),
+                "a concurrent identical submit must not surface a driver error (" + unexpected + ")");
+        require(results.size() == 2, "both concurrent submits return a result");
+        long requestIds = results.stream()
+                .map(result -> result.getValue().getRequestId()).distinct().count();
+        long committed = results.stream().filter(result -> !result.isReplayed()).count();
+        long replayed = results.stream().filter(TeacherOperationResultDTO::isReplayed).count();
+        require(requestIds == 1 && committed == 1 && replayed == 1,
+                "one concurrent submit commits and the other replays the winner's result (observed "
+                        + results.stream().map(result -> result.getValue().getRequestId()
+                        + "/replayed=" + result.isReplayed()).toList() + ")");
+        long requestId = Long.parseLong(results.get(0).getValue().getRequestId());
+        require(count("SELECT COUNT(*) FROM course_schedule_adjustment_request WHERE requested_by='"
+                        + TEACHER_A + "' AND reason='并发提交夹具'") == 1
+                        && count("SELECT COUNT(*) FROM course_schedule_adjustment_target WHERE"
+                        + " request_id=" + requestId) == 1
+                        && count("SELECT COUNT(*) FROM teacher_course_operation_log WHERE teacher_uid='"
+                        + TEACHER_A + "' AND operation_id='" + operationId + "'") == 1,
+                "the race leaves exactly one request, one target and one operation row");
     }
 
     /** Overridable write hook proves the whole submit rolls back, not only the first insert. */
@@ -844,6 +974,20 @@ public final class TeacherAdjustmentApplicationMySqlTest {
                 + OCC_MAIN_W4D2 + ",'" + utcText(localDate(4, 5), "08:00:00") + "','"
                 + utcText(localDate(4, 5), "09:30:00") + "','" + TEACHER_A + "',NULL," + ROOM_MAIN
                 + ",'ACTIVE')");
+
+        // A legacy target without V006 target_calendar_date_id: its day is derived from
+        // original_week_no + request.new_weekday (week 2, Saturday) and lands on the calendar's
+        // non-teaching day, which must be refused instead of silently approved.
+        execute("INSERT INTO course_schedule_adjustment_request(request_id,offering_id,requested_by,"
+                + "reason,version,status,new_weekday,new_start_period,new_end_period,submitted_at)"
+                + " VALUES(" + LEGACY_REQUEST + "," + OFFERING_MAIN + ",'" + TEACHER_A
+                + "','历史目标夹具',1,'PENDING',6,3,4,'2026-09-10 06:00:00')");
+        execute("INSERT INTO course_schedule_adjustment_target(target_id,request_id,"
+                + "original_occurrence_id,original_week_no,original_start_at,original_end_at,"
+                + "original_teacher_uid,original_assistant_uid,original_classroom_id) VALUES("
+                + LEGACY_TARGET + "," + LEGACY_REQUEST + "," + OCC_MAIN_W2D1 + ",2,'"
+                + utcText(localDate(2, 1), "09:30:00") + "','" + utcText(localDate(2, 1), "11:00:00")
+                + "','" + TEACHER_A + "',NULL," + ROOM_MAIN + ")");
     }
 
     private static void arrangement(long arrangementId, long offeringId, String teacher,

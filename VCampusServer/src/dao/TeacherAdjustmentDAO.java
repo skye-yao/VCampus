@@ -170,6 +170,23 @@ public class TeacherAdjustmentDAO {
         }
     }
 
+    /**
+     * The row a submitted target stored explicitly. This is authoritative: it keeps the conflict
+     * snapshot on the day the teacher actually picked even when the plan or its calendar changed
+     * after submission, instead of re-deriving a possibly different date row.
+     */
+    public CalendarDateRow calendarDateById(Connection connection, long calendarDateId)
+            throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT id,calendar_id,local_date,week_no,teaching_weekday,is_teaching_day,"
+                        + "day_template_id FROM calendar_date WHERE id=?")) {
+            statement.setLong(1, calendarDateId);
+            try (ResultSet rows = statement.executeQuery()) {
+                return rows.next() ? calendarDateRow(rows) : null;
+            }
+        }
+    }
+
     /** 只返回真实教学日，顺序按教学周与其 teaching_weekday，与课表页一致。 */
     public List<TeacherCalendarDateDTO> teachingDates(Connection connection, long calendarId)
             throws SQLException {

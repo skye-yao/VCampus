@@ -111,8 +111,10 @@ $suites = @(
         # TeacherAdjustmentConflictMySqlTest 自带 `mysql` 开关（-WithMySql 才跑真实库）。
         # CourseConflictMySqlTest 是既有排课冲突引擎的回归：它不解析 `mysql` 参数，只按
         # db.properties 指向受保护测试库来运行，登记它是为了证明共用检查没有改动旧行为。
-        # TeacherAdjustmentApplicationMySqlTest（T3 提交/撤销）与 ScheduleAdjustmentApprovalMySqlTest
-        # （T1 迁到四态后一直没有套件保护）都自带 `mysql` 开关，只有 -WithMySql 才跑真实库。
+        # TeacherAdjustmentApplicationMySqlTest（T3 提交/撤销）自带 `mysql` 开关，只有 -WithMySql
+        # 才跑真实库，未传时打印 SKIP 且不算通过。ScheduleAdjustmentApprovalMySqlTest（T1 迁到四态后
+        # 一直没有套件保护）与 CourseConflictMySqlTest 一样不解析 `mysql`，只要 db.properties 指向
+        # 受保护测试库就会真跑，登记它即代表每次运行都真正执行。
         Server = @('database.TeacherAdjustmentMigrationTest',
             'handler.ScheduleAdjustmentApprovalHandlerTest',
             'service.TeacherAdjustmentConflictMySqlTest',
