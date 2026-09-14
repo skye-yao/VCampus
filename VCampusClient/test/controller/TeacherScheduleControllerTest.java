@@ -32,6 +32,8 @@ import dto.course.teacher.TeacherScheduleEntryDTO;
 import dto.course.teacher.TeacherScheduleWeekDTO;
 import javafx.event.ActionEvent;
 import javafx.event.Event;
+import protocol.MessageCode;
+import service.SocketTeacherCourseService.TeacherCourseServiceException;
 import service.TeacherCourseService;
 
 /**
@@ -78,6 +80,7 @@ public final class TeacherScheduleControllerTest {
         controllerIsSafeWithoutNodes();
         weekNavigationFollowsTheLoadedBoundaries();
         backToCurrentWeekFollowsTheNullableCurrentWeek();
+        loadFailuresRenderTheServerMessageOnlyWhenItIsBusinessFacing();
         onlyTheNewestWeekResponseIsRendered();
         detailOpensTheClickedCardAndUnloadDropsLateResponses();
         weekLabelAndGridTextComeFromTheDto();
@@ -617,6 +620,57 @@ public final class TeacherScheduleControllerTest {
                 "CS203-01", "数据结构 CS203-01", "2001", "CS203", "数据结构与算法基础", 4.0,
                 ACADEMIC_YEAR, SPRING, enrolledCount, capacity, "OPEN", true, true),
                 List.of(), "计算机科学与工程学院", "课程简介");
+    }
+
+    /**
+     * 加载失败时提示区写什么：服务端给出的业务拒绝（BAD_REQUEST / NOT_FOUND）必须原样显示，
+     * 例如 Task 2 裁定里的「该学期暂无已发布的教学日历」；传输失败与客户端技术串都只显示可重试的
+     * 通用文案，绝不把 {@code 缺少响应字段: schedule} 这种内部细节当成用户可见的提示。
+     */
+    private static void loadFailuresRenderTheServerMessageOnlyWhenItIsBusinessFacing() {
+        String serverMessage = "该学期暂无已发布的教学日历";
+
+        ControlledService badRequest = termService();
+        badRequest.weekFutures.add(failed(new TeacherCourseServiceException(
+                MessageCode.BAD_REQUEST, serverMessage)));
+        TeacherScheduleController badRequestPage = controller(badRequest);
+        badRequestPage.activate();
+        require(serverMessage.equals(badRequestPage.errorText()),
+                "a BAD_REQUEST must show the server's own message, saw "
+                        + badRequestPage.errorText());
+
+        ControlledService notFound = termService();
+        notFound.weekFutures.add(failed(new TeacherCourseServiceException(
+                MessageCode.NOT_FOUND, serverMessage)));
+        TeacherScheduleController notFoundPage = controller(notFound);
+        notFoundPage.activate();
+        require(serverMessage.equals(notFoundPage.errorText()),
+                "a NOT_FOUND must show the server's own message, saw "
+                        + notFoundPage.errorText());
+
+        ControlledService transport = termService();
+        transport.weekFutures.add(failed(new IOException("Connection refused")));
+        TeacherScheduleController transportPage = controller(transport);
+        transportPage.activate();
+        require(TeacherScheduleController.LOAD_FAILURE_TEXT.equals(transportPage.errorText()),
+                "a transport failure must stay a retryable generic message, saw "
+                        + transportPage.errorText());
+
+        ControlledService technical = termService();
+        technical.weekFutures.add(failed(new TeacherCourseServiceException(
+                MessageCode.ERROR, "缺少响应字段: schedule")));
+        TeacherScheduleController technicalPage = controller(technical);
+        technicalPage.activate();
+        require(TeacherScheduleController.LOAD_FAILURE_TEXT.equals(technicalPage.errorText()),
+                "a client-side technical string must never become user-facing copy, saw "
+                        + technicalPage.errorText());
+    }
+
+    /** 已经选好唯一学期的服务，方便只关心 loadTeachingSchedule 失败形态的用例。 */
+    private static ControlledService termService() {
+        ControlledService service = new ControlledService();
+        service.terms = List.of(term(ACADEMIC_YEAR, SPRING));
+        return service;
     }
 
     private static <T> CompletableFuture<T> failed(Throwable error) {

@@ -20,6 +20,7 @@ import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
 import javafx.scene.control.TableRow;
@@ -189,8 +190,12 @@ public final class TeacherCourseUiSmokeTest {
                         "第 8 周不是最小周，上一周必须可用");
                 require(!button("#nextWeekButton", "下一周按钮").isDisabled(),
                         "第 8 周不是最大周，下一周必须可用");
+                requireViewportReset("渲染第 8 周");
                 snapshot("schedule-week8.png");
             });
+
+            // 用户把这一周滚到底（看清第 13 节）后再离开：离开前的滚动位置不得被之后的每一周继承。
+            steps.add(() -> scrollGridToBottom("第 8 周滚到底"));
 
             // 卡片详情：点跨周原位置那张卡片，用弹窗自己的 Scene root 截图。
             steps.add(() -> cardForCourse(CROSS_WEEK_COURSE_NAME).fire());
@@ -225,8 +230,11 @@ public final class TeacherCourseUiSmokeTest {
 
             // 回到课表：周导航（跨周调入的第 9 周与无课的第 5 周）。
             steps.add(() -> entryButton("教学课程表").fire());
-            steps.add(() -> require(labelText("#weekLabel").equals(WEEK_EIGHT_LABEL),
-                    "回到课表应恢复第 8 周，实际 " + labelText("#weekLabel")));
+            steps.add(() -> {
+                require(labelText("#weekLabel").equals(WEEK_EIGHT_LABEL),
+                        "回到课表应恢复第 8 周，实际 " + labelText("#weekLabel"));
+                requireViewportReset("从教学班详情返回课表");
+            });
             steps.add(() -> button("#nextWeekButton", "下一周按钮").fire());
             steps.add(() -> {
                 require(labelText("#weekLabel").equals(WEEK_NINE_LABEL),
@@ -234,6 +242,7 @@ public final class TeacherCourseUiSmokeTest {
                 require(cards().size() == WEEK_NINE_CARDS,
                         "第 9 周只应剩跨周调入的 " + WEEK_NINE_CARDS + " 张卡片，实际 "
                                 + cards().size());
+                requireViewportReset("切到第 9 周");
                 snapshot("schedule-week9.png");
             });
             steps.add(() -> button("#previousWeekButton", "上一周按钮").fire());
@@ -243,6 +252,9 @@ public final class TeacherCourseUiSmokeTest {
                 require(cards().size() == WEEK_EIGHT_CARDS,
                         "第 8 周应恢复 " + WEEK_EIGHT_CARDS + " 张卡片，实际 " + cards().size());
             });
+
+            // 同一周再滚到底一次，接着连点三次“上一周”去无课周。
+            steps.add(() -> scrollGridToBottom("第 8 周再滚到底"));
 
             // 无课周：卡片为 0，但 7 列日期、13 行节次与空态文案仍在。
             steps.add(() -> button("#previousWeekButton", "上一周按钮").fire());
@@ -259,6 +271,7 @@ public final class TeacherCourseUiSmokeTest {
                 Label empty = requireIn(scheduleScope(), "#emptyLabel", Label.class, "空态文案");
                 require(empty.isVisible() && EMPTY_WEEK_TEXT.equals(empty.getText()),
                         "无课周必须显示 " + EMPTY_WEEK_TEXT + "，实际 " + empty.getText());
+                requireViewportReset("切到第 5 周");
                 snapshot("schedule-empty-week.png");
             });
 
@@ -483,6 +496,35 @@ public final class TeacherCourseUiSmokeTest {
          */
         private Parent scheduleScope() {
             return requireNode("#schedulePage", Parent.class, "课表子页");
+        }
+
+        /**
+         * 视口必须停在左上角：直接读 {@code #scheduleScroll} 自己的滚动值。
+         *
+         * <p>刻意不用 {@link #effectivelyVisible(Node)} 之类的可见性判断来代替——它只看
+         * {@code isVisible()} 与场景挂载，看不见“节点被视口裁掉”这种情况，正是它让滚动位置
+         * 出错时冒烟依然全绿。滚到别处的网格必须能被这里直接抓到。
+         */
+        private void requireViewportReset(String where) {
+            ScrollPane scroll = requireNode("#scheduleScroll", ScrollPane.class, "课表滚动容器");
+            require(scroll.getVvalue() == 0.0,
+                    where + "后课表必须回到顶部（列头与第 1 节可见），实际 vvalue="
+                            + scroll.getVvalue());
+            require(scroll.getHvalue() == 0.0,
+                    where + "后课表必须回到最左，实际 hvalue=" + scroll.getHvalue());
+        }
+
+        /**
+         * 模拟用户把课表滚到右下角（13 节与第 7 天都要滚才能看到），并确认视口真的动了：
+         * 没有这一步，套件自己的流程从不让视口偏移，滚动位置缺陷就抓不出来。
+         */
+        private void scrollGridToBottom(String where) {
+            ScrollPane scroll = requireNode("#scheduleScroll", ScrollPane.class, "课表滚动容器");
+            scroll.setVvalue(1.0);
+            scroll.setHvalue(1.0);
+            require(scroll.getVvalue() > 0.5 && scroll.getHvalue() > 0.5,
+                    where + "：课表必须真的能滚动，实际 vvalue=" + scroll.getVvalue()
+                            + "，hvalue=" + scroll.getHvalue());
         }
 
         private Button button(String selector, String description) {

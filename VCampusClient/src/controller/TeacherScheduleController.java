@@ -5,6 +5,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
 import dto.course.CourseTermDTO;
 import dto.course.teacher.TeacherCalendarDateDTO;
@@ -33,6 +35,8 @@ import javafx.scene.layout.VBox;
 import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.Window;
+import protocol.MessageCode;
+import service.SocketTeacherCourseService.TeacherCourseServiceException;
 import service.TeacherCourseService;
 import service.TeacherCourseServices;
 import util.AlertUtil;
@@ -226,7 +230,7 @@ public final class TeacherScheduleController {
             if (!isCurrent(current)) return;
             loading = false;
             if (failure != null) {
-                errorText = LOAD_FAILURE_TEXT;
+                errorText = loadFailureText(failure);
                 render();
                 return;
             }
@@ -261,9 +265,9 @@ public final class TeacherScheduleController {
                     if (!isCurrent(current)) return;
                     loading = false;
                     if (failure != null) {
-                        // 保留已显示的周与卡片，只提示可以重试。
+                        // 保留已显示的周与卡片，只提示失败原因（业务拒绝显示服务端的原话）。
                         requestedWeek = loadedWeek;
-                        errorText = LOAD_FAILURE_TEXT;
+                        errorText = loadFailureText(failure);
                         render();
                         return;
                     }
@@ -309,8 +313,16 @@ public final class TeacherScheduleController {
 
     /**
      * 重建日期列、节次行与冲突组件；卡片集合与节次行在节点缺失时也照常算出，测试据此断言。
+     *
+     * <p>重建后视口必须回到左上角：新渲染的一周要从列头与第 1 节开始显示，而不是继承用户上一次
+     * 滚动到的位置——否则滚到底看过第 13 节再切周，下一周会停在底部、连日期列头都看不见。
      */
     private void renderGrid() {
+        rebuildGrid();
+        resetViewport();
+    }
+
+    private void rebuildGrid() {
         periodRows = week == null ? List.of() : periodNumbers(week.getPeriods());
         if (week == null) {
             cardEntries = List.of();
@@ -407,6 +419,16 @@ public final class TeacherScheduleController {
         GridPane.setHgrow(label, Priority.ALWAYS);
         GridPane.setVgrow(label, Priority.ALWAYS);
         scheduleGrid.add(label, column, row);
+    }
+
+    /**
+     * 把滚动视口带回左上角。滚动位置是 {@code ScrollPane} 自己的状态，重建网格不会自动归零，
+     * 因此每次渲染后都显式复位；节点缺失（无工具包的控制器测试）时什么都不做。
+     */
+    private void resetViewport() {
+        if (scheduleScroll == null) return;
+        scheduleScroll.setVvalue(0.0);
+        scheduleScroll.setHvalue(0.0);
     }
 
     private Region dayCell(TeacherCalendarDateDTO date) {
@@ -605,6 +627,38 @@ public final class TeacherScheduleController {
         if (node == null) return;
         node.setVisible(active);
         node.setManaged(active);
+    }
+
+    /**
+     * 加载失败的提示文案。
+     *
+     * <p>只有当失败是服务端给出的业务拒绝（{@code BAD_REQUEST} / {@code NOT_FOUND}）时，才把服务端
+     * 自己的话原样显示——那是给用户看的，例如「该学期暂无已发布的教学日历」。判定用的是
+     * {@link TeacherCourseServiceException#getCode()} 而不是“消息非空”，因此客户端技术串
+     * （如 {@code 缺少响应字段: schedule}，它带的是 {@code ERROR}）与传输/连接失败一样只显示可重试的
+     * 通用文案，绝不把内部细节当成用户可见的提示。
+     */
+    static String loadFailureText(Throwable failure) {
+        Throwable cause = unwrap(failure);
+        if (cause instanceof TeacherCourseServiceException serviceFailure) {
+            MessageCode code = serviceFailure.getCode();
+            String message = serviceFailure.getMessage();
+            if ((code == MessageCode.BAD_REQUEST || code == MessageCode.NOT_FOUND)
+                    && message != null && !message.isBlank()) {
+                return message;
+            }
+        }
+        return LOAD_FAILURE_TEXT;
+    }
+
+    /** {@code CompletableFuture.whenComplete} 可能把真实异常包在 CompletionException 里。 */
+    private static Throwable unwrap(Throwable failure) {
+        Throwable current = failure;
+        while ((current instanceof CompletionException || current instanceof ExecutionException)
+                && current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current;
     }
 
     private static String orDash(String value) {
