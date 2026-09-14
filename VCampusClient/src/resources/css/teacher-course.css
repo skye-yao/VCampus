@@ -1,7 +1,6 @@
 /* ================= 6. 教师端工作台 ================= */
 
-.teacher-course-shell,
-.teacher-course-content {
+.teacher-course-shell {
     -fx-background-color: #f6f8f6;
 }
 
@@ -53,6 +52,7 @@
 }
 
 .teacher-course-content {
+    -fx-background-color: #f6f8f6;
     -fx-padding: 24px;
 }
 
