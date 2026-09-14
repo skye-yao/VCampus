@@ -139,14 +139,15 @@ public class CourseSelectionDAO {
             throws SQLException {
         String sql = "UPDATE course_offering o SET o.enrolled_count=o.enrolled_count+?"
                 + " WHERE o.offering_id=? AND o.enrolled_count+? >= 0"
-                + " AND o.enrolled_count+? + (SELECT COUNT(*) FROM course_waitlist w"
+                + " AND (? <= 0 OR o.enrolled_count+? + (SELECT COUNT(*) FROM course_waitlist w"
                 + "   WHERE w.offering_id=o.offering_id AND w.status='OFFERED'"
-                + "     AND w.expires_at>UTC_TIMESTAMP(6)) <= o.capacity";
+                + "     AND w.expires_at>UTC_TIMESTAMP(6)) <= o.capacity)";
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setInt(1, delta);
             statement.setLong(2, offeringId);
             statement.setInt(3, delta);
             statement.setInt(4, delta);
+            statement.setInt(5, delta);
             if (statement.executeUpdate() != 1) {
                 throw new CapacityInvariantException("capacity invariant rejected count change");
             }
