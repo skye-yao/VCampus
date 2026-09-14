@@ -82,6 +82,7 @@ LIBRARY_BOOK_STATUS_QUERY,         //"查询图书状态"
 // 商店
 SHOP_PRODUCT_LIST,                  // 查询商品列表
 SHOP_PRODUCT_DETAIL,                // 查询商品详细信息
+SHOP_PRODUCT_THUMBNAILS,            // 批量查询商品缩略图（列表/缩略图视图切换用）
 SHOP_CART_LIST,                     // 查询当前用户购物车
 SHOP_CART_ADD,                      // 将商品加入购物车
 SHOP_CART_UPDATE,                   // 修改购物车商品数量

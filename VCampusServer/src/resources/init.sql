@@ -649,6 +649,17 @@ WHERE NOT EXISTS (
     WHERE t.account_id=a.account_id AND t.transaction_type='INITIAL_BALANCE'
 );
 
+-- 以下四类流水都发生在用户与校园财务账户之间，对方固定是财务账户（admin）：
+-- 商店消费、商店退款、报销入账、学费缴纳。2026-09-02 及更早的开发版本把对方写成了 NULL，
+-- 导致历史流水在“对方用户编号”一列显示空白；这里做一次性回填，可重复执行。
+-- 开户初始资金（INITIAL_BALANCE）和历史余额调整（ACCOUNT_RECHARGE）本身没有对方用户，不在此列。
+UPDATE `tbl_bank_transaction` t
+JOIN `tbl_user` u ON u.`UID`='admin'
+SET t.`counterparty_user_id`=u.`UID`
+WHERE t.`counterparty_user_id` IS NULL
+  AND t.`transaction_type` IN
+      ('TUITION_PAYMENT','SHOP_PAYMENT','SHOP_REFUND','REIMBURSEMENT');
+
 -- ==================== 虚拟校园 AI 助手模块 ====================
 
 -- 1. AI 对话会话表

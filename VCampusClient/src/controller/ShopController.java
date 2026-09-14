@@ -16,6 +16,8 @@ import javafx.collections.FXCollections;
 import javafx.beans.property.ReadOnlyObjectWrapper;
 import javafx.fxml.FXML;
 import javafx.geometry.Insets;
+import javafx.geometry.Pos;
+import javafx.scene.Node;
 import javafx.scene.control.*;
 import javafx.scene.control.cell.PropertyValueFactory;
 import javafx.scene.image.Image;
@@ -23,6 +25,7 @@ import javafx.scene.image.ImageView;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.StackPane;
+import javafx.scene.layout.TilePane;
 import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
 import network.SocketClient;
@@ -32,6 +35,7 @@ import protocol.MessageType;
 import session.ClientSession;
 import util.AlertUtil;
 import util.ShopImageClientCodec;
+import util.TableResize;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
@@ -42,7 +46,11 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -70,13 +78,16 @@ public class ShopController {
     @FXML private TableColumn<Product, Integer> productStockColumn;
     @FXML private TableColumn<Product, ProductStatus> productStatusColumn;
 
+    @FXML private ToggleButton productViewToggle;
+    @FXML private ScrollPane productGalleryScroll;
+    @FXML private TilePane productGallery;
+
     @FXML private TableView<CartItem> cartTable;
     @FXML private TableColumn<CartItem, CartItem> cartSelectColumn;
     @FXML private TableColumn<CartItem, String> cartNameColumn;
     @FXML private TableColumn<CartItem, BigDecimal> cartPriceColumn;
     @FXML private TableColumn<CartItem, Integer> cartQuantityColumn;
     @FXML private TableColumn<CartItem, BigDecimal> cartSubtotalColumn;
-    @FXML private Spinner<Integer> cartQuantitySpinner;
     @FXML private Label cartTotalLabel;
     @FXML private CheckBox selectAllCartCheckBox;
 
@@ -137,6 +148,18 @@ public class ShopController {
     private final Set<Long> selectedCartItemIds = new LinkedHashSet<>();
     private long adminPreviewGeneration;
     private boolean imageUploadInProgress;
+    /** “重置”会同时改动关键字和分类，期间抑制分类监听的重复查询。 */
+    private boolean suppressProductFilterRefresh;
+    /** 商品中心缩略图缓存：商品编号 -> 已解码的小图，避免每次切换视图都重新请求。 */
+    private final Map<Long, Image> productThumbnails = new HashMap<>();
+    /** 已确认没有图片的商品，用于显示“暂无图片”占位。 */
+    private final Set<Long> productThumbnailsMissing = new LinkedHashSet<>();
+    /** 当前查询结果，列表视图与缩略图视图共用同一批商品。 */
+    private List<Product> currentProducts = List.of();
+    private final Map<Long, ImageView> galleryImageViews = new HashMap<>();
+    private final Map<Long, Label> galleryPlaceholders = new LinkedHashMap<>();
+    /** 单次缩略图请求的商品数量，避免商品很多时超过服务端的单次处理上限。 */
+    private static final int THUMBNAIL_BATCH_SIZE = 60;
 
     @FXML
     public void initialize() {
@@ -144,10 +167,15 @@ public class ShopController {
         categoryCombo.setItems(FXCollections.observableArrayList(
                 "全部分类", "文具", "教材资料", "校园纪念品", "生活用品"));
         categoryCombo.getSelectionModel().selectFirst();
+        // 分类是“选中即筛选”的控件：切换分类立即刷新，不必再点查询。
+        categoryCombo.getSelectionModel().selectedItemProperty().addListener(
+                (observable, oldValue, selected) -> {
+                    if (selected == null || suppressProductFilterRefresh) return;
+                    refreshProducts();
+                });
         adminCategoryField.setItems(FXCollections.observableArrayList(
                 "文具", "教材资料", "校园纪念品", "生活用品"));
         productQuantitySpinner.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(1, 99, 1));
-        cartQuantitySpinner.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(1, 99, 1));
 
         boolean admin = isAdmin();
         if (admin) {
@@ -168,11 +196,7 @@ public class ShopController {
         inventoryProductTable.getSelectionModel().selectedItemProperty().addListener(
                 (observable, oldValue, selected) -> inventoryStockField.setText(
                         selected == null || selected.getStock() == null ? "" : String.valueOf(selected.getStock())));
-        cartTable.getSelectionModel().selectedItemProperty().addListener((observable, oldValue, selected) -> {
-            if (selected != null && selected.getQuantity() != null) {
-                cartQuantitySpinner.getValueFactory().setValue(selected.getQuantity());
-            }
-        });
+        applyProductView();
         refreshProducts();
         if (admin) refreshAdminDashboard();
         else { refreshCart(); refreshOrders(); }
@@ -190,6 +214,7 @@ public class ShopController {
         cartNameColumn.setCellValueFactory(new PropertyValueFactory<>("productName"));
         cartPriceColumn.setCellValueFactory(new PropertyValueFactory<>("unitPrice"));
         cartQuantityColumn.setCellValueFactory(new PropertyValueFactory<>("quantity"));
+        cartQuantityColumn.setCellFactory(column -> cartQuantityCell());
         cartSubtotalColumn.setCellValueFactory(new PropertyValueFactory<>("subtotal"));
         cartSelectColumn.setCellValueFactory(data -> new ReadOnlyObjectWrapper<>(data.getValue()));
         cartSelectColumn.setCellFactory(column -> new TableCell<>() {
@@ -278,6 +303,9 @@ public class ShopController {
         logTargetIdColumn.setCellValueFactory(new PropertyValueFactory<>("targetId"));
         logReasonColumn.setCellValueFactory(new PropertyValueFactory<>("reason"));
         logTimeColumn.setCellValueFactory(new PropertyValueFactory<>("createdAt"));
+        // 所有表格的列宽随窗口大小自适应。
+        TableResize.fillWidth(productTable, cartTable, orderTable, adminProductTable,
+                inventoryProductTable, adminRefundTable, salesOrderTable, operationLogTable);
     }
 
     private TableCell<Product, ProductStatus> statusCell() {
@@ -301,6 +329,19 @@ public class ShopController {
     @FXML private void handleBack() { ClientMain.switchScene("/resources/fxml/MainView.fxml"); }
 
     @FXML private void handleSearch() { refreshProducts(); }
+
+    /** 重置商品中心的筛选条件：清空关键字并回到“全部分类”。 */
+    @FXML
+    private void handleResetProductFilters() {
+        suppressProductFilterRefresh = true;
+        try {
+            keywordField.clear();
+            categoryCombo.getSelectionModel().selectFirst();
+        } finally {
+            suppressProductFilterRefresh = false;
+        }
+        refreshProducts();
+    }
 
     @FXML
     private void handleProductDetail() {
@@ -410,17 +451,78 @@ public class ShopController {
         });
     }
 
-    @FXML
-    private void handleUpdateCart() {
-        CartItem item = cartTable.getSelectionModel().getSelectedItem();
-        if (item == null) {
-            AlertUtil.showWarning("购物车", "请先选择一条购物车记录");
+    /** 数量列的行内“−/+”控件：直接改数量，不再需要底部的输入框和按钮。 */
+    private TableCell<CartItem, Integer> cartQuantityCell() {
+        return new TableCell<>() {
+            private final Button minus = new Button("−");
+            private final Button plus = new Button("+");
+            private final Label value = new Label();
+            private final HBox box = new HBox(6, minus, value, plus);
+
+            {
+                box.setAlignment(Pos.CENTER_LEFT);
+                value.setAlignment(Pos.CENTER);
+                value.setMinWidth(28);
+                minus.getStyleClass().add("cart-step-button");
+                plus.getStyleClass().add("cart-step-button");
+                value.getStyleClass().add("cart-step-value");
+                minus.setOnAction(event -> changeCartQuantity(rowItem(), -1));
+                plus.setOnAction(event -> changeCartQuantity(rowItem(), 1));
+            }
+
+            private CartItem rowItem() {
+                return getTableRow() == null ? null : getTableRow().getItem();
+            }
+
+            @Override
+            protected void updateItem(Integer quantity, boolean empty) {
+                super.updateItem(quantity, empty);
+                CartItem row = rowItem();
+                if (empty || quantity == null || row == null) {
+                    setGraphic(null);
+                    return;
+                }
+                value.setText(String.valueOf(quantity));
+                boolean onSale = row.getProductStatus() == null
+                        || row.getProductStatus() == ProductStatus.ON_SALE;
+                Integer stock = row.getAvailableStock();
+                minus.setDisable(!onSale || quantity <= 1);
+                plus.setDisable(!onSale || (stock != null && quantity >= stock));
+                setGraphic(box);
+            }
+        };
+    }
+
+    /**
+     * 行内修改购物车数量。
+     *
+     * <p>先在本地更新数量与小计，界面立即响应；再把新数量发给服务端，
+     * 无论成功还是失败都重新拉取一次购物车，以服务端数据为准。
+     */
+    private void changeCartQuantity(CartItem item, int delta) {
+        if (item == null || item.getCartItemId() == null) return;
+        if (item.getProductStatus() != null && item.getProductStatus() != ProductStatus.ON_SALE) {
+            AlertUtil.showWarning("购物车", "商品已下架，无法修改数量");
             return;
         }
+        int current = item.getQuantity() == null ? 1 : item.getQuantity();
+        int target = current + delta;
+        if (target < 1) return;
+        if (item.getAvailableStock() != null && target > item.getAvailableStock()) {
+            AlertUtil.showWarning("购物车", "库存不足，最多可购买 " + item.getAvailableStock() + " 件");
+            return;
+        }
+        item.setQuantity(target);
+        if (item.getUnitPrice() != null) {
+            item.setSubtotal(item.getUnitPrice().multiply(BigDecimal.valueOf(target)));
+        }
+        cartTable.refresh();
+        updateSelectedCartSummary();
+
         Message request = request(MessageType.SHOP_CART_UPDATE);
         request.putData("cartItemId", item.getCartItemId());
-        request.putData("quantity", cartQuantitySpinner.getValue());
-        send(request, response -> refreshCart());
+        request.putData("quantity", target);
+        send(request, response -> refreshCart(), this::refreshCart);
     }
 
     @FXML
@@ -811,6 +913,11 @@ public class ShopController {
             productTable.setItems(FXCollections.observableArrayList(products));
             adminProductTable.setItems(FXCollections.observableArrayList(products));
             inventoryProductTable.setItems(FXCollections.observableArrayList(products));
+            // 商品数据可能已变化（例如管理员换了图），缩略图缓存随之失效并重绘。
+            currentProducts = List.of(products);
+            productThumbnails.clear();
+            productThumbnailsMissing.clear();
+            if (isGalleryVisible()) renderProductGallery();
             if (selectedId != null) {
                 for (Product product : products) {
                     if (selectedId.equals(product.getProductId())) {
@@ -822,10 +929,187 @@ public class ShopController {
         });
     }
 
+    /** 商品中心当前的展示方式：true 表示缩略图，false 表示列表。 */
+    private boolean isGalleryVisible() {
+        return productViewToggle != null && productViewToggle.isSelected();
+    }
+
+    /** 在列表和缩略图两种视图之间切换。 */
+    @FXML
+    private void handleToggleProductView() {
+        applyProductView();
+        if (isGalleryVisible()) renderProductGallery();
+    }
+
+    /** 两个视图共用同一批商品与同一份选中状态，只切换显示区域。 */
+    private void applyProductView() {
+        boolean gallery = isGalleryVisible();
+        productViewToggle.setText(gallery ? "列表" : "缩略图");
+        productTable.setVisible(!gallery);
+        productTable.setManaged(!gallery);
+        productGalleryScroll.setVisible(gallery);
+        productGalleryScroll.setManaged(gallery);
+    }
+
+    /** 按当前商品列表重建缩略图卡片，只为尚未缓存的商品请求缩略图。 */
+    private void renderProductGallery() {
+        productGallery.getChildren().clear();
+        galleryImageViews.clear();
+        galleryPlaceholders.clear();
+        if (currentProducts.isEmpty()) {
+            Label empty = new Label("没有符合条件的商品");
+            empty.getStyleClass().add("shop-gallery-empty");
+            productGallery.getChildren().add(empty);
+            return;
+        }
+        List<Long> pending = new ArrayList<>();
+        for (Product product : currentProducts) {
+            Long id = product.getProductId();
+            if (id != null && !productThumbnails.containsKey(id) && !productThumbnailsMissing.contains(id)) {
+                pending.add(id);
+            }
+            productGallery.getChildren().add(createGalleryCard(product));
+        }
+        applyThumbnailsToGallery();
+        if (!pending.isEmpty()) requestProductThumbnails(pending);
+    }
+
+    private VBox createGalleryCard(Product product) {
+        ImageView imageView = new ImageView();
+        imageView.setFitWidth(156);
+        imageView.setFitHeight(116);
+        imageView.setPreserveRatio(true);
+        imageView.setSmooth(true);
+
+        Long productId = product.getProductId();
+        Label placeholder = new Label(placeholderTextFor(productId));
+        placeholder.getStyleClass().add("shop-gallery-placeholder");
+
+        StackPane frame = new StackPane(placeholder, imageView);
+        frame.getStyleClass().add("shop-gallery-frame");
+        frame.setPrefSize(170, 128);
+        frame.setMinSize(170, 128);
+
+        Label name = new Label(product.getProductName());
+        name.getStyleClass().add("shop-gallery-name");
+        name.setWrapText(true);
+        name.setMaxWidth(170);
+        name.setMinHeight(34);
+
+        Label price = new Label("¥ " + product.getPrice());
+        price.getStyleClass().add("shop-gallery-price");
+
+        Label meta = new Label("库存 " + (product.getStock() == null ? "-" : product.getStock())
+                + " · " + (product.getStatus() == null ? "-" : product.getStatus().getDescription()));
+        meta.getStyleClass().add("shop-gallery-meta");
+
+        VBox card = new VBox(6, frame, name, price, meta);
+        card.getStyleClass().add("shop-gallery-card");
+        card.setPrefWidth(188);
+        card.setOnMouseClicked(event -> {
+            selectProductFromGallery(product, card);
+            if (event.getClickCount() == 2 && productId != null) {
+                requestProductDetail(productId, this::showProductDetail);
+            }
+        });
+
+        if (productId != null) {
+            galleryImageViews.put(productId, imageView);
+            galleryPlaceholders.put(productId, placeholder);
+        }
+        return card;
+    }
+
+    private String placeholderTextFor(Long productId) {
+        if (productId == null) return "暂无图片";
+        if (productThumbnails.containsKey(productId)) return "";
+        return productThumbnailsMissing.contains(productId) ? "暂无图片" : "图片加载中…";
+    }
+
+    /** 点卡片即选中该商品，工具条上的“商品详情”“加入购物车”依然可用。 */
+    private void selectProductFromGallery(Product product, VBox card) {
+        productTable.getSelectionModel().select(product);
+        for (Node node : productGallery.getChildren()) {
+            node.getStyleClass().remove("shop-gallery-card-selected");
+        }
+        if (!card.getStyleClass().contains("shop-gallery-card-selected")) {
+            card.getStyleClass().add("shop-gallery-card-selected");
+        }
+    }
+
+    /** 缩略图分批请求，服务端只返回确实有图片的项。 */
+    private void requestProductThumbnails(List<Long> productIds) {
+        for (int start = 0; start < productIds.size(); start += THUMBNAIL_BATCH_SIZE) {
+            int end = Math.min(start + THUMBNAIL_BATCH_SIZE, productIds.size());
+            requestProductThumbnailBatch(new ArrayList<>(productIds.subList(start, end)));
+        }
+    }
+
+    /** 请求一批缩略图；本批没有返回的商品即视为没有图片。 */
+    private void requestProductThumbnailBatch(List<Long> batch) {
+        Message request = request(MessageType.SHOP_PRODUCT_THUMBNAILS);
+        request.putData("productIds", batch);
+        send(request, response -> {
+            Map<String, String> encoded = new LinkedHashMap<>();
+            if (response.getData("thumbnails") instanceof Map<?, ?> raw) {
+                for (Map.Entry<?, ?> entry : raw.entrySet()) {
+                    if (entry.getValue() instanceof String value && !value.isBlank()) {
+                        encoded.put(String.valueOf(entry.getKey()), value);
+                    }
+                }
+            }
+            CompletableFuture.supplyAsync(() -> {
+                Map<Long, Image> decoded = new LinkedHashMap<>();
+                for (Map.Entry<String, String> entry : encoded.entrySet()) {
+                    try {
+                        Image image = decodeProductImage(entry.getValue());
+                        if (image != null) decoded.put(Long.parseLong(entry.getKey()), image);
+                    } catch (NumberFormatException ignored) {
+                        // 键不是商品编号时跳过。
+                    }
+                }
+                return decoded;
+            }).thenAccept(decoded -> Platform.runLater(() -> {
+                productThumbnails.putAll(decoded);
+                for (Long id : batch) {
+                    if (!productThumbnails.containsKey(id)) productThumbnailsMissing.add(id);
+                }
+                applyThumbnailsToGallery();
+            }));
+        });
+    }
+
+    /** 把已解码的缩略图填到对应卡片上，取不到图的显示占位文字。 */
+    private void applyThumbnailsToGallery() {
+        for (Map.Entry<Long, ImageView> entry : galleryImageViews.entrySet()) {
+            Image image = productThumbnails.get(entry.getKey());
+            Label placeholder = galleryPlaceholders.get(entry.getKey());
+            if (image != null) {
+                entry.getValue().setImage(image);
+                if (placeholder != null) placeholder.setVisible(false);
+            } else if (placeholder != null) {
+                placeholder.setText(placeholderTextFor(entry.getKey()));
+                placeholder.setVisible(true);
+            }
+        }
+    }
+
     private void refreshCart() {
         send(request(MessageType.SHOP_CART_LIST), response -> {
             CartItem[] items = gson.fromJson(gson.toJson((Object) response.getData("cartItems")), CartItem[].class);
+            CartItem previous = cartTable.getSelectionModel().getSelectedItem();
+            Long selectedId = previous == null ? null : previous.getCartItemId();
             cartTable.setItems(FXCollections.observableArrayList(items));
+            // 刷新会替换整个列表，这里按编号恢复原来的选中行，
+            // “删除”“商品详情”仍然作用于用户刚才选的那一行。
+            if (selectedId != null) {
+                for (CartItem item : items) {
+                    if (selectedId.equals(item.getCartItemId())) {
+                        cartTable.getSelectionModel().select(item);
+                        break;
+                    }
+                }
+            }
             Set<Long> currentIds = new java.util.HashSet<>();
             for (CartItem item : items) currentIds.add(item.getCartItemId());
             selectedCartItemIds.retainAll(currentIds);
@@ -944,11 +1228,22 @@ public class ShopController {
     }
 
     private void send(Message request, Consumer<Message> onSuccess) {
+        send(request, onSuccess, () -> { });
+    }
+
+    /** 带失败回调的发送：失败时除提示外，还能把界面上的临时改动回滚掉。 */
+    private void send(Message request, Consumer<Message> onSuccess, Runnable onFailure) {
         SocketClient.getInstance().sendAsync(request).thenAccept(response -> Platform.runLater(() -> {
             if (response.getCode() == MessageCode.SUCCESS) onSuccess.accept(response);
-            else AlertUtil.showError("商店操作失败", response.getMessage());
+            else {
+                AlertUtil.showError("商店操作失败", response.getMessage());
+                onFailure.run();
+            }
         })).exceptionally(ex -> {
-            Platform.runLater(() -> AlertUtil.showError("网络异常", "商店请求失败：" + ex.getMessage()));
+            Platform.runLater(() -> {
+                AlertUtil.showError("网络异常", "商店请求失败：" + ex.getMessage());
+                onFailure.run();
+            });
             return null;
         });
     }
