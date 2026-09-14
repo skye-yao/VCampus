@@ -54,8 +54,8 @@ public class ShopHandler {
             switch (action) {
                 case "SHOP_PRODUCT_LIST" -> response.putData("products", shopService.listProducts(
                         string(request, "keyword"), string(request, "category"), admin));
-                case "SHOP_PRODUCT_DETAIL" -> response.putData("product",
-                        shopService.getProduct(number(request, "productId")));
+                case "SHOP_PRODUCT_DETAIL" -> response.setData(
+                        shopService.getProductDetail(number(request, "productId")));
                 case "SHOP_CART_LIST" -> response.putData("cartItems", shopService.listCart(userId));
                 case "SHOP_CART_ADD" -> shopService.addCartItem(userId,
                         number(request, "productId"), integer(request, "quantity"));
@@ -74,7 +74,11 @@ public class ShopHandler {
                         string(request, "requestId")));
                 case "SHOP_REFUND_APPLY" -> response.putData("refundId", shopService.applyRefund(
                         userId, number(request, "orderId"), string(request, "reason")));
-                case "SHOP_PRODUCT_CREATE" -> response.setData(shopService.createProduct(userId, product(request), admin));
+                case "SHOP_PRODUCT_CREATE" -> response.setData(shopService.createProduct(
+                        userId, product(request), string(request, "imageBase64"), admin));
+                case "SHOP_PRODUCT_IMAGE_SET" -> shopService.replaceProductImage(
+                        userId, number(request, "productId"), integer(request, "version"),
+                        string(request, "imageBase64"), admin);
                 case "SHOP_PRODUCT_UPDATE" -> shopService.updateProduct(userId, product(request), admin);
                 case "SHOP_PRODUCT_STATUS_CHANGE" -> shopService.changeProductStatus(
                         userId, number(request, "productId"), ProductStatus.fromCode(string(request, "status")),

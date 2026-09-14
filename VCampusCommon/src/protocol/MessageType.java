@@ -96,6 +96,7 @@ SHOP_ORDER_DETAIL,                  // 查询指定订单及其明细
 SHOP_REFUND_APPLY,                  // 用户提交订单退款申请
 
 SHOP_PRODUCT_CREATE,                // 管理员新增商品
+SHOP_PRODUCT_IMAGE_SET,             // 管理员上传或更换商品图片
 SHOP_PRODUCT_UPDATE,                // 管理员修改商品信息
 SHOP_PRODUCT_STATUS_CHANGE,         // 管理员修改商品上下架状态
 SHOP_PRODUCT_STOCK_UPDATE,          // 管理员调整商品库存数量

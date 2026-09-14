@@ -119,10 +119,8 @@ public class SocketClient {
             }
             final String requestUID = request.getRequestId();
             dispatcher.registerPendingRequest(requestUID, future);
+            future.whenComplete((response, error) -> dispatcher.removePendingRequest(requestUID));
             long timeoutSeconds = "ai".equalsIgnoreCase(request.getModule()) ? 60 : 20;
-            future.orTimeout(timeoutSeconds, TimeUnit.SECONDS)
-                    .whenComplete((response, error) -> dispatcher.removePendingRequest(requestUID));
-
             // 序列化并发送
             String json = gson.toJson(request);
             synchronized (this) {
@@ -133,6 +131,9 @@ public class SocketClient {
                     throw new IOException("消息发送失败，连接已断开");
                 }
             }
+            if ("shop".equalsIgnoreCase(request.getModule()) &&
+                    (request.getData("imageBase64") instanceof String)) timeoutSeconds = 120;
+            future.orTimeout(timeoutSeconds, TimeUnit.SECONDS);
 
         } catch (Exception e) {
             future.completeExceptionally(e);
