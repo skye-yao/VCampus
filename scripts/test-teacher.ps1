@@ -50,9 +50,12 @@ $suites = @(
     [pscustomobject]@{
         Name = 'Foundation'
         Common = @('dto.course.teacher.TeacherQueryDtoJsonTest')
-        # Client 测试用假 Transport 离屏运行，不需要真实服务器。
+        # Client 测试用假 Transport / 假服务离屏运行，不需要真实服务器与 JavaFX 工具包。
+        # 控制器测试还会读取 FXML 资源，因此运行期 classpath 需要 VCampusClient/src（见下）。
         Client = @('service.SocketTeacherCourseServiceTest',
-            'service.MockTeacherCourseServiceTest')
+            'service.MockTeacherCourseServiceTest',
+            'controller.MainControllerRoleRoutingTest',
+            'controller.TeacherCourseManagementControllerTest')
         # TeacherCourseQueryMySqlTest self-gates on the `mysql` argument, so it runs as a real
         # MySQL test only with -WithMySql and prints SKIP otherwise.
         Server = @('database.TeacherFoundationMigrationTest', 'service.TeacherCourseQueryMySqlTest',
@@ -202,9 +205,10 @@ foreach ($stage in $stages) {
 $commonTestClasspath = @(
     $commonTestOutput, $commonOutput, $clientOutput, $clientLibPattern
 ) -join ';'
-# 客户端测试与 Client 主源码同目录编译，运行期只需 Common 主输出、Client 输出与客户端 lib。
+# 客户端测试与 Client 主源码同目录编译，运行期需要 Common 主输出、Client 输出、客户端 lib，
+# 以及 VCampusClient/src 才能读到 FXML/CSS 资源（与 Server 测试加载迁移脚本的方式一致）。
 $clientTestClasspath = @(
-    $clientOutput, $commonOutput, $clientLibPattern
+    $clientOutput, $commonOutput, $clientLibPattern, (Join-Path $repoRoot 'VCampusClient/src')
 ) -join ';'
 $serverTestClasspath = @(
     $serverOutput, $commonOutput, $serverLibPattern, (Join-Path $repoRoot 'VCampusServer/src')

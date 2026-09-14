@@ -19,6 +19,7 @@ public class MainController {
 
     static final String ADMIN_COURSE_VIEW = "/resources/fxml/AdminCourseManagementView.fxml";
     static final String STUDENT_COURSE_VIEW = "/resources/fxml/CourseManagementView.fxml";
+    static final String TEACHER_COURSE_VIEW = "/resources/fxml/TeacherCourseManagementView.fxml";
     static final String TEACHER_NOTICE_TITLE = "系统提示";
     static final String TEACHER_NOTICE_MESSAGE = "教师端教务功能暂未开放";
 
@@ -96,6 +97,8 @@ public class MainController {
             sceneSwitcher.switchTo(ADMIN_COURSE_VIEW);
         } else if ("学生".equals(ClientSession.getInstance().getRole())) {
             sceneSwitcher.switchTo(STUDENT_COURSE_VIEW);
+        } else if ("教师".equals(ClientSession.getInstance().getRole())) {
+            sceneSwitcher.switchTo(TEACHER_COURSE_VIEW);
         } else {
             infoReporter.accept(TEACHER_NOTICE_TITLE, TEACHER_NOTICE_MESSAGE);
         }

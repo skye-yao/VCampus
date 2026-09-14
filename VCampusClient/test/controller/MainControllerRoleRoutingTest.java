@@ -12,13 +12,14 @@ import session.ClientSession;
 public final class MainControllerRoleRoutingTest {
     private static final String ADMIN_VIEW = "/resources/fxml/AdminCourseManagementView.fxml";
     private static final String STUDENT_VIEW = "/resources/fxml/CourseManagementView.fxml";
+    private static final String TEACHER_VIEW = "/resources/fxml/TeacherCourseManagementView.fxml";
     private static final String TEACHER_NOTICE = "系统提示|教师端教务功能暂未开放";
 
     public static void main(String[] args) throws Exception {
         try {
             testAdministratorRoutesToAdministratorShell();
             testStudentRoutesToStudentCourseShell();
-            testTeacherSeesNoticeAndDoesNotNavigate();
+            testTeacherRoutesToTeacherWorkspace();
             testRoleWithoutSessionSeesNotice();
             testCourseCardTitleFollowsRole();
             testMainViewExposesCourseCardTitleId();
@@ -47,15 +48,14 @@ public final class MainControllerRoleRoutingTest {
         require(harness.notices.isEmpty(), "student must not receive the teacher notice");
     }
 
-    private static void testTeacherSeesNoticeAndDoesNotNavigate() {
+    private static void testTeacherRoutesToTeacherWorkspace() {
         Harness harness = route("教师");
-        require(harness.switched.isEmpty(),
-                "teacher must not navigate, saw " + harness.switched);
-        require(harness.notices.size() == 1,
-                "teacher must receive exactly one notice, saw " + harness.notices);
-        require(TEACHER_NOTICE.equals(harness.notices.get(0)),
-                "teacher notice must be exactly 系统提示 / 教师端教务功能暂未开放, saw "
-                        + harness.notices);
+        require(harness.switched.size() == 1,
+                "teacher must navigate exactly once, saw " + harness.switched);
+        require(TEACHER_VIEW.equals(harness.switched.get(0)),
+                "teacher must open the teacher workspace, saw " + harness.switched);
+        require(harness.notices.isEmpty(),
+                "teacher must not receive the not-open notice, saw " + harness.notices);
     }
 
     private static void testRoleWithoutSessionSeesNotice() {

@@ -1,0 +1,76 @@
+/* ================= 6. 教师端工作台 ================= */
+
+.teacher-course-shell,
+.teacher-course-content {
+    -fx-background-color: #f6f8f6;
+}
+
+.teacher-course-topbar {
+    -fx-background-color: #587558;
+    -fx-border-color: #456045;
+    -fx-border-width: 0 0 1px 0;
+}
+
+.teacher-course-title {
+    -fx-font-size: 20px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #ffffff;
+}
+
+.teacher-course-nav-button {
+    -fx-background-color: transparent;
+    -fx-background-radius: 0;
+    -fx-border-color: transparent;
+    -fx-border-width: 0 0 3px 0;
+    -fx-border-radius: 0;
+    -fx-text-fill: #eaf1ea;
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+    -fx-padding: 8px 14px 5px 14px;
+    -fx-cursor: hand;
+}
+
+.teacher-course-nav-button:hover {
+    -fx-background-color: rgba(255, 255, 255, 0.14);
+    -fx-text-fill: #ffffff;
+}
+
+/* 分阶段占位入口：本阶段一律禁用，置灰表明功能尚未接入。 */
+.teacher-course-entry {
+    -fx-background-color: transparent;
+    -fx-background-radius: 0;
+    -fx-border-color: transparent;
+    -fx-border-width: 0 0 3px 0;
+    -fx-border-radius: 0;
+    -fx-text-fill: #eaf1ea;
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+    -fx-padding: 8px 14px 5px 14px;
+}
+
+.teacher-course-entry:disabled {
+    -fx-opacity: 0.55;
+}
+
+.teacher-course-content {
+    -fx-padding: 24px;
+}
+
+.teacher-course-placeholder {
+    -fx-background-color: #ffffff;
+    -fx-background-radius: 6px;
+    -fx-border-color: #dce4dc;
+    -fx-border-radius: 6px;
+    -fx-padding: 32px;
+}
+
+.teacher-course-placeholder-title {
+    -fx-font-size: 16px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #151E49;
+}
+
+.teacher-course-placeholder-text {
+    -fx-font-size: 13px;
+    -fx-text-fill: #657067;
+}
