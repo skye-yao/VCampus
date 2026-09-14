@@ -47,6 +47,7 @@ public class AiController {
     @FXML private VBox citationsContainer;
 
     private String currentConversationId;
+    private VBox activeAiBubble = null;
     private final List<AiConversation> conversations = new ArrayList<>();
     private final Gson gson = new Gson();
 
@@ -134,6 +135,7 @@ public class AiController {
         // 2. UI 状态切换
         if (sendButton != null) sendButton.setDisable(true);
         if (statusLabel != null) statusLabel.setText("AI 正在思考与检索知识库中...");
+        renderCitationsLoading();
 
         // 3. 构造请求
         Message request = new Message(MessageType.REQUEST, "ai", "AI_RAG_CHAT");
@@ -151,7 +153,6 @@ public class AiController {
 
                     if (replyMsg != null) {
                         appendAiBubble(replyMsg);
-                        renderCitations(replyMsg.getCitations());
 
                         // 状态栏更新
                         String tokenInfo = String.format("回答完成 · 消耗 %d Tokens (￥%s )",
@@ -277,15 +278,14 @@ public class AiController {
      */
     private void selectConversation(String conversationId, String title) {
         this.currentConversationId = conversationId;
+        this.activeAiBubble = null;
         if (currentSessionTitleLabel != null) {
             currentSessionTitleLabel.setText(title != null ? title : "校园问答会话");
         }
         if (chatMessageList != null) {
             chatMessageList.getChildren().clear();
         }
-        if (citationsContainer != null) {
-            citationsContainer.getChildren().clear();
-        }
+        renderCitationsLoading();
         if (statusLabel != null) {
             statusLabel.setText("就绪");
         }
@@ -303,26 +303,26 @@ public class AiController {
                     List<AiMessage> messages = gson.fromJson(json, listType);
 
                     if (messages != null && !messages.isEmpty()) {
+                        boolean hasAiMsg = false;
                         for (AiMessage msg : messages) {
                             if ("USER".equalsIgnoreCase(msg.getSenderType())) {
                                 appendUserBubble(msg.getContent());
                             } else {
                                 appendAiBubble(msg);
+                                hasAiMsg = true;
                             }
                         }
-                        // 展示最后一条 AI 消息的引用
-                        for (int i = messages.size() - 1; i >= 0; i--) {
-                            AiMessage m = messages.get(i);
-                            if ("AI".equalsIgnoreCase(m.getSenderType()) && m.getCitations() != null && !m.getCitations().isEmpty()) {
-                                renderCitations(m.getCitations());
-                                break;
-                            }
+                        if (!hasAiMsg) {
+                            renderCitations(null);
                         }
                     } else {
                         // 会话为空，显示默认欢迎提示
                         appendAiWelcomeBubble();
+                        renderCitations(null);
                     }
                     scrollToBottom();
+                } else {
+                    renderCitations(null);
                 }
             });
         });
@@ -373,6 +373,34 @@ public class AiController {
     }
 
     /**
+     * 选中某个 AI 消息气泡并即时联动更新右侧资料来源面板
+     */
+    private void selectAiMessageBubble(VBox bubble, AiMessage msg) {
+        if (activeAiBubble != null) {
+            activeAiBubble.getStyleClass().remove("chat-bubble-ai-active");
+        }
+        activeAiBubble = bubble;
+        if (activeAiBubble != null) {
+            if (!activeAiBubble.getStyleClass().contains("chat-bubble-ai-active")) {
+                activeAiBubble.getStyleClass().add("chat-bubble-ai-active");
+            }
+        }
+        renderCitations(msg != null ? msg.getCitations() : null);
+    }
+
+    /**
+     * 渲染右侧资料来源栏加载中状态
+     */
+    private void renderCitationsLoading() {
+        if (citationsContainer == null) return;
+        citationsContainer.getChildren().clear();
+        Label loadingLabel = new Label("🔍 正在检索校园知识库与相关规程...");
+        loadingLabel.setStyle("-fx-text-fill: -fx-seu-green-dark; -fx-font-size: 13px; -fx-padding: 12px; -fx-font-weight: bold;");
+        loadingLabel.setWrapText(true);
+        citationsContainer.getChildren().add(loadingLabel);
+    }
+
+    /**
      * 追加 AI 回答消息气泡 (左对齐)
      */
     private void appendAiBubble(AiMessage msg) {
@@ -383,6 +411,12 @@ public class AiController {
         VBox bubbleVBox = new VBox(8);
         bubbleVBox.setMaxWidth(550.0);
         bubbleVBox.getStyleClass().add("chat-bubble-ai");
+        bubbleVBox.setStyle("-fx-cursor: hand;");
+
+        // 点击气泡任意位置联动刷新右侧资料来源
+        bubbleVBox.setOnMouseClicked(e -> {
+            selectAiMessageBubble(bubbleVBox, msg);
+        });
 
         // 意图标签与计费小字
         String intentDesc = switch (msg.getIntentType() != null ? msg.getIntentType() : "GENERAL") {
@@ -403,12 +437,20 @@ public class AiController {
         HBox footer = new HBox(12);
         footer.setAlignment(Pos.CENTER_LEFT);
 
+        boolean hasCitations = (msg.getCitations() != null && !msg.getCitations().isEmpty());
         Label sourceHint = new Label(
-                (msg.getCitations() != null && !msg.getCitations().isEmpty())
-                        ? "依据 " + msg.getCitations().size() + " 条校园资料生成"
-                        : "依据校园大模型生成"
+                hasCitations
+                        ? "📖 依据 " + msg.getCitations().size() + " 条校园资料生成 (点击右侧联动查看)"
+                        : "💬 依据校园大模型生成"
         );
         sourceHint.getStyleClass().add("hint-text");
+        if (hasCitations) {
+            sourceHint.setStyle("-fx-cursor: hand; -fx-text-fill: -fx-seu-green-dark; -fx-font-weight: bold;");
+        }
+        sourceHint.setOnMouseClicked(e -> {
+            e.consume();
+            selectAiMessageBubble(bubbleVBox, msg);
+        });
 
         Label likeBtn = new Label("👍 赞");
         likeBtn.getStyleClass().add("feedback-btn");
@@ -428,6 +470,10 @@ public class AiController {
         bubbleVBox.getChildren().addAll(intentLabel, contentLabel, footer);
         box.getChildren().add(bubbleVBox);
         chatMessageList.getChildren().add(box);
+
+        // 新消息自动激活并联动右侧资料卡片
+        selectAiMessageBubble(bubbleVBox, msg);
+
         scrollToBottom();
     }
 
@@ -473,8 +519,8 @@ public class AiController {
         citationsContainer.getChildren().clear();
 
         if (citations == null || citations.isEmpty()) {
-            Label emptyLabel = new Label("本次回答未调用检索资料\n或为通用闲聊/数据直连");
-            emptyLabel.setStyle("-fx-text-fill: -fx-text-muted; -fx-font-size: 13px; -fx-padding: 12px;");
+            Label emptyLabel = new Label("💡 本次回答未调用规章检索资料\n（属于通用闲聊、系统操作指引或个人私有数据直连查询）");
+            emptyLabel.setStyle("-fx-text-fill: -fx-text-muted; -fx-font-size: 13px; -fx-padding: 12px; -fx-line-spacing: 4px;");
             emptyLabel.setWrapText(true);
             citationsContainer.getChildren().add(emptyLabel);
             return;

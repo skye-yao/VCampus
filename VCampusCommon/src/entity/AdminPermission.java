@@ -31,10 +31,17 @@ public class AdminPermission implements Serializable {
     /** 银行管理权限 */
     private boolean bankPerm;
 
+    /** 用户管理权限 */
+    private boolean userPerm;
+
     public AdminPermission() {
     }
 
     public AdminPermission(String uid, String name, boolean academicPerm, boolean libraryPerm, boolean coursePerm, boolean shopPerm, boolean bankPerm) {
+        this(uid, name, academicPerm, libraryPerm, coursePerm, shopPerm, bankPerm, false);
+    }
+
+    public AdminPermission(String uid, String name, boolean academicPerm, boolean libraryPerm, boolean coursePerm, boolean shopPerm, boolean bankPerm, boolean userPerm) {
         this.uid = uid;
         this.name = name;
         this.academicPerm = academicPerm;
@@ -42,6 +49,7 @@ public class AdminPermission implements Serializable {
         this.coursePerm = coursePerm;
         this.shopPerm = shopPerm;
         this.bankPerm = bankPerm;
+        this.userPerm = userPerm;
     }
 
     public String getUid() {
@@ -100,6 +108,14 @@ public class AdminPermission implements Serializable {
         this.bankPerm = bankPerm;
     }
 
+    public boolean isUserPerm() {
+        return userPerm;
+    }
+
+    public void setUserPerm(boolean userPerm) {
+        this.userPerm = userPerm;
+    }
+
     /** 兼容旧接口 */
     public boolean isFinancePerm() {
         return shopPerm && bankPerm;
@@ -120,6 +136,7 @@ public class AdminPermission implements Serializable {
                 ", coursePerm=" + coursePerm +
                 ", shopPerm=" + shopPerm +
                 ", bankPerm=" + bankPerm +
+                ", userPerm=" + userPerm +
                 '}';
     }
 }

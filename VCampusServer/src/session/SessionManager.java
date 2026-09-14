@@ -186,4 +186,44 @@ public class SessionManager {
     public int getOnlineCount() {
         return sessions.size();
     }
+
+    /**
+     * 主动将指定用户踢下线（例如账号被管理员冻结或删除时）
+     *
+     * @param username 用户名/一卡通号 (UID)
+     * @param reason 提示信息
+     * @return 是否踢出成功（用户在线则为 true）
+     */
+    public boolean kickUser(String username, String reason) {
+        if (username == null) return false;
+        String token = userTokens.remove(username);
+        if (token == null) return false;
+
+        UserSession session = sessions.remove(token);
+        ClientHandler handler = clientHandlers.remove(token);
+
+        if (handler != null) {
+            try {
+                System.out.println("用户 " + username + " 被强制踢下线: " + reason);
+                Message kickout = new Message(MessageType.PUSH, "user", "kickout");
+                kickout.setCode(MessageCode.UNAUTHORIZED);
+                kickout.setMessage(reason != null ? reason : "您的账号已被管理员强制下线");
+                handler.sendMessage(kickout);
+
+                Thread closer = new Thread(() -> {
+                    try {
+                        Thread.sleep(200);
+                    } catch (InterruptedException ignored) {}
+                    try {
+                        handler.close();
+                    } catch (Exception ignored) {}
+                }, "admin-kickout-closer-" + username);
+                closer.setDaemon(true);
+                closer.start();
+            } catch (Exception e) {
+                System.err.println("向客户端发送强制下线通知失败: " + e.getMessage());
+            }
+        }
+        return true;
+    }
 }

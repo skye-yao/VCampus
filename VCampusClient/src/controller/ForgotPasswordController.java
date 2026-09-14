@@ -23,14 +23,45 @@ public class ForgotPasswordController {
 
     @FXML private TextField uidField;
     @FXML private TextField phoneField;
+    @FXML private TextField captchaField;
+    @FXML private javafx.scene.image.ImageView captchaImageView;
     @FXML private TextField codeField;
     @FXML private PasswordField newPasswordField;
     @FXML private PasswordField confirmPasswordField;
     @FXML private Button sendCodeBtn;
     @FXML private Button resetBtn;
 
+    private String currentCaptchaId;
     private Timeline countdownTimeline;
     private int countdownSeconds = 60;
+
+    @FXML
+    public void initialize() {
+        loadCaptcha();
+    }
+
+    @FXML
+    private void handleRefreshCaptcha(javafx.scene.input.MouseEvent event) {
+        loadCaptcha();
+    }
+
+    public void loadCaptcha() {
+        Message req = new Message(MessageType.REQUEST, "user", "get_captcha");
+        SocketClient.getInstance().sendAsync(req).thenAccept(res -> Platform.runLater(() -> {
+            if (res.getCode() == MessageCode.SUCCESS) {
+                currentCaptchaId = res.getData("captchaId");
+                String base64 = res.getData("imageBase64");
+                if (base64 != null && captchaImageView != null) {
+                    try {
+                        byte[] bytes = java.util.Base64.getDecoder().decode(base64);
+                        captchaImageView.setImage(new javafx.scene.image.Image(new java.io.ByteArrayInputStream(bytes)));
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+        })).exceptionally(e -> null);
+    }
 
     /**
      * 发送重置密码短信验证码
@@ -52,12 +83,21 @@ public class ForgotPasswordController {
             return;
         }
 
+        String captcha = captchaField != null ? captchaField.getText() : null;
+        if (captcha == null || captcha.trim().isEmpty()) {
+            AlertUtil.showWarning("提示", "请输入图形验证码！");
+            if (captchaField != null) captchaField.requestFocus();
+            return;
+        }
+
         sendCodeBtn.setDisable(true);
         sendCodeBtn.setText("发送中...");
 
         Message request = new Message(MessageType.REQUEST, "user", "sendresetcode");
         request.putData("phone", phone);
         request.putData("uid", uid);
+        request.putData("captchaId", currentCaptchaId);
+        request.putData("captchaCode", captcha.trim());
 
         SocketClient.getInstance().sendAsync(request)
                 .thenAccept(response -> Platform.runLater(() -> {
@@ -72,6 +112,8 @@ public class ForgotPasswordController {
                         sendCodeBtn.setDisable(false);
                         sendCodeBtn.setText("获取验证码");
                         AlertUtil.showError("发送失败", response.getMessage());
+                        loadCaptcha();
+                        if (captchaField != null) captchaField.clear();
                     }
                 }))
                 .exceptionally(ex -> {
@@ -79,6 +121,7 @@ public class ForgotPasswordController {
                         sendCodeBtn.setDisable(false);
                         sendCodeBtn.setText("获取验证码");
                         AlertUtil.showError("网络异常", "请求验证码失败: " + ex.getMessage());
+                        loadCaptcha();
                     });
                     return null;
                 });
