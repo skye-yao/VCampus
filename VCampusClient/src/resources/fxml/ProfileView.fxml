@@ -181,7 +181,7 @@
                                 <VBox prefHeight="84.0" prefWidth="311.0" spacing="15.0">
                                     <children>
                                         <Button onAction="#handleChooseAvatar" styleClass="btn-secondary" text="选择本地图片" />
-                                        <Label styleClass="hint-text" text="支持 JPG、PNG 格式，建议选用圆形图片，大小≤2Mb" />
+                                        <Label styleClass="hint-text" text="支持 JPG、PNG，原图不超过 20MB；选择后可拖动、缩放裁剪头像" wrapText="true" />
                                     </children>
                                 </VBox>
                             </children>

@@ -22,7 +22,6 @@ import util.AlertUtil;
 import java.io.File;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.util.Base64;
 
 public class ProfileController {
@@ -59,6 +58,7 @@ public class ProfileController {
     @FXML private ImageView updateAvatarView;
     @FXML private Label walletBalanceLabel;
     @FXML private Label walletAccountLabel;
+    private boolean avatarBusy;
     @FXML private Text profileHintText;
 
     @FXML
@@ -380,27 +380,45 @@ public class ProfileController {
 
     @FXML
     private void handleChooseAvatar(ActionEvent event) {
+        if (avatarBusy) return;
         FileChooser fileChooser = new FileChooser();
         fileChooser.setTitle("选择本地头像文件");
         fileChooser.getExtensionFilters().addAll(
                 new FileChooser.ExtensionFilter("图片文件", "*.jpg", "*.png", "*.jpeg"));
-        File selectedFile = fileChooser.showOpenDialog(null);
+        File selectedFile = fileChooser.showOpenDialog(updateAvatarView.getScene().getWindow());
         if (selectedFile == null) return;
+        Button choose = (Button) event.getSource();
+        avatarBusy = true; choose.setDisable(true); choose.setText("正在读取图片…");
+        java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+            try { return util.AvatarImages.read(selectedFile); }
+            catch (IOException e) { throw new java.util.concurrent.CompletionException(e); }
+        }).whenComplete((image, error) -> Platform.runLater(() -> {
+            if (error != null) {
+                finishAvatar(choose);
+                Throwable cause = error; while (cause.getCause() != null) cause = cause.getCause();
+                AlertUtil.showError("读取失败", cause.getMessage());
+                return;
+            }
+            // 离开个人资料页后，不再弹出属于旧页面的裁剪窗口。
+            if (updateAvatarView.getScene() == null || updateAvatarView.getScene().getWindow() == null
+                    || !updateAvatarView.getScene().getWindow().isShowing()) { finishAvatar(choose); return; }
+            try {
+                var cropped = util.AvatarCropDialog.show(updateAvatarView.getScene().getWindow(), image);
+                if (cropped.isEmpty()) { finishAvatar(choose); return; }
+                choose.setText("正在保存头像…");
+                uploadAvatar(cropped.get(), choose);
+            } catch (RuntimeException failure) {
+                finishAvatar(choose);
+                AlertUtil.showError("头像处理失败", failure.getMessage());
+            }
+        }));
+    }
 
-        byte[] fileBytes;
-        try {
-            fileBytes = Files.readAllBytes(selectedFile.toPath());
-        } catch (IOException e) {
-            AlertUtil.showError("读取失败", "无法读取所选图片文件");
-            return;
-        }
+    private void finishAvatar(Button choose) {
+        avatarBusy = false; choose.setDisable(false); choose.setText("选择本地图片");
+    }
 
-        final long MAX_AVATAR_BYTES = 2 * 1024 * 1024;
-        if (fileBytes.length > MAX_AVATAR_BYTES) {
-            AlertUtil.showWarning("提示", "图片过大，请选择 2MB 以内的图片");
-            return;
-        }
-
+    private void uploadAvatar(byte[] fileBytes, Button choose) {
         String base64 = Base64.getEncoder().encodeToString(fileBytes);
 
         // 先本地预览
@@ -411,6 +429,7 @@ public class ProfileController {
 
         SocketClient.getInstance().sendAsync(request)
                 .thenAccept(response -> Platform.runLater(() -> {
+                    finishAvatar(choose);
                     if (response.getCode() == MessageCode.SUCCESS) {
                         User currentUser = ClientSession.getInstance().getCurrentUser();
                         if (currentUser != null) {
@@ -425,6 +444,7 @@ public class ProfileController {
                 }))
                 .exceptionally(ex -> {
                     Platform.runLater(() -> {
+                        finishAvatar(choose);
                         rollbackAvatarPreview();
                         AlertUtil.showError("网络异常", "更换头像失败: " + ex.getMessage());
                     });
