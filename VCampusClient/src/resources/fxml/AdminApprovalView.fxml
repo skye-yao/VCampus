@@ -72,9 +72,9 @@
                                         <Separator />
                                         <HBox alignment="CENTER_RIGHT" spacing="10.0">
                                             <children>
-                                                <Button fx:id="rejectButton" disabled="true" onAction="#rejectSelected" styleClass="course-approval-reject-button" text="驳回" />
-                                                <Button fx:id="forceApproveButton" disabled="true" onAction="#forceApproveSelected" styleClass="course-approval-force-button" text="强制通过" />
-                                                <Button fx:id="approveButton" disabled="true" onAction="#approveSelected" styleClass="course-approval-approve-button" text="通过" />
+                                                <Button fx:id="rejectButton" disable="true" onAction="#rejectSelected" styleClass="course-approval-reject-button" text="驳回" />
+                                                <Button fx:id="forceApproveButton" disable="true" onAction="#forceApproveSelected" styleClass="course-approval-force-button" text="强制通过" />
+                                                <Button fx:id="approveButton" disable="true" onAction="#approveSelected" styleClass="course-approval-approve-button" text="通过" />
                                             </children>
                                         </HBox>
                                     </children>
