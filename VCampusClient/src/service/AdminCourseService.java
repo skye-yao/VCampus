@@ -8,6 +8,9 @@ import dto.course.admin.approval.AdjustmentRequestPageDTO;
 import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
 import dto.course.admin.approval.ApprovalDecisionRequestDTO;
 import dto.course.admin.approval.ApprovalStatusDTO;
+import dto.course.admin.approval.GradeSubmissionDetailDTO;
+import dto.course.admin.approval.GradeSubmissionPageDTO;
+import dto.course.admin.approval.GradeSubmissionSummaryDTO;
 import dto.course.admin.catalog.CourseEditorRequestDTO;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
 import dto.course.admin.enrollment.AdminEnrollmentPreviewDTO;
@@ -149,5 +152,27 @@ public interface AdminCourseService {
     default CompletableFuture<AdminOperationResultView<AdjustmentRequestDetailDTO>> reviewAdjustmentRequest(
             ApprovalDecisionRequestDTO request) {
         throw new UnsupportedOperationException("reviewAdjustmentRequest");
+    }
+
+    default CompletableFuture<List<GradeSubmissionSummaryDTO>> listGradeSubmissions(
+            ApprovalStatusDTO status, int page, int size) {
+        return listGradeSubmissionsPage(status, page, size)
+                .thenApply(GradeSubmissionPageDTO::getItems);
+    }
+
+    // Defaults keep existing implementations compatible until grade approval transport is provided.
+    default CompletableFuture<GradeSubmissionPageDTO> listGradeSubmissionsPage(
+            ApprovalStatusDTO status, int page, int size) {
+        throw new UnsupportedOperationException("listGradeSubmissionsPage");
+    }
+
+    default CompletableFuture<GradeSubmissionDetailDTO> getGradeSubmission(
+            String submissionId) {
+        throw new UnsupportedOperationException("getGradeSubmission");
+    }
+
+    default CompletableFuture<AdminOperationResultView<GradeSubmissionDetailDTO>> reviewGradeSubmission(
+            ApprovalDecisionRequestDTO request) {
+        throw new UnsupportedOperationException("reviewGradeSubmission");
     }
 }
