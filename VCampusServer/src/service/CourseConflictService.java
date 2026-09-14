@@ -68,8 +68,32 @@ public class CourseConflictService {
         return check(connection, candidate, calendar);
     }
 
+    /**
+     * Same classification against the effective schedule, but occurrences the caller names are
+     * ignored. A temporary adjustment request in flight replaces originals that are still present,
+     * so the approval of that very request has to exclude them explicitly; the arrangement-level
+     * exclusion below cannot express a non-contiguous set of temporary targets.
+     */
+    public List<ScheduleConflictDTO> check(Connection connection, Candidate candidate,
+                                           Set<Long> excludedOccurrenceIds)
+            throws SQLException {
+        AdminScheduleDAO.PlanRow plan = scheduleDAO.findPlan(connection, candidate.planId());
+        if (plan == null) throw new IllegalArgumentException("排课方案不存在");
+        AdminScheduleDAO.CalendarContext calendar =
+                scheduleDAO.loadCalendar(connection, plan.calendarId());
+        if (calendar == null) throw new IllegalArgumentException("教学日历不存在");
+        return check(connection, candidate, calendar, excludedOccurrenceIds);
+    }
+
     private List<ScheduleConflictDTO> check(Connection connection, Candidate candidate,
                                            AdminScheduleDAO.CalendarContext calendar)
+            throws SQLException {
+        return check(connection, candidate, calendar, Set.of());
+    }
+
+    private List<ScheduleConflictDTO> check(Connection connection, Candidate candidate,
+                                           AdminScheduleDAO.CalendarContext calendar,
+                                           Set<Long> excludedOccurrenceIds)
             throws SQLException {
         AdminScheduleDAO.OfferingState offering =
                 scheduleDAO.offeringState(connection, candidate.offeringId());
@@ -95,6 +119,7 @@ public class CourseConflictService {
                 for (AdminScheduleConflictDAO.EffectiveOccurrence other : conflictDAO.overlapping(
                         connection, candidate.planId(), window.start(), window.end(),
                         candidate.arrangementId())) {
+                    if (excludedOccurrenceIds.contains(other.occurrenceId())) continue;
                     classify(candidate, slot, week, other, conflicts, seen);
                 }
             }
