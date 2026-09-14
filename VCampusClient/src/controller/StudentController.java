@@ -1352,6 +1352,10 @@ public class StudentController {
         service.deleteAid(aid.getAidId(),m->runOnPage(()->{setStatus(message(m,"资助已删除"));if(ok(m))reloadCurrentOverview();}));
     }
     private Optional<Map<String,String>> showRecordDialog(String title,LinkedHashMap<String,String> initial){
+        return showRecordDialog(title, initial, null);
+    }
+    private Optional<Map<String,String>> showRecordDialog(String title,LinkedHashMap<String,String> initial,
+            java.util.function.BiConsumer<Map<String,String>,java.util.function.Consumer<Message>> save){
         Dialog<Map<String,String>> dialog=new Dialog<>();dialog.setTitle(title);dialog.setHeaderText("请在同一表单中填写全部信息");
         GridPane grid=new GridPane();grid.setHgap(12);grid.setVgap(10);grid.setPadding(new Insets(8,12,8,12));
         LinkedHashMap<String,Node> fields=new LinkedHashMap<>();
@@ -1423,11 +1427,45 @@ public class StudentController {
             if(button!=ButtonType.OK)return null;Map<String,String> values=new LinkedHashMap<>();
             readers.forEach((key,reader)->values.put(key,reader.get()));return values;
         });
+        if(save!=null)util.control.ExperienceSaveDialog.install(dialog,()->{
+            Map<String,String> values=new LinkedHashMap<>();
+            readers.forEach((key,reader)->values.put(key,reader.get()));
+            validateExperienceForm(values);
+            return values;
+        },save,this::refreshSavedExperience);
         return dialog.showAndWait();
     }
+
+    private void refreshSavedExperience(){
+        service.queryOverview(m->runOnPage(()->{
+            if(!ok(m)){setStatus("已保存，刷新失败，请点击刷新重试");return;}
+            onOverview(m);
+        }));
+    }
+
     @FXML private void handleAddExperience(){LinkedHashMap<String,String> f=new LinkedHashMap<>();f.put("开始年月","");f.put("结束年月","");f.put("学校名称","");f.put("学习阶段","");f.put("备注","");showRecordDialog("新增主要学习经历",f).ifPresent(v->{try{validateExperienceForm(v);StudentExperience x=new StudentExperience();x.setStartDate(monthDate(v.get("开始年月")));x.setEndDate(monthDate(v.get("结束年月")));x.setSchoolName(v.get("学校名称"));x.setEducationLevel(v.get("学习阶段"));x.setDescription(v.get("备注"));service.addExperience(x,m->runOnPage(()->{setStatus(message(m,"学习经历已添加"));if(ok(m))refreshData();}));}catch(Exception e){setStatus("学习经历格式错误："+e.getMessage());}});}
     @FXML private void handleAddFamilyMember(){LinkedHashMap<String,String> f=new LinkedHashMap<>();f.put("姓名","");f.put("与本人关系","");f.put("出生年月","");f.put("户口所在地","");f.put("工作单位","");f.put("工作单位地址","");f.put("健康状况","");f.put("联系电话","");showRecordDialog("新增家庭主要关系成员",f).ifPresent(v->{try{validateFamilyForm(v);StudentFamilyMember x=new StudentFamilyMember();x.setName(v.get("姓名"));x.setRelationship(v.get("与本人关系"));String birth=v.get("出生年月");x.setBirthDate(birth.isBlank()?null:Date.valueOf(birth));x.setRegisteredResidence(v.get("户口所在地"));x.setWorkplace(v.get("工作单位"));x.setWorkplaceAddress(v.get("工作单位地址"));x.setHealthStatus(v.get("健康状况"));x.setPhone(v.get("联系电话"));service.addFamilyMember(x,m->runOnPage(()->{setStatus(message(m,"家庭成员已添加"));if(ok(m))refreshData();}));}catch(Exception e){setStatus("家庭成员信息格式错误："+e.getMessage());}});}
-    @FXML private void handleEditExperience(){StudentExperience x=selectedExperience;if(x==null){setStatus("请先选择学习经历");return;}LinkedHashMap<String,String> f=new LinkedHashMap<>();f.put("开始年月",showMonth(x.getStartDate()));f.put("结束年月",showMonth(x.getEndDate()));f.put("学校名称",showForInput(x.getSchoolName()));f.put("学习阶段",showForInput(x.getEducationLevel()));f.put("备注",showForInput(x.getDescription()));showRecordDialog("编辑主要学习经历",f).ifPresent(v->{try{validateExperienceForm(v);StudentExperience changed=gson.fromJson(gson.toJson(x),StudentExperience.class);changed.setStartDate(monthDate(v.get("开始年月")));changed.setEndDate(monthDate(v.get("结束年月")));changed.setSchoolName(v.get("学校名称"));changed.setEducationLevel(v.get("学习阶段"));changed.setDescription(v.get("备注"));service.updateExperience(changed,m->runOnPage(()->{setStatus(message(m,"学习经历已更新"));if(ok(m))refreshData();}));}catch(Exception e){setStatus("学习经历格式错误："+e.getMessage());}});}
+    @FXML private void handleEditExperience(){
+        StudentExperience source=selectedExperience;
+        if(source==null){setStatus("请先选择学习经历");return;}
+        LinkedHashMap<String,String> fields=new LinkedHashMap<>();
+        fields.put("开始年月",showMonth(source.getStartDate()));
+        fields.put("结束年月",showMonth(source.getEndDate()));
+        fields.put("学校名称",showForInput(source.getSchoolName()));
+        fields.put("学习阶段",showForInput(source.getEducationLevel()));
+        fields.put("备注",showForInput(source.getDescription()));
+        showRecordDialog("编辑主要学习经历",fields,(values,done)->{
+            StudentExperience changed=new StudentExperience();
+            changed.setExperienceId(source.getExperienceId());
+            changed.setStudentId(source.getStudentId());
+            changed.setStartDate(monthDate(values.get("开始年月")));
+            changed.setEndDate(monthDate(values.get("结束年月")));
+            changed.setSchoolName(values.get("学校名称"));
+            changed.setEducationLevel(values.get("学习阶段"));
+            changed.setDescription(values.get("备注"));
+            service.updateExperience(changed,done);
+        });
+    }
     @FXML private void handleDeleteExperience(){StudentExperience x=selectedExperience;if(x==null){setStatus("请先选择学习经历");return;}if(!confirmDelete("确定删除选中的学习经历吗？"))return;service.deleteExperience(x.getExperienceId(),m->runOnPage(()->{setStatus(message(m,"学习经历已删除"));if(ok(m))refreshData();}));}
     @FXML private void handleEditFamilyMember(){StudentFamilyMember x=selectedFamilyMember;if(x==null){setStatus("请先选择家庭成员");return;}LinkedHashMap<String,String> f=new LinkedHashMap<>();f.put("姓名",showForInput(x.getName()));f.put("与本人关系",showForInput(x.getRelationship()));f.put("出生年月",showForInput(x.getBirthDate()));f.put("户口所在地",showForInput(x.getRegisteredResidence()));f.put("工作单位",showForInput(x.getWorkplace()));f.put("工作单位地址",showForInput(x.getWorkplaceAddress()));f.put("健康状况",showForInput(x.getHealthStatus()));f.put("联系电话",showForInput(x.getPhone()));showRecordDialog("编辑家庭主要关系成员",f).ifPresent(v->{try{validateFamilyForm(v);StudentFamilyMember changed=gson.fromJson(gson.toJson(x),StudentFamilyMember.class);changed.setName(v.get("姓名"));changed.setRelationship(v.get("与本人关系"));String birth=v.get("出生年月");changed.setBirthDate(birth.isBlank()?null:Date.valueOf(birth));changed.setRegisteredResidence(v.get("户口所在地"));changed.setWorkplace(v.get("工作单位"));changed.setWorkplaceAddress(v.get("工作单位地址"));changed.setHealthStatus(v.get("健康状况"));changed.setPhone(v.get("联系电话"));service.updateFamilyMember(changed,m->runOnPage(()->{setStatus(message(m,"家庭成员已更新"));if(ok(m))refreshData();}));}catch(Exception e){setStatus("家庭成员信息格式错误："+e.getMessage());}});}
     @FXML private void handleDeleteFamilyMember(){StudentFamilyMember x=selectedFamilyMember;if(x==null){setStatus("请先选择家庭成员");return;}if(!confirmDelete("确定删除选中的家庭成员吗？"))return;service.deleteFamilyMember(x.getMemberId(),m->runOnPage(()->{setStatus(message(m,"家庭成员已删除"));if(ok(m))refreshData();}));}
