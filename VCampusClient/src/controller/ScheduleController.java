@@ -256,13 +256,44 @@ public final class ScheduleController {
         content.setAlignment(Pos.CENTER_LEFT);
         content.setMinWidth(0.0);
 
+        // 调和后的两个位置共用同一块视觉语言：旧位置灰显并带“原安排”角标，新位置带“调课后”角标。
+        String badge = adjustmentBadge(entry);
+        if (badge != null) {
+            Label badgeLabel = new Label(badge);
+            badgeLabel.getStyleClass().add("course-adjustment-badge");
+            badgeLabel.setMinWidth(0.0);
+            content.getChildren().add(0, badgeLabel);
+        }
+
         Button block = new Button();
         block.getStyleClass().add("course-class-block");
+        String adjustmentStyle = adjustmentStyleClass(entry);
+        if (adjustmentStyle != null) {
+            block.getStyleClass().add(adjustmentStyle);
+        }
         block.setGraphic(content);
         block.setMinSize(0.0, 0.0);
         block.setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);
         block.setOnAction(event -> infoReporter.accept("课程详情", detailText(entry)));
         return block;
+    }
+
+    /** 调课块附加的样式类；普通课程没有任何附加样式。 */
+    static String adjustmentStyleClass(ScheduleEntryView entry) {
+        return switch (entry.getDisplayKind()) {
+            case ADJUSTED_ORIGINAL -> "course-adjusted-original";
+            case ADJUSTED_TARGET -> "course-adjusted-target";
+            case NORMAL -> null;
+        };
+    }
+
+    /** 调课块头部的角标文案；普通课程没有角标。 */
+    static String adjustmentBadge(ScheduleEntryView entry) {
+        return switch (entry.getDisplayKind()) {
+            case ADJUSTED_ORIGINAL -> "原安排";
+            case ADJUSTED_TARGET -> "调课后";
+            case NORMAL -> null;
+        };
     }
 
     private void renderNotices(List<CourseNoticeView> notices) {
@@ -297,15 +328,25 @@ public final class ScheduleController {
         }
     }
 
-    private static String detailText(ScheduleEntryView entry) {
+    static String detailText(ScheduleEntryView entry) {
         int endPeriod = entry.getStartPeriod() + entry.getPeriodCount() - 1;
-        return "课程名称：" + entry.getCourseName()
-                + "\n课程代码：" + entry.getCourseCode()
-                + "\n上课时间：" + weekdayName(entry.getDayOfWeek()) + " 第 "
-                + entry.getStartPeriod() + "-" + endPeriod + " 节"
-                + "\n上课地点：" + entry.getLocation()
-                + "\n授课教师：" + entry.getTeacher()
-                + "\n备注：第 " + entry.getStartWeek() + "-" + entry.getEndWeek() + " 周";
+        StringBuilder text = new StringBuilder("课程名称：").append(entry.getCourseName())
+                .append("\n课程代码：").append(entry.getCourseCode())
+                .append("\n上课时间：").append(weekdayName(entry.getDayOfWeek())).append(" 第 ")
+                .append(entry.getStartPeriod()).append("-").append(endPeriod).append(" 节")
+                .append("\n上课地点：").append(entry.getLocation())
+                .append("\n授课教师：").append(entry.getTeacher());
+        // 两个位置携带完全相同的调课文案，因此从任意一块打开详情都能读到完整信息。
+        if (entry.getOriginalScheduleText() != null || entry.getAdjustedScheduleText() != null) {
+            text.append("\n调课状态：").append(adjustmentBadge(entry))
+                    .append("\n原安排：").append(entry.getOriginalScheduleText())
+                    .append("\n调整后：").append(entry.getAdjustedScheduleText());
+            if (entry.getAdjustmentReason() != null) {
+                text.append("\n调课原因：").append(entry.getAdjustmentReason());
+            }
+        }
+        return text.append("\n备注：第 ").append(entry.getStartWeek()).append("-")
+                .append(entry.getEndWeek()).append(" 周").toString();
     }
 
     private static String weekdayName(int dayOfWeek) {

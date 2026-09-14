@@ -14,6 +14,7 @@ import model.course.CoursePlanSnapshotView;
 import model.course.CourseTermView;
 import model.course.CourseView;
 import model.course.GradeSummaryView;
+import model.course.ScheduleDisplayKind;
 import model.course.ScheduleEntryView;
 import model.course.TrainingPlanGroupView;
 import model.course.WaitlistDecision;
@@ -31,7 +32,54 @@ public final class ScheduleControllerTest {
         staleScheduleDataCannotReplaceNewerResult();
         requestTermsIgnoresStaleTermLoads();
         scheduleFailureIsDeliveredThroughFxExecutor();
+        adjustmentBlocksCarryTheirOwnStyleBadgeAndDetail();
         System.out.println("ScheduleControllerTest: PASS");
+    }
+
+    /** 两个位置读取同一份调课文案，因此从任一块打开详情都能看到完整说明。 */
+    private static void adjustmentBlocksCarryTheirOwnStyleBadgeAndDetail() {
+        ScheduleEntryView original = adjusted(ScheduleDisplayKind.ADJUSTED_ORIGINAL, 2, 1);
+        ScheduleEntryView target = adjusted(ScheduleDisplayKind.ADJUSTED_TARGET, 5, 3);
+        ScheduleEntryView plain = entry(2003L, "普通课程");
+
+        require("course-adjusted-original".equals(
+                        ScheduleController.adjustmentStyleClass(original))
+                        && "course-adjusted-target".equals(
+                        ScheduleController.adjustmentStyleClass(target))
+                        && ScheduleController.adjustmentStyleClass(plain) == null,
+                "only the adjusted halves must carry an adjustment style class");
+        require("原安排".equals(ScheduleController.adjustmentBadge(original))
+                        && "调课后".equals(ScheduleController.adjustmentBadge(target))
+                        && ScheduleController.adjustmentBadge(plain) == null,
+                "only the adjusted halves must carry a header badge");
+
+        String plainDetail = ScheduleController.detailText(plain);
+        require(!plainDetail.contains("原安排") && !plainDetail.contains("调课状态"),
+                "a plain lesson must not gain adjustment lines: " + plainDetail);
+
+        String detail = ScheduleController.detailText(target);
+        String originalDetail = ScheduleController.detailText(original);
+        require(detail.contains("调课状态：调课后")
+                        && detail.contains("原安排：周二 第1-2节 Room")
+                        && detail.contains("调整后：周五 第3-4节 Room B")
+                        && detail.contains("调课原因：教师出差"),
+                "the target detail must describe both arrangements: " + detail);
+        require(originalDetail.contains("调课状态：原安排")
+                        && originalDetail.contains("原安排：周二 第1-2节 Room")
+                        && originalDetail.contains("调整后：周五 第3-4节 Room B")
+                        && originalDetail.contains("调课原因：教师出差"),
+                "the original detail must describe both arrangements too: " + originalDetail);
+        require(originalDetail.contains("上课时间：周二 第 1-2 节")
+                        && detail.contains("上课时间：周五 第 3-4 节"),
+                "each block must report its own coordinates, observed " + originalDetail + " | "
+                        + detail);
+    }
+
+    /** 调课对的两半属于同一个教学班，只有位置与展示角色不同。 */
+    private static ScheduleEntryView adjusted(ScheduleDisplayKind kind, int day, int startPeriod) {
+        return new ScheduleEntryView(2001L, "2026-2027 秋学期", "CS203", "数据结构", "张老师",
+                "教四-201", day, startPeriod, 2, 1, 16, kind, "ADJ-2001", "周二 第1-2节 Room",
+                "周五 第3-4节 Room B", "教师出差");
     }
 
     private static void requestScheduleDataSendsServerTermAndWeek() {

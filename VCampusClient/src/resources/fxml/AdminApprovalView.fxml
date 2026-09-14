@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.ComboBox?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.control.Separator?>
+<?import javafx.scene.control.ToggleButton?>
+<?import javafx.scene.layout.BorderPane?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Priority?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.layout.StackPane?>
+<?import javafx.scene.layout.VBox?>
+
+<BorderPane styleClass="course-admin-page" xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.AdminApprovalController">
+    <top>
+        <VBox spacing="10.0" BorderPane.alignment="CENTER">
+            <children>
+                <HBox alignment="CENTER_LEFT" spacing="10.0" styleClass="course-admin-toolbar">
+                    <children>
+                        <ToggleButton fx:id="adjustmentTabButton" onAction="#showAdjustments" selected="true" styleClass="course-approval-tab-button" text="调课审批" />
+                        <ToggleButton fx:id="gradeTabButton" onAction="#showGrades" styleClass="course-approval-tab-button" text="成绩审批" />
+                        <Region HBox.hgrow="ALWAYS" />
+                        <ComboBox fx:id="statusFilter" prefWidth="132.0" promptText="状态" styleClass="course-admin-status-filter" />
+                        <Button fx:id="refreshButton" onAction="#refresh" styleClass="course-admin-refresh-button" text="刷新" />
+                    </children>
+                </HBox>
+            </children>
+            <padding>
+                <Insets bottom="12.0" />
+            </padding>
+        </VBox>
+    </top>
+    <center>
+        <StackPane styleClass="course-admin-content" BorderPane.alignment="CENTER">
+            <children>
+                <VBox fx:id="adjustmentPanel" spacing="8.0">
+                    <children>
+                        <HBox spacing="12.0" VBox.vgrow="ALWAYS">
+                            <children>
+                                <StackPane prefWidth="320.0" styleClass="course-admin-list-area">
+                                    <children>
+                                        <ScrollPane fitToWidth="true" hbarPolicy="NEVER" pannable="true" styleClass="course-admin-list-scroll">
+                                            <content>
+                                                <VBox fx:id="requestList" fillWidth="true" spacing="8.0" styleClass="course-admin-list" />
+                                            </content>
+                                        </ScrollPane>
+                                        <VBox alignment="CENTER" maxHeight="-Infinity" spacing="10.0" styleClass="course-admin-state-area" StackPane.alignment="TOP_CENTER">
+                                            <children>
+                                                <Label fx:id="loadingLabel" managed="false" styleClass="course-admin-loading-text" text="正在加载调课申请..." visible="false" />
+                                                <Label fx:id="emptyLabel" managed="false" maxWidth="300.0" styleClass="course-admin-empty-state" text="没有符合条件的调课申请" visible="false" />
+                                                <Label fx:id="errorLabel" managed="false" maxWidth="300.0" styleClass="course-admin-error-text" text="" visible="false" />
+                                                <Button fx:id="errorRetryButton" managed="false" onAction="#refresh" styleClass="course-admin-retry-button" text="重试" visible="false" />
+                                            </children>
+                                            <padding>
+                                                <Insets top="28.0" />
+                                            </padding>
+                                        </VBox>
+                                    </children>
+                                </StackPane>
+                                <VBox maxHeight="-Infinity" spacing="8.0" styleClass="course-approval-detail" HBox.hgrow="ALWAYS">
+                                    <children>
+                                        <Label fx:id="detailTitleLabel" styleClass="course-approval-detail-title" text="请选择调课申请" wrapText="true" />
+                                        <Label fx:id="detailPlaceholder" styleClass="course-admin-placeholder-text" text="左侧选择一条申请后可查看原安排与调整后安排" wrapText="true" />
+                                        <ScrollPane fitToWidth="true" hbarPolicy="NEVER" VBox.vgrow="ALWAYS">
+                                            <content>
+                                                <VBox fx:id="detailBody" spacing="6.0" />
+                                            </content>
+                                        </ScrollPane>
+                                        <Separator />
+                                        <HBox alignment="CENTER_RIGHT" spacing="10.0">
+                                            <children>
+                                                <Button fx:id="rejectButton" disabled="true" onAction="#rejectSelected" styleClass="course-approval-reject-button" text="驳回" />
+                                                <Button fx:id="forceApproveButton" disabled="true" onAction="#forceApproveSelected" styleClass="course-approval-force-button" text="强制通过" />
+                                                <Button fx:id="approveButton" disabled="true" onAction="#approveSelected" styleClass="course-approval-approve-button" text="通过" />
+                                            </children>
+                                        </HBox>
+                                    </children>
+                                    <padding>
+                                        <Insets left="12.0" />
+                                    </padding>
+                                </VBox>
+                            </children>
+                        </HBox>
+                    </children>
+                </VBox>
+                <VBox fx:id="gradePlaceholder" alignment="CENTER" managed="false" spacing="10.0" styleClass="course-admin-placeholder" visible="false">
+                    <children>
+                        <Label styleClass="course-admin-placeholder-title" text="成绩审批" />
+                        <Label styleClass="course-admin-placeholder-text" text="成绩审批将在后续阶段开放" />
+                    </children>
+                </VBox>
+            </children>
+        </StackPane>
+    </center>
+</BorderPane>

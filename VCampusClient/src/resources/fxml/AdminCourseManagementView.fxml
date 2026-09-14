@@ -29,12 +29,7 @@
         <StackPane styleClass="course-admin-content" BorderPane.alignment="CENTER">
             <children>
                 <fx:include fx:id="coursePage" source="AdminCourseCatalogView.fxml" />
-                <VBox fx:id="approvalPage" alignment="CENTER" managed="false" spacing="10.0" styleClass="course-admin-placeholder" visible="false">
-                    <children>
-                        <Label styleClass="course-admin-placeholder-title" text="审批" />
-                        <Label styleClass="course-admin-placeholder-text" text="审批功能将在后续阶段开放" />
-                    </children>
-                </VBox>
+                <fx:include fx:id="approvalPage" source="AdminApprovalView.fxml" visible="false" managed="false" />
             </children>
         </StackPane>
     </center>

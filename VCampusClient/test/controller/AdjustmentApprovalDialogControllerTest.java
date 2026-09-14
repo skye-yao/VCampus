@@ -1,0 +1,108 @@
+package controller;
+
+import java.util.List;
+import dto.course.admin.approval.AdjustmentRequestDetailDTO;
+import dto.course.admin.approval.AdjustmentTargetDTO;
+import dto.course.admin.approval.ApprovalStatusDTO;
+import dto.course.admin.schedule.ScheduleConflictDTO;
+import dto.course.admin.schedule.ScheduleConflictSeverityDTO;
+import dto.course.admin.schedule.ScheduleResourceDTO;
+
+/**
+ * 无 JavaFX 依赖的详情弹窗测试：弹窗文案与并排行的构造完全复用审批控制器的纯文本函数。
+ */
+public final class AdjustmentApprovalDialogControllerTest {
+    public static void main(String[] args) {
+        showsEveryTargetWeekSideBySide();
+        reusesTheApprovalControllerText();
+        coversMissingResourcesAndReasons();
+        System.out.println("AdjustmentApprovalDialogControllerTest: PASS");
+    }
+
+    private static void showsEveryTargetWeekSideBySide() {
+        AdjustmentRequestDetailDTO detail = detail("教师出差", ApprovalStatusDTO.PENDING,
+                List.of(target("8001", 1, "2026-09-08T00:00:00Z", "张老师"),
+                        target("8002", 3, "2026-09-22T00:00:00Z", "张老师")),
+                List.of(conflict()));
+
+        List<AdminApprovalController.ArrangementRow> rows =
+                AdminApprovalController.arrangementRows(detail);
+
+        require(rows.size() == 2, "every target week must produce one row, saw " + rows.size());
+        require("第 1 周".equals(rows.get(0).week()) && "第 3 周".equals(rows.get(1).week()),
+                "rows must keep the target weeks in order");
+        require(AdjustmentApprovalDialogController.originalColumn(rows.get(0))
+                        .startsWith("原安排：2026-09-08T00:00:00Z")
+                        && AdjustmentApprovalDialogController.originalColumn(rows.get(0))
+                        .contains("张老师"),
+                "the left column must describe the replaced arrangement");
+        require(AdminApprovalController.detailLines(detail).stream()
+                        .anyMatch(line -> line.startsWith("新安排：周五 第 3-4 节")),
+                "the detail lines must describe the approved arrangement, saw "
+                        + AdminApprovalController.detailLines(detail));
+        require(AdjustmentApprovalDialogController.adjustedColumn(rows.get(0))
+                        .startsWith("调课后：周五 第 3-4 节"),
+                "the right column must describe the approved arrangement, saw "
+                        + AdjustmentApprovalDialogController.adjustedColumn(rows.get(0)));
+        require(AdjustmentApprovalDialogController.header(detail).contains("970701")
+                        && AdjustmentApprovalDialogController.header(detail).contains("待审批"),
+                "the dialog header must identify the request and its status");
+    }
+
+    private static void reusesTheApprovalControllerText() {
+        AdjustmentRequestDetailDTO detail = detail("教师出差", ApprovalStatusDTO.PENDING,
+                List.of(target("8001", 1, "2026-09-08T00:00:00Z", "张老师")), List.of(conflict()));
+
+        require(AdminApprovalController.conflictLines(detail.getConflicts()).size() == 1
+                        && AdminApprovalController.conflictLines(detail.getConflicts()).get(0)
+                        .contains("教师时间冲突"),
+                "the dialog must render the same conflict lines as the approval page");
+        require(AdminApprovalController.detailLines(detail).contains("申请原因：教师出差"),
+                "the dialog must render the same detail lines as the approval page");
+    }
+
+    private static void coversMissingResourcesAndReasons() {
+        AdjustmentRequestDetailDTO bare = new AdjustmentRequestDetailDTO("970702", "2001", "T1001",
+                "  ", ApprovalStatusDTO.APPROVED, 1, 2, 1, 2, null, null, null,
+                List.of(new AdjustmentTargetDTO("8003", 2, "2026-09-15T00:00:00Z",
+                        "2026-09-15T01:35:00Z", null, null, null)),
+                List.of(), "2026-09-10T02:00:00Z", null, null, null);
+
+        require("申请原因：—".equals(AdjustmentApprovalDialogController.reasonLine(bare)),
+                "a blank reason must render as a placeholder");
+        List<AdminApprovalController.ArrangementRow> rows =
+                AdminApprovalController.arrangementRows(bare);
+        require(rows.get(0).original().contains("—"),
+                "missing snapshot resources must render as a placeholder, saw "
+                        + rows.get(0).original());
+        require(rows.get(0).adjusted().contains("沿用原安排"),
+                "a null proposed resource must read as inheriting the original, saw "
+                        + rows.get(0).adjusted());
+        require(AdminApprovalController.detailLines(bare).contains("冲突：无"),
+                "a request without conflicts must say so explicitly");
+    }
+
+    private static AdjustmentRequestDetailDTO detail(String reason, ApprovalStatusDTO status,
+            List<AdjustmentTargetDTO> targets, List<ScheduleConflictDTO> conflicts) {
+        return new AdjustmentRequestDetailDTO("970701", "2001", "T1001", reason, status, 3, 5, 3, 4,
+                new ScheduleResourceDTO("T2001", "T2001", "李老师", "teacher", 0),
+                new ScheduleResourceDTO("T2002", "T2002", "王老师", "teacher", 0),
+                new ScheduleResourceDTO("3002", "3002", "教二-305", "classroom", 120),
+                targets, conflicts, "2026-09-10T02:00:00Z", null, null, null);
+    }
+
+    private static AdjustmentTargetDTO target(String occurrenceId, int week, String startAt,
+                                              String teacher) {
+        return new AdjustmentTargetDTO(occurrenceId, week, startAt, startAt, teacher, null,
+                "教四-201");
+    }
+
+    private static ScheduleConflictDTO conflict() {
+        return new ScheduleConflictDTO("TEACHER_OVERLAP", ScheduleConflictSeverityDTO.OVERRIDABLE,
+                "T2001", "2001", 1, 3, 3, 4, "教师时间冲突");
+    }
+
+    private static void require(boolean condition, String message) {
+        if (!condition) throw new AssertionError(message);
+    }
+}

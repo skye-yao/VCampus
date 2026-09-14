@@ -15,6 +15,7 @@ public final class AdminCourseManagementController {
     @FXML private Node coursePage;
     @FXML private Node approvalPage;
     @FXML private AdminCourseCatalogController coursePageController;
+    @FXML private AdminApprovalController approvalPageController;
     @FXML private ToggleButton courseNavButton;
     @FXML private ToggleButton approvalNavButton;
 
@@ -30,7 +31,8 @@ public final class AdminCourseManagementController {
 
     @FXML
     private void showApproval() {
-        activate(approvalPage, approvalNavButton, () -> { });
+        activate(approvalPage, approvalNavButton,
+                approvalPageController == null ? () -> { } : approvalPageController::refresh);
     }
 
     @FXML

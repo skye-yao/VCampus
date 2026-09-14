@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import model.course.ScheduleDisplayKind;
 import model.course.ScheduleEntryView;
 
 final class ScheduleLayout {
@@ -56,6 +57,12 @@ final class ScheduleLayout {
         List<PlacedEntry> placedEntries = new ArrayList<>();
         int componentEnd = entries.get(0).endPeriod;
         for (VisibleEntry entry : entries) {
+            if (isDisplayOnlyOriginal(entry.entry)) {
+                placedEntries.add(new PlacedEntry(
+                        entry.entry, entry.startPeriod, entry.endPeriod, 0));
+                componentEnd = Math.max(componentEnd, entry.endPeriod);
+                continue;
+            }
             int lane = firstAvailableLane(laneEnds, entry.startPeriod);
             if (lane == laneEnds.size()) {
                 laneEnds.add(entry.endPeriod);
@@ -66,8 +73,19 @@ final class ScheduleLayout {
                     entry.entry, entry.startPeriod, entry.endPeriod, lane));
             componentEnd = Math.max(componentEnd, entry.endPeriod);
         }
+        placedEntries.sort(Comparator.comparingInt(PlacedEntry::getLane)
+                .thenComparingInt(entry -> isDisplayOnlyOriginal(entry.getEntry()) ? 0 : 1)
+                .thenComparingLong(value -> value.getEntry().getOfferingId()));
         return new Component(entries.get(0).startPeriod,
-                componentEnd, laneEnds.size(), placedEntries);
+                componentEnd, Math.max(1, laneEnds.size()), placedEntries);
+    }
+
+    /**
+     * 仅展示用的“原安排”占位块落在其被替换掉的旧位置上，不占用资源：它既不申请新列，也不能把
+     * 真实课程挤到额外的列里，只画在第 0 列的最底层，因此必须先加入以便真实课程覆盖其上。
+     */
+    private static boolean isDisplayOnlyOriginal(ScheduleEntryView entry) {
+        return ScheduleDisplayKind.ADJUSTED_ORIGINAL == entry.getDisplayKind();
     }
 
     private static int firstAvailableLane(List<Integer> laneEnds, int startPeriod) {

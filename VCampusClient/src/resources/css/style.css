@@ -1439,3 +1439,138 @@
     -fx-font-size: 11px;
     -fx-text-fill: #6b746c;
 }
+
+/* 调课：旧位置灰显为只读占位块，新位置作为真实占用块，两者共用同一套角标语言。 */
+.course-adjusted-original {
+    -fx-background-color: #ededed;
+    -fx-border-color: #9aa0a6;
+    -fx-border-style: segments(6, 4);
+    -fx-opacity: 0.85;
+}
+
+.course-adjusted-original .course-class-title,
+.course-adjusted-original .course-class-meta {
+    -fx-text-fill: #6b746c;
+}
+
+.course-adjusted-target {
+    -fx-background-color: #fff4e0;
+    -fx-border-color: #d98324;
+}
+
+.course-adjustment-badge {
+    -fx-background-color: #fdd000;
+    -fx-background-radius: 3px;
+    -fx-font-size: 9px;
+    -fx-font-weight: bold;
+    -fx-padding: 1px 4px;
+    -fx-text-fill: #151E49;
+}
+
+.course-adjusted-original .course-adjustment-badge {
+    -fx-background-color: #c9cdd2;
+}
+
+/* 管理员审批页：调课申请列表、详情与详情弹窗。 */
+.course-approval-tab-button {
+    -fx-background-color: transparent;
+    -fx-background-radius: 4px;
+    -fx-padding: 5px 14px;
+    -fx-text-fill: #4f5b52;
+}
+
+.course-approval-tab-button:selected {
+    -fx-background-color: #eaf2ea;
+    -fx-font-weight: bold;
+    -fx-text-fill: #151E49;
+}
+
+.course-approval-row {
+    -fx-background-color: #f8faf8;
+    -fx-border-color: transparent transparent transparent #587558;
+    -fx-border-width: 0 0 0 3px;
+    -fx-cursor: hand;
+    -fx-padding: 8px 10px;
+}
+
+.course-approval-row:hover {
+    -fx-background-color: #fef9df;
+}
+
+.course-approval-row-title {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #151E49;
+}
+
+.course-approval-row-meta,
+.course-approval-detail-line,
+.course-approval-dialog-meta {
+    -fx-font-size: 11px;
+    -fx-text-fill: #4f5b52;
+}
+
+.course-approval-arrangement-line {
+    -fx-font-size: 11px;
+    -fx-text-fill: #151E49;
+}
+
+.course-approval-detail-title,
+.course-approval-dialog-title {
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #151E49;
+}
+
+.course-approval-detail {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #dfe4df;
+    -fx-border-radius: 4px;
+    -fx-padding: 10px;
+}
+
+.course-approval-approve-button {
+    -fx-background-color: #587558;
+    -fx-text-fill: #ffffff;
+}
+
+.course-approval-reject-button {
+    -fx-background-color: #c9cdd2;
+    -fx-text-fill: #151E49;
+}
+
+.course-approval-force-button {
+    -fx-background-color: #fdd000;
+    -fx-text-fill: #151E49;
+}
+
+.course-approval-dialog-header {
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #151E49;
+}
+
+.course-approval-dialog-week {
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #151E49;
+}
+
+.course-approval-dialog-original {
+    -fx-font-size: 11px;
+    -fx-text-fill: #6b746c;
+}
+
+.course-approval-dialog-adjusted {
+    -fx-font-size: 11px;
+    -fx-text-fill: #151E49;
+}
+
+.course-approval-dialog-conflict {
+    -fx-font-size: 11px;
+    -fx-text-fill: #b3261e;
+}
+
+.course-approval-dialog-row {
+    -fx-padding: 4px 0;
+}
