@@ -10,12 +10,12 @@
     <Label styleClass="information-select-title" text="基本信息"/>
     <Button alignment="CENTER_LEFT" maxWidth="Infinity" minHeight="108"
             onAction="#openStudent" styleClass="information-choice-card, information-choice-card-primary">
-      <graphic><VBox alignment="CENTER_LEFT" spacing="8"><Label styleClass="information-choice-title" text="学生信息"/><Label styleClass="information-choice-description" text="学籍资料 · 信息维护 · 修改审核"/></VBox></graphic>
+      <graphic><VBox alignment="CENTER_LEFT" spacing="8"><Label styleClass="information-choice-title" text="学生信息"/></VBox></graphic>
     </Button>
     <Button alignment="CENTER_LEFT" maxWidth="Infinity" minHeight="108"
             onAction="#openTeacher" styleClass="information-choice-card">
       <VBox.margin><Insets top="18"/></VBox.margin>
-      <graphic><VBox alignment="CENTER_LEFT" spacing="8"><Label styleClass="information-choice-title" text="教师信息"/><Label styleClass="information-choice-description" text="教师档案 · 任职信息 · 修改审核"/></VBox></graphic>
+      <graphic><VBox alignment="CENTER_LEFT" spacing="8"><Label styleClass="information-choice-title" text="教师信息"/></VBox></graphic>
     </Button>
     <Button alignment="CENTER_LEFT" onAction="#back" styleClass="information-select-back" text="← 返回应用中心">
       <VBox.margin><Insets top="34"/></VBox.margin>
