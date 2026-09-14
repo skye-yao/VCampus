@@ -84,11 +84,12 @@ public class ShopProductImageIntegrationTest {
                     (String) secondClientResponse.getData("imageBase64")))) {
                 throw new AssertionError("另一客户端重新请求后应看到新图片");
             }
-            System.out.println("ShopProductImageIntegrationTest PASS");
         } finally {
             SessionManager.getInstance().removeSession(studentSession.getToken());
             if (productId > 0) cleanup(productId);
         }
+        if (productExists(uniqueName)) throw new AssertionError("临时测试商品未清理");
+        System.out.println("ShopProductImageIntegrationTest PASS");
     }
 
     private static byte[] picture(String format) throws Exception {

@@ -28,6 +28,14 @@ public class ProductImageDAOIntegrationTest {
                 stmt.execute(createImageTable);
                 stmt.execute(createImageTable);
             }
+            try (var foreignKey = conn.prepareStatement(
+                    "SELECT 1 FROM information_schema.KEY_COLUMN_USAGE "
+                            + "WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tbl_product_image' "
+                            + "AND COLUMN_NAME='product_id' AND REFERENCED_TABLE_NAME='tbl_product'")) {
+                try (var rows = foreignKey.executeQuery()) {
+                    if (!rows.next()) throw new AssertionError("商品图片表缺少商品外键");
+                }
+            }
             conn.setAutoCommit(false);
             try {
                 Product product = new Product();
