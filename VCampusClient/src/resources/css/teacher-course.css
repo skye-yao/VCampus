@@ -53,7 +53,7 @@
 
 .teacher-course-content {
     -fx-background-color: #f6f8f6;
-    -fx-padding: 24px;
+    -fx-padding: 16px;
 }
 
 .teacher-course-placeholder {
@@ -74,3 +74,198 @@
     -fx-font-size: 13px;
     -fx-text-fill: #657067;
 }
+
+/* ================= 7. 教学班列表与详情 ================= */
+
+.teacher-course-page {
+    -fx-background-color: transparent;
+}
+
+.teacher-course-toolbar {
+    -fx-background-color: transparent;
+}
+
+.teacher-course-term-filter,
+.teacher-course-roster-filter {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #cfd8cf;
+    -fx-border-radius: 4px;
+    -fx-background-radius: 4px;
+    -fx-font-size: 13px;
+}
+
+.teacher-course-search-field {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #cfd8cf;
+    -fx-border-radius: 4px;
+    -fx-background-radius: 4px;
+    -fx-padding: 6px 10px 6px 10px;
+    -fx-font-size: 13px;
+}
+
+.teacher-course-search-field:focused {
+    -fx-border-color: #587558;
+}
+
+.teacher-course-refresh-button,
+.teacher-course-retry-button,
+.teacher-course-page-button,
+.teacher-course-back-button,
+.teacher-course-export-button,
+.teacher-course-grade-button,
+.teacher-course-row-detail-button {
+    -fx-background-color: #587558;
+    -fx-background-radius: 4px;
+    -fx-text-fill: #ffffff;
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-padding: 6px 14px 6px 14px;
+    -fx-cursor: hand;
+}
+
+.teacher-course-refresh-button:hover,
+.teacher-course-retry-button:hover,
+.teacher-course-page-button:hover,
+.teacher-course-back-button:hover,
+.teacher-course-export-button:hover,
+.teacher-course-grade-button:hover,
+.teacher-course-row-detail-button:hover {
+    -fx-background-color: #456045;
+}
+
+.teacher-course-back-button {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #cfd8cf;
+    -fx-border-radius: 4px;
+    -fx-text-fill: #3f553f;
+}
+
+.teacher-course-back-button:hover {
+    -fx-background-color: #eaf0ea;
+}
+
+.teacher-course-grade-button {
+    -fx-background-color: #fdd000;
+    -fx-text-fill: #231815;
+}
+
+.teacher-course-grade-button:hover {
+    -fx-background-color: #f6ab00;
+}
+
+.teacher-course-grade-button:disabled,
+.teacher-course-export-button:disabled,
+.teacher-course-page-button:disabled {
+    -fx-opacity: 0.5;
+}
+
+.teacher-course-page-summary {
+    -fx-font-size: 13px;
+    -fx-text-fill: #657067;
+}
+
+.teacher-course-detail-title {
+    -fx-font-size: 16px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #151E49;
+}
+
+.teacher-course-list-area {
+    -fx-background-color: #ffffff;
+    -fx-background-radius: 6px;
+    -fx-border-color: #dce4dc;
+    -fx-border-radius: 6px;
+}
+
+.teacher-course-table {
+    -fx-background-color: transparent;
+    -fx-table-cell-border-color: #e6ece6;
+    -fx-font-size: 13px;
+}
+
+.teacher-course-table .column-header-background {
+    -fx-background-color: #eaf0ea;
+}
+
+.teacher-course-table .column-header .label {
+    -fx-text-fill: #3f553f;
+    -fx-font-weight: bold;
+}
+
+.teacher-course-state-area {
+    -fx-background-color: transparent;
+}
+
+.teacher-course-loading-text {
+    -fx-font-size: 13px;
+    -fx-text-fill: #657067;
+}
+
+.teacher-course-empty-state {
+    -fx-font-size: 13px;
+    -fx-text-fill: #657067;
+}
+
+.teacher-course-error-text {
+    -fx-font-size: 13px;
+    -fx-text-fill: #b3261e;
+}
+
+.teacher-course-pager {
+    -fx-background-color: transparent;
+}
+
+.teacher-course-page-label {
+    -fx-font-size: 13px;
+    -fx-text-fill: #657067;
+}
+
+.teacher-course-tabs {
+    -fx-background-color: transparent;
+    -fx-tab-min-width: 96px;
+}
+
+.teacher-course-tabs .tab {
+    -fx-background-color: #eef2ee;
+    -fx-background-radius: 4px 4px 0 0;
+    -fx-padding: 6px 16px 6px 16px;
+}
+
+.teacher-course-tabs .tab:selected {
+    -fx-background-color: #ffffff;
+}
+
+.teacher-course-tabs .tab .tab-label {
+    -fx-text-fill: #151E49;
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+}
+
+.teacher-course-section {
+    -fx-background-color: #ffffff;
+    -fx-background-radius: 6px;
+    -fx-border-color: #dce4dc;
+    -fx-border-radius: 6px;
+}
+
+.teacher-course-tab-scroll {
+    -fx-background-color: transparent;
+}
+
+.teacher-course-tab-scroll > .viewport {
+    -fx-background-color: transparent;
+}
+
+.teacher-course-detail-line {
+    -fx-font-size: 13px;
+    -fx-text-fill: #2b332b;
+}
+
+.teacher-course-schedule-line {
+    -fx-font-size: 13px;
+    -fx-text-fill: #2b332b;
+    -fx-background-color: #f6f8f6;
+    -fx-background-radius: 4px;
+    -fx-padding: 8px 10px 8px 10px;
+}
+

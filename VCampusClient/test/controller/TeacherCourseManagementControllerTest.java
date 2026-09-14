@@ -5,14 +5,26 @@ import java.io.InputStream;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import javax.xml.parsers.DocumentBuilderFactory;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
+import dto.course.CourseTermDTO;
+import dto.course.admin.schedule.ScheduleArrangementDTO;
+import dto.course.admin.schedule.ScheduleResourceDTO;
+import dto.course.admin.schedule.ScheduleSlotDTO;
+import dto.course.teacher.TeacherOfferingDTO;
+import dto.course.teacher.TeacherOfferingDetailDTO;
+import dto.course.teacher.TeacherPageDTO;
+import dto.course.teacher.TeacherRosterRowDTO;
+import javafx.event.Event;
 import service.MockTeacherCourseService;
 import service.TeacherCourseService;
 import service.TeacherCourseServices;
@@ -20,22 +32,27 @@ import service.TeacherCourseServices;
 /**
  * 无 JavaFX 工具包依赖的教师工作台外壳测试。
  *
- * <p>不启动 toolkit：外壳契约靠注入的服务、回退动作与 {@code null} 节点断言；视图契约改为用
- * {@link DocumentBuilderFactory} 结构化解析 FXML，而不是匹配原始文本——原始文本断言会被注释或
- * 被注释掉的元素块骗过（既能造成假红，也能造成假绿），且只有结构化检查才能在真实元素上确认
+ * <p>不启动 toolkit：外壳契约靠注入的服务、子页控制器、回退动作与 {@code null} 节点断言；视图契约
+ * 改为用 {@link DocumentBuilderFactory} 结构化解析 FXML，而不是匹配原始文本——原始文本断言会被注释
+ * 或被注释掉的元素块骗过（既能造成假红，也能造成假绿），且只有结构化检查才能在真实元素上确认
  * {@code disable} 这类属性存在。静态检查仍无法证明任意属性名是可写属性，那只有真正的
  * {@code FXMLLoader} 加载能证明，属于 T6 的 {@code ui.*} 冒烟范围。
+ *
+ * <p>导航部分用一个真实的 {@link TeacherOfferingController} 与 {@link TeacherOfferingDetailController}
+ * 装配到外壳：工作台必须把列表页保存的学期/搜索/页码在往返详情后保持不变，并在离开子页时释放它，
+ * 而不是长期保留一个过期的子页控制器。
  */
 public final class TeacherCourseManagementControllerTest {
     private static final String VIEW = "/resources/fxml/TeacherCourseManagementView.fxml";
     private static final String CSS = "/resources/css/teacher-course.css";
     private static final String STAGING_NOTICE = "该功能将在后续阶段接入";
+    private static final String HOME_NOTICE = "教学班已接入；教学课程表、成绩录入、我的申请将在后续阶段接入。";
     private static final String HOME_VIEW = "/resources/fxml/MainView.fxml";
-    private static final String LONG_OFFERING_ID = "9007199254740993";
+    private static final String OFFERING = "9007199254740993";
     private static final String APP_STYLESHEET = "@../css/style.css";
     private static final String VIEW_STYLESHEET = "@../css/teacher-course.css";
-    private static final List<String> ENTRIES =
-            List.of("教学课程表", "教学班", "成绩录入", "我的申请");
+    private static final List<String> STAGED_ENTRIES =
+            List.of("教学课程表", "成绩录入", "我的申请");
 
     private TeacherCourseManagementControllerTest() {
     }
@@ -47,10 +64,14 @@ public final class TeacherCourseManagementControllerTest {
         injectedServiceIsRetainedForLaterSubpages();
         returningHomeTargetsTheMainView();
         returningHomeRunsTheInjectedActionSafely();
-        stagedEntriesAreSafeWithoutNodes();
+        entriesAreSafeWithoutNodes();
+
+        openingTheOfferingsEntryActivatesTheListPage();
+        openingADetailReleasesTheListAndReturnsToIt();
+        stagedEntriesOnlyShowTheStagingNotice();
 
         viewIsTheTeacherWorkspaceShell(view);
-        stagedEntriesAreRealDisabledElements(view);
+        entriesAreWiredAndOnlyTheOfferingsEntryIsEnabled(view);
         noElementUsesTheReadOnlyDisabledAttribute(view);
         everyFxIdAndOnActionResolvesOnTheController(view);
         everyStyleClassExistsInTheStylesheet(view, readResource(CSS));
@@ -95,15 +116,101 @@ public final class TeacherCourseManagementControllerTest {
         controller.handleBack();
     }
 
-    private static void stagedEntriesAreSafeWithoutNodes() {
+    private static void entriesAreSafeWithoutNodes() {
         TeacherCourseManagementController controller = controller();
         controller.initialize();
         controller.openOfferings();
         controller.openTimetable();
-        controller.openGrades(LONG_OFFERING_ID);
+        controller.openGrades(OFFERING);
         controller.openGrades(null);
         controller.openApplications();
+        controller.backToOfferings();
     }
+
+    private static void openingTheOfferingsEntryActivatesTheListPage() {
+        FakeService service = new FakeService();
+        TeacherOfferingController offerings = offerings(service);
+        TeacherOfferingDetailController detail = detail(service);
+        TeacherCourseManagementController controller = controller(service);
+        controller.wire(null, null, offerings, null, detail);
+
+        controller.openOfferings();
+
+        require(TeacherCourseManagementController.PAGE_OFFERINGS.equals(controller.currentPage()),
+                "the offerings entry must show the list page, saw " + controller.currentPage());
+        require(offerings.active() && !detail.active(),
+                "only the list page may be active after opening 教学班");
+        require(offerings.term() != null && service.offeringCalls.size() == 1,
+                "the list page must load its own terms and first page");
+        require(controller.noticeText().equals(HOME_NOTICE),
+                "opening a real page must not change the home notice");
+    }
+
+    private static void openingADetailReleasesTheListAndReturnsToIt() {
+        FakeService service = new FakeService();
+        TeacherOfferingController offerings = offerings(service);
+        TeacherOfferingDetailController detail = detail(service);
+        TeacherCourseManagementController controller = controller(service);
+        controller.wire(null, null, offerings, null, detail);
+
+        controller.openOfferings();
+        offerings.applyFilters("CS");
+        offerings.goToPage(2);
+        controller.showOffering(OFFERING);
+
+        require(TeacherCourseManagementController.PAGE_DETAIL.equals(controller.currentPage()),
+                "opening a row must show the detail page, saw " + controller.currentPage());
+        require(detail.active() && !offerings.active(),
+                "the list page must be unloaded while the detail page is shown");
+        require(service.detailCalls.equals(List.of(OFFERING)),
+                "the detail page must load exactly the opened offering, saw "
+                        + service.detailCalls);
+
+        controller.backToOfferings();
+
+        require(TeacherCourseManagementController.PAGE_OFFERINGS.equals(controller.currentPage()),
+                "返回教学班列表 must show the list page again, saw " + controller.currentPage());
+        require(offerings.active() && !detail.active(),
+                "returning must unload the detail page");
+        require(offerings.query().equals("CS") && offerings.page() == 2,
+                "the selected search text and page must survive the round trip, saw query="
+                        + offerings.query() + " page=" + offerings.page());
+        require(detail.offeringId() == null && detail.detail() == null,
+                "the detail page must not retain the released class data");
+    }
+
+    private static void stagedEntriesOnlyShowTheStagingNotice() {
+        FakeService service = new FakeService();
+        TeacherOfferingController offerings = offerings(service);
+        TeacherOfferingDetailController detail = detail(service);
+        TeacherCourseManagementController controller = controller(service);
+        controller.wire(null, null, offerings, null, detail);
+        controller.openOfferings();
+
+        controller.openTimetable();
+        requireStaging(controller, "教学课程表");
+
+        controller.openApplications();
+        requireStaging(controller, "我的申请");
+
+        controller.openGrades(OFFERING);
+        requireStaging(controller, "成绩录入");
+        require(!offerings.active() && !detail.active(),
+                "a staged entry must leave no hidden page active");
+        require(service.detailCalls.isEmpty() && service.rosterCalls.isEmpty(),
+                "the staged grade route must not start any read or write request, saw details "
+                        + service.detailCalls + " rosters " + service.rosterCalls);
+    }
+
+    private static void requireStaging(TeacherCourseManagementController controller,
+            String entry) {
+        require(TeacherCourseManagementController.PAGE_HOME.equals(controller.currentPage()),
+                entry + " must fall back to the workspace home, saw " + controller.currentPage());
+        require(STAGING_NOTICE.equals(controller.noticeText()),
+                entry + " must report the staging notice, saw " + controller.noticeText());
+    }
+
+    // ------------------------------------------------------------------ 视图契约
 
     private static void viewIsTheTeacherWorkspaceShell(Document view) {
         Element root = view.getDocumentElement();
@@ -132,22 +239,41 @@ public final class TeacherCourseManagementControllerTest {
         Element statusLabel = elementWithId(view, "statusLabel");
         require(statusLabel != null,
                 "the view must expose the status label the staged entries report into");
-        require(STAGING_NOTICE.equals(statusLabel.getAttribute("text")),
-                "the status label must default to the staging notice, saw "
+        require(HOME_NOTICE.equals(statusLabel.getAttribute("text")),
+                "the status label must state what is wired and what is staged, saw "
                         + statusLabel.getAttribute("text"));
+
+        for (Element include : elementsWithTag(view, "fx:include")) {
+            require(!include.getAttribute("source").isEmpty(),
+                    "every fx:include must name its source view");
+        }
+        require(!elementsWithTag(view, "fx:include").isEmpty(),
+                "the workspace must host its sub-pages with fx:include, like the admin shell");
     }
 
     /**
-     * 四个入口必须在真实 {@code Button} 元素上带 {@code disable="true"}。按 {@code text} 定位元素，
-     * 因此注释或被注释掉的元素块都无法满足断言。
+     * 教学班入口必须可用且接到它的处理函数；其余三个仍是带 {@code disable="true"} 的占位。
+     * 按 {@code text} 定位元素，因此注释或被注释掉的元素块都无法满足断言。
      */
-    private static void stagedEntriesAreRealDisabledElements(Document view) {
-        for (String entry : ENTRIES) {
+    private static void entriesAreWiredAndOnlyTheOfferingsEntryIsEnabled(Document view) {
+        Element offerings = buttonWithText(view, "教学班");
+        require(offerings != null, "the top-right entries must include 教学班");
+        require(!offerings.hasAttribute("disable") || "false".equals(
+                        offerings.getAttribute("disable")),
+                "教学班 must be enabled now that the page exists, saw disable=\""
+                        + offerings.getAttribute("disable") + "\"");
+        require("#handleOpenOfferings".equals(offerings.getAttribute("onAction")),
+                "教学班 must be wired to #handleOpenOfferings, saw "
+                        + offerings.getAttribute("onAction"));
+
+        for (String entry : STAGED_ENTRIES) {
             Element button = buttonWithText(view, entry);
             require(button != null, "the top-right entries must include " + entry);
             require("true".equals(button.getAttribute("disable")),
-                    "entry " + entry + " must carry disable=\"true\", saw \""
+                    "entry " + entry + " must stay staged with disable=\"true\", saw \""
                             + button.getAttribute("disable") + "\"");
+            require(!button.getAttribute("onAction").isEmpty(),
+                    "entry " + entry + " must still be wired to its handler");
         }
     }
 
@@ -185,9 +311,9 @@ public final class TeacherCourseManagementControllerTest {
             if (action.startsWith("#")) action = action.substring(1);
             if (!action.isEmpty()) {
                 actions++;
-                require(hasNoArgMethod(controller, action),
+                require(hasActionMethod(controller, action),
                         "<" + element.getTagName() + "> onAction=\"#" + action
-                                + "\" has no no-arg method on " + controller.getSimpleName());
+                                + "\" has no handler on " + controller.getSimpleName());
             }
         }
         require(ids > 0 && actions > 0,
@@ -214,8 +340,22 @@ public final class TeacherCourseManagementControllerTest {
         }
     }
 
+    // ------------------------------------------------------------------ 辅助
+
     private static TeacherCourseManagementController controller() {
-        return new TeacherCourseManagementController(new MockTeacherCourseService());
+        return new TeacherCourseManagementController(new FakeService());
+    }
+
+    private static TeacherCourseManagementController controller(TeacherCourseService service) {
+        return new TeacherCourseManagementController(service);
+    }
+
+    private static TeacherOfferingController offerings(TeacherCourseService service) {
+        return new TeacherOfferingController(service, Runnable::run);
+    }
+
+    private static TeacherOfferingDetailController detail(TeacherCourseService service) {
+        return new TeacherOfferingDetailController(service, Runnable::run);
     }
 
     private static Document parseView() throws Exception {
@@ -233,6 +373,15 @@ public final class TeacherCourseManagementControllerTest {
             if (stream == null) throw new IOException("Missing resource: " + path);
             return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
         }
+    }
+
+    private static List<Element> elementsWithTag(Document view, String tag) {
+        List<Element> found = new ArrayList<>();
+        NodeList elements = view.getElementsByTagName(tag);
+        for (int index = 0; index < elements.getLength(); index++) {
+            found.add((Element) elements.item(index));
+        }
+        return List.copyOf(found);
     }
 
     private static Element buttonWithText(Document view, String text) {
@@ -262,10 +411,14 @@ public final class TeacherCourseManagementControllerTest {
         return null;
     }
 
-    private static boolean hasNoArgMethod(Class<?> type, String name) {
+    /** {@code FXMLLoader} accepts both a no-arg handler and a single {@link Event} handler. */
+    private static boolean hasActionMethod(Class<?> type, String name) {
         for (Class<?> current = type; current != null; current = current.getSuperclass()) {
             for (Method method : current.getDeclaredMethods()) {
-                if (method.getName().equals(name) && method.getParameterCount() == 0) {
+                if (!method.getName().equals(name)) continue;
+                if (method.getParameterCount() == 0) return true;
+                if (method.getParameterCount() == 1
+                        && Event.class.isAssignableFrom(method.getParameterTypes()[0])) {
                     return true;
                 }
             }
@@ -275,5 +428,63 @@ public final class TeacherCourseManagementControllerTest {
 
     private static void require(boolean condition, String message) {
         if (!condition) throw new AssertionError(message);
+    }
+
+    /** 工作台导航测试需要的最小教师课程服务：记录调用并返回确定性的分页数据。 */
+    private static final class FakeService implements TeacherCourseService {
+        private final Deque<CompletableFuture<TeacherOfferingDetailDTO>> detailPages =
+                new ArrayDeque<>();
+        private final List<String> offeringCalls = new ArrayList<>();
+        private final List<String> detailCalls = new ArrayList<>();
+        private final List<String> rosterCalls = new ArrayList<>();
+
+        @Override
+        public CompletableFuture<List<CourseTermDTO>> listTerms() {
+            return CompletableFuture.completedFuture(
+                    List.of(new CourseTermDTO(2025, 3, "2025-2026 春学期")));
+        }
+
+        @Override
+        public CompletableFuture<TeacherPageDTO<TeacherOfferingDTO>> listOfferings(
+                int academicYear, int semester, String query, int page, int size) {
+            offeringCalls.add(academicYear + "|" + semester + "|" + (query == null ? "" : query)
+                    + "|" + page + "|" + size);
+            return CompletableFuture.completedFuture(new TeacherPageDTO<>(
+                    List.of(new TeacherOfferingDTO(OFFERING, "CS203-01", "数据结构 CS203-01",
+                            "2001", "CS203", "数据结构与算法基础", 4.0, academicYear, semester,
+                            27, 30, "OPEN", true, true)), 27, page, size));
+        }
+
+        @Override
+        public CompletableFuture<TeacherOfferingDetailDTO> getOffering(String offeringId) {
+            detailCalls.add(offeringId);
+            if (!detailPages.isEmpty()) return detailPages.removeFirst();
+            TeacherOfferingDTO offering = new TeacherOfferingDTO(offeringId, "CS203-01",
+                    "数据结构 CS203-01", "2001", "CS203", "数据结构与算法基础", 4.0, 2025, 3,
+                    27, 30, "OPEN", true, true);
+            return CompletableFuture.completedFuture(new TeacherOfferingDetailDTO(offering,
+                    List.of(new ScheduleResourceDTO("8001", "00001234", "陈老师", "teacher", 0)),
+                    "计算机科学与工程学院", "课程简介"));
+        }
+
+        @Override
+        public CompletableFuture<TeacherPageDTO<TeacherRosterRowDTO>> listOfferingStudents(
+                String offeringId, String query, Integer enrollmentStatus, int page, int size) {
+            rosterCalls.add(offeringId + "|" + (query == null ? "" : query) + "|"
+                    + (enrollmentStatus == null ? "" : enrollmentStatus) + "|" + page + "|"
+                    + size);
+            return CompletableFuture.completedFuture(new TeacherPageDTO<>(
+                    List.of(), 0, page, size));
+        }
+
+        @Override
+        public CompletableFuture<List<ScheduleArrangementDTO>> listOfferingSchedules(
+                String offeringId) {
+            return CompletableFuture.completedFuture(List.of(new ScheduleArrangementDTO(
+                    "9503", "7001", offeringId,
+                    new ScheduleResourceDTO("8001", "00001234", "陈老师", "teacher", 0), null,
+                    new ScheduleResourceDTO("8101", "3001", "A-101", "classroom", 120),
+                    List.of(new ScheduleSlotDTO(1, 1, 2)), 1, 16, "ACTIVE", 1)));
+        }
     }
 }

@@ -9,6 +9,9 @@
 #       额外把 `mysql` 传给服务端迁移测试，启用受保护的 MySQL 迁移用例。
 #   pwsh -File scripts/test-teacher.ps1 -Suite Foundation -TestConfigPath <db.properties>
 #       覆盖默认的 VCampusServer/src/resources/db.properties。
+#   pwsh -File scripts/test-teacher.ps1 -Suite <name> -WithGui [-JavaFxHome <sdk>]
+#       以完整 JavaFX SDK 启动工具包运行 GUI 测试；-JavaFxHome 默认指向本机已解压的
+#       openjfx-25.0.4 SDK，缺少原生 DLL 时立即报错而不是静默降级。
 #
 # 约定：javac/java 非零退出立即停止；SKIP 永远不等于 PASS；每次运行使用独立输出目录；
 # 不自动创建或删除数据库。`-WithTcp`/`-WithGui` 只有在所选套件确实声明了对应测试时才允许使用，
@@ -20,7 +23,8 @@ param(
     [switch]$WithMySql,
     [switch]$WithTcp,
     [switch]$WithGui,
-    [string]$TestConfigPath = ''
+    [string]$TestConfigPath = '',
+    [string]$JavaFxHome = 'D:\DevTools\Java\javaFX\openjfx-25.0.4_windows-x64_bin-sdk\javafx-sdk-25.0.4'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -55,12 +59,15 @@ $suites = @(
         Client = @('service.SocketTeacherCourseServiceTest',
             'service.MockTeacherCourseServiceTest',
             'controller.MainControllerRoleRoutingTest',
-            'controller.TeacherCourseManagementControllerTest')
+            'controller.TeacherCourseManagementControllerTest',
+            'controller.TeacherOfferingControllerTest',
+            'controller.TeacherOfferingDetailControllerTest')
         # TeacherCourseQueryMySqlTest self-gates on the `mysql` argument, so it runs as a real
         # MySQL test only with -WithMySql and prints SKIP otherwise.
         Server = @('database.TeacherFoundationMigrationTest', 'service.TeacherCourseQueryMySqlTest',
             'handler.TeacherCourseHandlerTest')
         Tcp = @()
+        # GUI 冒烟（ui.*）属于伞形计划的 T6：它注册后直接复用下面已经修好的 -WithGui 运行方式。
         Gui = @()
     }
     [pscustomobject]@{ Name = 'Timetable'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }
@@ -110,6 +117,21 @@ $selected = $selected[0]
 
 if ($WithTcp -and $selected.Tcp.Count -eq 0) {
     throw "Suite $Suite declares no TCP tests; -WithTcp would silently pass."
+}
+# JavaFX 看门狗：VCampusClient/lib 只有 JavaFX 的 jar，缺 Windows 原生 DLL，起不了 toolkit；
+# GUI 测试必须把完整 SDK（含 bin/*.dll）的 lib 放到 module path 上。这里在选测试之前就检查，
+# 让 -WithGui 无论选中哪个套件都先对运行环境给出明确结论。
+$guiArguments = @()
+if ($WithGui) {
+    if (-not (Test-Path -LiteralPath (Join-Path $JavaFxHome 'bin\prism_d3d.dll'))) {
+        throw ("JavaFX SDK not found at $JavaFxHome (missing bin\prism_d3d.dll); " +
+            "-WithGui cannot start a toolkit. Pass -JavaFxHome <complete JavaFX SDK>.")
+    }
+    $guiArguments = @(
+        '--enable-native-access=javafx.graphics',
+        '--module-path', (Join-Path $JavaFxHome 'lib'),
+        '--add-modules', 'javafx.controls,javafx.fxml,javafx.swing'
+    )
 }
 if ($WithGui -and $selected.Gui.Count -eq 0) {
     throw "Suite $Suite declares no GUI tests; -WithGui would silently pass."
@@ -213,19 +235,16 @@ $clientTestClasspath = @(
 $serverTestClasspath = @(
     $serverOutput, $commonOutput, $serverLibPattern, (Join-Path $repoRoot 'VCampusServer/src')
 ) -join ';'
+# GUI 测试要真正起 toolkit 的是客户端页面，它的类与 FXML/CSS 都在客户端输出/源码目录里，
+# 所以 GUI 运行用客户端与服务端 classpath 的并集，而不是只有服务端那一份。
+$guiTestClasspath = @(
+    $clientOutput, $serverOutput, $commonOutput, $clientLibPattern, $serverLibPattern,
+    (Join-Path $repoRoot 'VCampusClient/src'), (Join-Path $repoRoot 'VCampusServer/src')
+) -join ';'
 
 # 服务端迁移测试始终收到配置路径；只有 -WithMySql 才追加 `mysql` 开关。
 $serverArguments = @($configArgument)
 if ($WithMySql) { $serverArguments = @('mysql') + $serverArguments }
-
-$guiArguments = @()
-if ($WithGui) {
-    $guiArguments = @(
-        '--enable-native-access=javafx.graphics',
-        '--module-path', $clientLib,
-        '--add-modules', 'javafx.controls,javafx.fxml,javafx.swing'
-    )
-}
 
 $runs = @()
 foreach ($testClass in $selected.Common) {
@@ -241,7 +260,9 @@ foreach ($testClass in $selected.Client) {
 foreach ($testClass in ($selected.Server + $selected.Tcp + $selected.Gui)) {
     $gui = $selected.Gui -contains $testClass
     $runs += [pscustomobject]@{
-        Class = $testClass; Classpath = $serverTestClasspath; Gui = $gui
+        Class = $testClass
+        Classpath = if ($gui) { $guiTestClasspath } else { $serverTestClasspath }
+        Gui = $gui
         Arguments = $serverArguments
     }
 }
