@@ -208,7 +208,9 @@ public class MainController {
             userNavBtn.setManaged(isAdmin);
         }
         if (navStudentBtn != null) {
-            navStudentBtn.setText(isTeacher ? "🎓   教职信息" : "🎓   学籍信息");
+            navStudentBtn.setText(isAdmin
+                    ? "🎓   信息管理"
+                    : isTeacher ? "🎓   教职信息" : "🎓   学籍信息");
         }
         if (adminPermissionCard != null) {
             adminPermissionCard.setVisible(isAdmin);
