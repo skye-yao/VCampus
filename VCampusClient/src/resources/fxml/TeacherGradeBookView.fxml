@@ -14,8 +14,8 @@
 
 <!--
   一个教学班的成绩编辑表（设计 §5.4）：四列成绩始终存在，列名上方的方案条给出每一列的启用开关与
-  百分比权重（宽度与表格列一一对应，因此横向滚动时两者一起移动）；只读状态下本页显示审核状态、
-  更正原因与名单变化提示，保存/提交按钮禁用。
+  百分比权重。方案条与表格的四个成绩列同宽，并由控制器把它绑在表格的横向滚动上，因此滚动时两者
+  一起移动；只读状态下本页显示审核状态、审核意见、更正原因与名单变化提示，保存/提交按钮禁用。
   本页由工作台通过 fx:include 装入；样式全部来自 teacher-course.css。
 -->
 <VBox spacing="8.0" styleClass="teacher-course-page" xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.TeacherGradeBookController">
@@ -39,8 +39,8 @@
                 <Button fx:id="gradeBookCancelSubmitButton" managed="false" onAction="#handleCancelSubmit" styleClass="teacher-course-refresh-button" text="取消" visible="false" />
             </children>
         </HBox>
-        <!-- 方案条：与下面表格的前两列（学号/姓名）对齐后再排四个成绩列。 -->
-        <HBox alignment="CENTER_LEFT" spacing="0.0" styleClass="teacher-course-scheme-bar">
+        <!-- 方案条：与下面表格的前两列（学号/姓名）对齐后再排四个成绩列，并跟随表格横向滚动。 -->
+        <HBox fx:id="gradeBookSchemeBar" alignment="CENTER_LEFT" spacing="0.0" styleClass="teacher-course-scheme-bar">
             <children>
                 <Region minWidth="240.0" prefWidth="240.0" />
                 <VBox prefWidth="110.0" spacing="2.0" styleClass="teacher-course-scheme-group">

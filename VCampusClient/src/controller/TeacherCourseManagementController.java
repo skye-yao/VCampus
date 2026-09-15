@@ -144,7 +144,7 @@ public final class TeacherCourseManagementController {
         return service;
     }
 
-    // 四个入口：教学班、教学课程表与我的申请已接入，成绩录入按分阶段计划仍是占位。
+    // 四个入口自 T5 起全部接入：教学班、教学课程表、成绩录入（列表 + 编辑表）、我的申请。
 
     @FXML
     void handleOpenOfferings(Event event) {

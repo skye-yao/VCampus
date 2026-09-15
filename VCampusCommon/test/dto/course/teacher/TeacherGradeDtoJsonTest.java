@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 /**
@@ -22,6 +23,7 @@ public final class TeacherGradeDtoJsonTest {
     private static final String ENROLLMENT_ID = "9007199254740995";
     private static final String ENROLLMENT_ID_2 = "9007199254740997";
     private static final String SUBMISSION_ID = "9007199254740999";
+    private static final String REVIEW_COMMENT = "总分与平时分不一致，请核对后重新提交";
     private static final String TEACHER_UID = "00001234";
     private static final String STUDENT_UID = "00005678";
     private static final String ROSTER_DIGEST =
@@ -139,6 +141,18 @@ public final class TeacherGradeDtoJsonTest {
         require(ENROLLMENT_ID.equals(book.getRows().get(0).getEnrollmentId())
                         && STUDENT_UID.equals(book.getRows().get(0).getStudentUid()),
                 "a row must keep its enrollment ID and the leading zeroes of the student UID");
+
+        // 审核意见是只读状态界面要显示的那句话：有值时必须原样过 JSON，没有时保持 null。
+        TeacherGradeBookDTO reviewed = new TeacherGradeBookDTO(OFFERING_ID, 4, ROSTER_DIGEST,
+                "REJECTED", fullScheme(), List.of(gradeRow()), SUBMISSION_ID, null, true, null,
+                false, REVIEW_COMMENT);
+        TeacherGradeBookDTO reviewedCopy =
+                GSON.fromJson(GSON.toJson(reviewed), TeacherGradeBookDTO.class);
+        require(REVIEW_COMMENT.equals(reviewedCopy.getReviewComment()),
+                "the review comment must survive JSON unchanged");
+        JsonElement withoutComment = GSON.toJsonTree(book()).getAsJsonObject().get("reviewComment");
+        require(withoutComment == null || withoutComment.isJsonNull(),
+                "a book without a review comment must stay absent/null, never an empty string");
 
         TeacherGradeOfferingDTO offering = GSON.fromJson(
                 GSON.toJson(offeringRow()), TeacherGradeOfferingDTO.class);

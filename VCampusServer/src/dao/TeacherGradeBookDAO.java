@@ -45,10 +45,13 @@ import java.util.Set;
 public class TeacherGradeBookDAO {
     private static final Gson GSON = new Gson();
     private static final char SEPARATOR = '\n';
-    /** 非锁定读的工作副本列；{@code b.} 前缀与 {@link #LIST_FROM} 的别名一致，批次状态来自 join。 */
+    /**
+     * 非锁定读的工作副本列；{@code b.} 前缀与 {@link #LIST_FROM} 的别名一致，批次状态与审核意见
+     * 都来自同一次 {@code grade_submission} join（列表页与成绩表用同一份列清单）。
+     */
     private static final String BOOK_COLUMNS = "b.revision,b.draft_open,b.draft_kind,"
             + "b.base_submission_id,b.last_submission_id,b.scheme_json,b.correction_reason,"
-            + "s.status AS submission_status";
+            + "s.status AS submission_status,s.review_comment AS review_comment";
     /** 锁定读的工作副本列：不带 grade_submission（见 {@link #findBookForUpdate}）。 */
     private static final String BOOK_COLUMNS_LOCKED = "revision,draft_open,draft_kind,"
             + "base_submission_id,last_submission_id,scheme_json,correction_reason";
@@ -117,13 +120,14 @@ public class TeacherGradeBookDAO {
         }
     }
 
-    /** 非锁定读：工作副本 + 最后一次批次的状态。 */
+    /** 非锁定读：工作副本 + 最后一次批次的状态与审核意见（同一次 join，不额外查询）。 */
     public GradeBookRow findBook(Connection connection, long offeringId) throws SQLException {
         String sql = "SELECT " + BOOK_COLUMNS + BOOK_JOINS + " WHERE b.offering_id=?";
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setLong(1, offeringId);
             try (ResultSet rows = statement.executeQuery()) {
-                return rows.next() ? bookRow(rows, rows.getString("submission_status")) : null;
+                return rows.next() ? bookRow(rows, rows.getString("submission_status"),
+                        rows.getString("review_comment")) : null;
             }
         }
     }
@@ -153,7 +157,7 @@ public class TeacherGradeBookDAO {
         return new GradeBookRow(row.revision(), row.draftOpen(), row.draftKind(),
                 row.baseSubmissionId(), row.lastSubmissionId(), row.scheme(),
                 row.correctionReason(),
-                findSubmissionStatus(connection, row.lastSubmissionId()));
+                findSubmissionStatus(connection, row.lastSubmissionId()), row.reviewComment());
     }
 
     /** 批次状态；批次不存在返回 null。锁定读路径用它单独取状态，避免锁住批次行。 */
@@ -494,6 +498,16 @@ public class TeacherGradeBookDAO {
     /** {@code revision} 为 NULL 表示这一行没有工作副本，其余列都是 NULL。 */
     private static GradeBookRow bookRow(ResultSet rows, String submissionStatus)
             throws SQLException {
+        return bookRow(rows, submissionStatus, null);
+    }
+
+    /**
+     * 解析工作副本行。{@code submissionStatus} 与 {@code reviewComment} 由调用方从 join 出来的
+     * 批次列读取；锁定读（{@link #findBookForUpdate}）刻意不 join {@code grade_submission}，
+     * 因此传 null——它不在这里读批次列，避免把不存在的列名变成 SQLException。
+     */
+    private static GradeBookRow bookRow(ResultSet rows, String submissionStatus,
+            String reviewComment) throws SQLException {
         int revision = rows.getInt("revision");
         if (rows.wasNull()) return null;
         long baseSubmissionId = rows.getLong("base_submission_id");
@@ -503,7 +517,7 @@ public class TeacherGradeBookDAO {
         return new GradeBookRow(revision, rows.getBoolean("draft_open"),
                 rows.getString("draft_kind"), base, last,
                 scheme(rows.getString("scheme_json")), rows.getString("correction_reason"),
-                submissionStatus);
+                submissionStatus, reviewComment);
     }
 
     private static GradeScoresDTO scores(ResultSet rows) throws SQLException {
@@ -517,11 +531,23 @@ public class TeacherGradeBookDAO {
         return Timestamp.valueOf(LocalDateTime.ofInstant(instant, ZoneOffset.UTC));
     }
 
-    /** 工作副本的一行；service 用它判断草稿状态，余额列按需读取。 */
+    /**
+     * 工作副本的一行；service 用它判断草稿状态，余额列按需读取。
+     * {@code reviewComment} 是最后一次批次的审核意见（非锁定读才有；锁定读不 join 批次行）。
+     */
     public record GradeBookRow(int revision, boolean draftOpen, String draftKind,
                                Long baseSubmissionId, Long lastSubmissionId,
                                GradeSchemeDTO scheme, String correctionReason,
-                               String submissionStatus) {
+                               String submissionStatus, String reviewComment) {
+
+        /** 兼容构造：不读取批次行时（锁定读）审核意见为 null。 */
+        public GradeBookRow(int revision, boolean draftOpen, String draftKind,
+                            Long baseSubmissionId, Long lastSubmissionId,
+                            GradeSchemeDTO scheme, String correctionReason,
+                            String submissionStatus) {
+            this(revision, draftOpen, draftKind, baseSubmissionId, lastSubmissionId, scheme,
+                    correctionReason, submissionStatus, null);
+        }
     }
 
     /** 名单里的一名学生连着他的草稿分数；没有草稿行时四项为 null。 */

@@ -215,11 +215,31 @@ public final class GradeBookEditorModelTest {
         // 只读状态（已提交待审核）下两个写入口都被挡住，并给出审核状态说明。
         GradeBookEditorModel readOnly = new GradeBookEditorModel(
                 book(4, "PENDING", false, fullScheme(), rows()));
-        require(!readOnly.canEdit() && readOnly.readOnlyNotice() != null
-                        && readOnly.readOnlyNotice().contains("待审核"),
-                "只读状态必须给出含审核状态的说明，收到 " + readOnly.readOnlyNotice());
+        require(!readOnly.canEdit() && readOnly.stateNotice() != null
+                        && readOnly.stateNotice().contains("待审核"),
+                "只读状态必须给出含审核状态的说明，收到 " + readOnly.stateNotice());
         require(readOnly.saveBlockReason() != null && readOnly.submitBlockReason() != null,
                 "只读状态下保存与提交都被挡住");
+
+        // 审核意见：只读（已通过）与被驳回（可编辑）都必须显示出来，普通草稿不显示。
+        GradeBookEditorModel approved = new GradeBookEditorModel(pendingBook("APPROVED", false,
+                "平时分与卷面分不符，已按卷面分发布"));
+        require(approved.stateNotice() != null && approved.stateNotice().contains("审核已通过")
+                        && approved.stateNotice().contains("平时分与卷面分不符"),
+                "已通过批次必须显示管理员审核意见，收到 " + approved.stateNotice());
+
+        GradeBookEditorModel rejected = new GradeBookEditorModel(pendingBook("REJECTED", true,
+                "缺平时分，请补齐后重新提交"));
+        require(rejected.canEdit(), "被驳回的草稿对教师仍然可编辑");
+        require(rejected.stateNotice() != null
+                        && rejected.stateNotice().contains("缺平时分，请补齐后重新提交")
+                        && rejected.stateNotice().contains("重新提交"),
+                "被驳回时必须显示审核意见并说明可以改后重提，收到 " + rejected.stateNotice());
+
+        GradeBookEditorModel draft = model();
+        require(draft.stateNotice() == null,
+                "普通可编辑草稿没有要交代的批次状态，不显示提示");
+        require(draft.reviewComment() == null, "没有批次的草稿没有审核意见");
     }
 
     /** dirty 只由真实修改置位，只由服务端快照清零；重复输入同样的文本不置位。 */
@@ -329,6 +349,13 @@ public final class GradeBookEditorModelTest {
             GradeSchemeDTO scheme, List<TeacherGradeRowDTO> rows) {
         return new TeacherGradeBookDTO(OFFERING_ID, revision, DIGEST, state, scheme, rows, null,
                 null, canEdit, null, false);
+    }
+
+    /** 带批次的成绩表：state/canEdit/审核意见可指定，用来覆盖只读与驳回两种提示。 */
+    private static TeacherGradeBookDTO pendingBook(String state, boolean canEdit,
+            String reviewComment) {
+        return new TeacherGradeBookDTO(OFFERING_ID, 4, DIGEST, state, fullScheme(), rows(),
+                "9001", null, canEdit, null, false, reviewComment);
     }
 
     private static int weightOf(GradeSchemeDTO scheme, GradeComponentCodeDTO code) {

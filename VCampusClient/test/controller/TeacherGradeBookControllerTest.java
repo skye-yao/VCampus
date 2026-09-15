@@ -49,7 +49,10 @@ import util.PageLeaveGuard;
 public final class TeacherGradeBookControllerTest {
     private static final String OFFERING = "9007199254740993";
     private static final String PENDING_OFFERING = "9007199254740997";
+    private static final String REJECTED_OFFERING = "9007199254740999";
     private static final String EMPTY_OFFERING = "9007199254740995";
+    /** 与 MockTeacherCourseService 的已驳回夹具一致：只读提示里应出现这句话。 */
+    private static final String REJECTED_REVIEW_COMMENT = "总分与平时分不一致，请核对后重新提交";
     private static final String GRADE_VIEW = "/resources/fxml/TeacherGradeView.fxml";
     private static final String GRADE_BOOK_VIEW = "/resources/fxml/TeacherGradeBookView.fxml";
     private static final String CSS = "/resources/css/teacher-course.css";
@@ -60,6 +63,7 @@ public final class TeacherGradeBookControllerTest {
     public static void main(String[] args) throws Exception {
         loadingShowsServerScoresAndKeepsBlanks();
         invalidCellBlocksTheWriteAndKeepsTheTypedText();
+        invalidWeightNamesTheComponentAndMarksTheField();
         failedSaveKeepsTheEditsAndTheDirtyState();
         submitNeedsASecondClickAndOnlySendsOneRequest();
         incompleteWeightsBlockSubmitWithTheSharedRule();
@@ -105,7 +109,7 @@ public final class TeacherGradeBookControllerTest {
         require(empty.rows().isEmpty(), "空班必须渲染成 0 行");
     }
 
-    /** 非法文本：原文保留、本地挡住写请求、一个字节都不发给服务端。 */
+    /** 非法文本：原文保留、本地挡住写请求、一个字节都不发给服务端，并指出是哪个格子。 */
     private static void invalidCellBlocksTheWriteAndKeepsTheTypedText() {
         RecordingService service = new RecordingService();
         TeacherGradeBookController controller = controller(service, message -> true);
@@ -121,10 +125,54 @@ public final class TeacherGradeBookControllerTest {
                 "非法文本必须原样留在输入框里");
         require(controller.feedbackText() != null && controller.feedbackText().contains("非法"),
                 "非法输入必须给出可读的提示，收到 " + controller.feedbackText());
+        require(controller.feedbackText().contains("平时"),
+                "提示必须点名是哪一个组成，收到 " + controller.feedbackText());
         require(controller.dirty(), "非法输入仍然是未保存的修改");
 
         controller.confirmSubmit();
         require(service.submits.isEmpty(), "非法单元格同样挡住提交");
+    }
+
+    /**
+     * 非法权重：提示必须点名组成，并且只有出错的那一列会被标红。
+     *
+     * <p>标红的决定（{@link TeacherGradeBookController#weightFieldHasError}）在这里断言；控件上的
+     * 样式类本身要有 JavaFX 工具包才能构造，属于 T6 的 GUI 列（与“表格单元格的接线没有直接测试”
+     * 同一类限制）。
+     */
+    private static void invalidWeightNamesTheComponentAndMarksTheField() {
+        RecordingService service = new RecordingService();
+        TeacherGradeBookController controller = controller(service, message -> true);
+        controller.showOffering(OFFERING);
+
+        controller.model().setWeightText(GradeComponentCodeDTO.FINALTERM, "abc");
+        controller.model().setWeightText(GradeComponentCodeDTO.EXPERIMENT, "20");
+        controller.save();
+
+        require(service.saves.isEmpty(), "非法权重必须挡住保存");
+        require(controller.feedbackText() != null && controller.feedbackText().contains("期末"),
+                "提示必须点名是哪一个组成，收到 " + controller.feedbackText());
+        require(TeacherGradeBookController.weightFieldHasError(
+                        controller.model().column(GradeComponentCodeDTO.FINALTERM)),
+                "出错的权重列必须被标记（界面据此标红）");
+        require(!TeacherGradeBookController.weightFieldHasError(
+                        controller.model().column(GradeComponentCodeDTO.DAILY)),
+                "没有出错的那一列不能被标记");
+
+        // 禁用列里的残留非法文本不会进入请求，因此也不该让用户去修它。
+        controller.model().setEnabled(GradeComponentCodeDTO.FINALTERM, false);
+        require(!TeacherGradeBookController.weightFieldHasError(
+                        controller.model().column(GradeComponentCodeDTO.FINALTERM)),
+                "禁用的列不标记：它的权重按 0 发送，残留文本不生效");
+        require(controller.model().saveBlockReason() == null,
+                "禁用该列之后草稿又可以保存了，收到 " + controller.model().saveBlockReason());
+
+        // 改正之后不再标记。
+        controller.model().setEnabled(GradeComponentCodeDTO.FINALTERM, true);
+        controller.model().setWeightText(GradeComponentCodeDTO.FINALTERM, "30");
+        require(!TeacherGradeBookController.weightFieldHasError(
+                        controller.model().column(GradeComponentCodeDTO.FINALTERM)),
+                "改正之后不能再标记");
     }
 
     /** 保存失败保留编辑：内容与 dirty 都不变，只显示失败原因。 */
@@ -320,15 +368,28 @@ public final class TeacherGradeBookControllerTest {
         controller.showOffering(PENDING_OFFERING);
 
         require(!controller.model().canEdit(), "待审核的教学班必须只读");
-        require(controller.model().readOnlyNotice() != null
-                        && controller.model().readOnlyNotice().contains("待审核"),
-                "只读状态必须显示审核状态，收到 " + controller.model().readOnlyNotice());
+        require(controller.model().stateNotice() != null
+                        && controller.model().stateNotice().contains("待审核"),
+                "只读状态必须显示审核状态，收到 " + controller.model().stateNotice());
         controller.save();
         controller.requestSubmit();
         controller.confirmSubmit();
         require(service.saves.isEmpty() && service.submits.isEmpty(),
                 "只读状态下两个写入口都不能发请求");
         require(!controller.dirty(), "只读状态下没有可保存的修改");
+
+        // 被驳回：可编辑，但管理员的审核意见必须显示出来（这才是教师需要看到的那句话）。
+        RecordingService rejectedService = new RecordingService();
+        TeacherGradeBookController rejected = controller(rejectedService, message -> true);
+        rejected.showOffering(REJECTED_OFFERING);
+        require(rejected.model().canEdit(), "被驳回的草稿必须仍然可编辑");
+        require(REJECTED_REVIEW_COMMENT.equals(rejected.model().reviewComment()),
+                "审核意见必须从服务端快照映射到模型，收到 " + rejected.model().reviewComment());
+        require(rejected.model().stateNotice() != null
+                        && rejected.model().stateNotice().contains(REJECTED_REVIEW_COMMENT),
+                "被驳回时必须显示审核意见，收到 " + rejected.model().stateNotice());
+        require(rejected.model().stateNotice().contains("重新提交"),
+                "被驳回时还要说明可以改后重提，收到 " + rejected.model().stateNotice());
     }
 
     // ------------------------------------------------------------------ 视图契约

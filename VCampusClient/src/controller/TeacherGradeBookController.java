@@ -20,6 +20,7 @@ import javafx.scene.control.Button;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.ScrollBar;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
 import javafx.scene.control.TextField;
@@ -77,6 +78,8 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
 
     private static final String DISABLED_CELL_CLASS = "teacher-course-grade-cell-disabled";
     private static final String ERROR_CELL_CLASS = "teacher-course-grade-cell-error";
+    /** 权重输入框的非法样式：与单元格标红同一套视觉，用户一眼能找到是哪一列。 */
+    private static final String ERROR_FIELD_CLASS = "teacher-course-weight-field-error";
 
     private final TeacherCourseService service;
     private final Consumer<Runnable> fxExecutor;
@@ -112,6 +115,7 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
     @FXML private Button gradeBookBackButton;
     @FXML private Label gradeBookLoadingLabel;
     @FXML private Label gradeBookEmptyLabel;
+    @FXML private Node gradeBookSchemeBar;
     @FXML private TableView<Row> gradeBookTable;
     @FXML private TableColumn<Row, String> gradeBookUidColumn;
     @FXML private TableColumn<Row, String> gradeBookNameColumn;
@@ -158,6 +162,7 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
             // 九列在 860 宽的窗口里放不下：保留列宽并横向滚动，而不是把文字压成省略号。
             gradeBookTable.setColumnResizePolicy(TableView.UNCONSTRAINED_RESIZE_POLICY);
         }
+        bindSchemeBarToTableScroll();
         bindTextColumn(gradeBookUidColumn, row -> row.studentUid());
         bindTextColumn(gradeBookNameColumn, row -> row.studentName());
         bindScoreColumn(gradeBookDailyColumn, GradeComponentCodeDTO.DAILY);
@@ -174,6 +179,26 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
         wireScheme(GradeComponentCodeDTO.FINALTERM, gradeBookFinaltermEnabled,
                 gradeBookFinaltermWeight);
         render();
+    }
+
+    /**
+     * 方案条跟着表格的横向滚动一起移动。
+     *
+     * <p>方案条是表格外的同级节点，而九列比窗口宽：如果不跟随，向右滚动后四个成绩列会滑到方案条
+     * 左边，启用开关与权重输入就落在了别的列下面。表格皮肤创建时（{@code skinProperty} 触发、
+     * 此时才有 {@code VirtualFlow}）取到它自己的横向滚动条，把方案条的 {@code translateX} 绑成
+     * 滚动量的相反数——两者因此始终对齐。取不到滚动条（无工具包/节点缺失/皮肤未建）时什么都不做，
+     * 页面照常工作，只是退回“不跟随”的旧行为。
+     */
+    private void bindSchemeBarToTableScroll() {
+        if (gradeBookTable == null || gradeBookSchemeBar == null) return;
+        gradeBookTable.skinProperty().addListener((observable, previous, skin) -> {
+            Node bar = gradeBookTable.lookup(".scroll-bar:horizontal");
+            if (bar instanceof ScrollBar scrollBar
+                    && !gradeBookSchemeBar.translateXProperty().isBound()) {
+                gradeBookSchemeBar.translateXProperty().bind(scrollBar.valueProperty().negate());
+            }
+        });
     }
 
     // ------------------------------------------------------------------ 生命周期
@@ -237,9 +262,12 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
         reload();
     }
 
-    /** 重新加载：会丢弃未保存的修改，因此先走与离开页面同一个确认；被拒绝时保持当前内容不动。 */
+    /**
+     * 重新加载：会丢弃未保存的修改，因此先问同一个确认函数——但用的是“重新加载”的措辞，
+     * 而不是“离开页面”的措辞（同一个机制，两种说法）。被拒绝时保持当前内容不动。
+     */
     void reload() {
-        if (model != null && !requestLeave()) return;
+        if (model != null && dirty() && !confirmation.apply(RELOAD_PROMPT_TEXT)) return;
         pendingSaveOperationId = null;
         pendingSubmitOperationId = null;
         loadBook();
@@ -463,11 +491,11 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
                     ? "状态：" + GradeBookEditorModel.stateLabel(model.state())
                             + "　版本：v" + model.revision() : "");
         }
+        String notice = hasModel ? model.stateNotice() : null;
         if (gradeBookNoticeLabel != null) {
-            gradeBookNoticeLabel.setText(hasModel && model.readOnlyNotice() != null
-                    ? model.readOnlyNotice() : "");
+            gradeBookNoticeLabel.setText(notice == null ? "" : notice);
         }
-        setActive(gradeBookNoticeLabel, hasModel && model.readOnlyNotice() != null);
+        setActive(gradeBookNoticeLabel, notice != null);
         if (gradeBookSchemeLabel != null) gradeBookSchemeLabel.setText(schemeText());
         if (gradeBookFeedbackLabel != null) {
             gradeBookFeedbackLabel.setText(feedbackText == null ? "" : feedbackText);
@@ -513,6 +541,12 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
                             weight.setText(column.weightText());
                         }
                         weight.setDisable(!enabled || !model.canEdit());
+                        // 非法权重与非法单元格一样标红：否则“请修正标红的单元格”会把用户引到
+                        // 四个长得一模一样的输入框前面，却没有任何一个被标出来。
+                        weight.getStyleClass().remove(ERROR_FIELD_CLASS);
+                        if (weightFieldHasError(column)) {
+                            weight.getStyleClass().add(ERROR_FIELD_CLASS);
+                        }
                     }
                 }
             }
@@ -538,22 +572,30 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
         render();
     }
 
-    /** 权重区提示：已配齐时给出合计，未配齐时说明还差多少（不阻塞草稿保存）。 */
+    /**
+     * 权重区提示：已配齐时给出合计，未配齐时说明还差多少（草稿允许未配齐，只有提交要求 10000）。
+     * 有非法权重时把原因也写在这里——标红的输入框配合这句才找得到问题。
+     */
     private String schemeText() {
         if (model == null) return "";
         long total = 0;
         StringBuilder enabledText = new StringBuilder();
+        String weightError = null;
         for (Column column : model.columns()) {
             if (!column.enabled()) continue;
             total += column.weightBasisPoints();
             if (enabledText.length() > 0) enabledText.append("/");
-            enabledText.append(column.code());
+            enabledText.append(GradeBookEditorModel.componentLabel(column.code()));
+            if (weightError == null && column.weightError() != null) {
+                weightError = column.weightError();
+            }
         }
         String enabled = enabledText.length() == 0 ? "无" : enabledText.toString();
         String state = total == GradeBookEditorModel.TOTAL_WEIGHT_BASIS_POINTS
                 && enabledText.length() > 0 ? "已配齐" : "未配齐";
-        return "启用组成：" + enabled + "　权重合计：" + total + "/"
+        String text = "启用组成：" + enabled + "　权重合计：" + total + "/"
                 + GradeBookEditorModel.TOTAL_WEIGHT_BASIS_POINTS + "（万分比，" + state + "）";
+        return weightError == null ? text : text + "　权重输入有误：" + weightError;
     }
 
     private void bindTextColumn(TableColumn<Row, String> column, Function<Row, String> text) {
@@ -610,6 +652,14 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
     private String pointText(Row row) {
         BigDecimal point = model == null ? null : model.rowGradePoint(row);
         return point == null ? PLACEHOLDER : point.toPlainString();
+    }
+
+    /**
+     * 权重输入框要不要标红：启用且文本非法才标。禁用列的残留文本不会进入请求（服务端保留草稿
+     * 旧值），因此不标红，也不需要用户去修它。渲染与测试共用这一个判断。
+     */
+    static boolean weightFieldHasError(Column column) {
+        return column != null && column.enabled() && column.weightError() != null;
     }
 
     private CheckBox toggleOf(GradeComponentCodeDTO code) {

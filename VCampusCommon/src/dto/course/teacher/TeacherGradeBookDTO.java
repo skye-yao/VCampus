@@ -17,6 +17,10 @@ import java.util.List;
  * {@code rosterChangedSinceSubmission} 表示提交之后名单发生了变化：
  * 已提交批次里的学生集合不会因此被篡改，新学生显示为“尚未纳入已提交批次”。
  * 行列表在构造时防御性复制并对外只读。
+ *
+ * <p>{@code reviewComment} 是最后一次批次的审核意见（管理员在审批/驳回时填写），没有批次或
+ * 批次还没有意见时为 null。只读状态界面据此显示“为什么不能改”，它与 {@code correctionReason}
+ * （教师自己写的更正原因）是两件事，不能互相冒充。
  */
 public final class TeacherGradeBookDTO {
     private final String offeringId;
@@ -30,11 +34,20 @@ public final class TeacherGradeBookDTO {
     private final boolean canEdit;
     private final String correctionReason;
     private final boolean rosterChangedSinceSubmission;
+    private final String reviewComment;
 
     public TeacherGradeBookDTO(String offeringId, int revision, String rosterDigest, String state,
             GradeSchemeDTO scheme, List<TeacherGradeRowDTO> rows, String lastSubmissionId,
             String baseSubmissionId, boolean canEdit, String correctionReason,
             boolean rosterChangedSinceSubmission) {
+        this(offeringId, revision, rosterDigest, state, scheme, rows, lastSubmissionId,
+                baseSubmissionId, canEdit, correctionReason, rosterChangedSinceSubmission, null);
+    }
+
+    public TeacherGradeBookDTO(String offeringId, int revision, String rosterDigest, String state,
+            GradeSchemeDTO scheme, List<TeacherGradeRowDTO> rows, String lastSubmissionId,
+            String baseSubmissionId, boolean canEdit, String correctionReason,
+            boolean rosterChangedSinceSubmission, String reviewComment) {
         this.offeringId = offeringId;
         this.revision = revision;
         this.rosterDigest = rosterDigest;
@@ -46,6 +59,7 @@ public final class TeacherGradeBookDTO {
         this.canEdit = canEdit;
         this.correctionReason = correctionReason;
         this.rosterChangedSinceSubmission = rosterChangedSinceSubmission;
+        this.reviewComment = reviewComment;
     }
 
     public String getOfferingId() {
@@ -91,6 +105,11 @@ public final class TeacherGradeBookDTO {
 
     public boolean isRosterChangedSinceSubmission() {
         return rosterChangedSinceSubmission;
+    }
+
+    /** 最后一次批次的审核意见；没有批次或批次没有意见时为 null。 */
+    public String getReviewComment() {
+        return reviewComment;
     }
 
     private static <T> List<T> immutableCopy(List<T> values) {

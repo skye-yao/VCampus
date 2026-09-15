@@ -530,6 +530,13 @@
     -fx-padding: 2px 4px 2px 4px;
 }
 
+/* 非法权重：与标红的成绩单元格同一套视觉，用户点开方案条就知道是哪一列。 */
+.teacher-course-weight-field-error {
+    -fx-background-color: #fdecea;
+    -fx-border-color: #b3261e;
+    -fx-text-fill: #b3261e;
+}
+
 /* 只读提示：待审核/已通过/已驳回与更正原因统一走这一条，不用多处零散文案。 */
 .teacher-course-notice-text {
     -fx-font-size: 12px;

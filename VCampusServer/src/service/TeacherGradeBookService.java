@@ -695,7 +695,9 @@ public class TeacherGradeBookService {
                 lastSubmissionId == null ? null : Long.toString(lastSubmissionId),
                 book == null || book.baseSubmissionId() == null ? null
                         : Long.toString(book.baseSubmissionId()),
-                state.canEdit(), book == null ? null : book.correctionReason(), rosterChanged);
+                state.canEdit(), book == null ? null : book.correctionReason(), rosterChanged,
+                // 审核意见与被驳回/已通过的批次一起读出来：只读状态界面据此显示“为什么不能改”。
+                book == null ? null : book.reviewComment());
     }
 
     /** 总评与绩点永远由服务端重算；草稿权重未配齐或缺启用项分数时两者都为 null。 */

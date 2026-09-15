@@ -195,6 +195,7 @@ public final class GradeBookEditorModel {
     private boolean canEdit;
     private String correctionReason;
     private String lastSubmissionId;
+    private String reviewComment;
     private boolean rosterChangedSinceSubmission;
     private boolean dirty;
 
@@ -222,6 +223,7 @@ public final class GradeBookEditorModel {
         canEdit = book.isCanEdit();
         correctionReason = book.getCorrectionReason();
         lastSubmissionId = book.getLastSubmissionId();
+        reviewComment = book.getReviewComment();
         rosterChangedSinceSubmission = book.isRosterChangedSinceSubmission();
 
         columns.clear();
@@ -400,8 +402,8 @@ public final class GradeBookEditorModel {
     /** 保存草稿是否被本地校验挡住；null 表示可以发送。 */
     public String saveBlockReason() {
         if (!canEdit) return READ_ONLY_BLOCK_TEXT;
-        if (hasErrors()) return ERRORS_BLOCK_TEXT;
-        return null;
+        String error = firstError();
+        return error == null ? null : error;
     }
 
     /**
@@ -412,7 +414,8 @@ public final class GradeBookEditorModel {
      */
     public String submitBlockReason() {
         if (!canEdit) return READ_ONLY_BLOCK_TEXT;
-        if (hasErrors()) return ERRORS_BLOCK_TEXT;
+        String error = firstError();
+        if (error != null) return error;
         try {
             GradeCalculator.validateScheme(scheme(), true);
         } catch (IllegalArgumentException weightProblem) {
@@ -420,6 +423,42 @@ public final class GradeBookEditorModel {
         }
         if (hasMissingEnabledScores()) return MISSING_SCORES_TEXT;
         return null;
+    }
+
+    /**
+     * 第一条非法输入的定位文案（含学生姓名与组成名，权重错误含组成名）；没有错误时返回 null。
+     *
+     * <p>只回一句“请修正标红的单元格”会让人在四个权重框之间找不到北，所以这里把“哪里错了、
+     * 错成什么样”直接说出来；界面同时给对应的权重框标红。多个错误只报第一条，避免提示被刷屏。
+     */
+    private String firstError() {
+        for (Column column : columns) {
+            if (column.enabled && column.weightError != null) {
+                return ERRORS_BLOCK_TEXT + "：" + componentLabel(column.code) + "权重——"
+                        + column.weightError;
+            }
+        }
+        for (Row row : rows) {
+            for (Column column : columns) {
+                ScoreCell cell = row.cell(column.code);
+                if (column.enabled && cell.error != null) {
+                    return ERRORS_BLOCK_TEXT + "：" + row.studentName() + " 的"
+                            + componentLabel(column.code) + "——" + cell.error;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** 组成的中文名；界面上的列名、方案条与错误文案共用它，避免出现两套说法。 */
+    public static String componentLabel(GradeComponentCodeDTO code) {
+        if (code == null) return "未知组成";
+        return switch (code) {
+            case DAILY -> "平时";
+            case MIDTERM -> "期中";
+            case EXPERIMENT -> "实验";
+            case FINALTERM -> "期末";
+        };
     }
 
     /** 任一学生缺少任一启用组成的分数。 */
@@ -432,20 +471,40 @@ public final class GradeBookEditorModel {
         return false;
     }
 
-    /** 只读状态下的说明（含审核状态与更正原因）；可编辑时为 null。 */
-    public String readOnlyNotice() {
-        if (canEdit) return null;
-        StringBuilder notice = new StringBuilder("当前成绩表为只读状态：").append(stateLabel(state));
+    /**
+     * 批次状态说明（审核状态、审核意见、更正原因、名单变化）；普通可编辑草稿返回 null。
+     *
+     * <p>被驳回的草稿对教师仍是可编辑的，但恰恰是这时候最需要看到管理员的审核意见，所以这里不按
+     * {@code canEdit} 一刀切，而是按“有没有需要向教师交代的批次状态”决定：只有
+     * 可编辑 + DRAFT 的普通草稿才什么都不显示。
+     */
+    public String stateNotice() {
+        boolean readOnly = !canEdit;
+        if (!readOnly && "DRAFT".equals(state)) return null;
+        StringBuilder notice = new StringBuilder(
+                readOnly ? "当前成绩表为只读状态：" : "上一次提交未通过：");
+        notice.append(stateLabel(state));
         if (lastSubmissionId != null) {
             notice.append("（批次 ").append(lastSubmissionId).append("）");
         }
+        if (reviewComment != null && !reviewComment.isBlank()) {
+            notice.append("　审核意见：").append(reviewComment);
+        }
         if (correctionReason != null && !correctionReason.isBlank()) {
             notice.append("　更正原因：").append(correctionReason);
+        }
+        if (!readOnly) {
+            notice.append("　可以修改后重新提交。");
         }
         if (rosterChangedSinceSubmission) {
             notice.append("　提交之后名单有变化，新学生尚未纳入已提交批次。");
         }
         return notice.toString();
+    }
+
+    /** 最后一次批次的审核意见；没有批次或批次没有意见时为 null。 */
+    public String reviewComment() {
+        return reviewComment;
     }
 
     /** 状态文案；界面的只读提示与批次状态列共用它，避免两处出现两套说法。 */
@@ -482,7 +541,8 @@ public final class GradeBookEditorModel {
     /** 当前完整编辑内容；存在非法输入时拒绝构造，绝不把非法格子降级成 null 或 0。 */
     public GradeBookContentDTO content() {
         if (!canEdit) throw new IllegalStateException(READ_ONLY_BLOCK_TEXT);
-        if (hasErrors()) throw new IllegalStateException(ERRORS_BLOCK_TEXT);
+        String error = firstError();
+        if (error != null) throw new IllegalStateException(error);
         List<GradeRowInputDTO> inputs = new ArrayList<>();
         for (Row row : rows) {
             inputs.add(new GradeRowInputDTO(row.enrollmentId(), rowScores(row)));
