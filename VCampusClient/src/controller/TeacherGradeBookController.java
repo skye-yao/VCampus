@@ -1,8 +1,12 @@
 package controller;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
 import java.util.function.Consumer;
@@ -21,14 +25,21 @@ import javafx.scene.control.ButtonType;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollBar;
+import javafx.scene.control.TableCell;
 import javafx.scene.control.TableColumn;
+import javafx.scene.control.TablePosition;
 import javafx.scene.control.TableView;
 import javafx.scene.control.TextField;
-import javafx.scene.control.cell.TextFieldTableCell;
-import javafx.util.StringConverter;
+import javafx.scene.input.Clipboard;
+import javafx.scene.input.ClipboardContent;
+import javafx.scene.input.KeyEvent;
 import model.course.teacher.GradeBookEditorModel;
 import model.course.teacher.GradeBookEditorModel.Column;
 import model.course.teacher.GradeBookEditorModel.Row;
+import model.course.teacher.GradeClipboardParser;
+import model.course.teacher.GradeBookNavigator;
+import model.course.teacher.GradeBookNavigator.Move;
+import model.course.teacher.GradeBookNavigator.Position;
 import protocol.MessageCode;
 import service.SocketTeacherCourseService.TeacherCourseServiceException;
 import service.TeacherCourseService;
@@ -56,6 +67,14 @@ import util.PageLeaveGuard;
  * {@link #requestLeave()} 询问用户，拒绝返回 false 让调用方 {@code consume} 关闭事件或保持页面；
  * 允许离开后 {@link #onClosed()} 取消在途请求并保证之后的响应不再写界面。
  *
+ * <p>录入交互是“Excel 式”的（见 {@link ScoreEditCell}）：单击选中即编辑、输入即写入模型、
+ * 方向键即导航、离开单元格即完成、只有非法输入才在本格标红打断。所有导航与剪贴板的判定都放在
+ * 无工具包的 {@link GradeBookNavigator}/{@link GradeClipboardParser} 里，本类只负责接线与渲染。
+ *
+ * <p>写库仍然是批量的（保存草稿 / 提交成绩两个按钮）：实时写入只落在内存模型上，
+ * 因此既没有“按回车才算数”的二次确认，也不会为每敲一个键发一次网络请求。以后要加防抖自动保存，
+ * 只需在 {@link #liveScoreEdit} 之后挂一个定时器即可，模型与幂等 ID 的设计都不用动。
+ *
  * <p>所有节点都可能为 {@code null}，控制器测试因此无需 JavaFX 工具包；离开确认函数可注入，
  * 测试不会真的弹对话框。
  */
@@ -76,8 +95,8 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
     static final String RELOAD_PROMPT_TEXT = "重新加载会丢弃未保存的修改，确定重新加载吗？";
     static final String PLACEHOLDER = "—";
 
-    private static final String DISABLED_CELL_CLASS = "teacher-course-grade-cell-disabled";
-    private static final String ERROR_CELL_CLASS = "teacher-course-grade-cell-error";
+    /** 导航到一个还没渲染出来的行时，等布局把它带进视口的重试次数上限。 */
+    private static final int PENDING_EDIT_RETRIES = 5;
     /** 权重输入框的非法样式：与单元格标红同一套视觉，用户一眼能找到是哪一列。 */
     private static final String ERROR_FIELD_CLASS = "teacher-course-weight-field-error";
 
@@ -100,6 +119,15 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
     private String pendingSaveOperationId;
     private String pendingSubmitOperationId;
     private long generation;
+    /** 当前打开着编辑器的单元格；键盘事件据此决定“交给编辑器”还是“由表格处理”。 */
+    private ScoreEditCell activeCell;
+    /** 尚未落到某个已渲染单元格上的编辑请求（目标行还在视口之外时排队，滚动到位后由单元格自己接手）。 */
+    private int pendingEditRow = -1;
+    private TableColumn<Row, String> pendingEditColumn;
+    private String pendingEditSeed;
+    private int pendingEditRetries;
+    /** 总评/绩点两列的可观察值，按行对象身份缓存（逐格录入时单元格订阅它自动更新）。 */
+    private final Map<Row, RowDisplay> displays = new IdentityHashMap<>();
 
     @FXML private Label gradeBookTitleLabel;
     @FXML private Label gradeBookStateLabel;
@@ -161,6 +189,7 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
             gradeBookTable.setEditable(true);
             // 九列在 860 宽的窗口里放不下：保留列宽并横向滚动，而不是把文字压成省略号。
             gradeBookTable.setColumnResizePolicy(TableView.UNCONSTRAINED_RESIZE_POLICY);
+            bindTableKeyboard();
         }
         bindSchemeBarToTableScroll();
         bindTextColumn(gradeBookUidColumn, row -> row.studentUid());
@@ -169,8 +198,8 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
         bindScoreColumn(gradeBookMidtermColumn, GradeComponentCodeDTO.MIDTERM);
         bindScoreColumn(gradeBookExperimentColumn, GradeComponentCodeDTO.EXPERIMENT);
         bindScoreColumn(gradeBookFinaltermColumn, GradeComponentCodeDTO.FINALTERM);
-        bindTextColumn(gradeBookTotalColumn, this::totalText);
-        bindTextColumn(gradeBookPointColumn, this::pointText);
+        bindDerivedColumn(gradeBookTotalColumn, true);
+        bindDerivedColumn(gradeBookPointColumn, false);
         bindTextColumn(gradeBookErrorColumn, row -> String.join("；", row.serverErrors()));
         wireScheme(GradeComponentCodeDTO.DAILY, gradeBookDailyEnabled, gradeBookDailyWeight);
         wireScheme(GradeComponentCodeDTO.MIDTERM, gradeBookMidtermEnabled, gradeBookMidtermWeight);
@@ -201,6 +230,59 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
         });
     }
 
+    /**
+     * 表格级的键盘处理，覆盖“还没有打开编辑器”的那一半交互：焦点停在某个成绩格上直接敲数字，
+     * 应当就地开始编辑并把这一位作为新值的开头（“选中即输入”）；方向键/Tab/回车则从当前格出发导航。
+     *
+     * <p>用<b>事件过滤器</b>（捕获阶段）而不是处理器：过滤器的消费会阻止 TableView 自己的行为
+     * （方向键改选择、Tab 把焦点带出表格），这正是我们要接管的那部分。事件目标是已打开的编辑器时
+     * 直接放行，交给 {@link ScoreEditCell} 自己的过滤器处理。
+     */
+    private void bindTableKeyboard() {
+        gradeBookTable.addEventFilter(KeyEvent.KEY_PRESSED, event -> {
+            if (eventTargetsActiveEditor(event)) return;
+            Move move = moveOf(event);
+            if (move == null) return;
+            // 焦点不在可编辑的成绩列上（学号/姓名/总评列、或只读页面、或禁用的组成）时，
+            // 一个键都不消费：Tab 仍然能把焦点带出表格，方向键仍然是表格自己的选择移动。
+            if (!focusedCellIsEditable()) return;
+            event.consume();
+            navigateFrom(focusedRowIndex(), focusedCode(), move);
+        });
+        gradeBookTable.addEventFilter(KeyEvent.KEY_TYPED, event -> {
+            if (eventTargetsActiveEditor(event)) return;
+            String typed = event.getCharacter();
+            // 只认可打印字符：控制字符（退格、方向键产生的空串等）不触发编辑。
+            if (typed == null || typed.isEmpty() || typed.charAt(0) < ' ') return;
+            if (!focusedCellIsEditable()) return;
+            event.consume();
+            requestCellEdit(focusedRowIndex(), scoreColumnOf(focusedCode()), typed);
+        });
+    }
+
+    private boolean focusedCellIsEditable() {
+        GradeComponentCodeDTO code = focusedCode();
+        return focusedRowIndex() >= 0 && code != null && isColumnEditable(code);
+    }
+
+    /** 事件目标是不是当前打开的那个编辑器（含其内部节点）。 */
+    private boolean eventTargetsActiveEditor(Event event) {
+        if (activeCell == null) return false;
+        return event.getTarget() instanceof Node node && activeCell.owns(node);
+    }
+
+    private static Move moveOf(KeyEvent event) {
+        return switch (event.getCode()) {
+            case UP -> Move.UP;
+            case DOWN -> Move.DOWN;
+            case LEFT -> Move.LEFT;
+            case RIGHT -> Move.RIGHT;
+            case TAB -> event.isShiftDown() ? Move.PREVIOUS : Move.NEXT;
+            case ENTER -> Move.DOWN;
+            default -> null;
+        };
+    }
+
     // ------------------------------------------------------------------ 生命周期
 
     /** 工作台打开某个教学班的成绩表：注册离开守卫并加载最新草稿。 */
@@ -208,6 +290,8 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
         if (offeringId == null || offeringId.isBlank()) return;
         this.offeringId = offeringId;
         // 换班即丢弃上一个班的编辑内容与幂等 ID：新班必须拿到自己的 revision 与名单摘要。
+        closeActiveCell();
+        clearPendingEdit();
         this.model = null;
         this.pendingSaveOperationId = null;
         this.pendingSubmitOperationId = null;
@@ -231,7 +315,17 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
         submitting = false;
         confirmingSubmit = false;
         generation++;
+        // 页面被卸下：把打开的编辑器收起来，也别让排队的“落到某一格”在页面之外生效。
+        closeActiveCell();
+        clearPendingEdit();
         PageLeaveGuard.clear(this);
+    }
+
+    private void clearPendingEdit() {
+        pendingEditRow = -1;
+        pendingEditColumn = null;
+        pendingEditSeed = null;
+        pendingEditRetries = 0;
     }
 
     @Override
@@ -322,6 +416,10 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
             return;
         }
         saving = true;
+        // 下一行的 generation 会作废在途加载的响应（它再也走不到自己的复位分支）：加载标志在这里
+        // 一并复位，否则“正在加载成绩表...”会一直挂着、重新加载按钮永久禁用——与 loadBook 在开头
+        // 复位写入标志是对称的同一件事。
+        loading = false;
         feedbackText = SAVING_TEXT;
         errorText = null;
         render();
@@ -396,6 +494,8 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
             return;
         }
         submitting = true;
+        // 同 save()：提交同样作废在途加载的响应，加载标志必须一起复位，不能让它悬空。
+        loading = false;
         feedbackText = SUBMITTING_TEXT;
         errorText = null;
         render();
@@ -426,13 +526,219 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
 
     // ------------------------------------------------------------------ 编辑
 
-    private void applyScore(Row row, GradeComponentCodeDTO code, String text) {
-        if (model == null || !model.canEdit() || row == null) {
-            refreshTable();
+    /**
+     * 请求把某一格打开成编辑器。已经开着的那一格直接返回——否则点一下输入框就会重开编辑，
+     * 光标与选中范围都会被重置（用户会觉得“点进去就全选没了”）。
+     *
+     * <p>只读页面与禁用列在这里就被拒绝：宁可不打开，也不要打开一个接收不了输入的输入框。
+     * 目标行可能还在视口之外，因此先把请求记成“待落点”，滚动之后再交给那个单元格。
+     */
+    void requestCellEdit(int rowIndex, TableColumn<Row, String> column) {
+        requestCellEdit(rowIndex, column, null);
+    }
+
+    void requestCellEdit(int rowIndex, TableColumn<Row, String> column, String seedText) {
+        if (model == null || gradeBookTable == null || column == null) return;
+        if (rowIndex < 0 || rowIndex >= model.rows().size()) return;
+        GradeComponentCodeDTO code = codeOf(column);
+        if (code == null || !isColumnEditable(code)) return;
+        if (activeCell != null && activeCell.getIndex() == rowIndex
+                && activeCell.column() == column) {
+            activeCell.typeIn(seedText);
             return;
         }
+        boolean rendered = scoreCellAt(rowIndex, column) != null;
+        closeActiveCell();
+        pendingEditRow = rowIndex;
+        pendingEditColumn = column;
+        pendingEditSeed = seedText;
+        gradeBookTable.getFocusModel().focus(rowIndex, column);
+        // 目标格已经看得见就不要动视口：连续录入时视线跟着光标走，而不是每按一次方向键表格就跳一下。
+        if (!rendered) gradeBookTable.scrollTo(rowIndex);
+        applyPendingEdit();
+    }
+
+    /**
+     * 把待落点的编辑请求交给目标单元格。目标行可能刚被 {@code scrollTo} 到视口里、单元格还没建出来，
+     * 所以没找到就排到下一轮布局之后再试（有次数上限，避免死死排队）。
+     */
+    private void applyPendingEdit() {
+        if (pendingEditRow < 0 || pendingEditColumn == null) return;
+        ScoreEditCell cell = scoreCellAt(pendingEditRow, pendingEditColumn);
+        if (cell == null) {
+            if (pendingEditRetries++ < PENDING_EDIT_RETRIES) runLater(this::applyPendingEdit);
+            return;
+        }
+        String seed = pendingEditSeed;
+        pendingEditRow = -1;
+        pendingEditColumn = null;
+        pendingEditSeed = null;
+        pendingEditRetries = 0;
+        cell.beginEdit(seed);
+        if (cell.editorOpen()) activeCell = cell;
+    }
+
+    /** 关闭当前编辑器（保留已经实时写入的值）。 */
+    private void closeActiveCell() {
+        ScoreEditCell cell = activeCell;
+        activeCell = null;
+        if (cell != null) cell.endEdit(false);
+    }
+
+    void editorClosed(ScoreEditCell cell) {
+        if (activeCell == cell) activeCell = null;
+    }
+
+    void focusTable() {
+        if (gradeBookTable != null) gradeBookTable.requestFocus();
+    }
+
+    void runLater(Runnable action) {
+        fxExecutor.accept(action);
+    }
+
+    /**
+     * 输入实时生效：每敲一个键就把原文写进模型，派生列（总评/绩点）、非法标红与按钮/提示状态
+     * 立刻跟着更新。这里不重建表格行（见 {@link #renderTable}），所以正在输入的编辑器不会被拆掉，
+     * 也就不需要“再按一次回车确认”。以后要加防抖自动保存，接在这句话后面即可。
+     */
+    void liveScoreEdit(Row row, GradeComponentCodeDTO code, String text) {
+        if (model == null || !model.canEdit() || row == null) return;
         model.setScore(row.enrollmentId(), code, text);
-        refreshTable();
+        refreshRowDisplay(row);
+        render(false);
+    }
+
+    /** {@code Esc}：把这一格恢复成编辑开始时的原文。 */
+    void revertScore(Row row, GradeComponentCodeDTO code, String text) {
+        if (model == null || !model.canEdit() || row == null) return;
+        model.setScore(row.enrollmentId(), code, text);
+        refreshRowDisplay(row);
+        render(false);
+    }
+
+    /** 从某一格出发导航；边界与禁用列的判定全在无工具包的 {@link GradeBookNavigator} 里。 */
+    void navigateFrom(int rowIndex, GradeComponentCodeDTO code, Move move) {
+        if (model == null || code == null || move == null) return;
+        int columnIndex = code.ordinal();
+        Optional<Position> target = GradeBookNavigator.resolve(new Position(rowIndex, columnIndex),
+                move, model.rows().size(), editableColumns());
+        if (target.isEmpty()) return;
+        Position position = target.get();
+        requestCellEdit(position.row(), scoreColumnOf(GradeComponentCodeDTO.values()[position.column()]));
+    }
+
+    /** 复制：把当前格的原文（模型里保存的那份）放进系统剪贴板。 */
+    void copyScoreText(Row row, GradeComponentCodeDTO code) {
+        if (row == null || code == null) return;
+        ClipboardContent content = new ClipboardContent();
+        content.putString(row.cell(code).text());
+        Clipboard.getSystemClipboard().setContent(content);
+    }
+
+    /**
+     * 粘贴：从当前格开始向右下铺开，每一格都走 {@link GradeBookEditorModel#setScore}，
+     * 因此非法值会原样留下并标红，绝不会被静默丢掉；空白格表示“清空这一格”。
+     */
+    void pasteScoreBlock(Row startRow, GradeComponentCodeDTO startCode, String clipboardText) {
+        if (model == null || !model.canEdit() || startRow == null || startCode == null) return;
+        List<List<String>> block = GradeClipboardParser.parse(clipboardText);
+        if (block.isEmpty()) return;
+        int startRowIndex = indexOfRow(startRow);
+        if (startRowIndex < 0) return;
+        List<PasteTarget> targets = planPaste(startRowIndex, startCode.ordinal(), block,
+                model.rows().size(), editableColumns());
+        for (PasteTarget target : targets) {
+            Row row = model.rows().get(target.row());
+            model.setScore(row.enrollmentId(), target.code(), target.text());
+        }
+        // 被改到的格子（起点之外的那些）不会收到输入事件，必须就地重画一次。刻意不重建整张表：
+        // refresh() 会把单元格连编辑器一起拆掉，而这里要保住起点格上打开的编辑器与光标。
+        for (PasteTarget target : targets) {
+            ScoreEditCell cell = scoreCellAt(target.row(), scoreColumnOf(target.code()));
+            if (cell != null) cell.refreshFromModel();
+        }
+        render();
+    }
+
+    /**
+     * 粘贴落点：行数夹在名单长度内（多出来的行直接丢弃，而不是溢出到别的班），列只会落在四个成绩列
+     * 中<b>可编辑</b>的那些上——禁用列跳过不写，与被禁用的列本来就不参与录入保持一致。
+     */
+    static List<PasteTarget> planPaste(int startRow, int startColumn, List<List<String>> block,
+            int rowCount, List<Boolean> editableColumns) {
+        List<PasteTarget> targets = new ArrayList<>();
+        if (block == null || editableColumns == null) return targets;
+        for (int rowOffset = 0; rowOffset < block.size(); rowOffset++) {
+            int row = startRow + rowOffset;
+            if (row < 0 || row >= rowCount) break;
+            List<String> cells = block.get(rowOffset);
+            for (int columnOffset = 0; columnOffset < cells.size(); columnOffset++) {
+                int column = startColumn + columnOffset;
+                if (column < 0 || column >= editableColumns.size()) continue;
+                if (!Boolean.TRUE.equals(editableColumns.get(column))) continue;
+                targets.add(new PasteTarget(row, GradeComponentCodeDTO.values()[column],
+                        cells.get(columnOffset)));
+            }
+        }
+        return List.copyOf(targets);
+    }
+
+    /** 一格粘贴落点：第几行、哪个成绩组成、写什么原文。 */
+    record PasteTarget(int row, GradeComponentCodeDTO code, String text) {
+    }
+
+    /** 四个成绩列当前是否可编辑（只读页面全为 false，禁用列为 false）。 */
+    List<Boolean> editableColumns() {
+        List<Boolean> editable = new ArrayList<>();
+        for (GradeComponentCodeDTO code : GradeComponentCodeDTO.values()) {
+            editable.add(isColumnEditable(code));
+        }
+        return List.copyOf(editable);
+    }
+
+    boolean isColumnEditable(GradeComponentCodeDTO code) {
+        return model != null && model.canEdit() && code != null && model.column(code).enabled();
+    }
+
+    private int indexOfRow(Row row) {
+        if (model == null) return -1;
+        List<Row> rows = model.rows();
+        for (int index = 0; index < rows.size(); index++) {
+            if (rows.get(index) == row) return index;
+        }
+        return -1;
+    }
+
+    private int focusedRowIndex() {
+        if (gradeBookTable == null) return -1;
+        TablePosition<Row, ?> focused = gradeBookTable.getFocusModel().getFocusedCell();
+        return focused == null ? -1 : focused.getRow();
+    }
+
+    private GradeComponentCodeDTO focusedCode() {
+        if (gradeBookTable == null) return null;
+        TablePosition<Row, ?> focused = gradeBookTable.getFocusModel().getFocusedCell();
+        return focused == null ? null : codeOf(focused.getTableColumn());
+    }
+
+    private GradeComponentCodeDTO codeOf(TableColumn<Row, ?> column) {
+        if (column == null) return null;
+        for (GradeComponentCodeDTO code : GradeComponentCodeDTO.values()) {
+            if (scoreColumnOf(code) == column) return code;
+        }
+        return null;
+    }
+
+    private ScoreEditCell scoreCellAt(int rowIndex, TableColumn<Row, String> column) {
+        if (gradeBookTable == null) return null;
+        for (Node node : gradeBookTable.lookupAll(".table-cell")) {
+            if (node instanceof ScoreEditCell cell && cell.getIndex() == rowIndex
+                    && cell.column() == column) {
+                return cell;
+            }
+        }
+        return null;
     }
 
     /**
@@ -475,6 +781,14 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
     // ------------------------------------------------------------------ 渲染
 
     private void render() {
+        render(true);
+    }
+
+    /**
+     * @param refreshTable 是否连带刷新表格显示。逐格录入走 {@code false}：那一次刷新由
+     *                     模型的可观察派生值加单元格自己的样式更新完成，重建表格反而会打断输入。
+     */
+    private void render(boolean refreshTable) {
         boolean hasModel = model != null;
         setActive(gradeBookLoadingLabel, loading);
         setActive(gradeBookEmptyLabel, hasModel && !loading && model.rows().isEmpty());
@@ -519,7 +833,7 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
             gradeBookConfirmSubmitButton.setDisable(submitting);
         }
         syncSchemeControls();
-        renderTable();
+        if (refreshTable) renderTable();
     }
 
     /** 方案区：开关与权重输入回写模型状态；回写期间禁止监听器把渲染当成用户输入。 */
@@ -555,21 +869,52 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
         }
     }
 
+    /**
+     * 刷新表格。
+     *
+     * <p><b>只有底层行对象真的换了才重建 items</b>（首次加载、保存/提交后的服务端快照）。
+     * {@code setAll} 会重建每一行与每一个单元格，把用户正在输入的那个编辑器一起拆掉——这正是旧交互
+     * 里“回车之后还得再按一次”的结构性原因。行对象没换时只做一次 {@code refresh()}，让单元格重新
+     * 取一次值（禁用列置灰、权重变化后的派生态）。
+     *
+     * <p>逐格录入的刷新走的是另一条更轻的路（{@link #refreshRowDisplay}）：派生列的值是每行一个
+     * 可观察对象，单元格订阅它，所以总评/绩点能在敲键的同时更新，而不用重建表格、也不会打断输入。
+     */
     private void renderTable() {
         if (gradeBookTable == null) return;
         List<Row> items = model == null ? List.of() : model.rows();
-        gradeBookTable.getItems().setAll(items);
+        if (!itemsMatchTable(items)) {
+            // 行对象换了：编辑器指向的行已经不存在，先收起来（值早就实时写进模型，不会丢）。
+            closeActiveCell();
+            displays.clear();
+            gradeBookTable.getItems().setAll(items);
+        } else if (activeCell == null) {
+            // 编辑器开着时不重建单元格：那种整体性刷新（开关/权重/加载）本来就不会和输入同时发生。
+            gradeBookTable.refresh();
+        }
+        refreshAllDisplays();
         for (GradeComponentCodeDTO code : GradeComponentCodeDTO.values()) {
             TableColumn<Row, String> column = scoreColumnOf(code);
             if (column != null) {
-                column.setEditable(model != null && model.canEdit() && model.column(code).enabled());
+                column.setEditable(isColumnEditable(code));
             }
         }
-        gradeBookTable.refresh();
+        applyPendingEdit();
     }
 
-    private void refreshTable() {
-        render();
+    /** 表格里当前绑定的行与模型里的行是不是同一批对象（逐位比较，行数很少，代价可以忽略）。 */
+    private boolean itemsMatchTable(List<Row> items) {
+        if (gradeBookTable.getItems().size() != items.size()) return false;
+        for (int index = 0; index < items.size(); index++) {
+            if (gradeBookTable.getItems().get(index) != items.get(index)) return false;
+        }
+        return true;
+    }
+
+    /** 派生列（总评/绩点）的可观察值：每行一份，单元格订阅它，逐格录入时不需要重建表格。 */
+    private static final class RowDisplay {
+        private final ReadOnlyStringWrapper total = new ReadOnlyStringWrapper();
+        private final ReadOnlyStringWrapper point = new ReadOnlyStringWrapper();
     }
 
     /**
@@ -608,40 +953,41 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
         if (column == null) return;
         column.setCellValueFactory(cell -> new ReadOnlyStringWrapper(
                 cell.getValue() == null ? "" : cell.getValue().cell(code).text()));
-        column.setCellFactory(ignored -> scoreCell(code));
-        column.setOnEditCommit(event -> applyScore(event.getRowValue(), code, event.getNewValue()));
+        // 编辑器自己管生命周期（单击即编辑、输入即写入、方向键导航），不再走 startEdit/commitEdit：
+        // 那套“回车提交”的默认行为正是用户抱怨的“还要二次确认”。
+        column.setCellFactory(ignored -> new ScoreEditCell(this, column, code));
     }
 
     /**
-     * 一格的编辑控件：只保留用户输入的原文本，解析留给模型。禁用列与非法格分别用样式类标灰/标红，
-     * 让“不能输入”和“输入有误”在界面上是两件事。
+     * 总评/绩点两列的取值来自每行一份的可观察对象（而不是每次新造一个只读包装）：单元格订阅它，
+     * 所以逐格录入时这两列能自己更新，不需要重建表格，也就不用打断正在输入的编辑器。
      */
-    private TextFieldTableCell<Row, String> scoreCell(GradeComponentCodeDTO code) {
-        return new TextFieldTableCell<>(new StringConverter<String>() {
-            @Override
-            public String toString(String value) {
-                return value == null ? "" : value;
-            }
+    private void bindDerivedColumn(TableColumn<Row, String> column, boolean totalColumn) {
+        if (column == null) return;
+        column.setCellValueFactory(cell -> {
+            Row row = cell.getValue();
+            if (row == null) return new ReadOnlyStringWrapper("");
+            RowDisplay display = displayOf(row);
+            return totalColumn ? display.total : display.point;
+        });
+    }
 
-            @Override
-            public String fromString(String text) {
-                return text;
-            }
-        }) {
-            @Override
-            public void updateItem(String item, boolean empty) {
-                super.updateItem(item, empty);
-                getStyleClass().remove(DISABLED_CELL_CLASS);
-                getStyleClass().remove(ERROR_CELL_CLASS);
-                Row row = empty || getTableRow() == null ? null : getTableRow().getItem();
-                if (row == null || model == null) return;
-                if (!model.column(code).enabled()) {
-                    getStyleClass().add(DISABLED_CELL_CLASS);
-                } else if (row.cell(code).error() != null) {
-                    getStyleClass().add(ERROR_CELL_CLASS);
-                }
-            }
-        };
+    private RowDisplay displayOf(Row row) {
+        return displays.computeIfAbsent(row, ignored -> new RowDisplay());
+    }
+
+    /** 重算某一行的总评/绩点并写入可观察值；界面上的那两格会立刻跟着变。 */
+    private void refreshRowDisplay(Row row) {
+        RowDisplay display = displayOf(row);
+        display.total.set(totalText(row));
+        display.point.set(pointText(row));
+    }
+
+    private void refreshAllDisplays() {
+        if (model == null) return;
+        for (Row row : model.rows()) {
+            refreshRowDisplay(row);
+        }
     }
 
     private String totalText(Row row) {

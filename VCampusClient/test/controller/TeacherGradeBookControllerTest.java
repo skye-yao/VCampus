@@ -62,13 +62,15 @@ public final class TeacherGradeBookControllerTest {
 
     public static void main(String[] args) throws Exception {
         loadingShowsServerScoresAndKeepsBlanks();
+        liveEditsReachTheModelWithoutASecondConfirmation();
+        bulkPasteIsClampedToTheRosterAndTheEditableColumns();
         invalidCellBlocksTheWriteAndKeepsTheTypedText();
         invalidWeightNamesTheComponentAndMarksTheField();
         failedSaveKeepsTheEditsAndTheDirtyState();
         submitNeedsASecondClickAndOnlySendsOneRequest();
         incompleteWeightsBlockSubmitWithTheSharedRule();
         cancelledLeaveKeepsThePageAndRefusedCloseIsConsumed();
-        allowedLeaveReleasesThePageAndClosesTheWindow();
+        allowedLeaveReleasesThePageAndClearsTheGuard();
         releasedPageIgnoresLateResponses();
         readOnlyBookShowsTheReviewStateAndBlocksWrites();
         gradeViewsDeclareTheirControllerIdsAndHandlers();
@@ -107,6 +109,116 @@ public final class TeacherGradeBookControllerTest {
         TeacherGradeBookController empty = controller(new RecordingService(), message -> true);
         empty.showOffering(EMPTY_OFFERING);
         require(empty.rows().isEmpty(), "空班必须渲染成 0 行");
+    }
+
+    /**
+     * 输入实时生效：每个键都直接写进模型，派生列（总评）与非法判定立刻跟上，中间没有任何
+     * “还要按一次回车确认”的动作；{@code Esc} 才把这一格恢复成编辑前的原文。
+     *
+     * <p>这是 Excel 式录入的核心契约：模型里永远是最新的输入，所以“离开单元格”只需要收起编辑器。
+     */
+    private static void liveEditsReachTheModelWithoutASecondConfirmation() {
+        TeacherGradeBookController controller = controller(new RecordingService(), message -> true);
+        controller.showOffering(OFFERING);
+        completeScheme(controller);
+        Row row = missingExperimentRow(controller);
+        String enrollmentId = row.enrollmentId();
+
+        // 缺实验分时总评是占位符（预览绝不伪造数字）。
+        controller.liveScoreEdit(row, GradeComponentCodeDTO.EXPERIMENT, "90");
+        require("90".equals(row.cell(GradeComponentCodeDTO.EXPERIMENT).text()),
+                "实时写入必须立刻落在模型上，收到 " + row.cell(GradeComponentCodeDTO.EXPERIMENT));
+        require(controller.dirty(), "实时写入就是未保存的修改");
+        require(controller.model().rowTotal(row) != null,
+                "补齐缺分之后总评必须立刻能算出来");
+
+        // 超界分数：原文保留、立刻判为非法并挡住保存——只标红，不弹窗、不要用户再确认一次。
+        controller.liveScoreEdit(row, GradeComponentCodeDTO.EXPERIMENT, "105");
+        require("105".equals(row.cell(GradeComponentCodeDTO.EXPERIMENT).text()),
+                "超界分数必须原样留在格子里");
+        require(row.cell(GradeComponentCodeDTO.EXPERIMENT).error() != null,
+                "满分 100 时 105 必须立刻判为非法");
+        require(controller.model().saveBlockReason() != null, "非法输入必须挡住保存");
+        require(controller.model().rowTotal(row) == null, "非法分不能参与总评");
+
+        // Esc：恢复编辑前的原文。
+        controller.revertScore(row, GradeComponentCodeDTO.EXPERIMENT, "90");
+        require("90".equals(row.cell(GradeComponentCodeDTO.EXPERIMENT).text()),
+                "Esc 必须把这一格恢复成编辑前的原文");
+        require(controller.model().saveBlockReason() == null, "恢复之后又能保存了");
+
+        // 空格子等于“未录入”，不是 0 分。
+        controller.liveScoreEdit(row, GradeComponentCodeDTO.EXPERIMENT, "");
+        require(!row.cell(GradeComponentCodeDTO.EXPERIMENT).entered(),
+                "清空这一格必须是未录入，而不是 0 分");
+        require(enrollmentId.equals(row.enrollmentId()), "行身份不能被编辑改掉");
+    }
+
+    /**
+     * 批量粘贴：从当前格向右下铺开，行夹在名单长度内、列只落在四个成绩列里可编辑的那些上；
+     * 空格子照写（等于清空目标格），非法值原样留下并挡住保存——绝不静默丢弃。
+     */
+    private static void bulkPasteIsClampedToTheRosterAndTheEditableColumns() {
+        // 落点规划本身是纯计算：1×4 的块从最后一列出发时右边一格无处可去，必须被夹住。
+        List<TeacherGradeBookController.PasteTarget> clamped =
+                TeacherGradeBookController.planPaste(0, 3, List.of(List.of("80", "81")), 24,
+                        List.of(true, true, true, true));
+        require(clamped.size() == 1 && clamped.get(0).code() == GradeComponentCodeDTO.FINALTERM,
+                "越出四个成绩列的格子必须被丢弃，收到 " + clamped);
+        List<TeacherGradeBookController.PasteTarget> overRoster =
+                TeacherGradeBookController.planPaste(23, 0, List.of(List.of("80"), List.of("81")), 24,
+                        List.of(true, true, true, true));
+        require(overRoster.size() == 1, "超出名单长度的行必须被丢弃，收到 " + overRoster);
+        List<TeacherGradeBookController.PasteTarget> skipped =
+                TeacherGradeBookController.planPaste(0, 1, List.of(List.of("80", "81", "82")), 24,
+                        List.of(true, true, false, true));
+        require(skipped.size() == 2
+                        && skipped.get(1).code() == GradeComponentCodeDTO.FINALTERM,
+                "禁用列必须跳过不写，收到 " + skipped);
+
+        // 真的粘一次：2×2 从期中开始，值落在 期中/实验 两列、前两行。
+        TeacherGradeBookController controller = controller(new RecordingService(), message -> true);
+        controller.showOffering(OFFERING);
+        controller.pasteScoreBlock(controller.rows().get(0), GradeComponentCodeDTO.MIDTERM,
+                "88\t77\r\n66\t55\r\n");
+        require("88".equals(
+                        controller.rows().get(0).cell(GradeComponentCodeDTO.MIDTERM).text())
+                        && "77".equals(
+                        controller.rows().get(0).cell(GradeComponentCodeDTO.EXPERIMENT).text())
+                        && "66".equals(
+                        controller.rows().get(1).cell(GradeComponentCodeDTO.MIDTERM).text())
+                        && "55".equals(
+                        controller.rows().get(1).cell(GradeComponentCodeDTO.EXPERIMENT).text()),
+                "2×2 块必须向右下铺开，实际 " + controller.rows().get(0).cell(
+                        GradeComponentCodeDTO.MIDTERM).text() + "/"
+                        + controller.rows().get(0).cell(GradeComponentCodeDTO.EXPERIMENT).text()
+                        + "/" + controller.rows().get(1).cell(
+                        GradeComponentCodeDTO.MIDTERM).text() + "/"
+                        + controller.rows().get(1).cell(
+                        GradeComponentCodeDTO.EXPERIMENT).text());
+        require(controller.rows().get(0).cell(GradeComponentCodeDTO.DAILY).text().equals("70"),
+                "粘贴不得碰起点左边的格子");
+
+        // 非法值照样落进格子里并挡住保存：粘贴不是把它们丢掉的借口。
+        controller.pasteScoreBlock(controller.rows().get(2), GradeComponentCodeDTO.DAILY, "300\n");
+        require("300".equals(
+                        controller.rows().get(2).cell(GradeComponentCodeDTO.DAILY).text()),
+                "粘贴进来的非法值必须原样保留");
+        require(controller.model().saveBlockReason() != null, "粘贴进来的非法值必须挡住保存");
+
+        // 块里的空格子 = 清空：一列成绩里常见的“这一格没有”，不能理解成“跳过这一格”。
+        controller.pasteScoreBlock(controller.rows().get(0), GradeComponentCodeDTO.DAILY, "60\t");
+        require("60".equals(controller.rows().get(0).cell(GradeComponentCodeDTO.DAILY).text())
+                        && !controller.rows().get(0).cell(GradeComponentCodeDTO.MIDTERM).entered(),
+                "块里的空格子必须把目标格清空（未录入），而不是跳过，实际 "
+                        + controller.rows().get(0).cell(GradeComponentCodeDTO.DAILY).text() + "/"
+                        + controller.rows().get(0).cell(GradeComponentCodeDTO.MIDTERM).text());
+
+        // 剪贴板本来就是空的：什么都不该发生（不是“把所有格子清空”）。
+        String before = controller.rows().get(1).cell(GradeComponentCodeDTO.DAILY).text();
+        controller.pasteScoreBlock(controller.rows().get(1), GradeComponentCodeDTO.DAILY, "");
+        require(before.equals(controller.rows().get(1).cell(GradeComponentCodeDTO.DAILY).text()),
+                "空剪贴板不得改动任何单元格");
     }
 
     /** 非法文本：原文保留、本地挡住写请求、一个字节都不发给服务端，并指出是哪个格子。 */
@@ -325,8 +437,15 @@ public final class TeacherGradeBookControllerTest {
         }
     }
 
-    /** 同意离开：页面守卫放行后取消在途请求并注销；窗口确认由 GUI 测试覆盖。 */
-    private static void allowedLeaveReleasesThePageAndClosesTheWindow() {
+    /**
+     * 同意离开：守卫放行后页面释放、取消在途请求，再由调用方注销（工作台/场景切换负责 clear）。
+     *
+     * <p><b>窗口关闭的放行路径没有被任何测试覆盖</b>：{@code ClientMain.requestWindowClose} 在守卫
+     * 放行之后要弹退出确认框、再走登出与 {@code System.exit(0)}；本类是无工具包的测试，既弹不出框，
+     * 按下“确定”还会把测试 JVM 关掉。被拒绝的那一半（消费关闭事件、页面留在原地）在
+     * {@link #cancelledLeaveKeepsThePageAndRefusedCloseIsConsumed} 里。
+     */
+    private static void allowedLeaveReleasesThePageAndClearsTheGuard() {
         RecordingService service = new RecordingService();
         TeacherGradeBookController controller = controller(service, message -> true);
         try {

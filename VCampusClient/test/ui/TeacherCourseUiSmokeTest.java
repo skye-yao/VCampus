@@ -14,7 +14,7 @@ import javafx.animation.PauseTransition;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.embed.swing.SwingFXUtils;
-import javafx.event.ActionEvent;
+import javafx.event.Event;
 import javafx.fxml.FXMLLoader;
 import javafx.scene.Node;
 import javafx.scene.Parent;
@@ -33,7 +33,14 @@ import javafx.scene.control.TableRow;
 import javafx.scene.control.TableView;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
+import javafx.scene.control.Tooltip;
 import javafx.scene.image.WritableImage;
+import javafx.scene.input.Clipboard;
+import javafx.scene.input.ClipboardContent;
+import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyEvent;
+import javafx.scene.input.MouseButton;
+import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
@@ -123,7 +130,11 @@ public final class TeacherCourseUiSmokeTest {
             // T6 的八张成绩录入截图（列表 / 部分填写 / 非法值 / 灰列 / 未保存提示 / 确认提交 / 只读 / 驳回）。
             "grade-offering-list.png", "gradebook-partial.png", "gradebook-invalid-cell.png",
             "gradebook-disabled-column.png", "gradebook-unsaved-prompt.png",
-            "gradebook-submit-confirm.png", "gradebook-read-only.png", "gradebook-rejected.png"
+            "gradebook-submit-confirm.png", "gradebook-read-only.png", "gradebook-rejected.png",
+            // Excel 式录入的五张：单击即编辑（整段选中）/ Enter 下移 / Tab 右移 / Esc 还原 / 2×2 批量粘贴。
+            "gradebook-cell-editing.png", "gradebook-navigate-enter.png",
+            "gradebook-navigate-tab.png", "gradebook-esc-reverted.png",
+            "gradebook-paste-block.png", "gradebook-inline-error.png"
     };
     private static final Path OUTPUT = Path.of(".codex-tmp", "teacher");
 
@@ -194,6 +205,17 @@ public final class TeacherCourseUiSmokeTest {
                 require(effectivelyVisible(grid), "点击教学课程表后课表网格必须可见");
                 require(!requireNode("#homePanel", VBox.class, "首页提示区").isVisible(),
                         "进入课表页后首页提示区必须被替换掉");
+                // 右上入口高亮只能在真实工具包里断言：无工具包的控制器测试连 Button 都造不出来
+                // （Control 的静态初始化要求 Toolkit 已启动），所以这条守卫只能留在这里。
+                require(entryButton("教学课程表").getStyleClass()
+                                .contains("teacher-course-entry-active"),
+                        "当前页对应的右上入口必须带高亮样式（教学课程表），实际 "
+                                + entryButton("教学课程表").getStyleClass());
+                for (String other : List.of("教学班", "成绩录入", "我的申请")) {
+                    require(!entryButton(other).getStyleClass()
+                                    .contains("teacher-course-entry-active"),
+                            other + " 不是当前页，不该带高亮样式");
+                }
                 require(grid.getColumnConstraints().size() == 8,
                         "网格应为 1 个节次列 + 7 个日期列，实际 "
                                 + grid.getColumnConstraints().size() + " 列");
@@ -665,22 +687,160 @@ public final class TeacherCourseUiSmokeTest {
                 snapshot("gradebook-partial.png");
             });
 
-            // 非法值：真实编辑单元格 → 单元格标红 → 本地校验挡住保存（不发一个注定被拒绝的请求）。
+            // ------------------------------------------------ Excel 式录入：单击即编辑、输入即生效
+            // 单击（不是双击）就进入编辑，并且打开时整段选中——下一次敲键直接覆盖旧值。
+            steps.add(() -> clickCell(table("#gradeBookTable", "成绩表"), 0, 2));
             steps.add(() -> {
                 TableView<?> book = table("#gradeBookTable", "成绩表");
-                editCell(book, 0, 2);
+                TextField editor = editorIn(book, 0, 2);
+                require(editor != null && editor.isVisible(),
+                        "单击单元格必须直接出现输入框（不需要双击）");
+                require("70".equals(editor.getText()),
+                        "编辑器必须显示这一格的原文，实际 " + editor.getText());
+                require(editor.getLength() > 0 && editor.getSelection().getLength() == editor.getLength(),
+                        "打开编辑时必须整段选中（下一次敲键直接覆盖），实际选中 "
+                                + editor.getSelection().getLength() + "/" + editor.getLength());
+                require(Window.getWindows().size() == 1,
+                        "进入编辑不得弹出任何对话框，实际 " + Window.getWindows().size() + " 个窗口");
+                snapshot("gradebook-cell-editing.png");
+            });
+            // 选中即输入：直接敲数字必须覆盖原来的 70，而不是拼成 709。
+            steps.add(() -> typeChar(table("#gradeBookTable", "成绩表"), "9"));
+            steps.add(() -> {
+                TableView<?> book = table("#gradeBookTable", "成绩表");
+                TextField editor = editorIn(book, 0, 2);
+                require(editor != null && "9".equals(editor.getText()),
+                        "直接敲数字必须覆盖原值，实际 "
+                                + (editor == null ? "编辑器不见了" : editor.getText()));
+                require("9".equals(cellText(book, 0, 2)),
+                        "输入必须实时写入当前单元格，实际 " + cellText(book, 0, 2));
+                require(!PLACEHOLDER.equals(cellText(book, 0, 6)),
+                        "总评必须跟着实时输入立刻更新，实际 " + cellText(book, 0, 6));
+                // 改回一个正常分数，后面的导航断言才有稳定的期望值。
+                editor.selectAll();
+                editor.replaceSelection("70");
+            });
+
+            // Enter：完成当前输入并下移到下一行同列（不再需要按回车确认）。
+            steps.add(() -> pressKey(editorIn(table("#gradeBookTable", "成绩表"), 0, 2),
+                    KeyCode.ENTER, false, false));
+            steps.add(() -> {
+                TableView<?> book = table("#gradeBookTable", "成绩表");
+                TextField editor = editorIn(book, 1, 2);
+                require(editor != null && "71".equals(editor.getText()),
+                        "Enter 必须完成输入并移到下一行同列，实际 "
+                                + (editor == null ? "编辑器没有下移" : editor.getText()));
+                require(editorIn(book, 0, 2) == null, "原来的编辑器必须已经收起来");
+                snapshot("gradebook-navigate-enter.png");
+            });
+
+            // Tab：移到右边一格。
+            steps.add(() -> pressKey(editorIn(table("#gradeBookTable", "成绩表"), 1, 2),
+                    KeyCode.TAB, false, false));
+            steps.add(() -> {
+                TableView<?> book = table("#gradeBookTable", "成绩表");
+                TextField editor = editorIn(book, 1, 3);
+                require(editor != null && "66".equals(editor.getText()),
+                        "Tab 必须移到右边一格，实际 "
+                                + (editor == null ? "没有落点" : editor.getText()));
+                snapshot("gradebook-navigate-tab.png");
+            });
+
+            // Esc：撤销本次修改，恢复修改前的成绩。
+            steps.add(() -> {
+                TableView<?> book = table("#gradeBookTable", "成绩表");
+                TextField editor = editorIn(book, 1, 3);
+                editor.selectAll();
+                editor.replaceSelection("55");
             });
             steps.add(() -> {
-                TextField editor = cellEditor(table("#gradeBookTable", "成绩表"));
-                require(editor != null, "双击单元格后必须出现输入框");
-                editor.setText("8.8.8");
-                editor.fireEvent(new ActionEvent());
+                TableView<?> book = table("#gradeBookTable", "成绩表");
+                require("55".equals(cellText(book, 1, 3)),
+                        "输入必须实时写入（模型里已经是 55），实际 " + cellText(book, 1, 3));
+                pressKey(editorIn(book, 1, 3), KeyCode.ESCAPE, false, false);
+            });
+            steps.add(() -> {
+                TableView<?> book = table("#gradeBookTable", "成绩表");
+                require(editorIn(book, 1, 3) == null, "Esc 之后必须收起编辑器");
+                require("66".equals(cellText(book, 1, 3)),
+                        "Esc 必须把这一格恢复成修改前的成绩，实际 " + cellText(book, 1, 3));
+                require("66".equals(renderedCellText(book, 1, 3)),
+                        "Esc 之后界面必须重新画出原来的成绩，实际 "
+                                + renderedCellText(book, 1, 3));
+                snapshot("gradebook-esc-reverted.png");
+            });
+
+            // 方向键：编辑器收起后焦点回到表格，↓ 下移一行、← 左移一格（整段选中时 ← 换格子）。
+            steps.add(() -> pressKey(table("#gradeBookTable", "成绩表"), KeyCode.DOWN, false, false));
+            steps.add(() -> {
+                TableView<?> book = table("#gradeBookTable", "成绩表");
+                TextField editor = editorIn(book, 2, 3);
+                require(editor != null && "67".equals(editor.getText()),
+                        "↓ 必须下移一行并进入编辑，实际 "
+                                + (editor == null ? "没有落点" : editor.getText()));
+                pressKey(editor, KeyCode.LEFT, false, false);
+            });
+            steps.add(() -> {
+                TableView<?> book = table("#gradeBookTable", "成绩表");
+                TextField editor = editorIn(book, 2, 2);
+                require(editor != null && "72".equals(editor.getText()),
+                        "← 在整段选中时必须移到左边一格，实际 "
+                                + (editor == null ? "没有落点" : editor.getText()));
+            });
+
+            // 批量粘贴：从当前格开始把 2×2 块向右下铺开（直接从 Excel 复制一列/一片的场景）。
+            steps.add(() -> {
+                TableView<?> book = table("#gradeBookTable", "成绩表");
+                setClipboard("50\t60\r\n51\t61\r\n");
+                pressKey(editorIn(book, 2, 2), KeyCode.V, false, true);
+            });
+            steps.add(() -> {
+                TableView<?> book = table("#gradeBookTable", "成绩表");
+                require("50".equals(cellText(book, 2, 2)) && "60".equals(cellText(book, 2, 3))
+                                && "51".equals(cellText(book, 3, 2))
+                                && "61".equals(cellText(book, 3, 3)),
+                        "2×2 粘贴必须向右下铺开，实际 " + cellText(book, 2, 2) + "/"
+                                + cellText(book, 2, 3) + "/" + cellText(book, 3, 2) + "/"
+                                + cellText(book, 3, 3));
+                require("77".equals(cellText(book, 2, 4)),
+                        "粘贴不得碰到块右边的格子，实际 " + cellText(book, 2, 4));
+                // 粘贴改到的格子必须真的在界面上重画出来，而不是只在模型里改了值。
+                require("60".equals(renderedCellText(book, 2, 3))
+                                && "51".equals(renderedCellText(book, 3, 2))
+                                && "61".equals(renderedCellText(book, 3, 3)),
+                        "粘贴之后界面必须重新画出这些值，实际 " + renderedCellText(book, 2, 3) + "/"
+                                + renderedCellText(book, 3, 2) + "/"
+                                + renderedCellText(book, 3, 3));
+                require(editorIn(book, 2, 2) != null,
+                        "粘贴之后必须回到起点格继续录入，而不是把编辑器丢掉");
+                snapshot("gradebook-paste-block.png");
+            });
+
+            // 异常成绩即时校验：满分 100 分时输入 105，在本格直接提示错误，不弹窗打断连续录入。
+            // 表格按行虚拟化：把第一行滚回视口再单击（真实用户也要先滚到那一行才点得到）。
+            steps.add(() -> table("#gradeBookTable", "成绩表").scrollTo(0));
+            steps.add(() -> clickCell(table("#gradeBookTable", "成绩表"), 0, 2));
+            steps.add(() -> {
+                TableView<?> book = table("#gradeBookTable", "成绩表");
+                TextField editor = editorIn(book, 0, 2);
+                require(editor != null, "第二次单击必须同样进入编辑");
+                editor.selectAll();
+                editor.replaceSelection("105");
             });
             steps.add(() -> {
                 TableView<?> book = table("#gradeBookTable", "成绩表");
                 require(styledCellsIn(book, 2, GRADE_CELL_ERROR_CLASS) == 1,
-                        "非法分数必须把该单元格标红，实际标红 "
+                        "超界分数必须把该单元格标红，实际标红 "
                                 + styledCellsIn(book, 2, GRADE_CELL_ERROR_CLASS) + " 格");
+                require("105".equals(cellText(book, 0, 2)),
+                        "超界分数必须原样留在格子里，实际 " + cellText(book, 0, 2));
+                Tooltip tip = tooltipOf(cellAt(book, 0, 2));
+                require(tip != null && tip.getText().contains("0..100"),
+                        "非法格必须就地说明原因（气泡提示），实际 "
+                                + (tip == null ? "没有提示" : tip.getText()));
+                require(Window.getWindows().size() == 1,
+                        "异常成绩不得弹窗打断录入，实际 " + Window.getWindows().size() + " 个窗口");
+                snapshot("gradebook-inline-error.png");
                 button("#gradeBookSaveButton", "保存草稿").fire();
             });
             steps.add(() -> {
@@ -693,15 +853,13 @@ public final class TeacherCourseUiSmokeTest {
             });
 
             // 修正后保存成功：非法样式消失、版本前进，用户输入的内容被服务端快照确认。
+            steps.add(() -> clickCell(table("#gradeBookTable", "成绩表"), 0, 2));
             steps.add(() -> {
                 TableView<?> book = table("#gradeBookTable", "成绩表");
-                editCell(book, 0, 2);
-            });
-            steps.add(() -> {
-                TextField editor = cellEditor(table("#gradeBookTable", "成绩表"));
+                TextField editor = editorIn(book, 0, 2);
                 require(editor != null, "第二次编辑必须同样出现输入框");
-                editor.setText("71.5");
-                editor.fireEvent(new ActionEvent());
+                editor.selectAll();
+                editor.replaceSelection("71.5");
             });
             steps.add(() -> {
                 TableView<?> book = table("#gradeBookTable", "成绩表");
@@ -716,7 +874,7 @@ public final class TeacherCourseUiSmokeTest {
                         "保存成功后版本必须前进到 v5，实际 " + labelText("#gradeBookStateLabel"));
             });
 
-            // 灰列：禁用一列组成 → 该列整体置灰、权重输入禁用、权重合计变成未配齐。
+            // 灰列：禁用一列组成 → 该列整体置灰、权重输入禁用、权重合计变成未配齐，且点不进编辑器。
             steps.add(() -> requireNode("#gradeBookExperimentEnabled", CheckBox.class, "实验启用开关")
                     .setSelected(false));
             steps.add(() -> {
@@ -731,6 +889,12 @@ public final class TeacherCourseUiSmokeTest {
                                 && labelText("#gradeBookSchemeLabel").contains("未配齐"),
                         "禁用后权重合计必须变成未配齐的 8000，实际 "
                                 + labelText("#gradeBookSchemeLabel"));
+                clickCell(book, 0, 4);
+            });
+            steps.add(() -> {
+                TableView<?> book = table("#gradeBookTable", "成绩表");
+                require(editorIn(book, 0, 4) == null,
+                        "禁用的成绩列不得打开编辑器（打开了也接收不了输入）");
                 snapshot("gradebook-disabled-column.png");
             });
 
@@ -1053,17 +1217,96 @@ public final class TeacherCourseUiSmokeTest {
             return count;
         }
 
-        /** 开始编辑某一格；类型参数由调用点推导，避免通配符捕获与 {@code TableColumn<?,?>} 冲突。 */
-        private static <S> void editCell(TableView<S> table, int rowIndex, int columnIndex) {
-            table.edit(rowIndex, table.getColumns().get(columnIndex));
-        }
-
-        /** 正在编辑的单元格输入框；成绩表里只有单元格编辑器是 TextField（方案条不在表内）。 */
-        private static TextField cellEditor(TableView<?> table) {
-            for (Node node : table.lookupAll(".text-field")) {
-                if (node instanceof TextField field && field.isVisible()) return field;
+        /**
+         * 已渲染的某一格。表格按行虚拟化，所以只有进了视口的行才有单元格可断言；
+         * 找不到就说明这一格根本不在界面上（例如导航跳出了视口）。
+         */
+        private static TableCell<?, ?> cellAt(TableView<?> table, int rowIndex, int columnIndex) {
+            Object column = table.getColumns().get(columnIndex);
+            for (Node node : table.lookupAll(".table-cell")) {
+                if (node instanceof TableCell<?, ?> cell && !cell.isEmpty()
+                        && column.equals(cell.getTableColumn()) && cell.getIndex() == rowIndex) {
+                    return cell;
+                }
             }
             return null;
+        }
+
+        /** 某一列里当前真正渲染出来的行下标，用在“找不到这一格”的失败信息里。 */
+        private static List<Integer> renderedRows(TableView<?> table, int columnIndex) {
+            Object column = table.getColumns().get(columnIndex);
+            List<Integer> rows = new ArrayList<>();
+            for (Node node : table.lookupAll(".table-cell")) {
+                if (node instanceof TableCell<?, ?> cell && column.equals(cell.getTableColumn())) {
+                    rows.add(cell.getIndex());
+                }
+            }
+            Collections.sort(rows);
+            return rows;
+        }
+
+        /**
+         * 真实的鼠标单击：Excel 式录入要求“单击即选中并进入编辑”，不再需要双击，所以这里
+         * 直接给单元格派发一个 MOUSE_CLICKED，走的就是控件自己挂的那条处理路径。
+         */
+        private static void clickCell(TableView<?> table, int rowIndex, int columnIndex) {
+            TableCell<?, ?> cell = cellAt(table, rowIndex, columnIndex);
+            if (cell == null) {
+                throw new IllegalStateException(
+                        "第 " + rowIndex + " 行第 " + columnIndex + " 列没有渲染出单元格；"
+                                + "当前这一列渲染出来的行是 " + renderedRows(table, columnIndex));
+            }
+            Event.fireEvent(cell, new MouseEvent(MouseEvent.MOUSE_CLICKED, 5, 5, 5, 5,
+                    MouseButton.PRIMARY, 1, false, false, false, false, true, false, false, true,
+                    false, false, null));
+        }
+
+        /**
+         * 某一格界面上<b>真正画出来</b>的文本。与 {@link #cellText} 不同：后者读的是列数据
+         * （模型当前值），这里读的是单元格节点自己的文本，因此能抓住“值写进去了但界面没刷新”
+         * 这类只刷新一半的缺陷。
+         */
+        private static String renderedCellText(TableView<?> table, int rowIndex, int columnIndex) {
+            TableCell<?, ?> cell = cellAt(table, rowIndex, columnIndex);
+            return cell == null || cell.getText() == null ? "" : cell.getText();
+        }
+
+        /** 某一格里打开的编辑器；没有打开编辑器时返回 null。 */
+        private static TextField editorIn(TableView<?> table, int rowIndex, int columnIndex) {
+            TableCell<?, ?> cell = cellAt(table, rowIndex, columnIndex);
+            if (cell == null) return null;
+            Node node = cell.lookup(".text-field");
+            return node instanceof TextField field && field.isVisible() ? field : null;
+        }
+
+        /** 某一格上的气泡提示（非法成绩的原因就写在这里，而不是弹窗）。 */
+        private static Tooltip tooltipOf(TableCell<?, ?> cell) {
+            return cell == null ? null : cell.getTooltip();
+        }
+
+        /** 给某个节点派发按键；模拟真实键盘时用的是控件的过滤器/处理器链路。 */
+        private static void pressKey(Node target, KeyCode code, boolean shift, boolean control) {
+            if (target == null) {
+                throw new IllegalStateException("键盘事件没有目标节点（按键 " + code + "）");
+            }
+            Event.fireEvent(target, new KeyEvent(KeyEvent.KEY_PRESSED, "", "", code, shift, control,
+                    false, false));
+        }
+
+        /** 给某个节点派发一个可打印字符（“直接敲数字”这条路径）。 */
+        private static void typeChar(Node target, String character) {
+            if (target == null) {
+                throw new IllegalStateException("键入没有目标节点");
+            }
+            Event.fireEvent(target, new KeyEvent(KeyEvent.KEY_TYPED, character, "", KeyCode.UNDEFINED,
+                    false, false, false, false));
+        }
+
+        /** 把一段文本放进系统剪贴板（模拟从 Excel 复制一片成绩）。 */
+        private static void setClipboard(String text) {
+            ClipboardContent content = new ClipboardContent();
+            content.putString(text);
+            Clipboard.getSystemClipboard().setContent(content);
         }
 
         // ---------------------------------------------------------------- 窗口与确认框

@@ -175,7 +175,13 @@ $suites = @(
             'dto.course.admin.GradeApprovalDtoJsonTest',
             'course.grade.GradeCalculatorTest',
             'course.grade.GradePointScaleTest')
+        # Excel 式录入（选中即编辑 / 方向键导航 / 批量粘贴）把两个纯判定抽成了无工具包的类：
+        # GradeBookNavigator（往哪一格走、←/→ 是挪光标还是换格子）与 GradeClipboardParser
+        # （剪贴板的三种行分隔符与末尾换行）。它们是键盘交互里唯一能用普通断言钉死的部分，
+        # 必须和编辑模型一样每次运行都跟着跑。
         Client = @('model.course.teacher.GradeBookEditorModelTest',
+            'model.course.teacher.GradeBookNavigatorTest',
+            'model.course.teacher.GradeClipboardParserTest',
             'controller.TeacherGradeBookControllerTest',
             'service.SocketTeacherCourseServiceTest',
             'controller.TeacherCourseManagementControllerTest',
