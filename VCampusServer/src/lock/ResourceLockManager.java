@@ -32,6 +32,25 @@ public final class ResourceLockManager {
         lock.lock();
         return new Guard(lock);
     }
+    /** Acquire each stripe once, in one global order, before any batch DB row locks. */
+    public MultiGuard guardAll(java.util.Collection<String> keys) {
+        int[] slots = keys.stream().mapToInt(key -> Math.floorMod(key.hashCode(), guards.length))
+                .distinct().sorted().toArray();
+        for (int slot : slots) guards[slot].lock();
+        return new MultiGuard(slots);
+    }
+    public final class MultiGuard implements AutoCloseable {
+        private final int[] slots;
+        private MultiGuard(int[] slots) { this.slots = slots; }
+        @Override public void close() { for (int i = slots.length - 1; i >= 0; i--) guards[slots[i]].unlock(); }
+    }
+    /** Caller keeps guardAll held through transaction commit/rollback. */
+    public boolean occupied(String key) {
+        try (Guard ignored = guard(key)) {
+            Lease lease = leases.get(key);
+            return lease != null && lease.expiresAt() > clock.getAsLong();
+        }
+    }
     public static final class Guard implements AutoCloseable {
         private final ReentrantLock lock;
         private Guard(ReentrantLock lock) { this.lock = lock; }

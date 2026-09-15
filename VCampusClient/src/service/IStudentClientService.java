@@ -23,6 +23,8 @@ public interface IStudentClientService {
     void reviewChangeRequest(StudentReviewVO r,Consumer<Message> c);
     void updateStudentByAdmin(Student s,Student original,Consumer<Message> c);
     void addAward(StudentAward a,Consumer<Message> c);
+    void addAwardsBatch(vo.StudentBatchRequest request,Consumer<Message> callback);
+    void addAidsBatch(vo.StudentBatchRequest request,Consumer<Message> callback);
     void updateAward(StudentAward a,Consumer<Message> c);
     void deleteAward(long id,Consumer<Message> c);
     void addAid(StudentAid a,Consumer<Message> c);

@@ -4,7 +4,7 @@
 <?import javafx.scene.control.*?>
 <?import javafx.scene.image.ImageView?>
 <?import javafx.scene.layout.*?>
-<BorderPane xmlns="http://javafx.com/javafx/17" xmlns:fx="http://javafx.com/fxml/1" prefHeight="580" prefWidth="860" styleClass="main-window" stylesheets="@../css/style.css" fx:controller="controller.StudentController">
+<BorderPane fx:id="rootPane" xmlns="http://javafx.com/javafx/17" xmlns:fx="http://javafx.com/fxml/1" minHeight="0" minWidth="0" prefHeight="580" prefWidth="860" styleClass="main-window" stylesheets="@../css/style.css" fx:controller="controller.StudentController">
   <top>
     <HBox alignment="CENTER_LEFT" prefHeight="58" spacing="12" styleClass="app-topbar">
       <padding>
@@ -122,8 +122,8 @@
               </StackPane>
             </left>
             <center>
-              <ScrollPane fx:id="detailScrollPane" fitToHeight="false" fitToWidth="false" hbarPolicy="AS_NEEDED" pannable="true" styleClass="student-scroll" vbarPolicy="AS_NEEDED">
-                <VBox minWidth="1080" spacing="12">
+              <ScrollPane fx:id="detailScrollPane" fitToHeight="false" fitToWidth="true" hbarPolicy="NEVER" pannable="true" styleClass="student-scroll" vbarPolicy="AS_NEEDED">
+                <VBox minWidth="0" spacing="12">
                   <padding>
                     <Insets bottom="20" left="20" right="22" top="18"/>
                   </padding>
@@ -261,9 +261,36 @@
                   <Insets bottom="14" left="18" right="22" top="18"/>
                 </padding>
                 <Label fx:id="adminWorkspaceTitle" styleClass="student-section-title" text="学生信息管理"/>
-                <HBox alignment="CENTER_LEFT" spacing="10" styleClass="student-export-toolbar">
-                  <Button fx:id="exportStudentsButton" disable="true" onAction="#handleExportSelectedStudents" styleClass="student-export-action" text="导出"/>
-                  <Label fx:id="selectedStudentCountLabel" styleClass="hint-text" text="已选择 0 人"/>
+                <HBox alignment="CENTER_LEFT"
+                      spacing="10"
+                      styleClass="student-export-toolbar">
+
+                  <Button fx:id="exportStudentsButton"
+                          disable="true"
+                          onAction="#handleExportSelectedStudents"
+                          styleClass="student-export-action"
+                          text="导出"/>
+
+                  <Button fx:id="batchAwardButton"
+                          disable="true"
+                          managed="false"
+                          visible="false"
+                          onAction="#handleBatchAddAward"
+                          styleClass="btn-primary"
+                          text="批量添加奖励"/>
+
+                  <Button fx:id="batchAidButton"
+                          disable="true"
+                          managed="false"
+                          visible="false"
+                          onAction="#handleBatchAddAid"
+                          styleClass="btn-primary"
+                          text="批量添加资助"/>
+
+                  <Label fx:id="selectedStudentCountLabel"
+                         styleClass="hint-text"
+                         text="已选择 0 人"/>
+
                 </HBox>
                 <HBox alignment="CENTER_LEFT" spacing="8" styleClass="student-search-bar">
                   <Label text="学号"/>

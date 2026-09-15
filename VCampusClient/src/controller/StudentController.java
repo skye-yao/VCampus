@@ -35,6 +35,7 @@ import java.util.*;
 import java.util.Base64;
 
 public class StudentController {
+    @FXML private BorderPane rootPane;
     @FXML private Label titleLabel,statusBarLabel,avatarLabel,sidebarAvatarLabel,sidebarNameLabel,sidebarMajorLabel,nameLabel,studentMetaLabel,pendingHintLabel,categoryValue,statusValue,gradeValue,inSchoolValue;
     @FXML private ImageView avatarImageView,sidebarAvatarImageView,adminAvatarImageView,adminListAvatarImageView,adminReviewAvatarImageView;
     @FXML private Label adminListNameLabel,adminReviewNameLabel,adminDetailNameLabel,adminListAvatarLabel,adminReviewAvatarLabel,adminDetailAvatarLabel;
@@ -48,6 +49,7 @@ public class StudentController {
     @FXML private VBox studentDetailSidebar,adminDetailSidebar,reviewOverviewPane,reviewDetailPane,experienceCardContainer,familyCardContainer,adminReadOnlyInfoPane,adminExperienceCardContainer,adminFamilyCardContainer;
     @FXML private Button detailReturnButton,editBaseButton,editStudyButton,editAdmissionButton,editContactButton,exportPdfButton,exportStudentsButton,managementNavButton,maintenanceNavButton,editExperienceButton,deleteExperienceButton,editFamilyButton,deleteFamilyButton;
     @FXML private Button baseIndexButton,studyIndexButton,admissionIndexButton,contactIndexButton,adminDetailManagementNavButton,adminDetailMaintenanceNavButton;
+    @FXML private Button batchAwardButton,batchAidButton;
     @FXML private VBox adminRecordMaintenancePane;
     @FXML private TextArea reviewRemarkArea;
     @FXML private TextField searchIdField,searchNameField,searchCollegeField,pageNumberField,reviewSearchIdField,reviewSearchStudentField,reviewSearchStatusField,reviewPageNumberField;
@@ -109,6 +111,8 @@ public class StudentController {
         ClientMain.setPageCleanup(()->{disposed=true;resetEditState();service.dispose();});
         service.onEditLeaseLost(()->{if(!disposed){resetEditState();if(overview!=null)render(overview);setStatus("编辑占用已失效，请重新进入编辑页面");}});
         setupTables();
+        util.InformationResponsiveLayout.install(rootPane);
+        rootPane.widthProperty().addListener((observable, oldWidth, newWidth)->reflowInformationGrids());
         setupRole();
         initAvatar();
         reviewStatusPane.setVisible(!isAdmin());
@@ -179,16 +183,20 @@ public class StudentController {
     @FXML private void handleBackFromExperiences(){studentTabs.getSelectionModel().select(overviewTab);}
     //
     @FXML private void handleShowOverview() {
+        exitDetailEditState();
         studentTabs.getSelectionModel().select(overviewTab);
     }
     //管理员切换到审核页
     @FXML private void handleShowReview() {
-        if(isAdmin())studentTabs.getSelectionModel().select(reviewTab);
+        if(isAdmin()){
+            exitDetailEditState();
+            studentTabs.getSelectionModel().select(reviewTab);
+        }
     }
     //关闭维护模式
-    @FXML private void handleShowStudentManagement(){adminMaintenanceMode=false;applyAdminMode();}
+    @FXML private void handleShowStudentManagement(){exitDetailEditState();adminMaintenanceMode=false;applyAdminMode();}
     //开启维护模式
-    @FXML private void handleShowStudentMaintenance(){adminMaintenanceMode=true;applyAdminMode();}
+    @FXML private void handleShowStudentMaintenance(){exitDetailEditState();adminMaintenanceMode=true;applyAdminMode();}
     //切换到教师信息页面
     @FXML private void handleOpenTeacherInformation(){ClientMain.switchScene("/resources/fxml/TeacherView.fxml");}
     //开始应用到管理员模式，如果不是管理员直接返回
@@ -201,6 +209,15 @@ public class StudentController {
         managementNavButton.getStyleClass().add(adminMaintenanceMode?"student-side-button":"student-side-button-active");
         maintenanceNavButton.getStyleClass().add(adminMaintenanceMode?"student-side-button-active":"student-side-button");
         stuActionCol.setText("操作");studentTable.refresh();
+        boolean maintenance=adminMaintenanceMode;
+
+        batchAwardButton.setVisible(maintenance);
+        batchAwardButton.setManaged(maintenance);
+
+        batchAidButton.setVisible(maintenance);
+        batchAidButton.setManaged(maintenance);
+
+        updateStudentSelectionState();
     }
 
     //全局编辑状态
@@ -259,7 +276,7 @@ public class StudentController {
         setStatus("正在进入编辑状态...");
         String studentId=overview.getStudent().getStudentId();
         service.beginEdit(studentId,m->runOnPage(()-> {
-            if(expected!=editEntryVersion)return;
+            if(expected!=editEntryVersion){service.releaseEditLease();return;}
             enteringEdit=false;
             if(!ok(m)){
                 String error=message(m,"暂时无法进入编辑状态");
@@ -289,7 +306,8 @@ public class StudentController {
         submit.setOnAction(e->handleSubmitChange());
         HBox actions=new HBox(8,cancel,submit);
         actions.setAlignment(Pos.CENTER_RIGHT);
-        contactInfoGrid.add(actions,0,4,6,1);
+        actions.setUserData("grid-actions");
+        contactInfoGrid.add(actions,0,(contactFields().size()+responsivePairCount()-1)/responsivePairCount(),responsivePairCount()*2,1);
         setStatus(isAdmin()?"全部信息已进入编辑状态，提交后直接生效":"全部信息已进入编辑状态，提交后等待审核");
     }
 
@@ -302,6 +320,7 @@ public class StudentController {
             String n=names.get(i);
             int[] p=fieldPosition(grid,n,i);
             Label key=new Label(title(n));
+            key.setUserData("key:"+n);
             //必填的添加标识
             if(!isAdmin()&&REQUIRED.contains(n)) {
                 Label star=new Label("*");star.setStyle("-fx-text-fill: #dc2626; -fx-font-weight: bold;");
@@ -332,6 +351,12 @@ public class StudentController {
         resetEditState();
         render(overview);//重新生成只读界面
         setStatus("已取消编辑");
+    }
+
+    private void exitDetailEditState(){
+        boolean active=editing||enteringEdit;
+        resetEditState();
+        if(active&&overview!=null)render(overview);
     }
 
     //创建编辑
@@ -833,7 +858,7 @@ public class StudentController {
         }));
     }
     @FXML private void handleReturnToStudentList() {
-        editing=false;
+        exitDetailEditState();
         studentTabs.getSelectionModel().select(adminListTab);
     }
     private int pageCount() {
@@ -851,14 +876,54 @@ public class StudentController {
     }
     //刷新单元格
     private void updateStudentSelectionState(){
+
         if(selectCurrentPageCheckBox!=null){
-            boolean any=!studentTable.getItems().isEmpty();
-            long selectedInResult=filteredStudents.stream().filter(student->selectedStudentIds.contains(student.getStudentId())).count();
-            selectCurrentPageCheckBox.setIndeterminate(selectedInResult>0&&selectedInResult<filteredStudents.size());
-            selectCurrentPageCheckBox.setSelected(any&&!filteredStudents.isEmpty()&&selectedInResult==filteredStudents.size());
+
+            boolean any=
+                    !studentTable.getItems().isEmpty();
+
+            long selectedInResult=
+                    filteredStudents.stream()
+                            .filter(student->
+                                    selectedStudentIds.contains(
+                                            student.getStudentId()
+                                    )
+                            )
+                            .count();
+
+            selectCurrentPageCheckBox.setIndeterminate(
+                    selectedInResult>0
+                            &&selectedInResult
+                            <filteredStudents.size()
+            );
+
+            selectCurrentPageCheckBox.setSelected(
+                    any
+                            &&!filteredStudents.isEmpty()
+                            &&selectedInResult
+                            ==filteredStudents.size()
+            );
         }
-        if(selectedStudentCountLabel!=null)selectedStudentCountLabel.setText("已选择 "+selectedStudentIds.size()+" 人");
-        if(exportStudentsButton!=null)exportStudentsButton.setDisable(selectedStudentIds.isEmpty());
+
+        boolean none=selectedStudentIds.isEmpty();
+
+        if(selectedStudentCountLabel!=null){
+            selectedStudentCountLabel.setText(
+                    "已选择 "+selectedStudentIds.size()+" 人"
+            );
+        }
+
+        if(exportStudentsButton!=null){
+            exportStudentsButton.setDisable(none);
+        }
+
+        if(batchAwardButton!=null){
+            batchAwardButton.setDisable(none);
+        }
+
+        if(batchAidButton!=null){
+            batchAidButton.setDisable(none);
+        }
     }
     @FXML private void handleFirstPage() {
         currentPage=1;
@@ -890,7 +955,21 @@ public class StudentController {
         String validation=validateRequired();
         if(validation!=null){setStatus(validation);return;}
         List<StudentChangeItem> items=changedItems();
+
         if(items.isEmpty()) {
+
+            if(isAdmin()){
+                AlertUtil.showWarning(
+                        "未检测到修改",
+                        "当前没有任何修改内容，无需保存。"
+                );
+            }else{
+                AlertUtil.showWarning(
+                        "未检测到修改",
+                        "您尚未修改任何信息，请修改后再提交申请。"
+                );
+            }
+
             setStatus("没有检测到修改内容");
             return;
         }
@@ -1446,6 +1525,278 @@ public class StudentController {
         if(b==null||b.isBlank()||"-".equals(b))return a;
         return a+" · "+b;
     }
+    @FXML
+    private void handleBatchAddAward(){
+
+        if(selectedStudentIds.isEmpty()){
+            AlertUtil.showWarning(
+                    "请选择学生",
+                    "请先勾选需要添加奖励的学生。"
+            );
+            return;
+        }
+
+        LinkedHashMap<String,String> initial=
+                new LinkedHashMap<>();
+
+        initial.put("奖励名称","");
+        initial.put("类型","荣誉");
+        initial.put("奖励级别","");
+        initial.put("奖励日期","");
+        initial.put("颁发单位","");
+        initial.put("奖励说明","");
+
+        Optional<Map<String,String>> result=
+                showRecordDialog(
+                        "批量添加奖励",
+                        initial
+                );
+
+        if(result.isEmpty())return;
+
+        Map<String,String> values=result.get();
+
+        try{
+
+            StudentAward award=new StudentAward();
+
+            award.setAwardName(
+                    values.get("奖励名称")
+            );
+
+            award.setAwardType(
+                    parseAwardType(
+                            values.get("类型")
+                    )
+            );
+
+            award.setAwardLevel(
+                    values.get("奖励级别")
+            );
+
+            award.setAwardDate(
+                    Date.valueOf(
+                            values.get("奖励日期")
+                    )
+            );
+
+            award.setOrganization(
+                    values.get("颁发单位")
+            );
+
+            award.setDescription(
+                    values.get("奖励说明")
+            );
+
+            vo.StudentBatchRequest request=
+                    new vo.StudentBatchRequest(
+                            java.util.UUID.randomUUID().toString(),
+                            new ArrayList<>(
+                                    selectedStudentIds
+                            ),
+                            award,
+                            null
+                    );
+
+            setStatus(
+                    "正在为 "
+                            +selectedStudentIds.size()
+                            +" 名学生添加奖励..."
+            );
+
+            service.addAwardsBatch(
+                    request,
+                    response->runOnPage(()->{
+
+                        String text=message(
+                                response,
+                                "批量添加奖励完成"
+                        );
+
+                        setStatus(text);
+
+                        if(ok(response)){
+                            AlertUtil.showInfo(
+                                    "添加成功",
+                                    text
+                            );
+
+                            // 成功后清空已勾选学生
+                            selectedStudentIds.clear();
+                            studentTable.refresh();
+                            updateStudentSelectionState();
+
+                        }else{
+                            showBatchConflicts(response);
+
+                            // 如果不是“部分学生冲突”，而是普通错误，也给出提示
+                            Object raw=response==null
+                                    ?null
+                                    :response.getData().get("batchResult");
+
+                            if(raw==null){
+                                AlertUtil.showError(
+                                        "批量添加失败",
+                                        text
+                                );
+                            }
+                        }
+                    })
+            );
+
+        }catch(Exception exception){
+
+            setStatus(
+                    "奖励信息格式错误："
+                            +exception.getMessage()
+            );
+        }
+    }
+    @FXML
+    private void handleBatchAddAid(){
+
+        if(selectedStudentIds.isEmpty()){
+            AlertUtil.showWarning(
+                    "请选择学生",
+                    "请先勾选需要添加资助的学生。"
+            );
+            return;
+        }
+
+        LinkedHashMap<String,String> initial=
+                new LinkedHashMap<>();
+
+        initial.put("资助名称","");
+        initial.put("资助类型","");
+        initial.put("金额","0");
+        initial.put("资助日期","");
+        initial.put("资助提供方","");
+        initial.put("状态","待发放");
+        initial.put("资助说明","");
+
+        Optional<Map<String,String>> result=
+                showRecordDialog(
+                        "批量添加资助",
+                        initial
+                );
+
+        if(result.isEmpty())return;
+
+        Map<String,String> values=result.get();
+
+        try{
+
+            StudentAid aid=new StudentAid();
+
+            aid.setAidName(
+                    values.get("资助名称")
+            );
+
+            aid.setAidType(
+                    values.get("资助类型")
+            );
+
+            aid.setAmount(
+                    new java.math.BigDecimal(
+                            values.get("金额")
+                    )
+            );
+
+            aid.setAidDate(
+                    Date.valueOf(
+                            values.get("资助日期")
+                    )
+            );
+
+            aid.setProvider(
+                    values.get("资助提供方")
+            );
+
+            aid.setStatus(
+                    parseAidStatus(
+                            values.get("状态")
+                    )
+            );
+
+            aid.setDescription(
+                    values.get("资助说明")
+            );
+
+            vo.StudentBatchRequest request=
+                    new vo.StudentBatchRequest(
+                            java.util.UUID.randomUUID().toString(),
+                            new ArrayList<>(
+                                    selectedStudentIds
+                            ),
+                            null,
+                            aid
+                    );
+
+            setStatus(
+                    "正在为 "
+                            +selectedStudentIds.size()
+                            +" 名学生添加资助..."
+            );
+
+            service.addAidsBatch(
+                    request,
+                    response->runOnPage(()->{
+
+                        String text=message(
+                                response,
+                                "批量添加资助完成"
+                        );
+
+                        setStatus(text);
+
+                        if(ok(response)){
+                            AlertUtil.showInfo(
+                                    "添加成功",
+                                    text
+                            );
+
+                            // 成功后清空已勾选学生
+                            selectedStudentIds.clear();
+                            studentTable.refresh();
+                            updateStudentSelectionState();
+
+                        }else{
+                            showBatchConflicts(response);
+
+                            Object raw=response==null
+                                    ?null
+                                    :response.getData().get("batchResult");
+
+                            if(raw==null){
+                                AlertUtil.showError(
+                                        "批量添加失败",
+                                        text
+                                );
+                            }
+                        }
+                    })
+            );
+
+        }catch(Exception exception){
+
+            setStatus(
+                    "资助信息格式错误："
+                            +exception.getMessage()
+            );
+        }
+    }
+    private void showBatchConflicts(Message m){
+        if(m==null)return;
+        Object raw=m.getData().get("batchResult");
+        if(raw==null)return;
+        StudentBatchResult result=gson.fromJson(gson.toJson(raw),StudentBatchResult.class);
+        if(result==null||result.conflicts()==null||result.conflicts().isEmpty())return;
+        StringBuilder text=new StringBuilder();
+        for(StudentBatchResult.Conflict conflict:result.conflicts()){
+            text.append(conflict.studentId()).append("：").append(conflict.reason()).append("\n");
+        }
+        AlertUtil.showWarning("部分学生未添加",text.toString());
+    }
     @FXML private void handleAddAward(){saveAward(null);}
     @FXML private void handleEditAward(){
         StudentAward selectedAward=maintenanceAwardTable.getSelectionModel().getSelectedItem();
@@ -1544,12 +1895,100 @@ public class StudentController {
                 DatePicker picker=new DatePicker();
                 if(!entry.getValue().isBlank())try{picker.setValue(java.time.LocalDate.parse(entry.getValue()));}catch(Exception ignored){}
                 picker.setPrefWidth(360);field=picker;readers.put(key,()->picker.getValue()==null?"":picker.getValue().toString());
+            }else if ("奖励名称".equals(key) && title.contains("奖励")) {
+                ComboBox<String> combo = new ComboBox<>(
+                        FXCollections.observableArrayList(
+                                "国家奖学金",
+                                "国家励志奖学金",
+                                "校一等奖学金",
+                                "校二等奖学金",
+                                "校三等奖学金",
+                                "校长奖学金",
+                                "三好学生",
+                                "优秀学生干部",
+                                "优秀团员",
+                                "优秀毕业生",
+                                "其他"
+                        )
+                );
+                combo.setPromptText("请选择奖励名称");
+                combo.setEditable(false);
+                combo.setPrefWidth(360);
+
+                // 编辑已有记录时，保留并回显原来的名称
+                String currentValue = entry.getValue();
+                if (currentValue != null && !currentValue.isBlank()) {
+                    if (!combo.getItems().contains(currentValue)) {
+                        combo.getItems().add(currentValue);
+                    }
+                    combo.setValue(currentValue);
+                }
+
+                field = combo;
+                readers.put(key, () ->
+                        combo.getValue() == null ? "" : combo.getValue()
+                );
             }else if("类型".equals(key)&&title.contains("奖励")){
-                ComboBox<String> combo=new ComboBox<>(FXCollections.observableArrayList("奖学金","荣誉","竞赛","科研","实践","其他"));
-                combo.setValue(entry.getValue().isBlank()?null:entry.getValue());combo.setPrefWidth(360);field=combo;readers.put(key,()->combo.getValue()==null?"":combo.getValue());
+                ComboBox<String> combo=new ComboBox<>(
+                        FXCollections.observableArrayList(
+                                "奖学金",
+                                "荣誉",
+                                "其他"
+                        )
+                );
+                String currentValue=entry.getValue();
+                if(currentValue!=null&&!currentValue.isBlank()){
+                    if(!combo.getItems().contains(currentValue)){
+                        combo.getItems().add(currentValue);
+                    }
+                    combo.setValue(currentValue);
+                }
+                combo.setPrefWidth(360);
+                field=combo;
+                readers.put(key,()->combo.getValue()==null?"":combo.getValue());
+
+            }else if("资助名称".equals(key)&&title.contains("资助")){
+                ComboBox<String> combo=new ComboBox<>(
+                        FXCollections.observableArrayList(
+                                "国家助学金",
+                                "校级助学金",
+                                "阳光补助",
+                                "困难补助",
+                                "学费减免",
+                                "社会资助",
+                                "其他"
+                        )
+                );
+
+                combo.setPromptText("请选择资助名称");
+                combo.setEditable(false);
+                combo.setPrefWidth(360);
+
+                // 编辑已有记录时回显原值
+                String currentValue=entry.getValue();
+                if(currentValue!=null&&!currentValue.isBlank()){
+                    if(!combo.getItems().contains(currentValue)){
+                        combo.getItems().add(currentValue);
+                    }
+                    combo.setValue(currentValue);
+                }
+
+                field=combo;
+                readers.put(
+                        key,
+                        ()->combo.getValue()==null?"":combo.getValue()
+                );
+
             }else if("资助类型".equals(key)&&title.contains("资助")){
-                ComboBox<String> combo=new ComboBox<>(FXCollections.observableArrayList("助学金","助学贷款","勤工助学","困难补助","学费减免","其他"));
-                combo.setValue(entry.getValue().isBlank()?null:entry.getValue());combo.setPrefWidth(360);field=combo;readers.put(key,()->combo.getValue()==null?"":combo.getValue());
+                ComboBox<String> combo=new ComboBox<>(FXCollections.observableArrayList("助学金","勤工助学","困难补助","学费减免","其他"));
+                String currentValue=entry.getValue();
+                if(currentValue!=null&&!currentValue.isBlank()){
+                    if(!combo.getItems().contains(currentValue)){
+                        combo.getItems().add(currentValue);
+                    }
+                    combo.setValue(currentValue);
+                }
+                combo.setPrefWidth(360);field=combo;readers.put(key,()->combo.getValue()==null?"":combo.getValue());
             }else if("状态".equals(key)&&title.contains("资助")){
                 ComboBox<String> combo=new ComboBox<>(FXCollections.observableArrayList("待发放","已发放","已取消"));
                 combo.setValue(entry.getValue().isBlank()?null:entry.getValue());combo.setPrefWidth(360);field=combo;readers.put(key,()->combo.getValue()==null?"":combo.getValue());
@@ -1658,6 +2097,8 @@ LinkedHashMap<String,String> f=new LinkedHashMap<>();f.put("姓名","");f.put("�
             String n=names.get(i);
             int[] p=fieldPosition(g,n,i);
             Label k=new Label(title(n)),v=new Label(show(read(s,n)));
+            k.setUserData("key:"+n);
+            v.setUserData(n);
             styleFieldKey(k);
             v.getStyleClass().add("student-field-value");
             v.setAlignment(Pos.CENTER_LEFT);
@@ -1675,9 +2116,9 @@ LinkedHashMap<String,String> f=new LinkedHashMap<>();f.put("姓名","");f.put("�
         key.getStyleClass().add("student-field-key");
         key.setAlignment(Pos.CENTER_LEFT);
         key.setWrapText(false);
-        key.setMinWidth(136);
-        key.setPrefWidth(136);
-        key.setMaxWidth(136);
+        key.setMinWidth(90);
+        key.setPrefWidth(118);
+        key.setMaxWidth(Double.MAX_VALUE);
         key.setTextOverrun(OverrunStyle.ELLIPSIS);
         key.setTooltip(new Tooltip(key.getText()));
     }
@@ -1686,14 +2127,16 @@ LinkedHashMap<String,String> f=new LinkedHashMap<>();f.put("姓名","");f.put("�
         g.setHgap(12);
         g.setVgap(9);
         g.setMaxWidth(Double.MAX_VALUE);
-        if(g.getColumnConstraints().size()==6)return;
+        int columnCount=responsivePairCount()*2;
+        if(g.getColumnConstraints().size()==columnCount)return;
         g.getColumnConstraints().clear();
-        for(int i=0;i<6;i++) {
+        for(int i=0;i<columnCount;i++) {
             ColumnConstraints c=new ColumnConstraints();
             if(i%2==0) {
-                c.setMinWidth(136);
-                c.setPrefWidth(136);
-                c.setMaxWidth(136);
+                double labelWidth=responsivePairCount()==1?118:128;
+                c.setMinWidth(labelWidth);
+                c.setPrefWidth(labelWidth);
+                c.setMaxWidth(labelWidth);
                 c.setHgrow(Priority.NEVER);
             }
             else {
@@ -1708,6 +2151,8 @@ LinkedHashMap<String,String> f=new LinkedHashMap<>();f.put("姓名","");f.put("�
         }
     }
     private int[] fieldPosition(GridPane g,String n,int index) {
+        int pairs=responsivePairCount();
+        if(pairs<3)return new int[]{index/pairs,index%pairs};
         if(g==baseInfoGrid) {
             return switch(n) {
                 case"UID"->new int[] {
@@ -1844,7 +2289,48 @@ LinkedHashMap<String,String> f=new LinkedHashMap<>();f.put("姓名","");f.put("�
         ;
     }
     private boolean fieldSpansRemainder(GridPane g,String n) {
-        return(g==baseInfoGrid&&"registeredResidence".equals(n))||(g==contactInfoGrid&&"campusAddress".equals(n));
+        return responsivePairCount()==3&&((g==baseInfoGrid&&"registeredResidence".equals(n))||(g==contactInfoGrid&&"campusAddress".equals(n)));
+    }
+
+    private int responsivePairCount(){
+        double width=rootPane==null?860:rootPane.getWidth();
+        if(width<1050)return 1;
+        if(width<1500)return 2;
+        return 3;
+    }
+
+    private void reflowInformationGrids(){
+        if(baseInfoGrid==null)return;
+        for(GridPane grid:List.of(baseInfoGrid,studyInfoGrid,admissionInfoGrid,contactInfoGrid,
+                reviewStudentBaseGrid,reviewStudentStudyGrid,reviewStudentAdmissionGrid,reviewStudentContactGrid)){
+            if(grid!=null)reflowInformationGrid(grid);
+        }
+    }
+
+    private void reflowInformationGrid(GridPane grid){
+        int pairs=responsivePairCount();
+        prepareSixColumns(grid);
+        int index=0;
+        for(Node node:new ArrayList<>(grid.getChildren())){
+            Object marker=node.getUserData();
+            if(marker instanceof String value&&value.startsWith("key:")){
+                String field=value.substring(4);
+                int[] position=fieldPosition(grid,field,index++);
+                GridPane.setRowIndex(node,position[0]);
+                GridPane.setColumnIndex(node,position[1]*2);
+                GridPane.setColumnSpan(node,1);
+                for(Node candidate:grid.getChildren())if(Objects.equals(candidate.getUserData(),field)){
+                    GridPane.setRowIndex(candidate,position[0]);
+                    GridPane.setColumnIndex(candidate,position[1]*2+1);
+                    GridPane.setColumnSpan(candidate,fieldSpansRemainder(grid,field)?pairs*2-(position[1]*2+1):1);
+                    break;
+                }
+            }else if(Objects.equals(marker,"grid-actions")){
+                GridPane.setRowIndex(node,(index+pairs-1)/pairs);
+                GridPane.setColumnIndex(node,0);
+                GridPane.setColumnSpan(node,pairs*2);
+            }
+        }
     }
     private Object read(Student s,String n) {
         try {

@@ -1,5 +1,7 @@
 package service;
+
 import java.util.function.Consumer;
+
 import network.SocketClient;
 import entity.*;
 import protocol.*;
@@ -38,7 +40,7 @@ public class StudentClientService implements IStudentClientService {
         Message m=new Message(typeOf(action),"student",action);
         if(key!=null)m.putData(key,value);
         String type=m.getType().name();
-        boolean record=type.contains("_EXPERIENCE_")||type.contains("_FAMILY_MEMBER_")||type.contains("_AWARD_")||type.contains("_AID_");
+        boolean record=!type.contains("_BATCH_")&&(type.contains("_EXPERIENCE_")||type.contains("_FAMILY_MEMBER_")||type.contains("_AWARD_")||type.contains("_AID_"));
         if(record) {
             if(recordInFlight){c.accept(reply(false,"记录正在保存，请等待完成"));return;}
             String id=value instanceof StudentAward a?a.getStudentId():value instanceof StudentAid a?a.getStudentId():currentStudentId;
@@ -68,6 +70,8 @@ public class StudentClientService implements IStudentClientService {
             case "addAid" -> MessageType.STUDENT_AID_ADD;
             case "updateAid" -> MessageType.STUDENT_AID_UPDATE;
             case "deleteAid" -> MessageType.STUDENT_AID_DELETE;
+            case "addAwardsBatch" -> MessageType.STUDENT_AWARD_BATCH_ADD;
+            case "addAidsBatch" -> MessageType.STUDENT_AID_BATCH_ADD;
             case "addExperience" -> MessageType.STUDENT_EXPERIENCE_ADD;
             case "addFamilyMember" -> MessageType.STUDENT_FAMILY_MEMBER_ADD;
             case "updateExperience" -> MessageType.STUDENT_EXPERIENCE_UPDATE;
@@ -160,10 +164,46 @@ public class StudentClientService implements IStudentClientService {
     @Override
     public void deleteFamilyMember(long id,Consumer<Message> c){send("deleteFamilyMember","memberId",id,c);}
 
+    @Override
+    public void addAwardsBatch(
+            vo.StudentBatchRequest request,
+            Consumer<Message> callback
+    ){
+        sendBatch("addAwardsBatch",request,callback);
+    }
+
+    @Override
+    public void addAidsBatch(
+            vo.StudentBatchRequest request,
+            Consumer<Message> callback
+    ){
+        sendBatch("addAidsBatch",request,callback);
+    }
+
+    private void sendBatch(
+            String action,
+            vo.StudentBatchRequest request,
+            Consumer<Message> callback
+    ){
+        if(disposed)return;
+
+        if(request==null
+                ||request.studentIds()==null
+                ||request.studentIds().isEmpty()){
+
+            callback.accept(
+                    reply(false,"请选择学生")
+            );
+            return;
+        }
+
+        send(action,"batch",request,callback);
+    }
+
     private void dispatch(Message m,Consumer<Message> callback) {
         if(disposed)return;
         String type=m.getType().name();
-        boolean record=type.contains("_EXPERIENCE_")||type.contains("_FAMILY_MEMBER_")||type.contains("_AWARD_")||type.contains("_AID_");
+        boolean record=!type.contains("_BATCH_")&&(type.contains("_EXPERIENCE_")||type.contains("_FAMILY_MEMBER_")||type.contains("_AWARD_")||type.contains("_AID_"));
         if(record)recordInFlight=true;
         boolean query=type.endsWith("QUERY")||type.endsWith("LIST");
         String channel=type.contains("OVERVIEW")||type.equals("STUDENT_QUERY")||type.equals("STUDENT_DETAIL_QUERY")?"overview":type;
