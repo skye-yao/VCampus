@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.ComboBox?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.control.TextField?>
+<?import javafx.scene.layout.BorderPane?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.StackPane?>
+<?import javafx.scene.layout.VBox?>
+
+<BorderPane styleClass="course-admin-page" xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.AdminCourseCatalogController">
+    <top>
+        <VBox spacing="10.0" BorderPane.alignment="CENTER">
+            <children>
+                <HBox alignment="CENTER_LEFT" spacing="10.0" styleClass="course-admin-toolbar">
+                    <children>
+                        <TextField fx:id="searchField" promptText="搜索课程名称或代码" styleClass="course-admin-search-field" HBox.hgrow="ALWAYS" />
+                        <ComboBox fx:id="statusFilter" prefWidth="132.0" promptText="状态" styleClass="course-admin-status-filter" />
+                        <Button fx:id="refreshButton" onAction="#refresh" styleClass="course-admin-refresh-button" text="刷新" />
+                        <Button fx:id="createCourseButton" onAction="#openCreateCourse" styleClass="course-admin-create-button" text="新增课程" />
+                    </children>
+                </HBox>
+            </children>
+            <padding>
+                <Insets bottom="12.0" />
+            </padding>
+        </VBox>
+    </top>
+    <center>
+        <StackPane styleClass="course-admin-list-area" BorderPane.alignment="CENTER">
+            <children>
+                <ScrollPane fitToWidth="true" hbarPolicy="NEVER" pannable="true" styleClass="course-admin-list-scroll">
+                    <content>
+                        <VBox fx:id="courseList" fillWidth="true" spacing="8.0" styleClass="course-admin-list" />
+                    </content>
+                </ScrollPane>
+                <VBox alignment="CENTER" maxHeight="-Infinity" spacing="10.0" styleClass="course-admin-state-area" StackPane.alignment="TOP_CENTER">
+                    <children>
+                        <Label fx:id="loadingLabel" managed="false" styleClass="course-admin-loading-text" text="正在加载课程..." visible="false" />
+                        <Label fx:id="emptyLabel" managed="false" maxWidth="520.0" styleClass="course-admin-empty-state" text="没有符合条件的课程" visible="false" />
+                        <Label fx:id="errorLabel" managed="false" maxWidth="520.0" styleClass="course-admin-error-text" text="" visible="false" />
+                        <Button fx:id="errorRetryButton" managed="false" onAction="#refresh" styleClass="course-admin-retry-button" text="重试" visible="false" />
+                    </children>
+                    <padding>
+                        <Insets top="28.0" />
+                    </padding>
+                </VBox>
+            </children>
+        </StackPane>
+    </center>
+</BorderPane>

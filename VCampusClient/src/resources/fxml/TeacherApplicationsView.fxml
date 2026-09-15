@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.ComboBox?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.control.Separator?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.layout.StackPane?>
+<?import javafx.scene.layout.VBox?>
+
+<!--
+  我的调课申请页（设计 §5.3）：左侧按四态筛选本人申请，右侧显示原/新时间地点、提交时间、状态、
+  处理意见与（PENDING 的）实时冲突快照；撤销用两步确认，成功与失败都在页面内联提示。
+  本页由工作台通过 fx:include 装入，样式全部来自 teacher-course.css；T6 会在同一页合并成绩记录。
+-->
+<VBox spacing="10.0" styleClass="teacher-course-page" xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.TeacherApplicationsController">
+    <children>
+        <HBox alignment="CENTER_LEFT" spacing="10.0" styleClass="teacher-course-toolbar">
+            <children>
+                <ComboBox fx:id="applicationStatusFilter" prefWidth="160.0" promptText="状态" styleClass="teacher-course-term-filter" />
+                <Label fx:id="applicationSummaryLabel" styleClass="teacher-course-page-summary" text="" />
+                <Region HBox.hgrow="ALWAYS" />
+                <Button fx:id="applicationRefreshButton" onAction="#refresh" styleClass="teacher-course-refresh-button" text="刷新" />
+            </children>
+        </HBox>
+        <HBox spacing="12.0" VBox.vgrow="ALWAYS">
+            <children>
+                <VBox maxWidth="360.0" minWidth="300.0" spacing="8.0">
+                    <children>
+                        <StackPane styleClass="teacher-course-list-area" VBox.vgrow="ALWAYS">
+                            <children>
+                                <ScrollPane fitToWidth="true" hbarPolicy="NEVER" pannable="true" styleClass="teacher-course-tab-scroll">
+                                    <content>
+                                        <VBox fx:id="applicationList" fillWidth="true" spacing="6.0" />
+                                    </content>
+                                </ScrollPane>
+                                <VBox alignment="CENTER" maxHeight="-Infinity" spacing="10.0" styleClass="teacher-course-state-area" StackPane.alignment="TOP_CENTER">
+                                    <children>
+                                        <Label fx:id="applicationLoadingLabel" managed="false" styleClass="teacher-course-loading-text" text="正在加载我的申请..." visible="false" />
+                                        <Label fx:id="applicationEmptyLabel" managed="false" maxWidth="300.0" styleClass="teacher-course-empty-state" text="该状态下没有调课申请" visible="false" wrapText="true" />
+                                        <Label fx:id="applicationErrorLabel" managed="false" maxWidth="300.0" styleClass="teacher-course-error-text" text="" visible="false" wrapText="true" />
+                                        <Button fx:id="applicationErrorRetryButton" managed="false" onAction="#refresh" styleClass="teacher-course-retry-button" text="重试" visible="false" />
+                                    </children>
+                                    <padding>
+                                        <Insets top="28.0" />
+                                    </padding>
+                                </VBox>
+                            </children>
+                        </StackPane>
+                        <HBox alignment="CENTER_LEFT" spacing="10.0" styleClass="teacher-course-pager">
+                            <children>
+                                <Label fx:id="applicationPageLabel" styleClass="teacher-course-page-label" text="" />
+                                <Region HBox.hgrow="ALWAYS" />
+                                <Button fx:id="applicationPreviousPageButton" onAction="#handlePreviousPage" styleClass="teacher-course-page-button" text="上一页" />
+                                <Button fx:id="applicationNextPageButton" onAction="#handleNextPage" styleClass="teacher-course-page-button" text="下一页" />
+                            </children>
+                        </HBox>
+                    </children>
+                </VBox>
+                <VBox maxHeight="-Infinity" spacing="8.0" styleClass="teacher-course-section" HBox.hgrow="ALWAYS">
+                    <children>
+                        <Label fx:id="applicationDetailTitleLabel" styleClass="teacher-course-detail-title" text="请选择调课申请" wrapText="true" />
+                        <Label fx:id="applicationDetailPlaceholder" styleClass="teacher-course-placeholder-text" text="左侧选择一条申请后可查看原安排与处理结果" wrapText="true" />
+                        <ScrollPane fitToWidth="true" hbarPolicy="NEVER" styleClass="teacher-course-tab-scroll" VBox.vgrow="ALWAYS">
+                            <content>
+                                <VBox fx:id="applicationDetailBody" spacing="6.0" />
+                            </content>
+                        </ScrollPane>
+                        <Label fx:id="applicationFeedbackLabel" managed="false" styleClass="teacher-course-feedback-text" text="" visible="false" wrapText="true" />
+                        <Separator />
+                        <HBox alignment="CENTER_LEFT" spacing="10.0">
+                            <children>
+                                <Label fx:id="applicationWithdrawHintLabel" managed="false" maxWidth="280.0" styleClass="teacher-schedule-dialog-hint" text="" visible="false" wrapText="true" />
+                                <Region HBox.hgrow="ALWAYS" />
+                                <Button fx:id="applicationCancelWithdrawButton" managed="false" onAction="#cancelWithdraw" styleClass="teacher-course-back-button" text="取消" visible="false" />
+                                <Button fx:id="applicationConfirmWithdrawButton" managed="false" onAction="#confirmWithdraw" styleClass="teacher-course-page-button" text="确认撤销" visible="false" />
+                                <Button fx:id="applicationWithdrawButton" managed="false" onAction="#requestWithdraw" styleClass="teacher-course-back-button" text="撤销申请" visible="false" />
+                            </children>
+                        </HBox>
+                    </children>
+                    <padding>
+                        <Insets bottom="12.0" left="12.0" right="12.0" top="12.0" />
+                    </padding>
+                </VBox>
+            </children>
+        </HBox>
+    </children>
+</VBox>

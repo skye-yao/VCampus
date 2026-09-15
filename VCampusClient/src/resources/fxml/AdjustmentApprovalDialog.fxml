@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.control.Separator?>
+<?import javafx.scene.layout.BorderPane?>
+<?import javafx.scene.layout.VBox?>
+
+<BorderPane prefHeight="420.0" prefWidth="640.0" styleClass="course-approval-dialog" stylesheets="@../css/style.css" xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.AdjustmentApprovalDialogController">
+    <top>
+        <VBox spacing="6.0" BorderPane.alignment="CENTER">
+            <children>
+                <Label fx:id="titleLabel" styleClass="course-approval-dialog-title" text="调课申请" wrapText="true" />
+                <Label fx:id="reasonLabel" styleClass="course-approval-dialog-meta" text="申请原因：" wrapText="true" />
+                <Label fx:id="statusLabel" styleClass="course-approval-dialog-meta" text="" wrapText="true" />
+                <Separator />
+            </children>
+            <padding>
+                <Insets bottom="8.0" left="16.0" right="16.0" top="14.0" />
+            </padding>
+        </VBox>
+    </top>
+    <center>
+        <ScrollPane fitToWidth="true" hbarPolicy="NEVER" styleClass="course-approval-dialog-scroll" BorderPane.alignment="CENTER">
+            <content>
+                <VBox spacing="8.0">
+                    <children>
+                        <VBox fx:id="arrangementRows" spacing="6.0" />
+                        <Separator />
+                        <Label styleClass="course-approval-dialog-meta" text="目标日期为具体教学日；历史申请没有日期时按原周与星期显示。不再接受新调课申请的终态只读。" wrapText="true" />
+                        <Label styleClass="course-approval-dialog-header" text="冲突检查" />
+                        <Label fx:id="emptyConflictsLabel" styleClass="course-approval-dialog-meta" text="无冲突" />
+                        <VBox fx:id="conflictRows" spacing="4.0" />
+                    </children>
+                    <padding>
+                        <Insets bottom="16.0" left="16.0" right="16.0" />
+                    </padding>
+                </VBox>
+            </content>
+        </ScrollPane>
+    </center>
+</BorderPane>

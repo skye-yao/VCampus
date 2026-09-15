@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.ComboBox?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.control.Tab?>
+<?import javafx.scene.control.TabPane?>
+<?import javafx.scene.control.TableColumn?>
+<?import javafx.scene.control.TableView?>
+<?import javafx.scene.control.TextField?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.layout.StackPane?>
+<?import javafx.scene.layout.VBox?>
+
+<!--
+  教学班详情页（设计 §5.1）：基本信息、学生名单、上课安排、成绩情况四个 Tab。
+  名单导出按钮本阶段保持禁用（伞形计划的 T5 接通），教师看不到任何添加/删除学生入口；
+  成绩情况只读（伞形计划的 T4 接通完整成绩表）。开课学院缺值由控制器显示“未维护”。
+-->
+<VBox spacing="8.0" styleClass="teacher-course-page" xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.TeacherOfferingDetailController">
+    <children>
+        <HBox alignment="CENTER_LEFT" spacing="10.0" styleClass="teacher-course-toolbar">
+            <children>
+                <Button fx:id="backToOfferingsButton" onAction="#handleBack" styleClass="teacher-course-back-button" text="返回教学班列表" />
+                <Label fx:id="detailTitleLabel" styleClass="teacher-course-detail-title" text="教学班详情" />
+                <Region HBox.hgrow="ALWAYS" />
+                <Button fx:id="gradeEntryButton" disable="true" onAction="#handleOpenGrades" styleClass="teacher-course-grade-button" text="成绩录入" />
+                <Button fx:id="detailRefreshButton" onAction="#handleRefresh" styleClass="teacher-course-refresh-button" text="刷新" />
+            </children>
+        </HBox>
+        <TabPane fx:id="detailTabs" styleClass="teacher-course-tabs" tabClosingPolicy="UNAVAILABLE" VBox.vgrow="ALWAYS">
+            <tabs>
+                <Tab text="基本信息">
+                    <content>
+                        <VBox spacing="6.0" styleClass="teacher-course-section">
+                            <children>
+                                <Label fx:id="basicErrorLabel" managed="false" styleClass="teacher-course-error-text" text="" visible="false" wrapText="true" />
+                                <ScrollPane fitToWidth="true" hbarPolicy="NEVER" styleClass="teacher-course-tab-scroll" VBox.vgrow="ALWAYS">
+                                    <content>
+                                        <VBox fx:id="basicBody" spacing="6.0" />
+                                    </content>
+                                </ScrollPane>
+                            </children>
+                            <padding>
+                                <Insets bottom="8.0" left="8.0" right="8.0" top="12.0" />
+                            </padding>
+                        </VBox>
+                    </content>
+                </Tab>
+                <Tab text="学生名单">
+                    <content>
+                        <VBox spacing="8.0" styleClass="teacher-course-section">
+                            <children>
+                                <HBox alignment="CENTER_LEFT" spacing="10.0" styleClass="teacher-course-toolbar">
+                                    <children>
+                                        <TextField fx:id="rosterSearchField" promptText="按姓名或学号筛选" styleClass="teacher-course-search-field" HBox.hgrow="ALWAYS" />
+                                        <ComboBox fx:id="rosterStatusFilter" prefWidth="120.0" promptText="状态" styleClass="teacher-course-roster-filter" />
+                                        <Button fx:id="exportButton" disable="true" styleClass="teacher-course-export-button" text="导出" />
+                                    </children>
+                                </HBox>
+                                <StackPane styleClass="teacher-course-list-area" VBox.vgrow="ALWAYS">
+                                    <children>
+                                        <TableView fx:id="rosterTable" styleClass="teacher-course-table">
+                                            <placeholder>
+                                                <Label fx:id="rosterEmptyLabel" maxWidth="520.0" styleClass="teacher-course-empty-state" text="该教学班暂无学生" wrapText="true" />
+                                            </placeholder>
+                                            <columns>
+                                                <TableColumn fx:id="rosterUidColumn" prefWidth="120.0" text="学号" />
+                                                <TableColumn fx:id="rosterNameColumn" prefWidth="320.0" text="姓名" />
+                                                <TableColumn fx:id="rosterMajorColumn" prefWidth="290.0" text="专业" />
+                                                <TableColumn fx:id="rosterStatusColumn" prefWidth="70.0" text="状态" />
+                                                <TableColumn fx:id="rosterSelectedColumn" prefWidth="170.0" text="选课时间" />
+                                                <TableColumn fx:id="rosterDroppedColumn" prefWidth="170.0" text="退课时间" />
+                                            </columns>
+                                        </TableView>
+                                        <VBox alignment="CENTER" maxHeight="-Infinity" spacing="10.0" styleClass="teacher-course-state-area" StackPane.alignment="TOP_CENTER">
+                                            <children>
+                                                <Label fx:id="rosterLoadingLabel" managed="false" styleClass="teacher-course-loading-text" text="正在加载学生名单..." visible="false" />
+                                                <Label fx:id="rosterErrorLabel" managed="false" maxWidth="520.0" styleClass="teacher-course-error-text" text="" visible="false" />
+                                                <Button fx:id="rosterRetryButton" managed="false" onAction="#handleRefresh" styleClass="teacher-course-retry-button" text="重试" visible="false" />
+                                            </children>
+                                            <padding>
+                                                <Insets top="28.0" />
+                                            </padding>
+                                        </VBox>
+                                    </children>
+                                </StackPane>
+                                <HBox alignment="CENTER_LEFT" spacing="10.0" styleClass="teacher-course-pager">
+                                    <children>
+                                        <Label fx:id="rosterPageLabel" styleClass="teacher-course-page-label" text="" />
+                                        <Region HBox.hgrow="ALWAYS" />
+                                        <Button fx:id="previousRosterPageButton" onAction="#handlePreviousRosterPage" styleClass="teacher-course-page-button" text="上一页" />
+                                        <Button fx:id="nextRosterPageButton" onAction="#handleNextRosterPage" styleClass="teacher-course-page-button" text="下一页" />
+                                    </children>
+                                </HBox>
+                            </children>
+                            <padding>
+                                <Insets bottom="8.0" left="8.0" right="8.0" top="12.0" />
+                            </padding>
+                        </VBox>
+                    </content>
+                </Tab>
+                <Tab text="上课安排">
+                    <content>
+                        <VBox spacing="6.0" styleClass="teacher-course-section">
+                            <children>
+                                <Label fx:id="scheduleErrorLabel" managed="false" styleClass="teacher-course-error-text" text="" visible="false" wrapText="true" />
+                                <ScrollPane fitToWidth="true" hbarPolicy="NEVER" styleClass="teacher-course-tab-scroll" VBox.vgrow="ALWAYS">
+                                    <content>
+                                        <VBox fx:id="scheduleBody" spacing="6.0" />
+                                    </content>
+                                </ScrollPane>
+                            </children>
+                            <padding>
+                                <Insets bottom="8.0" left="8.0" right="8.0" top="12.0" />
+                            </padding>
+                        </VBox>
+                    </content>
+                </Tab>
+                <Tab text="成绩情况">
+                    <content>
+                        <VBox spacing="6.0" styleClass="teacher-course-section">
+                            <children>
+                                <ScrollPane fitToWidth="true" hbarPolicy="NEVER" styleClass="teacher-course-tab-scroll" VBox.vgrow="ALWAYS">
+                                    <content>
+                                        <VBox fx:id="gradeBody" spacing="6.0" />
+                                    </content>
+                                </ScrollPane>
+                            </children>
+                            <padding>
+                                <Insets bottom="8.0" left="8.0" right="8.0" top="12.0" />
+                            </padding>
+                        </VBox>
+                    </content>
+                </Tab>
+            </tabs>
+        </TabPane>
+    </children>
+</VBox>

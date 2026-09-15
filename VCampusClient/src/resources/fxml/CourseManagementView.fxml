@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ToggleButton?>
+<?import javafx.scene.layout.BorderPane?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.layout.StackPane?>
+
+<BorderPane prefHeight="580.0" prefWidth="860.0" styleClass="course-shell" stylesheets="@../css/style.css" xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.CourseManagementController">
+    <top>
+        <HBox alignment="CENTER_LEFT" maxHeight="64.0" minHeight="64.0" prefHeight="64.0" spacing="12.0" styleClass="course-topbar" BorderPane.alignment="CENTER">
+            <padding>
+                <Insets left="20.0" right="20.0" top="1.0" />
+            </padding>
+            <children>
+                <Button onAction="#handleBack" prefHeight="64.0" styleClass="course-nav-button" text="返回主菜单" />
+                <Label styleClass="course-title" text="教务管理系统" />
+                <Region HBox.hgrow="ALWAYS" />
+                <ToggleButton fx:id="selectionNavButton" onAction="#showSelection" prefHeight="64.0" selected="true" styleClass="course-nav-button" text="选课" />
+                <ToggleButton fx:id="scheduleNavButton" onAction="#showSchedule" prefHeight="64.0" styleClass="course-nav-button" text="课表" />
+                <ToggleButton fx:id="gradeNavButton" onAction="#showGrades" prefHeight="64.0" styleClass="course-nav-button" text="成绩" />
+                <ToggleButton fx:id="planNavButton" onAction="#showTrainingPlan" prefHeight="64.0" styleClass="course-nav-button" text="培养方案" />
+            </children>
+        </HBox>
+    </top>
+    <center>
+        <StackPane styleClass="course-content" BorderPane.alignment="CENTER">
+            <children>
+                <fx:include fx:id="selectionPage" source="CourseSelectionView.fxml" />
+                <fx:include fx:id="schedulePage" managed="false" source="ScheduleView.fxml" visible="false" />
+                <fx:include fx:id="gradePage" managed="false" source="GradeView.fxml" visible="false" />
+                <fx:include fx:id="planPage" managed="false" source="TrainingPlanView.fxml" visible="false" />
+            </children>
+        </StackPane>
+    </center>
+</BorderPane>

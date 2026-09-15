@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.ComboBox?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.control.TextField?>
+<?import javafx.scene.layout.ColumnConstraints?>
+<?import javafx.scene.layout.GridPane?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.layout.VBox?>
+
+<VBox fx:id="dialogRoot" prefWidth="820.0" prefHeight="680.0" spacing="10.0" styleClass="course-admin-dialog, course-admin-schedule-dialog" stylesheets="@../css/style.css" xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.ScheduleArrangementDialogController">
+    <padding>
+        <Insets bottom="16.0" left="20.0" right="20.0" top="16.0" />
+    </padding>
+    <children>
+        <Label styleClass="course-admin-dialog-title" text="排课" />
+        <HBox spacing="12.0">
+            <children>
+                <Label fx:id="offeringContextLabel" styleClass="course-admin-schedule-context" text="" />
+                <Region HBox.hgrow="ALWAYS" />
+                <Label fx:id="planContextLabel" styleClass="course-admin-schedule-context" text="" />
+            </children>
+        </HBox>
+        <ScrollPane fx:id="scheduleContentScroll" fitToWidth="true" hbarPolicy="NEVER" minHeight="0.0" styleClass="course-admin-schedule-scroll" VBox.vgrow="ALWAYS">
+            <content>
+                <VBox spacing="10.0">
+                    <padding><Insets right="10.0" /></padding>
+                    <children>
+                        <Label fx:id="planConflictSummaryLabel" managed="false" styleClass="course-admin-conflict-summary" text="" visible="false" />
+                        <VBox fx:id="planConflictArea" managed="false" spacing="4.0" visible="false" />
+                        <HBox alignment="CENTER_LEFT" spacing="8.0">
+                            <children>
+                                <Label styleClass="course-admin-schedule-section" text="该教学班已有安排" />
+                                <Region HBox.hgrow="ALWAYS" />
+                                <Button fx:id="newArrangementButton" onAction="#handleNewArrangement" styleClass="course-admin-action" text="新增安排" />
+                            </children>
+                        </HBox>
+                        <VBox fx:id="arrangementList" spacing="6.0" styleClass="course-admin-arrangement-list" />
+                        <Label fx:id="emptyArrangementLabel" managed="false" styleClass="course-admin-placeholder-text" text="该教学班暂无排课安排" visible="false" />
+                        <GridPane hgap="10.0" vgap="8.0">
+                            <columnConstraints>
+                                <ColumnConstraints minWidth="70.0" prefWidth="70.0" />
+                                <ColumnConstraints hgrow="ALWAYS" />
+                                <ColumnConstraints minWidth="70.0" prefWidth="70.0" />
+                                <ColumnConstraints hgrow="ALWAYS" />
+                            </columnConstraints>
+                            <children>
+                                <Label styleClass="course-admin-field-label" text="任课教师" GridPane.rowIndex="0" />
+                                <ComboBox fx:id="teacherField" maxWidth="Infinity" styleClass="course-admin-dialog-field" GridPane.columnIndex="1" GridPane.rowIndex="0" />
+                                <Label styleClass="course-admin-field-label" text="助教" GridPane.columnIndex="2" GridPane.rowIndex="0" />
+                                <HBox alignment="CENTER_LEFT" spacing="6.0" GridPane.columnIndex="3" GridPane.rowIndex="0">
+                                    <children>
+                                        <ComboBox fx:id="assistantField" maxWidth="Infinity" styleClass="course-admin-dialog-field" HBox.hgrow="ALWAYS" />
+                                        <Button fx:id="clearAssistantButton" onAction="#handleClearAssistant" styleClass="course-admin-action" text="清空" />
+                                    </children>
+                                </HBox>
+                                <Label styleClass="course-admin-field-label" text="教室" GridPane.rowIndex="1" />
+                                <ComboBox fx:id="classroomField" maxWidth="Infinity" styleClass="course-admin-dialog-field" GridPane.columnIndex="1" GridPane.rowIndex="1" />
+                                <Label styleClass="course-admin-field-label" text="起止周" GridPane.columnIndex="2" GridPane.rowIndex="1" />
+                                <HBox spacing="6.0" GridPane.columnIndex="3" GridPane.rowIndex="1">
+                                    <children>
+                                        <TextField fx:id="startWeekField" prefWidth="70.0" promptText="起始周" styleClass="course-admin-dialog-field" />
+                                        <Label styleClass="course-admin-field-label" text="至" />
+                                        <TextField fx:id="endWeekField" prefWidth="70.0" promptText="结束周" styleClass="course-admin-dialog-field" />
+                                    </children>
+                                </HBox>
+                            </children>
+                        </GridPane>
+                        <HBox alignment="CENTER_LEFT" spacing="8.0">
+                            <children>
+                                <Label styleClass="course-admin-schedule-section" text="时间段（全部时间段共用同一周次）" />
+                                <Region HBox.hgrow="ALWAYS" />
+                                <Button fx:id="addSlotButton" onAction="#handleAddSlot" styleClass="course-admin-action" text="添加时间段" />
+                            </children>
+                        </HBox>
+                        <VBox fx:id="slotEditorList" spacing="6.0" styleClass="course-admin-slot-list" />
+                        <Label fx:id="conflictSummaryLabel" managed="false" styleClass="course-admin-conflict-summary" text="" visible="false" />
+                        <VBox fx:id="conflictArea" spacing="4.0" />
+                        <TextField fx:id="overrideReasonField" promptText="填写强制保存或发布原因（仅可绕过冲突需要）" styleClass="course-admin-dialog-field" />
+                    </children>
+                </VBox>
+            </content>
+        </ScrollPane>
+        <Label fx:id="loadingLabel" managed="false" styleClass="course-admin-loading-text" text="正在加载排课数据..." visible="false" />
+        <Label fx:id="errorLabel" managed="false" styleClass="course-admin-error-text" text="" visible="false" />
+        <Button fx:id="errorRetryButton" managed="false" onAction="#handleRetry" styleClass="course-admin-action" text="重试" visible="false" />
+        <Label fx:id="validationLabel" managed="false" styleClass="course-admin-validation-text" text="" visible="false" />
+        <HBox alignment="CENTER_RIGHT" spacing="10.0">
+            <children>
+                <Button fx:id="cancelButton" onAction="#handleCancel" styleClass="course-admin-dialog-cancel" text="取消" />
+                <Button fx:id="previewButton" onAction="#handlePreview" styleClass="course-admin-action" text="预检查冲突" />
+                <Button fx:id="publishButton" onAction="#handlePublish" styleClass="course-admin-action" text="发布方案" />
+                <Button fx:id="forceSaveButton" managed="false" onAction="#handleForceSave" styleClass="course-admin-force-save" text="填写原因并保存" visible="false" />
+                <Button fx:id="saveButton" defaultButton="true" onAction="#handleSave" styleClass="course-admin-dialog-save" text="保存安排" />
+            </children>
+        </HBox>
+    </children>
+</VBox>

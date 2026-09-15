@@ -2,6 +2,7 @@ package app;
 
 import javafx.application.Application;
 import javafx.application.Platform;
+import javafx.event.Event;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.Alert;
@@ -16,55 +17,46 @@ import protocol.MessageType;
 import session.ClientSession;
 import util.AlertUtil;
 import util.FXMLUtil;
+import util.PageLeaveGuard;
 
 import java.io.InputStream;
 import java.util.Optional;
 
-/**
- * 虚拟校园系统客户端启动主入口
- */
+/** 虚拟校园系统客户端启动主入口。 */
 public class ClientMain extends Application {
 
     private static Stage primaryStage;
-    private static Runnable pageCleanup=()->{};
-    public static void setPageCleanup(Runnable cleanup){pageCleanup=cleanup;}
-    public static void cleanupPage(){Runnable old=pageCleanup;pageCleanup=()->{};old.run();}
+    private static Runnable pageCleanup = () -> { };
+
+    public static void setPageCleanup(Runnable cleanup) {
+        pageCleanup = cleanup == null ? () -> { } : cleanup;
+    }
+
+    public static void cleanupPage() {
+        Runnable old = pageCleanup;
+        pageCleanup = () -> { };
+        old.run();
+    }
 
     @Override
     public void start(Stage stage) {
         primaryStage = stage;
         primaryStage.setTitle("东南大学虚拟校园系统 - VCampus Client");
 
-        // 加载窗体图标
         try {
             InputStream iconStream = getClass().getResourceAsStream("/resources/image/icon.png");
-            if (iconStream != null) {
-                primaryStage.getIcons().add(new Image(iconStream));
-            }
-        } catch (Exception e) {
-            System.err.println("图标加载失败: " + e.getMessage());
+            if (iconStream != null) primaryStage.getIcons().add(new Image(iconStream));
+        } catch (Exception failure) {
+            System.err.println("图标加载失败: " + failure.getMessage());
         }
 
-        // 监听窗口关闭事件，弹出模态退出确认对话框（冻结主窗口）
-        primaryStage.setOnCloseRequest(event -> {
-            event.consume();
-            showExitConfirmation();
-        });
-
-        // 初始加载登录界面
+        primaryStage.setOnCloseRequest(ClientMain::requestWindowClose);
         switchScene("/resources/fxml/LoginView.fxml");
-        //primaryStage.setResizable(false);
         primaryStage.show();
-
-        // 异步预连接服务端
         SocketClient.getInstance().connectAsync();
     }
 
-    /**
-     * 场景切换核心方法
-     *
-     * @param fxmlPath FXML 页面相对路径
-     */
+    /** SPA 内部路由交给 MainController；整场景替换也遵守当前页面离开守卫。 */
     public static void switchScene(String fxmlPath) {
         try {
             boolean isLogin = fxmlPath != null && fxmlPath.contains("LoginView");
@@ -72,61 +64,74 @@ public class ClientMain extends Application {
             boolean isForgot = fxmlPath != null && fxmlPath.contains("ForgotPasswordView");
             boolean isAuth = isLogin || isRegister || isForgot;
 
-            // SPA 容器路由优化：若 MainView 处于激活状态，且目标不是鉴权登录页
-            if (!isAuth && controller.MainController.getInstance() != null && controller.MainController.getInstance().isAttachedToScene()) {
-                if (fxmlPath != null && (fxmlPath.contains("MainView.fxml") || fxmlPath.endsWith("MainView.fxml"))) {
-                    controller.MainController.getInstance().showHome();
-                    return;
-                } else {
-                    controller.MainController.getInstance().loadCenterView(fxmlPath);
-                    return;
-                }
+            controller.MainController main = controller.MainController.getInstance();
+            if (!isAuth && main != null && main.isAttachedToScene()) {
+                if (fxmlPath != null && fxmlPath.endsWith("MainView.fxml")) main.showHome();
+                else main.loadCenterView(fxmlPath);
+                return;
             }
 
-            Runnable previousCleanup=pageCleanup;
-            pageCleanup=()->{};
+            PageLeaveGuard previousGuard = PageLeaveGuard.active();
+            if (previousGuard != null && !previousGuard.requestLeave()) return;
+
+            Runnable previousCleanup = pageCleanup;
+            pageCleanup = () -> { };
             Parent root;
-            try {root=FXMLUtil.load(fxmlPath);}
-            catch(Exception error){cleanupPage();pageCleanup=previousCleanup;throw error;}
+            try {
+                root = FXMLUtil.load(fxmlPath);
+            } catch (Exception failure) {
+                pageCleanup = previousCleanup;
+                throw failure;
+            }
+
+            if (previousGuard != null) previousGuard.onClosed();
+            PageLeaveGuard.clear(previousGuard);
             previousCleanup.run();
+            PageLeaveGuard.registerFrom(FXMLUtil.loadedController());
 
             if (primaryStage.getScene() == null) {
-                // 首次初始化：登录/注册/找回密码页使用紧凑的竖向小窗口
                 double initWidth = isAuth ? 396 : 1100;
                 double initHeight = isRegister ? 720 : (isForgot ? 680 : (isLogin ? 620 : 740));
-                Scene scene = new Scene(root, initWidth, initHeight);
-                primaryStage.setScene(scene);
+                primaryStage.setScene(new Scene(root, initWidth, initHeight));
             } else {
                 primaryStage.getScene().setRoot(root);
             }
 
             if (isAuth) {
-                // 登录/注册/找回密码页：固定为中间竖向卡片大小，禁止手动放大拉伸
                 primaryStage.setResizable(false);
                 primaryStage.setWidth(396);
                 primaryStage.setHeight(isRegister ? 720 : (isForgot ? 680 : 620));
                 primaryStage.centerOnScreen();
             } else {
-                // 登录成功进入主界面或其他系统：允许自由放大/最大化
                 primaryStage.setResizable(true);
-                // 若此前是小窗口，自动展开至标准宽屏尺寸
                 if (primaryStage.getWidth() < 800) {
                     primaryStage.setWidth(1100);
                     primaryStage.setHeight(740);
                     primaryStage.centerOnScreen();
                 }
             }
-        } catch (Exception e) {
-            e.printStackTrace();
-            AlertUtil.showError("界面加载失败", "无法加载界面: " + fxmlPath + "\n错误详情: " + e.getMessage());
+        } catch (Exception failure) {
+            failure.printStackTrace();
+            AlertUtil.showError("界面加载失败",
+                    "无法加载界面: " + fxmlPath + "\n错误详情: " + failure.getMessage());
         }
     }
 
-    /**
-     * 弹出退出系统确认对话框（模态，冻结主窗口）。
-     * 点击“确定”执行安全登出+关闭窗口；点击“取消”则返回主窗口继续操作。
-     */
+    /** 窗口关闭先经过页面守卫，再显示 main 原有的退出确认。 */
+    public static void requestWindowClose(Event closeEvent) {
+        closeEvent.consume();
+        PageLeaveGuard guard = PageLeaveGuard.active();
+        if (guard != null && !guard.requestLeave()) return;
+        showExitConfirmationAfterLeaveApproved(guard);
+    }
+
     public static void showExitConfirmation() {
+        PageLeaveGuard guard = PageLeaveGuard.active();
+        if (guard != null && !guard.requestLeave()) return;
+        showExitConfirmationAfterLeaveApproved(guard);
+    }
+
+    private static void showExitConfirmationAfterLeaveApproved(PageLeaveGuard guard) {
         Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
         alert.setTitle("退出确认");
         alert.setHeaderText(null);
@@ -142,31 +147,34 @@ public class ClientMain extends Application {
         alert.getButtonTypes().setAll(yesBtn, noBtn);
 
         Optional<ButtonType> result = alert.showAndWait();
-        if (result.isPresent() && result.get() == yesBtn) {
-            System.out.println("用户确认退出，正在执行安全登出...");
-            // 若当前处于登录状态，向服务端发起登出通知
-            if (ClientSession.getInstance().isLoggedIn()) {
-                try {
-                    Message logoutMsg = new Message(MessageType.REQUEST, "user", "logout");
-                    SocketClient.getInstance().sendSync(logoutMsg, 2);
-                } catch (Exception ignored) {
-                } finally {
-                    ClientSession.getInstance().logout();
-                }
-            }
+        if (result.isEmpty() || result.get() != yesBtn) return;
 
-            // 清理页面租约、定时任务及 Socket 连接
-            cleanupPage();
-            service.LeaseClient.shutdown();
-            util.BackgroundTasks.shutdown();
-            SocketClient.getInstance().shutdown();
+        System.out.println("用户确认退出，正在执行安全登出...");
+        if (guard != null) guard.onClosed();
+        PageLeaveGuard.clear(guard);
 
-            if (primaryStage != null) {
-                primaryStage.close();
+        if (ClientSession.getInstance().isLoggedIn()) {
+            try {
+                Message logoutMsg = new Message(MessageType.REQUEST, "user", "logout");
+                SocketClient.getInstance().sendSync(logoutMsg, 2);
+            } catch (Exception ignored) {
+                // 退出流程继续释放本地资源。
+            } finally {
+                ClientSession.getInstance().logout();
             }
-            Platform.exit();
-            System.exit(0);
         }
+
+        cleanupPage();
+        service.LeaseClient.shutdown();
+        util.BackgroundTasks.shutdown();
+        SocketClient.getInstance().shutdown();
+
+        if (primaryStage != null) {
+            primaryStage.setOnCloseRequest(null);
+            primaryStage.close();
+        }
+        Platform.exit();
+        System.exit(0);
     }
 
     public static Stage getPrimaryStage() {

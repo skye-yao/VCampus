@@ -294,7 +294,6 @@
                                                         </HBox>
                                                     </children>
                                                 </VBox>
-
                                                 <!-- 右下角跳转超链接 -->
                                                 <HBox alignment="CENTER_RIGHT">
                                                     <children>

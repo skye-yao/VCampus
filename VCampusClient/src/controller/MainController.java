@@ -1,5 +1,7 @@
 package controller;
 
+import java.util.Objects;
+import java.util.function.BiConsumer;
 import app.ClientMain;
 import com.google.gson.Gson;
 import entity.BorrowRecord;
@@ -32,12 +34,27 @@ import service.LibraryClientService;
 import session.ClientSession;
 import util.AlertUtil;
 import util.FXMLUtil;
+import util.PageLeaveGuard;
 
 import java.io.ByteArrayInputStream;
 import java.util.Base64;
 import java.util.List;
 
 public class MainController {
+
+    static final String ADMIN_COURSE_VIEW = "/resources/fxml/AdminCourseManagementView.fxml";
+    static final String STUDENT_COURSE_VIEW = "/resources/fxml/CourseManagementView.fxml";
+    static final String TEACHER_COURSE_VIEW = "/resources/fxml/TeacherCourseManagementView.fxml";
+    static final String COURSE_NOTICE_TITLE = "系统提示";
+    static final String COURSE_NOTICE_MESSAGE = "当前身份无法进入教务模块";
+
+    interface SceneSwitcher {
+        void switchTo(String fxmlPath);
+    }
+
+    private SceneSwitcher sceneSwitcher = ClientMain::switchScene;
+    private BiConsumer<String, String> infoReporter = AlertUtil::showInfo;
+    private BiConsumer<String, String> warningReporter = AlertUtil::showWarning;
 
     @FXML private BorderPane rootMain;
     @FXML private ScrollPane homeScrollPane;
@@ -368,6 +385,10 @@ public class MainController {
      * 恢复右侧主界面内容为首页看板
      */
     public void showHome() {
+        PageLeaveGuard previousGuard = PageLeaveGuard.active();
+        if (previousGuard != null && !previousGuard.requestLeave()) return;
+        if (previousGuard != null) previousGuard.onClosed();
+        PageLeaveGuard.clear(previousGuard);
         ClientMain.cleanupPage();
         if (homeScrollPane != null && rootMain != null) {
             rootMain.setCenter(homeScrollPane);
@@ -382,17 +403,21 @@ public class MainController {
      * 动态将子系统视图载入至右侧 center 区域
      */
     public void loadCenterView(String fxmlPath) {
+        PageLeaveGuard previousGuard = PageLeaveGuard.active();
+        if (previousGuard != null && !previousGuard.requestLeave()) return;
         try {
-            ClientMain.cleanupPage();
             Parent view = FXMLUtil.load(fxmlPath);
+            if (previousGuard != null) previousGuard.onClosed();
+            PageLeaveGuard.clear(previousGuard);
+            ClientMain.cleanupPage();
             if (rootMain != null) {
                 rootMain.setCenter(view);
             }
+            PageLeaveGuard.registerFrom(FXMLUtil.loadedController());
             updateActiveNavButton(mapFxmlToNavButton(fxmlPath));
         } catch (Exception e) {
             e.printStackTrace();
             AlertUtil.showError("界面加载失败", "无法加载模块界面: " + fxmlPath + "\n错误详情: " + e.getMessage());
-            showHome();
         }
     }
 
@@ -403,6 +428,7 @@ public class MainController {
             return navStudentBtn;
         }
         if (fxmlPath.contains("LibraryView")) return navLibraryBtn;
+        if (fxmlPath.contains("CourseManagementView")) return navCourseBtn;
         if (fxmlPath.contains("ShopView")) return navStoreBtn;
         if (fxmlPath.contains("BankView")) return navBankBtn;
         if (fxmlPath.contains("AIview")) return navAiBtn;
@@ -427,6 +453,28 @@ public class MainController {
                 }
             }
         }
+        if (navCourseBtn != null) {
+            navCourseBtn.setText("📝   " + courseCardTitleText(ClientSession.getInstance().getRole()));
+        }
+    }
+
+    /**
+     * 教务入口卡片标题：管理员进入教务管理，其余角色保持选课。
+     */
+    static String courseCardTitleText(String role) {
+        return "管理员".equals(role) ? "教务管理" : "选课";
+    }
+
+    void setSceneSwitcher(SceneSwitcher switcher) {
+        this.sceneSwitcher = Objects.requireNonNull(switcher, "Scene switcher is required");
+    }
+
+    void setInfoReporter(BiConsumer<String, String> reporter) {
+        this.infoReporter = Objects.requireNonNull(reporter, "Info reporter is required");
+    }
+
+    void setWarningReporter(BiConsumer<String, String> reporter) {
+        this.warningReporter = Objects.requireNonNull(reporter, "Warning reporter is required");
     }
 
     // ===== 页面导航动作 =====
@@ -471,13 +519,20 @@ public class MainController {
 
     @FXML
     public void openCourseSelection(ActionEvent event) {
+        String role = ClientSession.getInstance().getRole();
         if (isAdminUser()) {
             if (!ClientSession.getInstance().hasCoursePermission()) {
-                AlertUtil.showWarning("权限不足", "您没有该模块的管理权限");
+                warningReporter.accept("权限不足", "您没有该模块的管理权限");
                 return;
             }
+            sceneSwitcher.switchTo(ADMIN_COURSE_VIEW);
+        } else if ("STUDENT".equalsIgnoreCase(role) || "学生".equals(role)) {
+            sceneSwitcher.switchTo(STUDENT_COURSE_VIEW);
+        } else if ("TEACHER".equalsIgnoreCase(role) || "教师".equals(role)) {
+            sceneSwitcher.switchTo(TEACHER_COURSE_VIEW);
+        } else {
+            infoReporter.accept(COURSE_NOTICE_TITLE, COURSE_NOTICE_MESSAGE);
         }
-        showSubsystemNotice("选课子系统");
     }
 
     @FXML
@@ -528,6 +583,12 @@ public class MainController {
 
     @FXML
     public void handleLogout(ActionEvent event) {
+        PageLeaveGuard guard = PageLeaveGuard.active();
+        if (guard != null && !guard.requestLeave()) return;
+        if (guard != null) guard.onClosed();
+        PageLeaveGuard.clear(guard);
+        ClientMain.cleanupPage();
+
         // 向服务端发送登出请求
         try {
             Message logoutMsg = new Message(MessageType.REQUEST, "user", "logout");

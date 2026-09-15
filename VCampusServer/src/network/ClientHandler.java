@@ -1,28 +1,42 @@
 package network;
 
 import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
+import java.util.Objects;
 
 import com.google.gson.Gson;
-import protocol.Message;
-import protocol.MessageType;
-import protocol.MessageCode;
 
-/**
- * 客户端连接处理器
- *
- * <p>每个客户端连接对应一个 ClientHandler 实例，负责处理该连接的所有通信。
- *
- * @author VirtualCampus 架构组
- * @version 1.0
- */
+import protocol.Message;
+import protocol.MessageCode;
+import protocol.MessageType;
+import session.SessionManager;
+import session.UserSession;
+
+/** 处理单个客户端连接，并把响应与推送统一交给串行写连接。 */
 public class ClientHandler implements Runnable {
 
     /** 1 MiB 图片经 Base64/JSON 编码约 1.4 MiB，额外预留请求字段空间。 */
     static final int MAX_REQUEST_LINE_CHARS = 2_000_000;
+
+    /** 登录创建会话时绑定当前连接，供防重登推送使用。 */
+    public static final ThreadLocal<ClientHandler> CURRENT_HANDLER = new ThreadLocal<>();
+
+    private final Socket socket;
+    private final OnlineConnectionRegistry registry;
+    private final MessageDispatcher dispatcher;
+    private final Gson gson = util.JsonUtil.createGson();
+    private volatile ClientConnection connection;
+
+    public ClientHandler(Socket socket, OnlineConnectionRegistry registry,
+                         MessageDispatcher dispatcher) {
+        this.socket = Objects.requireNonNull(socket, "socket");
+        this.registry = Objects.requireNonNull(registry, "registry");
+        this.dispatcher = Objects.requireNonNull(dispatcher, "dispatcher");
+    }
 
     static String readBoundedLine(BufferedReader reader, int maxChars) throws IOException {
         StringBuilder line = new StringBuilder();
@@ -40,145 +54,67 @@ public class ClientHandler implements Runnable {
         return next == -1 && line.isEmpty() ? null : line.toString();
     }
 
-    /** 线程本地存储，用于在请求处理链中获取当前处理连接的 ClientHandler 实例 */
-    public static final ThreadLocal<ClientHandler> CURRENT_HANDLER = new ThreadLocal<>();
-
-    /** 客户端 Socket */
-    private Socket socket;
-
-    /** 客户端输出流 */
-    private volatile PrintWriter writer;
-
-    /** 消息分发器 */
-    private MessageDispatcher dispatcher;
-
-    /** JSON 转换器 */
-    private Gson gson;
-
-    /** 当前登录用户 */
-    private String currentUser;
-
-    public ClientHandler(Socket socket) {
-        this.socket = socket;
-        this.dispatcher = new MessageDispatcher();
-        this.gson = util.JsonUtil.createGson();
-    }
-
     @Override
     public void run() {
         CURRENT_HANDLER.set(this);
+        String boundUid = null;
         System.out.println("客户端已连接: " + socket.getRemoteSocketAddress());
 
-        try (
-            BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(socket.getInputStream(), java.nio.charset.StandardCharsets.UTF_8))
-        ) {
-            this.writer = new PrintWriter(new java.io.OutputStreamWriter(socket.getOutputStream(), java.nio.charset.StandardCharsets.UTF_8), true);
+        try {
+            ClientConnection activeConnection = new ClientConnection(new OutputStreamWriter(
+                    socket.getOutputStream(), StandardCharsets.UTF_8), socket);
+            connection = activeConnection;
 
-            String line;
-            while ((line = readBoundedLine(reader, MAX_REQUEST_LINE_CHARS)) != null) {
-                // 1. 解析 JSON 为 Message
-                Message request = null;
-                try {
-                    request = gson.fromJson(line, Message.class);
-                } catch (Exception e) {
-                    System.out.println("消息解析失败: " + e.getMessage());
-                }
-                System.out.println("收到请求: " + request);
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = readBoundedLine(reader, MAX_REQUEST_LINE_CHARS)) != null) {
+                    Message request = parse(line);
+                    System.out.println("收到请求: " + request);
 
-                // 2. 处理消息。任何异常都封装为错误响应返回，
-                //    保证客户端一定收到回复而不是等到连接超时
-                Message response;
-                if (request == null) {
-                    response = new Message(MessageType.RESPONSE, "system", "parse");
-                    response.setCode(MessageCode.BAD_REQUEST);
-                    response.setMessage("请求消息格式错误");
-                } else {
-                    try {
-                        response = processMessage(request);
-                    } catch (Throwable e) {
-                        System.out.println("处理请求异常: " + e);
-                        response = new Message(MessageType.RESPONSE, request.getModule(), request.getAction());
-                        response.setUID(request.getUID());
-                        response.setCode(MessageCode.ERROR);
-                        response.setMessage("服务端内部错误: " + e.getMessage());
-                    }
-                }
+                    Message response = correlate(request, respond(request));
+                    activeConnection.send(response);
+                    System.out.println("发送响应: " + response);
 
-                if (request != null) response.setRequestId(request.getRequestId());
-                // 3. 响应消息写入发送队列
-                String jsonResponse;
-                try {
-                    jsonResponse = gson.toJson(response);
-                } catch (RuntimeException e) {
-                    System.out.println("响应序列化失败: " + e);
-                    Message error = new Message(MessageType.RESPONSE,
-                            request == null ? "system" : request.getModule(),
-                            request == null ? "parse" : request.getAction());
-                    if (request != null) error.setUID(request.getUID());
-                    error.setCode(MessageCode.ERROR);
-                    error.setMessage("服务端响应数据转换失败，请查看服务端日志");
-                    jsonResponse = gson.toJson(error);
-                    response = error;
+                    boundUid = rebind(activeConnection, boundUid, resolveUid(request, response));
                 }
-                synchronized (this) {
-                    if (writer != null) {
-                        writer.println(jsonResponse);
-                        if (writer.checkError()) throw new java.io.IOException("响应发送失败");
-                    }
-                }
-                System.out.println("发送响应: " + response);
             }
-        } catch (Throwable e) {
-            System.out.println("客户端连接异常: " + e);
+        } catch (Throwable failure) {
+            System.out.println("客户端连接异常: " + failure);
         } finally {
             CURRENT_HANDLER.remove();
-            session.SessionManager.getInstance().unbindHandler(this);
+            SessionManager.getInstance().unbindHandler(this);
+            ClientConnection activeConnection = connection;
+            if (boundUid != null && activeConnection != null) {
+                registry.unbind(boundUid, activeConnection);
+            }
             close();
-            this.writer = null;
+            connection = null;
             System.out.println("客户端已断开: " + socket.getRemoteSocketAddress());
         }
     }
 
-    /**
-     * 向客户端发送消息（如主动推送下线提示）
-     */
-    public synchronized void sendMessage(Message message) {
-        if (writer != null) {
-            try {
-                String json = gson.toJson(message);
-                writer.println(json);
-                writer.flush();
-                System.out.println("已向客户端发送推送消息: " + message);
-            } catch (Exception e) {
-                System.err.println("发送推送消息异常: " + e.getMessage());
-            }
-        }
-    }
-
-    /**
-     * 主动关闭客户端 Socket 连接
-     */
-    public void close() {
+    private Message parse(String line) {
         try {
-            if (socket != null && !socket.isClosed()) {
-                socket.close();
-            }
-        } catch (Exception ignored) {
+            return gson.fromJson(line, Message.class);
+        } catch (RuntimeException failure) {
+            System.out.println("消息解析失败: " + failure.getMessage());
+            return null;
         }
     }
 
-    /**
-     * 处理消息
-     */
-    private Message processMessage(Message request) {
-        // 检查消息类型
+    /** 解析失败与处理异常都转换为错误响应。 */
+    private Message respond(Message request) {
+        if (request == null) {
+            Message response = new Message(MessageType.RESPONSE, "system", "parse");
+            response.setCode(MessageCode.BAD_REQUEST);
+            response.setMessage("请求消息格式错误");
+            return response;
+        }
+
         if (request.getType() == null || !request.getType().isClientRequest()) {
-            Message response = new Message();
-            response.setUID(request.getUID());
-            response.setType(MessageType.RESPONSE);
-            response.setModule(request.getModule());
-            response.setAction(request.getAction());
+            Message response = new Message(MessageType.RESPONSE,
+                    request.getModule(), request.getAction());
             response.setCode(MessageCode.BAD_REQUEST);
             response.setMessage(request.getType() == null
                     ? "客户端与服务端版本不一致，请重新编译并重启服务端"
@@ -186,18 +122,75 @@ public class ClientHandler implements Runnable {
             return response;
         }
 
-        // 身份来自服务端认证会话，不采用客户端 sender。
-        session.UserSession authenticated=session.SessionManager.getInstance().getSession(request.getToken());
-        this.currentUser=authenticated==null?null:authenticated.getUsername();
-
-        // 分发到对应的 Handler
-        return dispatcher.dispatch(request);
+        try {
+            return dispatcher.dispatch(request);
+        } catch (Throwable failure) {
+            System.out.println("处理请求异常: " + failure);
+            Message response = new Message(MessageType.RESPONSE,
+                    request.getModule(), request.getAction());
+            response.setCode(MessageCode.ERROR);
+            response.setMessage("服务端内部错误: " + failure.getMessage());
+            return response;
+        }
     }
 
-    /**
-     * 获取当前登录用户
-     */
-    public String getCurrentUser() {
-        return currentUser;
+    private static Message correlate(Message request, Message response) {
+        if (response == null) {
+            response = new Message(MessageType.RESPONSE,
+                    request == null ? "system" : request.getModule(),
+                    request == null ? "unknown" : request.getAction());
+            response.setCode(MessageCode.ERROR);
+            response.setMessage("服务端未生成响应");
+        }
+        if (request != null) {
+            response.setUID(request.getUID());
+            response.setRequestId(request.getRequestId());
+        }
+        return response;
+    }
+
+    /** 登录响应 token 优先，其次请求 token；绝不信任客户端 sender。 */
+    private static String resolveUid(Message request, Message response) {
+        if (response != null && response.getToken() != null) {
+            UserSession session = SessionManager.getInstance().getSession(response.getToken());
+            if (session != null) return session.getUsername();
+        }
+        if (request != null && request.getToken() != null) {
+            UserSession session = SessionManager.getInstance().getSession(request.getToken());
+            if (session != null) return session.getUsername();
+        }
+        return null;
+    }
+
+    private String rebind(ClientConnection activeConnection, String boundUid, String desiredUid) {
+        if (Objects.equals(boundUid, desiredUid)) return boundUid;
+        if (boundUid != null) registry.unbind(boundUid, activeConnection);
+        if (desiredUid != null) registry.bind(desiredUid, activeConnection);
+        return desiredUid;
+    }
+
+    /** 防重登等服务端主动推送与普通响应共用 ClientConnection 写锁。 */
+    public void sendMessage(Message message) {
+        ClientConnection activeConnection = connection;
+        if (activeConnection == null) return;
+        try {
+            activeConnection.send(message);
+            System.out.println("已向客户端发送推送消息: " + message);
+        } catch (Exception failure) {
+            System.err.println("发送推送消息异常: " + failure.getMessage());
+        }
+    }
+
+    public void close() {
+        ClientConnection activeConnection = connection;
+        if (activeConnection != null) {
+            activeConnection.close();
+            return;
+        }
+        try {
+            socket.close();
+        } catch (IOException ignored) {
+            // 关闭幂等。
+        }
     }
 }

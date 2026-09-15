@@ -1,0 +1,394 @@
+package controller;
+
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
+import javafx.application.Platform;
+import javafx.fxml.FXML;
+import javafx.geometry.HPos;
+import javafx.geometry.Pos;
+import javafx.scene.control.Button;
+import javafx.scene.control.ComboBox;
+import javafx.scene.control.Label;
+import javafx.scene.control.Spinner;
+import javafx.scene.control.SpinnerValueFactory;
+import javafx.scene.layout.ColumnConstraints;
+import javafx.scene.layout.GridPane;
+import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
+import javafx.scene.layout.RowConstraints;
+import javafx.scene.layout.VBox;
+import model.course.CourseNoticeView;
+import model.course.CourseTermView;
+import model.course.ScheduleEntryView;
+import service.CourseService;
+import service.CourseServices;
+import util.AlertUtil;
+
+public final class ScheduleController {
+    private static final int FIRST_PERIOD = 1;
+    private static final int LAST_PERIOD = 13;
+
+    private final CourseService service;
+    private final BiConsumer<String, String> infoReporter;
+    private final BiConsumer<String, String> errorReporter;
+    private final Consumer<Runnable> fxExecutor;
+    private CourseTermView selectedTerm;
+    private long loadGeneration; // 请求的版本管理，用来解决用户短时间多次点击，确认最终的返回结果
+    private long termLoadGeneration; // 学期加载的版本管理，避免陈旧学期覆盖最新服务端学期
+
+    @FXML private ComboBox<CourseTermView> termFilter;
+    @FXML private Spinner<Integer> weekSpinner;
+    @FXML private GridPane scheduleGrid;
+    @FXML private VBox noticeList;
+
+    public ScheduleController() {
+        this(CourseServices.current(), AlertUtil::showInfo, AlertUtil::showError,
+                ScheduleController::runOnFxThread);
+    }
+
+    ScheduleController(CourseService service, BiConsumer<String, String> infoReporter,
+            BiConsumer<String, String> errorReporter, Consumer<Runnable> fxExecutor) {
+        this.service = service;
+        this.infoReporter = infoReporter;
+        this.errorReporter = errorReporter;
+        this.fxExecutor = fxExecutor;
+    }
+
+    @FXML
+    public void initialize() {
+        weekSpinner.setValueFactory(
+                new SpinnerValueFactory.IntegerSpinnerValueFactory(1, 20, 3));
+        termFilter.valueProperty().addListener((observable, oldValue, newValue) -> {
+            if (newValue != null && !newValue.equals(selectedTerm)) {
+                selectedTerm = newValue;
+                refresh();
+            }
+        });
+        weekSpinner.valueProperty().addListener(
+                (observable, oldValue, newValue) -> refresh());
+        renderSchedule(Collections.emptyList());
+        renderNotices(Collections.emptyList());
+        loadTerms();
+    }
+
+    @FXML
+    public void refresh() {
+        fxExecutor.accept(this::loadSchedule);
+    }
+
+    private void loadTerms() {
+        requestTerms(terms -> {
+            termFilter.getItems().setAll(terms);
+            if (terms.isEmpty()) {
+                selectedTerm = null;
+                renderSchedule(Collections.emptyList());
+                renderNotices(Collections.emptyList(), "暂无学期");
+            } else {
+                termFilter.setValue(terms.get(0));
+            }
+        }, error -> {
+            selectedTerm = null;
+            termFilter.getItems().clear();
+            renderSchedule(Collections.emptyList());
+            renderNotices(Collections.emptyList(), "加载失败，请刷新重试");
+            errorReporter.accept("加载失败", errorMessage(error));
+        });
+    }
+
+    void requestTerms(Consumer<List<CourseTermView>> onLoaded,
+            Consumer<Throwable> onError) {
+        long generation = ++termLoadGeneration;
+        service.loadTerms().whenComplete((terms, error) -> fxExecutor.accept(() -> {
+            if (generation != termLoadGeneration) return;
+            if (error != null) {
+                onError.accept(error);
+            } else {
+                onLoaded.accept(List.copyOf(terms));
+            }
+        }));
+    }
+
+    void requestScheduleData(CourseTermView term, int week,
+            Consumer<ScheduleData> onLoaded, Consumer<Throwable> onError) {
+        long generation = ++loadGeneration;
+        CompletableFuture<List<ScheduleEntryView>> scheduleFuture =
+                service.loadSchedule(term, week);
+        CompletableFuture<List<CourseNoticeView>> noticeFuture =
+                service.loadNotices(term, week);
+        scheduleFuture.thenCombine(noticeFuture, ScheduleData::new)
+                .whenComplete((data, error) -> fxExecutor.accept(() -> {
+                    if (generation != loadGeneration) { // 忽略旧请求（用户多次快速点击refresh）
+                        return;
+                    }
+                    if (error != null) {
+                        onError.accept(error);
+                    } else {
+                        onLoaded.accept(data);
+                    }
+                }));
+    }
+
+    private void loadSchedule() {
+        CourseTermView term = selectedTerm != null ? selectedTerm : termFilter.getValue();
+        Integer selectedWeek = weekSpinner.getValue();
+        if (term == null || selectedWeek == null) {
+            return;
+        }
+
+        // 清空旧数据并显示加载状态
+        renderSchedule(Collections.emptyList());
+        renderNotices(Collections.emptyList(), "正在加载课表...");
+        // 两个异步的加载请求
+        requestScheduleData(term, selectedWeek, data -> {
+            renderSchedule(data.entries);
+            renderNotices(data.notices);
+        }, error -> {
+            renderSchedule(Collections.emptyList());
+            renderNotices(Collections.emptyList(), "加载失败，请刷新重试");
+            errorReporter.accept("加载失败", errorMessage(error));
+        });
+    }
+
+    private void renderSchedule(List<ScheduleEntryView> entries) {
+        scheduleGrid.getChildren().clear();
+        scheduleGrid.getRowConstraints().clear();
+
+        RowConstraints headerRow = new RowConstraints(30.0);
+        scheduleGrid.getRowConstraints().add(headerRow);
+        for (int period = FIRST_PERIOD; period <= LAST_PERIOD; period++) {
+            RowConstraints periodRow = new RowConstraints();
+            periodRow.setMinHeight(30.0);
+            periodRow.setVgrow(Priority.ALWAYS);
+            scheduleGrid.getRowConstraints().add(periodRow);
+        }
+
+        addGridLabel("节次", 0, 0, "course-schedule-header");
+        for (int day = 1; day <= 5; day++) {
+            addGridLabel(weekdayName(day), day, 0, "course-schedule-header");
+        }
+        for (int period = FIRST_PERIOD; period <= LAST_PERIOD; period++) {
+            addGridLabel("第 " + period + " 节", 0, period, "course-period-label");
+            for (int day = 1; day <= 5; day++) {
+                addGridCell(day, period);
+            }
+        }
+
+        for (int day = 1; day <= 5; day++) {
+            for (ScheduleLayout.Component component : ScheduleLayout.layoutDay(
+                    entries, day, FIRST_PERIOD, LAST_PERIOD)) {
+                GridPane componentGrid = createComponentGrid(component);
+                scheduleGrid.add(componentGrid, day, component.getStartPeriod());
+                GridPane.setRowSpan(componentGrid,
+                        component.getEndPeriod() - component.getStartPeriod() + 1);
+                GridPane.setHgrow(componentGrid, Priority.ALWAYS);
+                GridPane.setVgrow(componentGrid, Priority.ALWAYS);
+            }
+        }
+    }
+
+    private void addGridCell(int column, int row) {
+        Region cell = new Region();
+        cell.getStyleClass().add("course-schedule-cell");
+        cell.setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);
+        GridPane.setHgrow(cell, Priority.ALWAYS);
+        GridPane.setVgrow(cell, Priority.ALWAYS);
+        scheduleGrid.add(cell, column, row);
+    }
+
+    private GridPane createComponentGrid(ScheduleLayout.Component component) {
+        GridPane componentGrid = new GridPane();
+        componentGrid.getStyleClass().add("course-schedule-overlap-grid");
+        componentGrid.setHgap(2.0);
+        componentGrid.setVgap(1.0);
+        componentGrid.setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);
+
+        int periodCount = component.getEndPeriod() - component.getStartPeriod() + 1;
+        for (int row = 0; row < periodCount; row++) {
+            RowConstraints rowConstraints = new RowConstraints();
+            rowConstraints.setPercentHeight(100.0 / periodCount);
+            rowConstraints.setVgrow(Priority.ALWAYS);
+            componentGrid.getRowConstraints().add(rowConstraints);
+        }
+        for (int lane = 0; lane < component.getLaneCount(); lane++) {
+            ColumnConstraints columnConstraints = new ColumnConstraints();
+            columnConstraints.setPercentWidth(100.0 / component.getLaneCount());
+            columnConstraints.setHgrow(Priority.ALWAYS);
+            componentGrid.getColumnConstraints().add(columnConstraints);
+        }
+
+        for (ScheduleLayout.PlacedEntry placed : component.getEntries()) {
+            Button courseBlock = createCourseBlock(placed.getEntry());
+            int row = placed.getStartPeriod() - component.getStartPeriod();
+            componentGrid.add(courseBlock, placed.getLane(), row);
+            GridPane.setRowSpan(courseBlock,
+                    placed.getEndPeriod() - placed.getStartPeriod() + 1);
+            GridPane.setHgrow(courseBlock, Priority.ALWAYS);
+            GridPane.setVgrow(courseBlock, Priority.ALWAYS);
+        }
+        return componentGrid;
+    }
+
+    private void addGridLabel(String text, int column, int row, String styleClass) {
+        Label label = new Label(text);
+        label.getStyleClass().add(styleClass);
+        label.setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);
+        label.setAlignment(Pos.CENTER);
+        GridPane.setHalignment(label, HPos.CENTER);
+        GridPane.setHgrow(label, Priority.ALWAYS);
+        GridPane.setVgrow(label, Priority.ALWAYS);
+        scheduleGrid.add(label, column, row);
+    }
+
+    private Button createCourseBlock(ScheduleEntryView entry) {
+        Label title = new Label(entry.getCourseName());
+        title.getStyleClass().add("course-class-title");
+        title.setWrapText(true);
+        title.setMinWidth(0.0);
+
+        Label meta = new Label(entry.getLocation() + "\n" + entry.getTeacher());
+        meta.getStyleClass().add("course-class-meta");
+        meta.setWrapText(true);
+        meta.setMinWidth(0.0);
+
+        VBox content = new VBox(2.0, title, meta);
+        content.setAlignment(Pos.CENTER_LEFT);
+        content.setMinWidth(0.0);
+
+        // 调和后的两个位置共用同一块视觉语言：旧位置灰显并带“原安排”角标，新位置带“调课后”角标。
+        String badge = adjustmentBadge(entry);
+        if (badge != null) {
+            Label badgeLabel = new Label(badge);
+            badgeLabel.getStyleClass().add("course-adjustment-badge");
+            badgeLabel.setMinWidth(0.0);
+            content.getChildren().add(0, badgeLabel);
+        }
+
+        Button block = new Button();
+        block.getStyleClass().add("course-class-block");
+        String adjustmentStyle = adjustmentStyleClass(entry);
+        if (adjustmentStyle != null) {
+            block.getStyleClass().add(adjustmentStyle);
+        }
+        block.setGraphic(content);
+        block.setMinSize(0.0, 0.0);
+        block.setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);
+        block.setOnAction(event -> infoReporter.accept("课程详情", detailText(entry)));
+        return block;
+    }
+
+    /** 调课块附加的样式类；普通课程没有任何附加样式。 */
+    static String adjustmentStyleClass(ScheduleEntryView entry) {
+        return switch (entry.getDisplayKind()) {
+            case ADJUSTED_ORIGINAL -> "course-adjusted-original";
+            case ADJUSTED_TARGET -> "course-adjusted-target";
+            case NORMAL -> null;
+        };
+    }
+
+    /** 调课块头部的角标文案；普通课程没有角标。 */
+    static String adjustmentBadge(ScheduleEntryView entry) {
+        return switch (entry.getDisplayKind()) {
+            case ADJUSTED_ORIGINAL -> "原安排";
+            case ADJUSTED_TARGET -> "调课后";
+            case NORMAL -> null;
+        };
+    }
+
+    private void renderNotices(List<CourseNoticeView> notices) {
+        renderNotices(notices, "本周暂无调课通知");
+    }
+
+    private void renderNotices(List<CourseNoticeView> notices, String emptyMessage) {
+        noticeList.getChildren().clear();
+        Label heading = new Label("调课通知");
+        heading.getStyleClass().add("course-schedule-header");
+        heading.setMaxWidth(Double.MAX_VALUE);
+        noticeList.getChildren().add(heading);
+
+        if (notices.isEmpty()) {
+            Label empty = new Label(emptyMessage);
+            empty.getStyleClass().add("course-class-meta");
+            empty.setWrapText(true);
+            noticeList.getChildren().add(empty);
+            return;
+        }
+
+        for (CourseNoticeView notice : notices) {
+            Label title = new Label(notice.getTitle());
+            title.getStyleClass().add("course-class-title");
+            title.setWrapText(true);
+            Label content = new Label(notice.getContent());
+            content.getStyleClass().add("course-class-meta");
+            content.setWrapText(true);
+            VBox item = new VBox(5.0, title, content);
+            item.getStyleClass().add("course-notice-item");
+            noticeList.getChildren().add(item);
+        }
+    }
+
+    static String detailText(ScheduleEntryView entry) {
+        int endPeriod = entry.getStartPeriod() + entry.getPeriodCount() - 1;
+        StringBuilder text = new StringBuilder("课程名称：").append(entry.getCourseName())
+                .append("\n课程代码：").append(entry.getCourseCode())
+                .append("\n上课时间：").append(weekdayName(entry.getDayOfWeek())).append(" 第 ")
+                .append(entry.getStartPeriod()).append("-").append(endPeriod).append(" 节")
+                .append("\n上课地点：").append(entry.getLocation())
+                .append("\n授课教师：").append(entry.getTeacher());
+        // 两个位置携带完全相同的调课文案，因此从任意一块打开详情都能读到完整信息。
+        if (entry.getOriginalScheduleText() != null || entry.getAdjustedScheduleText() != null) {
+            text.append("\n调课状态：").append(adjustmentBadge(entry))
+                    .append("\n原安排：").append(entry.getOriginalScheduleText())
+                    .append("\n调整后：").append(entry.getAdjustedScheduleText());
+            if (entry.getAdjustmentReason() != null) {
+                text.append("\n调课原因：").append(entry.getAdjustmentReason());
+            }
+        }
+        return text.append("\n备注：第 ").append(entry.getStartWeek()).append("-")
+                .append(entry.getEndWeek()).append(" 周").toString();
+    }
+
+    private static String weekdayName(int dayOfWeek) {
+        String[] weekdays = {"", "周一", "周二", "周三", "周四", "周五"};
+        return dayOfWeek >= 1 && dayOfWeek <= 5 ? weekdays[dayOfWeek] : "未知";
+    }
+
+    private static String errorMessage(Throwable error) {
+        Throwable cause = error;
+        while ((cause instanceof CompletionException || cause.getCause() != null)
+                && cause.getCause() != null) {
+            cause = cause.getCause();
+        }
+        return cause.getMessage() == null ? "未知错误" : cause.getMessage();
+    }
+
+    private static void runOnFxThread(Runnable action) {
+        if (Platform.isFxApplicationThread()) {
+            action.run();
+        } else {
+            Platform.runLater(action);
+        }
+    }
+
+    static final class ScheduleData {
+        private final List<ScheduleEntryView> entries;
+        private final List<CourseNoticeView> notices;
+
+        private ScheduleData(List<ScheduleEntryView> entries,
+                List<CourseNoticeView> notices) {
+            this.entries = entries;
+            this.notices = notices;
+        }
+
+        List<ScheduleEntryView> getEntries() {
+            return entries;
+        }
+
+        List<CourseNoticeView> getNotices() {
+            return notices;
+        }
+    }
+}

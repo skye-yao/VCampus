@@ -3,7 +3,6 @@ package protocol;
 import java.io.Serializable;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -45,13 +44,17 @@ public class Message implements Serializable {
     
     // ===== 构造方法 =====
     public Message() {
-        this.UID = UID_SEQUENCE.updateAndGet(previous ->
-                Math.max(previous + 1, System.currentTimeMillis()));
+        this.UID = nextUID();
         this.data = new HashMap<>();
         this.timestamp = String.valueOf(System.currentTimeMillis());
         this.code = MessageCode.SUCCESS;
     }
-    
+
+    public static Long nextUID() {
+        return UID_SEQUENCE.updateAndGet(previous ->
+                Math.max(previous + 1, System.currentTimeMillis()));
+    }
+
     // ===== 便捷构造：请求消息 =====
     public Message(MessageType type, String module, String action) {
         this();

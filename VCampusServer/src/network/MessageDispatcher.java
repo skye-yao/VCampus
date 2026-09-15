@@ -3,6 +3,9 @@ package network;
 import protocol.Message;
 import protocol.MessageCode;
 import protocol.MessageType;
+import handler.AdminCourseHandler;
+import handler.CourseHandler;
+import handler.TeacherCourseHandler;
 import handler.UserHandler;
 import handler.StudentHandler;
 import handler.TeacherHandler;
@@ -29,8 +32,30 @@ public class MessageDispatcher {
     private final BankHandler bankHandler;
     private final handler.AiHandler aiHandler;
     private final LibraryHandler libraryHandler;
-  
+    private final CourseHandler courseHandler;
+    private final AdminCourseHandler adminCourseHandler;
+    private final TeacherCourseHandler teacherCourseHandler;
     public MessageDispatcher() {
+        this(new CourseHandler(), new AdminCourseHandler(), new TeacherCourseHandler());
+    }
+
+    public MessageDispatcher(CourseHandler courseHandler) {
+        this(courseHandler, new AdminCourseHandler(), new TeacherCourseHandler());
+    }
+
+    public MessageDispatcher(CourseHandler courseHandler,
+                             AdminCourseHandler adminCourseHandler) {
+        this(courseHandler, adminCourseHandler, new TeacherCourseHandler());
+    }
+
+    /** 注入教师端 Handler 的构造方法；其余模块仍按默认实现装配。 */
+    public MessageDispatcher(TeacherCourseHandler teacherCourseHandler) {
+        this(new CourseHandler(), new AdminCourseHandler(), teacherCourseHandler);
+    }
+
+    public MessageDispatcher(CourseHandler courseHandler,
+                              AdminCourseHandler adminCourseHandler,
+                              TeacherCourseHandler teacherCourseHandler) {
         this.userHandler = new UserHandler();
         this.studentHandler = new StudentHandler();
         this.teacherHandler = new TeacherHandler();
@@ -39,6 +64,11 @@ public class MessageDispatcher {
         this.bankHandler = new BankHandler(bankService);
         this.aiHandler = new handler.AiHandler(bankService);
         this.libraryHandler = new LibraryHandler();
+        this.courseHandler = courseHandler == null ? new CourseHandler() : courseHandler;
+        this.adminCourseHandler = adminCourseHandler == null
+                ? new AdminCourseHandler() : adminCourseHandler;
+        this.teacherCourseHandler = teacherCourseHandler == null
+                ? new TeacherCourseHandler() : teacherCourseHandler;
     }
 
     /**
@@ -73,6 +103,12 @@ public class MessageDispatcher {
             return bankHandler.handle(request);
         } else if ("ai".equalsIgnoreCase(module)) {
             return aiHandler.handle(request);
+        } else if ("course".equalsIgnoreCase(module)) {
+            return courseHandler.handle(request);
+        } else if ("courseAdmin".equalsIgnoreCase(module)) {
+            return adminCourseHandler.handle(request);
+        } else if ("courseTeacher".equalsIgnoreCase(module)) {
+            return teacherCourseHandler.handle(request);
         } else {
             // 未知模块或未实现的模块
             Message response = new Message(MessageType.RESPONSE, module, request.getAction());

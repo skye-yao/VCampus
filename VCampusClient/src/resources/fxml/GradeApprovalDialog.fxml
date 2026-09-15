@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.control.Separator?>
+<?import javafx.scene.layout.BorderPane?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.VBox?>
+
+<BorderPane prefHeight="460.0" prefWidth="680.0" styleClass="course-approval-dialog" stylesheets="@../css/style.css" xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.GradeApprovalDialogController">
+    <top>
+        <VBox spacing="6.0" BorderPane.alignment="CENTER">
+            <children>
+                <Label fx:id="titleLabel" styleClass="course-approval-dialog-title" text="成绩提交" wrapText="true" />
+                <Label fx:id="metaLabel" styleClass="course-approval-dialog-meta" text="" wrapText="true" />
+                <Separator />
+            </children>
+            <padding>
+                <Insets bottom="8.0" left="16.0" right="16.0" top="14.0" />
+            </padding>
+        </VBox>
+    </top>
+    <center>
+        <ScrollPane fitToWidth="true" hbarPolicy="NEVER" styleClass="course-approval-dialog-scroll" BorderPane.alignment="CENTER">
+            <content>
+                <VBox spacing="10.0">
+                    <children>
+                        <HBox fx:id="metricCardBox" spacing="10.0" />
+                        <Label styleClass="course-approval-dialog-header" text="成绩分布" />
+                        <VBox fx:id="distributionRows" spacing="4.0" />
+                        <Separator />
+                        <Label styleClass="course-approval-dialog-header" text="学生成绩" />
+                        <VBox fx:id="itemRows" spacing="4.0" />
+                        <Separator />
+                        <Label styleClass="course-approval-dialog-header" text="审批信息" />
+                        <VBox fx:id="detailBody" spacing="4.0" />
+                    </children>
+                    <padding>
+                        <Insets bottom="16.0" left="16.0" right="16.0" />
+                    </padding>
+                </VBox>
+            </content>
+        </ScrollPane>
+    </center>
+</BorderPane>

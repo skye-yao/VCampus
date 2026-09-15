@@ -61,3 +61,6 @@ thoughts/
 
 # agent
 .agents/
+.worktrees/
+.codex-tmp/
+.claude/

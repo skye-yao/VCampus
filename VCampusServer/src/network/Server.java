@@ -6,7 +6,11 @@ import java.net.Socket;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+
 import service.ShopService;
+import service.CourseEventDispatcher;
+import service.CourseWaitlistScheduler;
 
 /**
  * VCampus 服务端 Socket 服务器。
@@ -21,7 +25,7 @@ import service.ShopService;
  * ClientHandler 负责该客户端后续的消息通信。
  *
  * @author VirtualCampus 架构组
- * @version 1.0
+ * @version 2.0
  */
 public class Server {
     private final java.util.Set<Socket> clientSockets=java.util.concurrent.ConcurrentHashMap.newKeySet();
@@ -45,24 +49,43 @@ public class Server {
     private final ScheduledExecutorService maintenanceExecutor;
     private final ShopService shopMaintenanceService;
 
+    /** 在线连接注册表（服务器共享）。 */
+    private final OnlineConnectionRegistry registry;
+
+    /** 消息分发器（服务器共享）。 */
+    private final MessageDispatcher dispatcher;
+
+    /** 课程事件投递器（服务器共享，可为 null）。 */
+    private final CourseEventDispatcher eventDispatcher;
+
+    /** 候补调度器（服务器共享，可为 null）。 */
+    private final CourseWaitlistScheduler waitlistScheduler;
+
     /**
      * 服务端是否正在运行。
      */
     private volatile boolean running;
 
+    /** 是否已经停止，保证关闭幂等。 */
+    private final AtomicBoolean stopped = new AtomicBoolean();
+
     /**
-     * 使用默认端口创建服务器。
+     * 使用默认端口与共享依赖创建服务器。
      */
-    public Server() {
-        this(DEFAULT_PORT);
+    public Server(OnlineConnectionRegistry registry, MessageDispatcher dispatcher,
+                  CourseEventDispatcher eventDispatcher,
+                  CourseWaitlistScheduler waitlistScheduler) {
+        this(DEFAULT_PORT, registry, dispatcher, eventDispatcher, waitlistScheduler);
     }
 
     /**
-     * 根据指定端口创建服务器。
+     * 根据指定端口与共享依赖创建服务器。
      *
      * @param port 服务端监听端口
      */
-    public Server(int port) {
+    public Server(int port, OnlineConnectionRegistry registry, MessageDispatcher dispatcher,
+                  CourseEventDispatcher eventDispatcher,
+                  CourseWaitlistScheduler waitlistScheduler) {
         this.threadPool = ServerThreadPool.getInstance();
         this.maintenanceExecutor = Executors.newSingleThreadScheduledExecutor(runnable -> {
             Thread thread = new Thread(runnable, "shop-order-expiry");
@@ -70,6 +93,10 @@ public class Server {
             return thread;
         });
         this.shopMaintenanceService = new ShopService();
+        this.registry = registry;
+        this.dispatcher = dispatcher;
+        this.eventDispatcher = eventDispatcher;
+        this.waitlistScheduler = waitlistScheduler;
 
         try {
             this.serverSocket = new ServerSocket(port);
@@ -114,6 +141,15 @@ public class Server {
                 System.err.println("图书馆逾期状态更新失败：" + e.getMessage());
             }
         }, 0, 1, TimeUnit.MINUTES);
+
+        if (eventDispatcher != null) {
+            eventDispatcher.start();
+        }
+        if (waitlistScheduler != null) {
+            waitlistScheduler.start();
+        }
+
+        System.out.println("=================================");
         System.out.println("VCampus Server 启动成功");
         System.out.println("服务器端口：" + serverSocket.getLocalPort());
         System.out.println("等待客户端连接...");
@@ -133,9 +169,9 @@ public class Server {
                         + clientSocket.getRemoteSocketAddress()
                 );
 
-                // 创建客户端连接处理器
+                // 创建客户端连接处理器（共享注册表与分发器）
                 ClientHandler clientHandler =
-                        new ClientHandler(clientSocket);
+                        new ClientHandler(clientSocket, registry, dispatcher);
 
                 // 交给服务端线程池处理
                 try { threadPool.execute(()->{try{clientHandler.run();}finally{clientSockets.remove(clientSocket);}}); }
@@ -158,9 +194,13 @@ public class Server {
      * 停止服务器。
      *
      * <p>
-     * 关闭 ServerSocket，并关闭服务端线程池。
+     * 幂等地关闭 ServerSocket、在线连接注册表、课程事件投递器、候补调度器与线程池。
      */
     public void stop() {
+
+        if (!stopped.compareAndSet(false, true)) {
+            return;
+        }
 
         running = false;
 
@@ -175,6 +215,16 @@ public class Server {
 
         for(Socket client:clientSockets){try{client.close();}catch(IOException ignored){}}
         clientSockets.clear();
+
+        if (eventDispatcher != null) {
+            eventDispatcher.close();
+        }
+        if (waitlistScheduler != null) {
+            waitlistScheduler.close();
+        }
+        if (registry != null) {
+            registry.close();
+        }
         threadPool.shutdown();
         maintenanceExecutor.shutdownNow();
 

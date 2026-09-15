@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.layout.BorderPane?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.layout.StackPane?>
+<?import javafx.scene.layout.VBox?>
+
+<!--
+  教师工作台外壳：左上“返回首页”，右上四入口。沿用 860x580 主窗口。
+  四个入口（教学课程表、教学班、成绩录入、我的申请）自 T5 起全部接入，因此不再有禁用占位。
+  子页与外壳共用一套 fx:include + visible/managed 的托管机制，与管理员后台一致；
+  有未保存内容的子页会在导航/关闭时通过 PageLeaveGuard 拦一次。
+-->
+<BorderPane prefHeight="580.0" prefWidth="860.0" styleClass="teacher-course-shell" stylesheets="@../css/style.css, @../css/teacher-course.css" xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.TeacherCourseManagementController">
+    <top>
+        <HBox alignment="CENTER_LEFT" maxHeight="64.0" minHeight="64.0" prefHeight="64.0" spacing="12.0" styleClass="teacher-course-topbar" BorderPane.alignment="CENTER">
+            <padding>
+                <Insets left="20.0" right="20.0" top="1.0" />
+            </padding>
+            <children>
+                <Button onAction="#handleBack" prefHeight="64.0" styleClass="teacher-course-nav-button" text="返回首页" />
+                <Label styleClass="teacher-course-title" text="教师工作台" />
+                <Region HBox.hgrow="ALWAYS" />
+                <Button onAction="#handleOpenTimetable" prefHeight="64.0" styleClass="teacher-course-entry" text="教学课程表" />
+                <Button onAction="#handleOpenOfferings" prefHeight="64.0" styleClass="teacher-course-entry" text="教学班" />
+                <Button onAction="#handleOpenGrades" prefHeight="64.0" styleClass="teacher-course-entry" text="成绩录入" />
+                <Button onAction="#handleOpenApplications" prefHeight="64.0" styleClass="teacher-course-entry" text="我的申请" />
+            </children>
+        </HBox>
+    </top>
+    <center>
+        <StackPane styleClass="teacher-course-content" BorderPane.alignment="CENTER">
+            <children>
+                <VBox fx:id="homePanel" alignment="CENTER" spacing="8.0" styleClass="teacher-course-placeholder">
+                    <children>
+                        <Label styleClass="teacher-course-placeholder-title" text="教师课程管理" />
+                        <Label fx:id="statusLabel" styleClass="teacher-course-placeholder-text" text="教学班、教学课程表、成绩录入、我的申请已接入。" wrapText="true" />
+                    </children>
+                </VBox>
+                <fx:include fx:id="offeringsPage" managed="false" source="TeacherOfferingView.fxml" visible="false" />
+                <fx:include fx:id="detailPage" managed="false" source="TeacherOfferingDetailView.fxml" visible="false" />
+                <fx:include fx:id="schedulePage" managed="false" source="TeacherScheduleView.fxml" visible="false" />
+                <fx:include fx:id="applicationsPage" managed="false" source="TeacherApplicationsView.fxml" visible="false" />
+                <fx:include fx:id="gradesPage" managed="false" source="TeacherGradeView.fxml" visible="false" />
+                <fx:include fx:id="gradeBookPage" managed="false" source="TeacherGradeBookView.fxml" visible="false" />
+            </children>
+        </StackPane>
+    </center>
+</BorderPane>

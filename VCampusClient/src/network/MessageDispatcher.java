@@ -10,9 +10,12 @@ import javafx.stage.Modality;
 import app.ClientMain;
 import session.ClientSession;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 客户端消息分发器。
@@ -25,29 +28,105 @@ public class MessageDispatcher {
     /** 请求 requestId -> 对应的 CompletableFuture */
     private final Map<String, CompletableFuture<Message>> pendingRequests = new ConcurrentHashMap<>();
 
-    /**
-     * 注册待接收响应的异步任务
-     */
-    public void registerPendingRequest(String UID, CompletableFuture<Message> future) {
-        if (UID != null && future != null) {
-            pendingRequests.put(UID, future);
+    /** 注册与关闭操作共用的锁，保证关闭后不会再接受请求 */
+    private final Object pendingLock = new Object();
+
+    /** 连接代际关闭后，该分发器不再接受新请求 */
+    private final AtomicBoolean closed = new AtomicBoolean(false);
+
+    /** 跨连接代际持久的 PUSH 监听注册表 */
+    private final PushListenerRegistry pushListeners;
+
+    public MessageDispatcher() {
+        this(new PushListenerRegistry());
+    }
+
+    public MessageDispatcher(PushListenerRegistry pushListeners) {
+        if (pushListeners == null) {
+            throw new IllegalArgumentException("Push listener registry is required");
         }
+        this.pushListeners = pushListeners;
     }
 
     /**
-     * 移除超时的异步任务
+     * 注册待接收响应的异步任务
      */
-    public void removePendingRequest(String UID) {
-        if (UID != null) {
-            pendingRequests.remove(UID);
+    public boolean registerPendingRequest(String requestKey, CompletableFuture<Message> future) {
+        if (requestKey == null || requestKey.isBlank() || future == null) {
+            return false;
         }
+
+        synchronized (pendingLock) {
+            return !closed.get()
+                    && pendingRequests.putIfAbsent(requestKey, future) == null;
+        }
+    }
+
+    public boolean registerPendingRequest(Long UID, CompletableFuture<Message> future) {
+        return registerPendingRequest(keyOf(UID), future);
+    }
+
+    /**
+     * 仅当 UID 仍映射到同一个异步任务时移除。
+     */
+    public boolean removePendingRequest(String requestKey, CompletableFuture<Message> future) {
+        if (requestKey == null || future == null) {
+            return false;
+        }
+
+        synchronized (pendingLock) {
+            return pendingRequests.remove(requestKey, future);
+        }
+    }
+
+    public boolean removePendingRequest(Long UID, CompletableFuture<Message> future) {
+        return removePendingRequest(keyOf(UID), future);
+    }
+
+    /**
+     * 仅当 UID 仍映射到指定任务时，让该请求以异常结束。
+     */
+    public boolean failPending(
+            Long UID,
+            CompletableFuture<Message> expected,
+            Throwable cause) {
+        return failPending(keyOf(UID), expected, cause);
+    }
+
+    public boolean failPending(
+            String requestKey,
+            CompletableFuture<Message> expected,
+            Throwable cause) {
+        if (requestKey == null || expected == null || cause == null) {
+            return false;
+        }
+
+        boolean removed;
+        synchronized (pendingLock) {
+            removed = pendingRequests.remove(requestKey, expected);
+        }
+
+        if (removed) {
+            expected.completeExceptionally(cause);
+        }
+        return removed;
     }
 
     /**
      * 连接断开时，让所有等待中的请求以异常结束
      */
     public void failAllPending(Throwable cause) {
-        pendingRequests.forEach((id,future) -> { if(pendingRequests.remove(id,future)) future.completeExceptionally(cause); });
+        List<CompletableFuture<Message>> futures;
+        synchronized (pendingLock) {
+            if (!closed.compareAndSet(false, true)) {
+                return;
+            }
+
+            futures = new ArrayList<>(pendingRequests.values());
+            pendingRequests.clear();
+        }
+
+        futures.forEach(future -> future.completeExceptionally(cause));
     }
 
     /**
@@ -73,13 +152,24 @@ public class MessageDispatcher {
      * 处理普通响应。
      */
     private void handleResponse(Message message) {
-        String UID = message.getRequestId();
-        if (UID != null) {
-            CompletableFuture<Message> future = pendingRequests.remove(UID);
-            if (future != null) {
-                future.complete(message);
-                return;
+        String requestKey = message.getRequestId();
+        CompletableFuture<Message> future = null;
+        synchronized (pendingLock) {
+            if (requestKey != null && !requestKey.isBlank()) {
+                future = pendingRequests.remove(requestKey);
             }
+
+            if (future == null) {
+                String uidKey = keyOf(message.getUID());
+                if (uidKey != null && !uidKey.equals(requestKey)) {
+                    future = pendingRequests.remove(uidKey);
+                }
+            }
+        }
+
+        if (future != null) {
+            future.complete(message);
+            return;
         }
 
         System.out.println(
@@ -92,9 +182,10 @@ public class MessageDispatcher {
     }
 
     /**
-     * 处理服务器主动推送。
+     * 处理服务器主动推送。PUSH 只交给持久注册表，绝不触碰 pending response future。
      */
     private void handlePush(Message message) {
+        pushListeners.dispatch(message);
         System.out.println("收到服务器推送: " + message);
         if ("user".equalsIgnoreCase(message.getModule()) && "kickout".equalsIgnoreCase(message.getAction())) {
             Platform.runLater(() -> {
@@ -124,5 +215,9 @@ public class MessageDispatcher {
                 alert.show();
             });
         }
+    }
+
+    private static String keyOf(Long UID) {
+        return UID == null ? null : UID.toString();
     }
 }
