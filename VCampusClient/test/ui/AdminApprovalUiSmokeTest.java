@@ -59,13 +59,13 @@ public final class AdminApprovalUiSmokeTest {
     private static final String[] FILES = {"admin-grade-approval.png", "admin-grade-resubmission.png"};
     private static final Path OUTPUT = Path.of(".codex-tmp", "admin-approval");
 
-    /** Mock 夹具 9001（PENDING，2 名学生，平均 87.5）。 */
+    /** Mock 夹具 9001（PENDING，2 名学生，总评 85.00/90.00，平均 87.5）。 */
     private static final String PLAIN_ROW_MARKER = "平均：87.5";
-    /** Mock 夹具 9004（9001 的重提，平均 93.0）。 */
+    /** Mock 夹具 9004（9001 的重提，总评 92.00/94.00，平均 93.0）。 */
     private static final String RESUBMISSION_ROW_MARKER = "平均：93.0";
-    /** 详情面板上的方案行：30/20/20/30 必须由 Mock 的真实快照渲染出来。 */
+    /** 详情面板上的方案行：40/20/-/40（实验未启用）必须由 Mock 的真实快照渲染出来。 */
     private static final String SCHEME_LINE =
-            "成绩组成：平时 30.00%　期中 20.00%　实验 20.00%　期末 30.00%";
+            "成绩组成：平时 40.00%　期中 20.00%　实验 未启用　期末 40.00%";
     private static final String LEGACY_FALLBACK = "历史批次未记录方案快照";
 
     static void prepareOutputDirectory() throws IOException {
@@ -146,6 +146,13 @@ public final class AdminApprovalUiSmokeTest {
                         "四张指标卡与五个分布分段必须都在");
                 require(table("#itemTable", "成绩明细").getItems().size() == 2,
                         "成绩明细应有两行");
+                // 明细的每一格都必须与上面那行方案自洽：40/20/未启用/40 重算出来正好是这些总评与绩点，
+                // 实验列是 NULL 所以显示 --。夹具一旦与方案脱节（例如给启用项留空、或总评写错），这里必炸。
+                require(List.of("20240031", "陈晨", "84.0", "85.0", "--", "86.0", "85.0", "3", "3.5")
+                                .equals(itemRow(0))
+                                && List.of("20240032", "林晓", "91.0", "88.0", "--", "90.0",
+                                "90.0", "4", "4.0").equals(itemRow(1)),
+                        "明细必须与方案行自洽（40/20/-/40），实际 " + itemRow(0) + " / " + itemRow(1));
                 require(!gradeNode("#approveButton", Button.class, "通过按钮").isDisabled(),
                         "PENDING 批次必须可以审批");
                 // 组成/权重与提交人数在明细表下方的滚动区里：滚到底再截图，画面与断言必须一致。
@@ -263,6 +270,17 @@ public final class AdminApprovalUiSmokeTest {
 
         private String labelText(String selector) {
             return gradeNode(selector, Label.class, "标签 " + selector).getText();
+        }
+
+        /** 成绩明细表某一行的全部单元格文本（列顺序与 FXML 一致）。 */
+        private List<String> itemRow(int rowIndex) {
+            TableView<?> table = table("#itemTable", "成绩明细");
+            List<String> cells = new ArrayList<>();
+            for (int column = 0; column < table.getColumns().size(); column++) {
+                Object value = table.getColumns().get(column).getCellData(rowIndex);
+                cells.add(value == null ? "" : value.toString());
+            }
+            return cells;
         }
 
         /** 把详情正文滚到底：组成/权重、提交人数、基础批次都在明细表下方的滚动区里。 */

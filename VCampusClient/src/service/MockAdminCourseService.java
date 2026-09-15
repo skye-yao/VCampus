@@ -1,5 +1,6 @@
 package service;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -36,6 +37,9 @@ import dto.course.admin.schedule.ScheduleSlotDTO;
 import dto.course.teacher.GradeComponentCodeDTO;
 import dto.course.teacher.GradeComponentDTO;
 import dto.course.teacher.GradeSchemeDTO;
+import dto.course.teacher.GradeScoresDTO;
+import course.grade.GradeCalculator;
+import course.grade.GradePointScale;
 import model.course.admin.AdminCourseView;
 import model.course.admin.AdminEnrollmentPageView;
 import model.course.admin.AdminOfferingView;
@@ -1489,26 +1493,32 @@ public final class MockAdminCourseService implements AdminCourseService {
                 raw.getExpectedVersion(), raw.isApproved(), false, null, comment);
     }
 
+    /**
+     * 四条夹具批次。组成分数是挑过的：在 40/20/-/40 下重算正好等于旧夹具的总评
+     * （84/85/86 → 85.00，91/88/90 → 90.00，70/72/69 → 70.00，55/61/52 → 55.00，
+     * 92/94/91 → 92.00，94/96/93 → 94.00），因此明细与方案自洽，而既有 mock 测试断言的分数、
+     * 均值与分布一个都不用改。
+     */
     private void seedGradeSubmissions() {
         addGradeSubmission(gradeDetail("9001", "1001", "数据结构", "OFF-1001", 1, "T1001", "张老师",
                 "2026-09-11T09:00:00Z", ApprovalStatusDTO.PENDING, null, null, null,
                 GradeSnapshot.initial(),
-                List.of(item("8001", "20240031", "陈晨", 88.0, 86.0, null, 84.0, 85.0, 3, 3.5),
-                        item("8002", "20240032", "林晓", 90.0, 92.0, 91.0, 89.0, 90.0, 4, 4.0))));
+                item("8001", "20240031", "陈晨", 84.0, 85.0, null, 86.0, 3),
+                item("8002", "20240032", "林晓", 91.0, 88.0, null, 90.0, 4)));
         addGradeSubmission(gradeDetail("9002", "2001", "操作系统", "OFF-2001", 2, "T2001", "李老师",
                 "2026-09-10T09:00:00Z", ApprovalStatusDTO.APPROVED, REVIEWER, MOCK_NOW, "同意",
                 GradeSnapshot.initial(),
-                List.of(item("8003", "20240033", "王强", 70.0, 72.0, null, 68.0, 70.0, 1, 1.0))));
+                item("8003", "20240033", "王强", 70.0, 72.0, null, 69.0, 1)));
         addGradeSubmission(gradeDetail("9003", "1001", "数据结构", "OFF-1001", 1, "T1001", "张老师",
                 "2026-09-10T08:00:00Z", ApprovalStatusDTO.REJECTED, REVIEWER, MOCK_NOW, "材料不足",
                 GradeSnapshot.initial(),
-                List.of(item("8004", "20240034", "赵敏", 55.0, 58.0, null, 52.0, 55.0, 0, null))));
+                item("8004", "20240034", "赵敏", 55.0, 61.0, null, 52.0, 0)));
         // 9004 是 9001 的重提：详情必须一起给出基础批次与提交后新增、尚未纳入批次的学生人数。
         addGradeSubmission(gradeDetail("9004", "1001", "数据结构", "OFF-1001", 2, "T1001", "张老师",
                 "2026-09-12T09:00:00Z", ApprovalStatusDTO.PENDING, null, null, null,
                 new GradeSnapshot(gradeScheme(), "9001", 1),
-                List.of(item("8001", "20240031", "陈晨", 92.0, 94.0, null, 90.0, 92.0, 4, 4.0),
-                        item("8002", "20240032", "林晓", 94.0, 96.0, 95.0, 93.0, 94.0, 4, 4.0))));
+                item("8001", "20240031", "陈晨", 92.0, 94.0, null, 91.0, 4),
+                item("8002", "20240032", "林晓", 94.0, 96.0, null, 93.0, 4)));
     }
 
     /** 批次快照夹具：与 V007 的三列一一对应（方案、基础批次、提交后新增人数）。 */
@@ -1519,24 +1529,36 @@ public final class MockAdminCourseService implements AdminCourseService {
         }
     }
 
-    /** Mock 的确定性方案快照：30/20/20/30，四项组成全部启用（与教师端 Mock 的权重一致）。 */
+    /**
+     * Mock 的确定性方案快照：40/20/-/40，实验组成未启用、权重为 0。
+     *
+     * <p>禁用一项不是随手选的：正式提交的快照里禁用组成一律写 NULL
+     * （{@code TeacherGradeBookService.disabledAsNull}），所以「某项未启用 + 该列在明细里是 NULL」
+     * 才是真实批次的样子。反过来，四项全启用却把实验留空，是服务端会直接拒绝的批次
+     * （{@code GradeApprovalService.capturedProblem}：明细缺少启用组成分数 / 总评与方案快照重算不一致）。
+     */
     private static GradeSchemeDTO gradeScheme() {
         return new GradeSchemeDTO(List.of(
-                new GradeComponentDTO(GradeComponentCodeDTO.DAILY, true, 3000),
+                new GradeComponentDTO(GradeComponentCodeDTO.DAILY, true, 4000),
                 new GradeComponentDTO(GradeComponentCodeDTO.MIDTERM, true, 2000),
-                new GradeComponentDTO(GradeComponentCodeDTO.EXPERIMENT, true, 2000),
-                new GradeComponentDTO(GradeComponentCodeDTO.FINALTERM, true, 3000)));
+                new GradeComponentDTO(GradeComponentCodeDTO.EXPERIMENT, false, 0),
+                new GradeComponentDTO(GradeComponentCodeDTO.FINALTERM, true, 4000)));
     }
 
     private void addGradeSubmission(GradeSubmissionDetailDTO detail) {
         gradeSubmissions.put(detail.getSummary().getSubmissionId(), detail);
     }
 
+    /**
+     * 一条批次详情。总评与绩点不从调用方拿，而是用与服务端同一份纯规则
+     * （{@code GradeCalculator.total} / {@code GradePointScale.gradePointFor}）按方案快照现场算出，
+     * 夹具因此不可能再与方案自相矛盾——这正是一次真实的「审批详情」必须成立的性质。
+     */
     private static GradeSubmissionDetailDTO gradeDetail(String submissionId, String offeringId,
             String courseName, String offeringCode, int version, String teacherUid,
             String teacherName, String submittedAt, ApprovalStatusDTO status, String reviewedBy,
-            String reviewedAt, String reviewComment, GradeSnapshot snapshot,
-            List<GradeSubmissionItemDTO> items) {
+            String reviewedAt, String reviewComment, GradeSnapshot snapshot, ItemSpec... specs) {
+        List<GradeSubmissionItemDTO> items = gradeItems(snapshot.scheme(), specs);
         List<Double> scores = new ArrayList<>();
         int failed = 0;
         for (GradeSubmissionItemDTO item : items) {
@@ -1553,9 +1575,41 @@ public final class MockAdminCourseService implements AdminCourseService {
         GradeSubmissionSummaryDTO summary = new GradeSubmissionSummaryDTO(submissionId, offeringId,
                 courseName, offeringCode, version, teacherUid, teacherName, items.size(), average,
                 highest, lowest, failed, status, submittedAt);
-        return new GradeSubmissionDetailDTO(summary, gradeDistribution(items), List.copyOf(items),
+        return new GradeSubmissionDetailDTO(summary, gradeDistribution(items), items,
                 reviewedBy, reviewedAt, reviewComment, snapshot.scheme(), snapshot.baseSubmissionId(),
                 snapshot.uncoveredCount());
+    }
+
+    /** 一名学生的四项组成（未启用的组成必须是 NULL）与等级；总评/绩点由批次方案算出。 */
+    private record ItemSpec(String enrollmentId, String studentUid, String studentName,
+            Double daily, Double midterm, Double experiment, Double finalterm, Integer level) { }
+
+    private static ItemSpec item(String enrollmentId, String studentUid, String studentName,
+            Double daily, Double midterm, Double experiment, Double finalterm, Integer level) {
+        return new ItemSpec(enrollmentId, studentUid, studentName, daily, midterm, experiment,
+                finalterm, level);
+    }
+
+    private static List<GradeSubmissionItemDTO> gradeItems(GradeSchemeDTO scheme, ItemSpec... specs) {
+        List<GradeSubmissionItemDTO> items = new ArrayList<>();
+        for (ItemSpec spec : specs) {
+            GradeScoresDTO scores = new GradeScoresDTO(decimal(spec.daily()), decimal(spec.midterm()),
+                    decimal(spec.experiment()), decimal(spec.finalterm()));
+            BigDecimal total = GradeCalculator.total(scheme, scores);
+            if (total == null) {
+                throw new IllegalStateException(
+                        "夹具缺少启用组成的分数: " + spec.enrollmentId());
+            }
+            BigDecimal point = GradePointScale.gradePointFor(total);
+            items.add(new GradeSubmissionItemDTO(spec.enrollmentId(), spec.studentUid(),
+                    spec.studentName(), spec.daily(), spec.midterm(), spec.experiment(),
+                    spec.finalterm(), total.doubleValue(), spec.level(), point.doubleValue()));
+        }
+        return List.copyOf(items);
+    }
+
+    private static BigDecimal decimal(Double value) {
+        return value == null ? null : BigDecimal.valueOf(value);
     }
 
     private static double round2(double value) {

@@ -32,6 +32,8 @@ public final class GradeControllerTest {
 
         testCompletionsReturnThroughFxExecutor();
         testStaleCompletionsAreIgnored();
+        // 学生成绩页在 T6 之前不属于任何套件，静默通过很难与“没跑”区分开，所以补一行成功输出。
+        System.out.println("Student grade controller test passed.");
     }
 
     private static void testCompletionsReturnThroughFxExecutor() {

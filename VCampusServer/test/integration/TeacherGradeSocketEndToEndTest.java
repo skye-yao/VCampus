@@ -221,8 +221,8 @@ public final class TeacherGradeSocketEndToEndTest {
                         + " IS NULL") == 1,
                 "the saved draft stores 13 rows and keeps the incomplete component NULL");
         require(number("SELECT COUNT(*) FROM grade_submission WHERE offering_id=" + OFFERING_A) == 0
-                        && number("SELECT COUNT(*) FROM grade WHERE enrollment_id BETWEEN 983300"
-                        + " AND 983399") == 0,
+                        && number("SELECT COUNT(*) FROM grade WHERE enrollment_id BETWEEN "
+                        + ENROLLMENT_A_FIRST + " AND " + (ENROLLMENT_A_FIRST + 12)) == 0,
                 "a draft writes no batch and no grade projection");
         listed = offeringIn(listOfferings(teacher, teacherToken), OFFERING_A);
         require(listed.getEnteredCount() == 13 && listed.getMissingCount() == 1,
@@ -283,8 +283,8 @@ public final class TeacherGradeSocketEndToEndTest {
                         + "' AND action='submitGradeBook' AND target_id='" + OFFERING_A
                         + "' AND result_code='OK'") == 1,
                 "the submission logs its audit trail and its operation id");
-        require(number("SELECT COUNT(*) FROM grade WHERE enrollment_id BETWEEN 983300 AND 983399")
-                        == 0,
+        require(number("SELECT COUNT(*) FROM grade WHERE enrollment_id BETWEEN "
+                        + ENROLLMENT_A_FIRST + " AND " + (ENROLLMENT_A_FIRST + 12)) == 0,
                 "a pending batch publishes nothing");
         requireNoRecord(grades(student, studentToken), "TGE983A",
                 "while the batch is pending approval");
@@ -328,7 +328,8 @@ public final class TeacherGradeSocketEndToEndTest {
                         && ADMIN.equals(approvedEntity.getReviewedBy())
                         && approvedEntity.getReviewedAt() != null,
                 "the approval records its reviewer and instant");
-        require(number("SELECT COUNT(*) FROM grade WHERE enrollment_id BETWEEN 983300 AND 983399"
+        require(number("SELECT COUNT(*) FROM grade WHERE enrollment_id BETWEEN "
+                        + ENROLLMENT_A_FIRST + " AND " + (ENROLLMENT_A_FIRST + 12)
                         + " AND is_published=1 AND publish_time IS NOT NULL") == 13
                         && number("SELECT COUNT(*) FROM grade WHERE enrollment_id="
                         + ENROLLMENT_NEWCOMER) == 0,
@@ -438,11 +439,17 @@ public final class TeacherGradeSocketEndToEndTest {
 
     // ------------------------------------------------------------- offering C
 
-    /** Rejection → teacher re-read → resubmission → approval → a refused replay of the old version. */
+    /**
+     * Rejection → teacher re-read → resubmission → approval → a refused replay of the old version.
+     *
+     * <p>The offering starts with an already <em>published</em> grade, so "a rejection never clears a
+     * published grade" is shown on a real published row rather than inferred from an empty table.
+     */
     private static void offerC(JsonLineClient teacher, String teacherToken, JsonLineClient admin,
                                String adminToken, JsonLineClient student, String studentToken)
             throws Exception {
         String digest = TeacherGradeBookDAO.rosterDigest(List.of(ENROLLMENT_C1, ENROLLMENT_C2));
+        assertPublishedPremise(student, studentToken, "before the first submission");
         Message submitted = save(teacher, teacherToken, TeacherCourseActions.SUBMIT_GRADE_BOOK,
                 Map.of("request", write(op(6), OFFERING_C, 0, digest, schemeC(),
                         List.of(row(ENROLLMENT_C1, "70.00", "70.00", "70.00", "70.00"),
@@ -450,14 +457,16 @@ public final class TeacherGradeSocketEndToEndTest {
         requireCode(submitted, MessageCode.SUCCESS, "submit offering C over TCP");
         long batchC1 = Long.parseLong(book(submitted).getLastSubmissionId());
 
+        String publishedBeforeOffer = publishedSnapshot();
         Message rejected = review(admin, adminToken, op(7), batchC1, 1, false, "  平时分与总评不一致，请核对  ");
         requireCode(rejected, MessageCode.SUCCESS, "reject batch C v1 over TCP");
         require(entity(rejected).getSummary().getStatus() == ApprovalStatusDTO.REJECTED
                         && "平时分与总评不一致，请核对".equals(entity(rejected).getReviewComment()),
                 "the rejection records the trimmed instruction");
-        require(number("SELECT COUNT(*) FROM grade WHERE enrollment_id IN (" + ENROLLMENT_C1 + ","
-                        + ENROLLMENT_C2 + ")") == 0,
-                "a rejection publishes nothing");
+        // 这个教学班在本次提交之前就有一条已发布成绩：驳回必须原样留着它（不发布、不清空、不改值）。
+        require(publishedBeforeOffer.equals(publishedSnapshot()),
+                "a rejection must leave every already published projection byte-identical");
+        assertPublishedPremise(student, studentToken, "after a rejection");
 
         TeacherGradeBookDTO afterRejection = book(save(teacher, teacherToken,
                 TeacherCourseActions.GET_GRADE_BOOK, Map.of("offeringId", Long.toString(OFFERING_C))));
@@ -468,7 +477,6 @@ public final class TeacherGradeSocketEndToEndTest {
                 "the teacher reads the rejected batch and the administrator's instruction over TCP"
                         + " (observed " + afterRejection.getState() + "/"
                         + afterRejection.getReviewComment() + ")");
-        requireNoRecord(grades(student, studentToken), "TGE983C", "after a rejection");
 
         Message resubmitted = save(teacher, teacherToken, TeacherCourseActions.SUBMIT_GRADE_BOOK,
                 Map.of("request", write(op(8), OFFERING_C, 1, digest, schemeC(),
@@ -491,11 +499,16 @@ public final class TeacherGradeSocketEndToEndTest {
 
         requireCode(review(admin, adminToken, op(9), batchC2, 2, true, null), MessageCode.SUCCESS,
                 "approve the resubmission over TCP");
-        require(number("SELECT COUNT(*) FROM grade WHERE enrollment_id=" + ENROLLMENT_C1
-                        + " AND score=90.00 AND grade_point=4.0 AND is_published=1") == 1
+        // 这两名学生本来就有已发布成绩：审批必须把它**更新**掉（每个选课记录仍然只有一行），
+        // 而不是再插一行，也不是留着旧值。
+        require(number("SELECT COUNT(*) FROM grade WHERE enrollment_id IN (" + ENROLLMENT_C1 + ","
+                        + ENROLLMENT_C2 + ")") == 2
+                        && number("SELECT COUNT(*) FROM grade WHERE enrollment_id=" + ENROLLMENT_C1
+                        + " AND score=90.00 AND grade_point=4.0 AND is_published=1"
+                        + " AND daily_score=90.00 AND experiment_score=90.00") == 1
                         && number("SELECT COUNT(*) FROM grade WHERE enrollment_id=" + ENROLLMENT_C2
                         + " AND score=60.00 AND grade_point=1.0 AND is_published=1") == 1,
-                "the approved resubmission publishes the corrected totals");
+                "the approved resubmission must upsert the published projection, not add a row");
         GradeRecordDTO recordC = recordFor(grades(student, studentToken), "TGE983C");
         require(recordC != null && close(recordC.getScore(), 90.0) && close(recordC.getGradePoint(), 4.0),
                 "the student sees the corrected version only after it is approved");
@@ -633,6 +646,13 @@ public final class TeacherGradeSocketEndToEndTest {
                 .append(',').append(YEAR).append(',').append(SEMESTER).append(",'")
                 .append(studentUid(32)).append("',2,'2027-02-01 00:00:00')");
         execute(enrollments.toString());
+        // Offering C starts with an already published grade (an earlier version of this course), so
+        // "a rejection never clears a published grade" has something real to leave intact.
+        execute("INSERT INTO grade(enrollment_id,daily_score,midterm_score,experiment_score,"
+                + "finalterm_score,score,grade_level,grade_point,is_published,publish_time) VALUES("
+                + ENROLLMENT_C1 + ",80.00,75.00,NULL,70.00,75.00,2,2.5,1,'2027-02-02 08:00:00'),("
+                + ENROLLMENT_C2 + ",40.00,45.00,NULL,38.00,40.00,NULL,0.0,1,"
+                + "'2027-02-02 08:00:00')");
     }
 
     /** Deletion is scoped to this test's own ranges and UID prefix, never to a shared id space. */
@@ -806,6 +826,24 @@ public final class TeacherGradeSocketEndToEndTest {
         require(recordFor(summary, courseCode) == null,
                 courseCode + " must stay invisible to the student " + when + " (observed "
                         + summary.getRecords().size() + " records)");
+    }
+
+    /**
+     * Offering C's published precondition: the student reads the already published row (75.00 / 2.5)
+     * both before the new submission and after the rejection — the fixture seeds it, the chain must
+     * leave it alone.
+     */
+    private static void assertPublishedPremise(JsonLineClient student, String token, String when)
+            throws IOException {
+        GradeRecordDTO published = recordFor(grades(student, token), "TGE983C");
+        require(published != null && close(published.getScore(), 75.0)
+                        && close(published.getGradePoint(), 2.5)
+                        && close(published.getDailyScore(), 80.0)
+                        && close(published.getFinalScore(), 70.0)
+                        && published.getExperimentScore() == null,
+                "the offering must already have a published grade " + when + " (observed "
+                        + (published == null ? "none" : published.getScore() + "/"
+                        + published.getGradePoint()) + ")");
     }
 
     private static boolean close(double actual, double expected) {
