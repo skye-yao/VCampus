@@ -22,12 +22,18 @@ import java.util.concurrent.CompletableFuture;
 
 import course.grade.GradeCalculator;
 import course.grade.GradePointScale;
+import dto.course.teacher.ConfirmGradeImportRequestDTO;
 import dto.course.teacher.GradeBookContentDTO;
 import dto.course.teacher.GradeComponentCodeDTO;
 import dto.course.teacher.GradeComponentDTO;
+import dto.course.teacher.GradeImportPreviewDTO;
 import dto.course.teacher.GradeRowInputDTO;
 import dto.course.teacher.GradeSchemeDTO;
 import dto.course.teacher.GradeScoresDTO;
+import dto.course.teacher.PreviewGradeImportRequestDTO;
+import dto.course.teacher.ReviseGradeImportRequestDTO;
+import dto.course.teacher.TeacherFileTicketDTO;
+import dto.course.teacher.TeacherFileUploadRequestDTO;
 import dto.course.teacher.TeacherGradeBookDTO;
 import dto.course.teacher.TeacherGradeOfferingDTO;
 import dto.course.teacher.TeacherGradeRowDTO;
@@ -159,6 +165,13 @@ public final class MockTeacherCourseService implements TeacherCourseService {
     /** 配齐的权重：30/20/20/30，合计 10000 万分比。 */
     private static final int[] GRADE_WEIGHTS = {3000, 2000, 2000, 3000};
 
+    // 导入 mock：票据端口与协议上限与真实文件端口一致，文案与服务端逐字符一致，界面因此能在
+    // 没有服务端时走完“上传 → 预览 → 修订 → 确认/取消”。
+    private static final int MOCK_FILE_PORT = 8889;
+    private static final long MOCK_FILE_PORT_MAX_BYTES = 5L * 1024 * 1024;
+    private static final String IMPORT_EXPIRED_TEXT = "导入预览已过期，请重新导入";
+    private static final String IMPORT_PREVIEW_STALE_TEXT = "导入预览已更新，请重新加载预览后重试";
+
     private final List<CourseTermDTO> terms = List.of(
             new CourseTermDTO(2025, 3, "2025-2026 春学期"),
             new CourseTermDTO(2025, 2, "2025-2026 秋学期"));
@@ -171,7 +184,10 @@ public final class MockTeacherCourseService implements TeacherCourseService {
     private final Map<String, RecordedAdjustmentOperation> adjustmentOperations = new LinkedHashMap<>();
     private final Map<String, MockGradeBook> gradeBooks = new LinkedHashMap<>();
     private final Map<String, RecordedGradeOperation> gradeOperations = new LinkedHashMap<>();
+    private final Map<String, TeacherFileUploadRequestDTO> uploadTickets = new LinkedHashMap<>();
+    private final Map<String, MockImportPreview> importPreviews = new LinkedHashMap<>();
     private long nextAdjustmentRequestId = 9406;
+    private long nextImportSequence = 1;
 
     public MockTeacherCourseService() {
         seedOfferings();
@@ -521,6 +537,161 @@ public final class MockTeacherCourseService implements TeacherCourseService {
     public CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> submitGradeBook(
             WriteGradeBookRequestDTO write) {
         return gradeWrite(TeacherCourseActions.SUBMIT_GRADE_BOOK, write, true);
+    }
+
+    // ------------------------------------------------------------------ Excel 模板、导入与名单导出
+
+    /**
+     * 夹具的下载票据：mock 不生成真实的 xlsx 文件，票据里的长度与摘要对应一份空文件，
+     * 因此假传输替身之外的调用只会得到一次干净的空下载，而不是伪造一个看起来像模板的文件。
+     */
+    private static final long MOCK_TICKET_BYTES = 0L;
+    private static final String MOCK_TICKET_SHA256 =
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+    private static final String MOCK_TICKET_EXPIRES_AT = "2026-09-16T00:00:00Z";
+
+    @Override
+    public CompletableFuture<TeacherFileTicketDTO> requestGradeTemplate(String offeringId) {
+        try {
+            // 与真实服务同序：先按归属校验入口取成绩表，再签发票据。
+            String id = requireGradeOffering(offeringId);
+            snapshotOf(id);
+            return CompletableFuture.completedFuture(downloadTicket("mock-template-" + id));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    @Override
+    public CompletableFuture<TeacherFileTicketDTO> requestRosterExport(
+            String offeringId, String query, Integer enrollmentStatus) {
+        try {
+            String id = requireGradeOffering(offeringId);
+            // 过滤条件在这里只做形状校验：mock 的名单导出同样取全部结果，不只有一页。
+            rosterOf(id);
+            return CompletableFuture.completedFuture(downloadTicket("mock-roster-" + id));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    @Override
+    public CompletableFuture<TeacherFileTicketDTO> beginGradeUpload(
+            TeacherFileUploadRequestDTO upload) {
+        try {
+            if (upload == null) throw badRequest("请求体不能为空");
+            String id = requireGradeOffering(upload.getOfferingId());
+            if (upload.getByteLength() < 0) throw badRequest("byteLength 不能为负数");
+            String ticket = "mock-upload-" + id + "-" + (nextImportSequence++);
+            uploadTickets.put(ticket, upload);
+            return CompletableFuture.completedFuture(new TeacherFileTicketDTO(ticket,
+                    TeacherFileTicketDTO.DIRECTION_UPLOAD, MOCK_FILE_PORT, upload.getByteLength(),
+                    MOCK_FILE_PORT_MAX_BYTES, upload.getSha256(), MOCK_TICKET_EXPIRES_AT));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    /**
+     * 预览：mock 不解析工作簿，候选就是教师上传时的编辑副本（缺列/空白因此天然保留原值）。
+     * 版本与名单摘要的比对与真实服务一致，且预览不写任何草稿。
+     */
+    @Override
+    public CompletableFuture<GradeImportPreviewDTO> previewGradeImport(
+            PreviewGradeImportRequestDTO request) {
+        try {
+            if (request == null) throw badRequest("请求体不能为空");
+            String ticket = blankToNull(request.getUploadTicket());
+            TeacherFileUploadRequestDTO upload = ticket == null ? null
+                    : uploadTickets.remove(ticket);
+            if (upload == null) throw notFound(IMPORT_EXPIRED_TEXT);
+            GradeBookContentDTO baseDraft = request.getBaseDraft();
+            if (baseDraft == null) throw badRequest("baseDraft 不能为空");
+            String offeringId = requireGradeOffering(baseDraft.getOfferingId());
+            MockGradeBook book = requireBookForWrite(offeringId);
+            if (!book.rosterDigest().equals(baseDraft.getRosterDigest())) {
+                throw gradeConflict("名单已变化，请重新加载成绩表并合并已输入的成绩",
+                        snapshotOf(offeringId));
+            }
+            if (book.revision() != baseDraft.getExpectedRevision()) {
+                throw gradeConflict("成绩草稿版本已变化，请重新加载后重试", snapshotOf(offeringId));
+            }
+            return CompletableFuture.completedFuture(openPreview(baseDraft));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    @Override
+    public CompletableFuture<GradeImportPreviewDTO> reviseGradeImport(
+            ReviseGradeImportRequestDTO revise) {
+        try {
+            if (revise == null) throw badRequest("请求体不能为空");
+            MockImportPreview stored = requirePreview(revise.getImportToken());
+            if (stored.preview().getPreviewRevision() != revise.getExpectedPreviewRevision()) {
+                throw gradeConflict(IMPORT_PREVIEW_STALE_TEXT, null);
+            }
+            // 候选不变（mock 没有原始文件行可重算），只有排除行数与预览版本会变。
+            return CompletableFuture.completedFuture(openPreview(stored.candidate()));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    /**
+     * 确认导入：只有这一个动作会写库，走的是与保存草稿同一条写路径（动作名不同，因此操作日志
+     * 里能区分“导入改写整班成绩”与“手工改一格”）；它绝不触发提交审批。
+     */
+    @Override
+    public CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> confirmGradeImport(
+            ConfirmGradeImportRequestDTO confirm) {
+        try {
+            if (confirm == null) throw badRequest("请求体不能为空");
+            MockImportPreview stored = requirePreview(confirm.getImportToken());
+            if (stored.preview().getPreviewRevision() != confirm.getExpectedPreviewRevision()) {
+                throw gradeConflict(IMPORT_PREVIEW_STALE_TEXT, null);
+            }
+            String token = confirm.getImportToken();
+            return gradeWrite(TeacherCourseActions.CONFIRM_GRADE_IMPORT,
+                    new WriteGradeBookRequestDTO(confirm.getOperationId(), stored.candidate()),
+                    false).whenComplete((value, failure) -> {
+                        if (failure == null) importPreviews.remove(token);
+                    });
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    @Override
+    public CompletableFuture<Void> cancelGradeImport(String importToken) {
+        // 取消是幂等的：令牌不存在同样算成功——服务端本来就没写过任何东西。
+        importPreviews.remove(importToken);
+        return CompletableFuture.completedFuture(null);
+    }
+
+    private TeacherFileTicketDTO downloadTicket(String ticket) {
+        return new TeacherFileTicketDTO(ticket, TeacherFileTicketDTO.DIRECTION_DOWNLOAD,
+                MOCK_FILE_PORT, MOCK_TICKET_BYTES, MOCK_FILE_PORT_MAX_BYTES,
+                MOCK_TICKET_SHA256, MOCK_TICKET_EXPIRES_AT);
+    }
+
+    private GradeImportPreviewDTO openPreview(GradeBookContentDTO candidate) {
+        String token = "mock-import-" + (nextImportSequence++);
+        int rows = candidate.getRows().size();
+        GradeImportPreviewDTO preview = new GradeImportPreviewDTO(token, 1, candidate, rows, rows,
+                0, List.of(), MOCK_TICKET_EXPIRES_AT);
+        importPreviews.put(token, new MockImportPreview(preview, candidate));
+        return preview;
+    }
+
+    private MockImportPreview requirePreview(String importToken) {
+        MockImportPreview stored = importToken == null ? null : importPreviews.get(importToken);
+        if (stored == null) throw notFound(IMPORT_EXPIRED_TEXT);
+        return stored;
+    }
+
+    /** 一次导入预览：令牌、版本与候选内容；mock 里候选就是上传时的编辑副本。 */
+    private record MockImportPreview(GradeImportPreviewDTO preview, GradeBookContentDTO candidate) {
     }
 
     /**

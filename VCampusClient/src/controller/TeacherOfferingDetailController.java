@@ -1,8 +1,10 @@
 package controller;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import dto.course.admin.schedule.ScheduleArrangementDTO;
 import dto.course.admin.schedule.ScheduleResourceDTO;
@@ -16,6 +18,7 @@ import javafx.event.Event;
 import javafx.fxml.FXML;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
+import javafx.scene.control.ButtonType;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.TabPane;
@@ -23,8 +26,12 @@ import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
 import javafx.scene.control.TextField;
 import javafx.scene.layout.VBox;
+import javafx.stage.Window;
+import service.SocketTeacherFileTransport;
 import service.TeacherCourseService;
 import service.TeacherCourseServices;
+import service.TeacherFileTransport;
+import util.AlertUtil;
 
 /**
  * 教学班详情页（设计 §5.1）：基本信息、学生名单、上课安排、成绩情况四个 Tab。
@@ -36,10 +43,10 @@ import service.TeacherCourseServices;
  * 首次被选中时各请求一次并缓存，隐藏的 Tab 不发起任何请求。名单支持姓名/学号筛选与正常/退课
  * 状态筛选，分页超过一页时可翻页；退课行只读保留为历史。
  *
- * <p>本页刻意保持只读：导出按钮保持禁用（伞形计划的 T5 接通），教师看不到任何添加/删除学生
- * 入口，成绩情况只显示只读摘要，登记成绩的入口只调用工作台的 {@code openGrades}（由工作台打开
- * {@link TeacherGradeBookController}），本页不发起任何写请求。开课学院缺值显示“未维护”，
- * 绝不用教师个人学院冒充。
+ * <p>本页刻意保持只读：教师看不到任何添加/删除学生入口，成绩情况只显示只读摘要，登记成绩的入口
+ * 只调用工作台的 {@code openGrades}（由工作台打开 {@link TeacherGradeBookController}），
+ * 本页不发起任何写请求。名单导出按钮按设计 §9 接通：它按当前筛选导出售票，文件字节走独立短连接，
+ * 不改变任何数据。开课学院缺值显示“未维护”，绝不用教师个人学院冒充。
  *
  * <p>打开另一个教学班或 {@link #release()} 之后，任何在途响应都被丢弃（generation + active 判定），
  * 页面也不会保留上一个教学班的数据。
@@ -54,6 +61,8 @@ public final class TeacherOfferingDetailController {
     static final String BASIC_FAILURE_TEXT = "基本信息加载失败，请重试";
     static final String ROSTER_FAILURE_TEXT = "学生名单加载失败，请重试";
     static final String SCHEDULE_FAILURE_TEXT = "上课安排加载失败，请重试";
+    static final String EXPORTING_TEXT = "正在导出当前筛选的全部学生名单...";
+    static final String EXPORT_FAILURE_TEXT = "名单导出失败，请重试";
 
     private static final int ENROLLED_CODE = 2;
     private static final int DROPPED_CODE = 3;
@@ -64,9 +73,14 @@ public final class TeacherOfferingDetailController {
 
     private final TeacherCourseService service;
     private final Consumer<Runnable> fxExecutor;
+    /** 名单导出走与成绩模板同一条下载路径：票据 → 选目标文件 → 覆盖确认 → 后台传输。 */
+    private final TeacherFileTransport fileTransport;
+    private final TeacherGradeImportController.FileDialogs fileDialogs;
 
     private Runnable backAction = () -> { };
     private Consumer<String> openGrades = offeringId -> { };
+    private boolean exporting;
+    private String exportFeedbackText;
 
     private String offeringId;
     private boolean active;
@@ -123,14 +137,27 @@ public final class TeacherOfferingDetailController {
     @FXML private VBox scheduleBody;
     @FXML private Label scheduleErrorLabel;
     @FXML private VBox gradeBody;
+    @FXML private Label rosterExportLabel;
 
     public TeacherOfferingDetailController() {
-        this(TeacherCourseServices.current(), Platform::runLater);
+        this(TeacherCourseServices.current(), Platform::runLater, new SocketTeacherFileTransport(),
+                null);
     }
 
     TeacherOfferingDetailController(TeacherCourseService service, Consumer<Runnable> fxExecutor) {
+        this(service, fxExecutor, new SocketTeacherFileTransport(), null);
+    }
+
+    /**
+     * @param dialogs 文件选择端口；null 表示真实的 JavaFX 选择器（测试注入替身，不需要工具包）。
+     */
+    TeacherOfferingDetailController(TeacherCourseService service, Consumer<Runnable> fxExecutor,
+            TeacherFileTransport fileTransport, TeacherGradeImportController.FileDialogs dialogs) {
         this.service = Objects.requireNonNull(service, "Teacher course service is required");
         this.fxExecutor = Objects.requireNonNull(fxExecutor, "FX executor is required");
+        this.fileTransport = Objects.requireNonNull(fileTransport, "File transport is required");
+        this.fileDialogs = dialogs == null
+                ? TeacherGradeImportController.fxDialogs(this::ownerWindow) : dialogs;
     }
 
     @FXML
@@ -196,6 +223,8 @@ public final class TeacherOfferingDetailController {
         scheduleErrorText = null;
         scheduleGeneration++;
         selectedTab = BASIC_TAB;
+        exporting = false;
+        exportFeedbackText = null;
         render();
     }
 
@@ -230,6 +259,41 @@ public final class TeacherOfferingDetailController {
     void handleOpenGrades(Event event) {
         if (offeringId == null || !canEditGrades()) return;
         openGrades.accept(offeringId);
+    }
+
+    /**
+     * 导出名单：按当前筛选条件导出**全部**结果（服务端不复用当前页），文件选择与覆盖确认在
+     * FX 线程，票据申请与文件传输在后台。导出没有改变任何数据，因此不需要离开保护。
+     */
+    @FXML
+    void handleExport(Event event) {
+        if (offeringId == null || !active || exporting) return;
+        exporting = true;
+        exportFeedbackText = EXPORTING_TEXT;
+        render();
+        CompletableFuture<Path> download = TeacherGradeImportController.downloadTicketToFile(
+                fileDialogs, fileTransport, this::confirmOverwrite,
+                () -> service.requestRosterExport(offeringId, blankToNull(rosterQuery),
+                        enrollmentStatusCode()),
+                TeacherGradeImportController.EXPORT_FILENAME);
+        download.whenComplete((saved, failure) -> fxExecutor.accept(() -> {
+            exporting = false;
+            if (failure != null) {
+                exportFeedbackText = TeacherGradeImportController.failureText(failure,
+                        EXPORT_FAILURE_TEXT);
+            } else if (saved != null) {
+                exportFeedbackText = TeacherGradeImportController.ROSTER_SUCCESS_TEXT + saved;
+            } else {
+                // 用户在选择或覆盖确认里取消：不留任何提示，就像没点过一样。
+                exportFeedbackText = null;
+            }
+            render();
+        }));
+    }
+
+    /** 覆盖确认：在 FileChooser 返回之后、传输之前问，答「否」就什么都不做。 */
+    private boolean confirmOverwrite(String message) {
+        return AlertUtil.showConfirm("覆盖文件", message) == ButtonType.OK;
     }
 
     @FXML
@@ -410,6 +474,14 @@ public final class TeacherOfferingDetailController {
         setActive(rosterEmptyLabel, !loadingRoster && rosterErrorText == null && roster.isEmpty());
         renderError(rosterErrorLabel, rosterErrorText);
         setActive(rosterRetryButton, rosterErrorText != null);
+        // 名单导出：有教学班且不在导出中才可点；反馈（保存路径或失败原因）与名单错误分开显示。
+        if (exportButton != null) {
+            exportButton.setDisable(offeringId == null || !active || exporting);
+        }
+        if (rosterExportLabel != null) {
+            rosterExportLabel.setText(exportFeedbackText == null ? "" : exportFeedbackText);
+        }
+        setActive(rosterExportLabel, exportFeedbackText != null);
         if (rosterPageLabel != null) rosterPageLabel.setText(rosterPageText());
         if (previousRosterPageButton != null) {
             previousRosterPageButton.setDisable(!hasPreviousRosterPage());
@@ -577,6 +649,12 @@ public final class TeacherOfferingDetailController {
         return value == null || value.isBlank() ? null : value.trim();
     }
 
+    /** 文件选择器的 owner 窗口：表格还没进场景时为 null，选择器仍可打开。 */
+    private Window ownerWindow() {
+        if (rosterTable == null || rosterTable.getScene() == null) return null;
+        return rosterTable.getScene().getWindow();
+    }
+
     // -------------------------------------------------------------- 测试访问器
 
     String offeringId() {
@@ -622,6 +700,15 @@ public final class TeacherOfferingDetailController {
     String scheduleErrorText() {
         return scheduleErrorText;
     }
+
+    boolean exporting() {
+        return exporting;
+    }
+
+    String exportFeedbackText() {
+        return exportFeedbackText;
+    }
+
 
     boolean loadingRoster() {
         return loadingRoster;

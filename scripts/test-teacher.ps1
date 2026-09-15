@@ -232,7 +232,8 @@ $suites = @(
     # 对着真实库和真实外键验证。四个类都不需要 -WithTcp/-WithGui。
     [pscustomobject]@{ Name = 'ImportExport'
         Common = @()
-        Client = @('service.SocketTeacherFileTransportTest')
+        Client = @('service.SocketTeacherFileTransportTest',
+            'controller.TeacherGradeImportControllerTest')
         Server = @('service.TeacherSpreadsheetServiceTest', 'network.CourseFileServerTest',
             'service.TeacherGradeImportMySqlTest')
         Tcp = @(); Gui = @() }

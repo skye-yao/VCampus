@@ -8,9 +8,15 @@ import dto.course.CourseTermDTO;
 import dto.course.admin.approval.AdjustmentRequestDetailDTO;
 import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
 import dto.course.admin.schedule.ScheduleArrangementDTO;
+import dto.course.teacher.ConfirmGradeImportRequestDTO;
+import dto.course.teacher.GradeImportPreviewDTO;
+import dto.course.teacher.PreviewGradeImportRequestDTO;
+import dto.course.teacher.ReviseGradeImportRequestDTO;
 import dto.course.teacher.TeacherAdjustmentOptionsDTO;
 import dto.course.teacher.TeacherAdjustmentPreviewDTO;
 import dto.course.teacher.TeacherAdjustmentWriteDTO;
+import dto.course.teacher.TeacherFileTicketDTO;
+import dto.course.teacher.TeacherFileUploadRequestDTO;
 import dto.course.teacher.TeacherGradeBookDTO;
 import dto.course.teacher.TeacherGradeOfferingDTO;
 import dto.course.teacher.TeacherOfferingDTO;
@@ -124,5 +130,49 @@ public interface TeacherCourseService {
     default CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> submitGradeBook(
             WriteGradeBookRequestDTO request) {
         throw new UnsupportedOperationException("submitGradeBook");
+    }
+
+    // ------------------------------------------------------------------ Excel 模板、导入与名单导出
+
+    /**
+     * 申请一张空白成绩模板的下载票据（方向 DOWNLOAD）。文件本身走独立文件端口，业务响应里只有票据。
+     */
+    default CompletableFuture<TeacherFileTicketDTO> requestGradeTemplate(String offeringId) {
+        throw new UnsupportedOperationException("requestGradeTemplate");
+    }
+
+    /** 申请一张完整名单导出的下载票据：过滤条件与名单列表相同，但取全部结果而不是当前页。 */
+    default CompletableFuture<TeacherFileTicketDTO> requestRosterExport(
+            String offeringId, String query, Integer enrollmentStatus) {
+        throw new UnsupportedOperationException("requestRosterExport");
+    }
+
+    /** 申请一张上传票据：客户端只声明教学班、草稿版本、文件名、字节数与摘要，不发送文件内容。 */
+    default CompletableFuture<TeacherFileTicketDTO> beginGradeUpload(
+            TeacherFileUploadRequestDTO request) {
+        throw new UnsupportedOperationException("beginGradeUpload");
+    }
+
+    /** 上传成功之后把文件兑换成一份可编辑的导入预览；预览不写草稿。 */
+    default CompletableFuture<GradeImportPreviewDTO> previewGradeImport(
+            PreviewGradeImportRequestDTO request) {
+        throw new UnsupportedOperationException("previewGradeImport");
+    }
+
+    /** 修订预览（修正异常行或明确排除它们），返回递增了 previewRevision 的新预览。 */
+    default CompletableFuture<GradeImportPreviewDTO> reviseGradeImport(
+            ReviseGradeImportRequestDTO request) {
+        throw new UnsupportedOperationException("reviseGradeImport");
+    }
+
+    /** 确认导入：把候选写成成绩草稿。它不是提交审批，也不包含任何成绩内容。 */
+    default CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> confirmGradeImport(
+            ConfirmGradeImportRequestDTO request) {
+        throw new UnsupportedOperationException("confirmGradeImport");
+    }
+
+    /** 取消导入：丢弃预览令牌；服务端本来就没写过任何东西，编辑副本由客户端自己恢复。 */
+    default CompletableFuture<Void> cancelGradeImport(String importToken) {
+        throw new UnsupportedOperationException("cancelGradeImport");
     }
 }

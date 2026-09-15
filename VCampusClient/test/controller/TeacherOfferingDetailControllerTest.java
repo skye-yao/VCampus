@@ -355,10 +355,13 @@ public final class TeacherOfferingDetailControllerTest {
     }
 
     /**
-     * 契约白名单：原有查询路径原样保留，T4 的调课工作流与 T5 的成绩工作副本是被允许的扩展——
-     * 调课里 options/preview/get/list 是读，submit/withdraw 是写；成绩里 listGradeOfferings 与
-     * getGradeBook 是读，saveGradeDraft/submitGradeBook 是写。权限、版本、名单摘要、冲突与成绩
-     * 归属一律由服务端在事务内重算。除白名单外不得出现任何其他方法。
+     * 契约白名单：原有查询路径原样保留，T4 的调课工作流、T5 的成绩工作副本与 §9 的 Excel
+     * 模板/导入/名单导出是被允许的扩展——调课里 options/preview/get/list 是读，submit/withdraw 是写；
+     * 成绩里 listGradeOfferings 与 getGradeBook 是读，saveGradeDraft/submitGradeBook 是写；
+     * §9 里 requestGradeTemplate/requestRosterExport/beginGradeUpload 只签发短时票据，
+     * previewGradeImport/reviseGradeImport 不写库，confirmGradeImport 只写草稿，
+     * cancelGradeImport 丢弃令牌。权限、版本、名单摘要、冲突与成绩归属一律由服务端在事务内重算。
+     * 除白名单外不得出现任何其他方法。
      */
     private static void theSharedServiceContractExposesOnlyTheDeclaredPaths() {
         Set<String> allowed = new LinkedHashSet<>(Set.of("listTerms", "listOfferings",
@@ -368,16 +371,24 @@ public final class TeacherOfferingDetailControllerTest {
                 "withdrawAdjustment", "getAdjustmentRequest", "listMyAdjustmentRequests"));
         allowed.addAll(Set.of("listGradeOfferings", "getGradeBook", "saveGradeDraft",
                 "submitGradeBook"));
+        allowed.addAll(Set.of("requestGradeTemplate", "requestRosterExport", "beginGradeUpload",
+                "previewGradeImport", "reviseGradeImport", "confirmGradeImport",
+                "cancelGradeImport"));
         for (Method method : TeacherCourseService.class.getDeclaredMethods()) {
             require(allowed.contains(method.getName()),
                     "the teacher course service must expose only the declared read paths and the"
                             + " adjustment/grade workflows, found " + method.getName());
         }
-        for (String required : List.of("saveGradeDraft", "submitGradeBook")) {
+        for (String required : List.of("saveGradeDraft", "submitGradeBook", "requestGradeTemplate",
+                "requestRosterExport", "beginGradeUpload", "previewGradeImport",
+                "reviseGradeImport", "confirmGradeImport", "cancelGradeImport")) {
             require(hasDefaultImplementation(required),
                     "the new grade writes must stay default methods so old test doubles keep"
                             + " compiling: " + required);
         }
+        require(!hasDefaultImplementation("listTerms"),
+                "the original read paths must stay abstract: a double that forgets one has to"
+                        + " fail loudly rather than throw at runtime");
     }
 
     /** 新增方法必须是 default（抛 UnsupportedOperationException），旧替身才不会编译中断。 */
@@ -408,11 +419,13 @@ public final class TeacherOfferingDetailControllerTest {
 
         Element exportButton = buttonWithText(view, "导出");
         require(exportButton != null, "the roster tab must expose the export entry");
-        require("true".equals(exportButton.getAttribute("disable")),
-                "the export button stays disabled until the umbrella plan's T5, saw \""
-                        + exportButton.getAttribute("disable") + "\"");
-        require(exportButton.getAttribute("onAction").isEmpty(),
-                "the staged export button must not pretend to do anything");
+        require("handleExport".equals(exportButton.getAttribute("onAction").substring(1)),
+                "the export button must really be wired now that §9's roster export is delivered");
+        require(!exportButton.hasAttribute("disabled"),
+                "the export button must use disable, not the read-only disabled attribute");
+        require(!exportButton.hasAttribute("disable"),
+                "a permanently disabled export button would be the old staged placeholder; "
+                        + "its enabled state comes from render()");
 
         for (String forbidden : List.of("添加学生", "删除学生", "移除学生", "退课")) {
             require(buttonWithText(view, forbidden) == null,

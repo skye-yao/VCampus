@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.layout.VBox?>
+
+<!--
+  导入异常反馈弹窗（设计 §9）：显示总记录/有效/异常与异常学生姓名，并允许逐行修正或明确排除。
+  关闭本窗口只收起弹窗——同表预览与导入状态都保留，取消导入要用成绩表底部的「取消导入」。
+  fx:id/onAction 与 controller.TeacherGradeImportController.Feedback 的字段一一对应。
+-->
+<VBox fx:id="feedbackDialogRoot" prefWidth="620.0" spacing="10.0" styleClass="teacher-course-dialog" stylesheets="@../css/style.css, @../css/teacher-course.css" xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.TeacherGradeImportController$Feedback">
+    <children>
+        <Label styleClass="teacher-course-dialog-title" text="导入异常明细" />
+        <Label fx:id="feedbackSummaryLabel" styleClass="teacher-course-page-summary" text="" wrapText="true" />
+        <Label fx:id="feedbackHintLabel" styleClass="teacher-course-notice-text" text="" wrapText="true" />
+        <ScrollPane fitToWidth="true" prefHeight="300.0" styleClass="teacher-course-tab-scroll">
+            <content>
+                <VBox fx:id="feedbackIssueList" spacing="6.0">
+                    <padding>
+                        <Insets bottom="6.0" left="6.0" right="6.0" top="6.0" />
+                    </padding>
+                </VBox>
+            </content>
+        </ScrollPane>
+        <HBox alignment="CENTER_RIGHT" spacing="10.0">
+            <children>
+                <Region HBox.hgrow="ALWAYS" />
+                <Button fx:id="feedbackCloseButton" onAction="#handleClose" styleClass="teacher-course-refresh-button" text="关闭" />
+            </children>
+        </HBox>
+    </children>
+    <padding>
+        <Insets bottom="12.0" left="12.0" right="12.0" top="12.0" />
+    </padding>
+</VBox>

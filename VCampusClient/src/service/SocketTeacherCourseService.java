@@ -17,10 +17,16 @@ import dto.course.admin.approval.AdjustmentRequestDetailDTO;
 import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
 import dto.course.admin.schedule.ScheduleArrangementDTO;
 import dto.course.admin.schedule.ScheduleConflictDTO;
+import dto.course.teacher.ConfirmGradeImportRequestDTO;
+import dto.course.teacher.GradeImportPreviewDTO;
+import dto.course.teacher.PreviewGradeImportRequestDTO;
+import dto.course.teacher.ReviseGradeImportRequestDTO;
 import dto.course.teacher.TeacherAdjustmentOptionsDTO;
 import dto.course.teacher.TeacherAdjustmentPreviewDTO;
 import dto.course.teacher.TeacherAdjustmentWriteDTO;
 import dto.course.teacher.TeacherCourseActions;
+import dto.course.teacher.TeacherFileTicketDTO;
+import dto.course.teacher.TeacherFileUploadRequestDTO;
 import dto.course.teacher.TeacherGradeBookDTO;
 import dto.course.teacher.TeacherGradeOfferingDTO;
 import dto.course.teacher.TeacherOfferingDTO;
@@ -219,6 +225,68 @@ public final class SocketTeacherCourseService implements TeacherCourseService {
         Message request = request(action);
         request.putData("request", write);
         return map(request, response -> read(response, "result", GRADE_WRITE_RESULT_TYPE));
+    }
+
+    // ------------------------------------------------------------------ Excel 模板、导入与名单导出
+
+    @Override
+    public CompletableFuture<TeacherFileTicketDTO> requestGradeTemplate(String offeringId) {
+        Message request = request(TeacherCourseActions.REQUEST_GRADE_TEMPLATE);
+        request.putData("offeringId", offeringId);
+        return map(request, response -> read(response, "ticket", TeacherFileTicketDTO.class));
+    }
+
+    @Override
+    public CompletableFuture<TeacherFileTicketDTO> requestRosterExport(
+            String offeringId, String query, Integer enrollmentStatus) {
+        Message request = request(TeacherCourseActions.REQUEST_ROSTER_EXPORT);
+        request.putData("offeringId", offeringId);
+        if (query != null) request.putData("query", query);
+        if (enrollmentStatus != null) request.putData("enrollmentStatus", enrollmentStatus);
+        return map(request, response -> read(response, "ticket", TeacherFileTicketDTO.class));
+    }
+
+    @Override
+    public CompletableFuture<TeacherFileTicketDTO> beginGradeUpload(
+            TeacherFileUploadRequestDTO upload) {
+        Message request = request(TeacherCourseActions.BEGIN_GRADE_UPLOAD);
+        request.putData("request", upload);
+        return map(request, response -> read(response, "ticket", TeacherFileTicketDTO.class));
+    }
+
+    @Override
+    public CompletableFuture<GradeImportPreviewDTO> previewGradeImport(
+            PreviewGradeImportRequestDTO preview) {
+        Message request = request(TeacherCourseActions.PREVIEW_GRADE_IMPORT);
+        request.putData("request", preview);
+        return map(request, response -> read(response, "preview", GradeImportPreviewDTO.class));
+    }
+
+    @Override
+    public CompletableFuture<GradeImportPreviewDTO> reviseGradeImport(
+            ReviseGradeImportRequestDTO revise) {
+        Message request = request(TeacherCourseActions.REVISE_GRADE_IMPORT);
+        request.putData("request", revise);
+        return map(request, response -> read(response, "preview", GradeImportPreviewDTO.class));
+    }
+
+    @Override
+    public CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> confirmGradeImport(
+            ConfirmGradeImportRequestDTO confirm) {
+        Message request = request(TeacherCourseActions.CONFIRM_GRADE_IMPORT);
+        request.putData("request", confirm);
+        return map(request, response -> read(response, "result", GRADE_WRITE_RESULT_TYPE));
+    }
+
+    /**
+     * 取消导入：请求体里只有一个令牌（服务端的 {@code importToken} 标量读取器读的就是这个键），
+     * 响应没有载荷，成功即完成。
+     */
+    @Override
+    public CompletableFuture<Void> cancelGradeImport(String importToken) {
+        Message request = request(TeacherCourseActions.CANCEL_GRADE_IMPORT);
+        request.putData("request", Map.of("importToken", importToken == null ? "" : importToken));
+        return this.<Void>map(request, response -> null);
     }
 
     /**
