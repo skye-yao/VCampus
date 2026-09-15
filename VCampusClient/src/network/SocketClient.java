@@ -100,6 +100,16 @@ public class SocketClient {
     }
 
     /**
+     * 业务连接的主机地址（只读）。
+     *
+     * <p>文件短连接复用同一台服务器，只有端口取自票据；这样“业务服务器”与“票据签发服务器”不会
+     * 因为两处配置而漂移。
+     */
+    public String getServerHost() {
+        return host;
+    }
+
+    /**
      * 连接服务器。若连接有效则直接返回；若旧连接已失效则重连。
      */
     public void connect() throws IOException {

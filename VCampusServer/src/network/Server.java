@@ -62,6 +62,11 @@ public class Server {
     private final CourseWaitlistScheduler waitlistScheduler;
 
     /**
+     * 文件短连接监听器（可为 null）；生命周期跟随业务服务器，随 start/stop 一起收放。
+     */
+    private final CourseFileServer courseFileServer;
+
+    /**
      * 服务端是否正在运行。
      */
     private volatile boolean running;
@@ -75,7 +80,18 @@ public class Server {
     public Server(OnlineConnectionRegistry registry, MessageDispatcher dispatcher,
                   CourseEventDispatcher eventDispatcher,
                   CourseWaitlistScheduler waitlistScheduler) {
-        this(DEFAULT_PORT, registry, dispatcher, eventDispatcher, waitlistScheduler);
+        this(DEFAULT_PORT, registry, dispatcher, eventDispatcher, waitlistScheduler, null);
+    }
+
+    /**
+     * 使用默认端口创建服务器，并接管文件短连接监听器的生命周期。
+     */
+    public Server(OnlineConnectionRegistry registry, MessageDispatcher dispatcher,
+                  CourseEventDispatcher eventDispatcher,
+                  CourseWaitlistScheduler waitlistScheduler,
+                  CourseFileServer courseFileServer) {
+        this(DEFAULT_PORT, registry, dispatcher, eventDispatcher, waitlistScheduler,
+                courseFileServer);
     }
 
     /**
@@ -86,6 +102,20 @@ public class Server {
     public Server(int port, OnlineConnectionRegistry registry, MessageDispatcher dispatcher,
                   CourseEventDispatcher eventDispatcher,
                   CourseWaitlistScheduler waitlistScheduler) {
+        this(port, registry, dispatcher, eventDispatcher, waitlistScheduler, null);
+    }
+
+    /**
+     * 根据指定端口与共享依赖创建服务器。
+     *
+     * @param port 服务端监听端口
+     * @param courseFileServer 文件短连接监听器，可为 null（旧调用方与测试不需要文件服务）
+     */
+    public Server(int port, OnlineConnectionRegistry registry, MessageDispatcher dispatcher,
+                  CourseEventDispatcher eventDispatcher,
+                  CourseWaitlistScheduler waitlistScheduler,
+                  CourseFileServer courseFileServer) {
+        this.courseFileServer = courseFileServer;
         this.threadPool = ServerThreadPool.getInstance();
         this.maintenanceExecutor = Executors.newSingleThreadScheduledExecutor(runnable -> {
             Thread thread = new Thread(runnable, "shop-order-expiry");
@@ -116,6 +146,10 @@ public class Server {
     public void start() {
 
         running = true;
+
+        if (courseFileServer != null) {
+            courseFileServer.start();
+        }
 
         try {
             new dao.UserDAO().syncAllUsers();
@@ -215,6 +249,10 @@ public class Server {
 
         for(Socket client:clientSockets){try{client.close();}catch(IOException ignored){}}
         clientSockets.clear();
+
+        if (courseFileServer != null) {
+            courseFileServer.stop();
+        }
 
         if (eventDispatcher != null) {
             eventDispatcher.close();

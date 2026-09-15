@@ -3,12 +3,18 @@ package main;
 import dao.CourseEventOutboxDAO;
 import handler.AdminCourseHandler;
 import handler.CourseHandler;
+import handler.TeacherCourseHandler;
+import network.CourseFileServer;
 import network.MessageDispatcher;
 import network.OnlineConnectionRegistry;
 import network.Server;
 import service.CourseEventDispatcher;
 import service.CourseWaitlistScheduler;
 import service.CourseWaitlistService;
+import service.TeacherAdjustmentApplicationService;
+import service.TeacherCourseQueryService;
+import service.TeacherFileTicketService;
+import service.TeacherGradeBookService;
 import util.DBUtil;
 
 import java.sql.Connection;
@@ -50,10 +56,32 @@ public class ServerMain {
         CourseEventDispatcher eventDispatcher = new CourseEventDispatcher(
                 registry, new CourseEventOutboxDAO(), ServerMain::openConnection);
         CourseHandler courseHandler = new CourseHandler(waitlistService, eventDispatcher);
-        MessageDispatcher dispatcher = new MessageDispatcher(courseHandler,
-                new AdminCourseHandler());
 
-        Server server = new Server(registry, dispatcher, eventDispatcher, waitlistScheduler);
+        // 教师成绩文件传输：全进程只有一个票据服务，同时被业务 Handler（签发）与文件监听器
+        // （兑换）使用；创建到一半失败时，先把已经创建的资源关掉再交给上层。
+        TeacherFileTicketService fileTickets =
+                new TeacherFileTicketService(CourseFileServer.configuredPort());
+        CourseFileServer fileServer;
+        try {
+            fileServer = new CourseFileServer(fileTickets);
+        } catch (RuntimeException failure) {
+            fileTickets.close();
+            throw failure;
+        }
+
+        MessageDispatcher dispatcher;
+        Server server;
+        try {
+            dispatcher = new MessageDispatcher(courseHandler, new AdminCourseHandler(),
+                    new TeacherCourseHandler(new TeacherCourseQueryService(),
+                            new TeacherAdjustmentApplicationService(),
+                            new TeacherGradeBookService(), fileTickets));
+            server = new Server(registry, dispatcher, eventDispatcher, waitlistScheduler,
+                    fileServer);
+        } catch (RuntimeException failure) {
+            fileServer.stop();
+            throw failure;
+        }
         Runtime.getRuntime().addShutdownHook(new Thread(server::stop, "vcampus-shutdown"));
 
         server.start();

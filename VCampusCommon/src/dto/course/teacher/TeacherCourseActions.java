@@ -23,6 +23,8 @@ public final class TeacherCourseActions {
     public static final String GET_GRADE_BOOK = "getGradeBook";
     public static final String SAVE_GRADE_DRAFT = "saveGradeDraft";
     public static final String SUBMIT_GRADE_BOOK = "submitGradeBook";
+    /** 申请一张上传票据：Excel 文件本身走独立文件端口，业务 JSON 只带回票据。 */
+    public static final String BEGIN_GRADE_UPLOAD = "beginGradeUpload";
 
     private TeacherCourseActions() {
     }

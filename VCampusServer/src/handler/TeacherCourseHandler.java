@@ -6,6 +6,7 @@ import dto.course.AdjustmentRequestStatusDTO;
 import dto.course.admin.approval.AdjustmentRequestDetailDTO;
 import dto.course.teacher.TeacherAdjustmentWriteDTO;
 import dto.course.teacher.TeacherCourseActions;
+import dto.course.teacher.TeacherFileUploadRequestDTO;
 import dto.course.teacher.TeacherGradeBookDTO;
 import dto.course.teacher.TeacherOperationResultDTO;
 import dto.course.teacher.WithdrawTeacherAdjustmentRequestDTO;
@@ -17,6 +18,7 @@ import protocol.MessageType;
 import service.TeacherAccessPolicy;
 import service.TeacherAdjustmentApplicationService;
 import service.TeacherCourseQueryService;
+import service.TeacherFileTicketService;
 import service.TeacherGradeBookService;
 import session.SessionManager;
 import session.UserSession;
@@ -43,6 +45,9 @@ import java.util.Set;
  * 原课次快照派生。提交与撤销/保存与提交都是写操作，Handler 不做“先查后写”的归属判断，权限一律由
  * 服务端在事务内重新计算。
  *
+ * <p>文件动作的响应键：{@code ticket}（上传票据）。Excel 文件本身绝不进业务 JSON，业务请求只带回
+ * 一张绑定当前 Session、教师、教学班、用途与长度的短时票据，字节走独立文件端口。
+ *
  * <p>成绩动作的响应键：{@code offerings}（成绩列表）、{@code gradeBook}（成绩表）、{@code result}
  * （保存/提交的操作结果信封）。成绩冲突用 {@code gradeBook} 带回最新成绩表，与调课冲突的
  * {@code conflicts}/{@code latest} 区分开，客户端不解析对方的类型。
@@ -65,10 +70,11 @@ public class TeacherCourseHandler {
     private final TeacherCourseQueryService queries;
     private final TeacherAdjustmentApplicationService adjustments;
     private final TeacherGradeBookService grades;
+    private final TeacherFileTicketService files;
 
     public TeacherCourseHandler() {
         this(new TeacherCourseQueryService(), new TeacherAdjustmentApplicationService(),
-                new TeacherGradeBookService());
+                new TeacherGradeBookService(), null);
     }
 
     /**
@@ -76,20 +82,28 @@ public class TeacherCourseHandler {
      * {@link AdminCourseHandler} 对未接线服务的处理一致；生产入口使用无参构造。
      */
     public TeacherCourseHandler(TeacherCourseQueryService queries) {
-        this(queries, null, null);
+        this(queries, null, null, null);
     }
 
     public TeacherCourseHandler(TeacherCourseQueryService queries,
                                 TeacherAdjustmentApplicationService adjustments) {
-        this(queries, adjustments, null);
+        this(queries, adjustments, null, null);
     }
 
     public TeacherCourseHandler(TeacherCourseQueryService queries,
                                 TeacherAdjustmentApplicationService adjustments,
                                 TeacherGradeBookService grades) {
+        this(queries, adjustments, grades, null);
+    }
+
+    public TeacherCourseHandler(TeacherCourseQueryService queries,
+                                TeacherAdjustmentApplicationService adjustments,
+                                TeacherGradeBookService grades,
+                                TeacherFileTicketService files) {
         this.queries = queries == null ? new TeacherCourseQueryService() : queries;
         this.adjustments = adjustments;
         this.grades = grades;
+        this.files = files;
     }
 
     public Message handle(Message request) {
@@ -177,6 +191,14 @@ public class TeacherCourseHandler {
                 case TeacherCourseActions.SUBMIT_GRADE_BOOK -> {
                     return mutation(response, grades().submitGradeBook(uid, gradeWrite(request)));
                 }
+                case TeacherCourseActions.BEGIN_GRADE_UPLOAD -> {
+                    // 只签发短时票据：文件字节走独立端口，业务 JSON 里绝不出现 Base64 文件内容。
+                    TeacherFileTicketService service = files();
+                    TeacherFileUploadRequestDTO upload = uploadRequest(request);
+                    response.putData("ticket", service.issueUpload(session,
+                            upload.getOfferingId(), upload.getExpectedRevision(),
+                            upload.getFileName(), upload.getByteLength(), upload.getSha256()));
+                }
                 default -> {
                     return failure(response, MessageCode.BAD_REQUEST, "不支持的教师课程操作");
                 }
@@ -220,6 +242,13 @@ public class TeacherCourseHandler {
             throw new IllegalArgumentException("该教师操作尚未开放");
         }
         return grades;
+    }
+
+    private TeacherFileTicketService files() {
+        if (files == null) {
+            throw new IllegalArgumentException("该教师操作尚未开放");
+        }
+        return files;
     }
 
     /** 写操作响应：结果信封进 result，响应消息取自操作结果，与管理员课程写操作一致。 */
@@ -293,6 +322,23 @@ public class TeacherCourseHandler {
         requireOptionalString(values, "operationId");
         requireOptionalString(content, "rosterDigest");
         return payload(request, WriteGradeBookRequestDTO.class);
+    }
+
+    /**
+     * 解析上传票据请求体：只有“哪个教学班、基于哪个草稿版本、文件多大、摘要是什么”，没有文件内容。
+     *
+     * <p>与调课/成绩写请求同一套伪造字段防线；BIGINT 标识只接受十进制字符串，长度必须是整数
+     * （越界、摘要格式与归属由票据服务在签发时再校验，规则只有一个出口）。教学班的归属在导入
+     * 预览/确认时重新核验，票据只负责把用途、长度和身份钉在一起。
+     */
+    private TeacherFileUploadRequestDTO uploadRequest(Message request) {
+        Map<String, Object> values = writeValues(request, "上传");
+        requireDecimalText(values.get("offeringId"), "offeringId");
+        requireOptionalString(values, "fileName");
+        requireOptionalString(values, "sha256");
+        integerValue(values.get("expectedRevision"), "expectedRevision");
+        integerValue(values.get("byteLength"), "byteLength");
+        return payload(request, TeacherFileUploadRequestDTO.class);
     }
 
     private WithdrawTeacherAdjustmentRequestDTO withdrawal(Message request) {
@@ -452,7 +498,17 @@ public class TeacherCourseHandler {
     }
 
     private static int integer(Message request, String key) {
-        Object value = data(request, key);
+        return integerValue(data(request, key), key);
+    }
+
+    /**
+     * 整数字段的统一判定：data 顶层的查询参数与 data.request 内的写请求体共用同一套规则，
+     * 因此“上传声明了几个字节”和“第几页”不会各有一套取整口径。
+     */
+    private static int integerValue(Object value, String key) {
+        if (value == null) {
+            throw new IllegalArgumentException("缺少参数: " + key);
+        }
         if (value instanceof Number number) {
             double decimal = number.doubleValue();
             if (!Double.isFinite(decimal) || decimal != Math.rint(decimal)
