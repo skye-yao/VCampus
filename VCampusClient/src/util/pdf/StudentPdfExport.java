@@ -297,8 +297,7 @@ public final class StudentPdfExport {
                 latinFont,
                 cjkFont,
                 ID_NUMBER,
-                maskIdNumber(
-                        student.getIdNumber()));
+                student.getIdNumber());
 
         /*
          * 联系电话优先使用手机号。
@@ -826,39 +825,6 @@ public final class StudentPdfExport {
         }
 
         return text + "年";
-    }
-
-
-    /**
-     * 身份证号码脱敏。
-     *
-     * 例如：
-     * 320100200801011234
-     *
-     * →
-     *
-     * 3201**********1234
-     */
-    private static String maskIdNumber(
-            String idNumber) {
-
-        if (idNumber == null
-                || idNumber.isBlank()) {
-
-            return "-";
-        }
-
-        String id =
-                idNumber.trim();
-
-        if (id.length() < 8) {
-            return id;
-        }
-
-        return id.substring(0, 4)
-                + "**********"
-                + id.substring(
-                id.length() - 4);
     }
 
 

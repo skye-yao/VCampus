@@ -88,9 +88,7 @@ public final class TeacherPdfExport {
             text(118.80f, 200.64f, 184.08f, teacher.getTitle());
             // 当前 Teacher 未维护入职日期，不以工作经历日期代替。
             text(253.58f, 200.64f, 460.32f, teacher.getEmploymentStartDate());
-            String id = teacher.getIdNumber();
-            text(118.80f, 226.68f, 331.80f, id == null || id.length() < 8 ? id :
-                    id.substring(0, 4) + "**********" + id.substring(id.length() - 4));
+            text(118.80f, 226.68f, 331.80f, teacher.getIdNumber());
             text(395.28f, 226.68f, 538.08f, teacher.getMobile() == null || teacher.getMobile().isBlank() ?
                     teacher.getTelephone() : teacher.getMobile());
             text(118.80f, 252.72f, 331.80f, teacher.getRegisteredResidence());
