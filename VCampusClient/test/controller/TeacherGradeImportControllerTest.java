@@ -70,6 +70,8 @@ import service.TeacherFileTransport;
  */
 public final class TeacherGradeImportControllerTest {
     private static final String OFFERING = "9007199254740993";
+    /** 另一个教学班：用来验证页面被复用（离开 A、打开 B）时迟到的响应落在谁身上。 */
+    private static final String OTHER_OFFERING = "9007199254740995";
     private static final String TOKEN = "import-token-1";
     private static final String UPLOAD_TICKET = "upload-ticket-1";
     private static final String BOOK_VIEW = "/resources/fxml/TeacherGradeBookView.fxml";
@@ -93,7 +95,7 @@ public final class TeacherGradeImportControllerTest {
         feedbackShowsCountsAndAbnormalNamesWithoutTheImportToken();
         downloadsChooseTheFileOnTheCallingThreadAndTransferInBackground();
         bottomBarFreezesTheSchemeAndSwapsItsButtons();
-        exportFeedbackIgnoresAResponseThatArrivesAfterLeaving();
+        exportFeedbackNeverLandsOnAnotherOffering();
         mockPreviewRevisionsIncrementAndRejectStaleOnes();
         importViewsDeclareTheirControllerIdsHandlersAndStyles();
         System.out.println("TeacherGradeImportControllerTest: PASS");
@@ -680,8 +682,14 @@ public final class TeacherGradeImportControllerTest {
                 "重新进入成绩表要重新激活同一套导入编排");
     }
 
-    /** 详情页的导出：页面已经离开（或又点了一次）之后到达的响应不写界面。 */
-    private static void exportFeedbackIgnoresAResponseThatArrivesAfterLeaving() throws Exception {
+    /**
+     * 详情页的导出：页面的**复用模式**下，迟到的响应不能写到一个别的教学班上。
+     *
+     * <p>这条用例必须走「离开 A → 打开 B → A 的下载才回来」这条路径，而不是「离开就再也不回来」：
+     * {@code showOffering} 先 {@code release()} 又把 {@code active}/{@code offeringId} 填回来，
+     * 所以只判「是不是活动页面、有没有教学班」拦不住它——拦得住它的只有一并前进的代际。
+     */
+    private static void exportFeedbackNeverLandsOnAnotherOffering() throws Exception {
         ImportService service = new ImportService();
         // 目标文件刻意不存在：详情页的覆盖确认是真实对话框（无工具包环境里不能弹），
         // 这条用例验证的是「响应迟到」，不是覆盖确认。
@@ -698,13 +706,35 @@ public final class TeacherGradeImportControllerTest {
         require(detail.exporting(), "导出期间页面处于导出态");
         require(transport.downloadFuture != null, "导出必须真的开始传输");
         require(service.exports.size() == 1, "导出要用当前筛选条件申请票据");
+        CompletableFuture<Void> download = transport.downloadFuture;
 
-        // 教师离开这个教学班（页面 release 掉导出状态），之后下载才完成。
-        detail.release();
-        transport.downloadFuture.complete(null);
+        // 在教学班 A 的下载还在途中，离开 A、打开 B——页面本身被复用，active 与 offeringId 都会
+        // 重新有值，这正是「只判 active/offeringId」会漏掉的形态。
+        detail.showOffering(OTHER_OFFERING);
+        require(detail.offeringId().equals(OTHER_OFFERING), "页面已经切到另一个教学班");
+        require(!detail.exporting(), "切班必须把导出态清干净");
 
-        require(detail.exportFeedbackText() == null && !detail.exporting(),
-                "离开之后的导出响应不能写回界面，收到 " + detail.exportFeedbackText());
+        download.complete(null);   // A 的下载这时候才完成
+
+        require(detail.exportFeedbackText() == null,
+                "A 的导出结果不能渲染到 B 的页面上，收到 " + detail.exportFeedbackText());
+        require(!detail.exporting(), "B 的页面不能被 A 的导出拖进导出态");
+        require(detail.offeringId().equals(OTHER_OFFERING) && detail.active(),
+                "B 仍然是当前教学班，没有被迟到的响应改动");
+
+        // 反过来：同一个教学班上正常完成的导出必须照常给反馈（守卫不能把正常路径一起挡掉）。
+        FakeTransport plain = new FakeTransport();
+        TeacherOfferingDetailController alone = new TeacherOfferingDetailController(service,
+                Runnable::run, plain, dialogs);
+        alone.showOffering(OFFERING);
+        alone.selectTab(1);
+        alone.handleExport(null);
+        // 传输是在后台线程上派发的，反馈因此也是稍后才落到页面上。
+        waitUntil(() -> alone.exportFeedbackText() != null,
+                "正常完成的导出必须给出反馈");
+        require(alone.exportFeedbackText().contains("学生名单已保存到"),
+                "正常路径必须照常提示保存位置，收到 " + alone.exportFeedbackText());
+        require(!alone.exporting(), "导出完成后回到非导出态");
     }
 
     /**

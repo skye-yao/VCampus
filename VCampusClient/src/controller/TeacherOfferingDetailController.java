@@ -225,6 +225,10 @@ public final class TeacherOfferingDetailController {
         scheduleErrorText = null;
         scheduleGeneration++;
         selectedTab = BASIC_TAB;
+        // 导出也在这条「离开即作废」的规矩里：光把导出标志清掉不够——本类会被复用（离开教学班 A、
+        // 再打开教学班 B 时 active 与 offeringId 又被填回来），代际必须一起前进，否则 A 的下载
+        // 回来后会把「已保存到 A 的文件」渲染到 B 的页面上。
+        exportGeneration++;
         exporting = false;
         exportFeedbackText = null;
         render();

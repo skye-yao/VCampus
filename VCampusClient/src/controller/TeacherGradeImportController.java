@@ -188,8 +188,12 @@ public final class TeacherGradeImportController {
     private long correctionVersion;
     /** 下载各自一条线：回调只在仍是最新一次下载时写提示。 */
     private long downloadGeneration;
-    /** 正在传输的短连接 Future：离开上传页时取消它，传输层据此关闭 Socket。 */
-    private CompletableFuture<Void> inFlightTransfer;
+    /**
+     * 正在传输的短连接 Future：离开上传页时取消它，传输层据此关闭 Socket。
+     * volatile 与 {@link #generation}/{@link #active} 同一条理由——后台线程写它（派发上传），
+     * FX 线程读它（{@code cancel(true)}），两者之间没有别的 happens-before 边。
+     */
+    private volatile CompletableFuture<Void> inFlightTransfer;
     /** 正在等待的整条链（上传 → 预览）：取消它可以让后续步骤不再派发。 */
     private CompletableFuture<?> inFlightChain;
 
