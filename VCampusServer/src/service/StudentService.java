@@ -4,6 +4,7 @@ import dao.*;
 import entity.*;
 import enums.StudentChangeStatus;
 import util.DBUtil;
+import util.InformationDateRules;
 import vo.StudentOverviewVO;
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -141,6 +142,7 @@ public class StudentService implements IStudentService {
                 if (result == StudentChangeStatus.APPROVED) {
                     List<StudentChangeItem> studentFields=new ArrayList<>();
                     for(StudentChangeItem item:request.getItems()) {
+                        validateApprovedItem(item);
                         if(isRelatedRecordOperation(item.getFieldName()))applyRelatedRecordOperation(connection,request.getStudentId(),item);
                         else studentFields.add(item);
                     }
@@ -165,6 +167,7 @@ public class StudentService implements IStudentService {
         if(student==null || original==null || student.getStudentId()==null
                 || !student.getStudentId().equals(original.getStudentId()))
             throw new IllegalArgumentException("缺少原始学籍快照或学生编号已变化，请刷新");
+        validateStudentDates(student);
         boolean ok = students.updateIfUnchanged(student,original);
         if (ok) {
             new UserDAO().syncUserInfo(student.getUID() != null ? student.getUID() : student.getStudentId());
@@ -219,12 +222,14 @@ public class StudentService implements IStudentService {
         if(award.getAwardName()==null||award.getAwardName().isBlank())throw new IllegalArgumentException("奖励名称不能为空");
         if(award.getAwardType()==null)throw new IllegalArgumentException("奖励类型不能为空");
         if(award.getAwardDate()==null)throw new IllegalArgumentException("奖励日期不能为空");
+        InformationDateRules.requireNotFuture(award.getAwardDate(),"奖励日期");
     }
     private void validateAid(StudentAid aid){
         if(aid==null)throw new IllegalArgumentException("资助信息不能为空");
         if(aid.getAidName()==null||aid.getAidName().isBlank())throw new IllegalArgumentException("资助名称不能为空");
         if(aid.getAidType()==null||aid.getAidType().isBlank())throw new IllegalArgumentException("资助类型不能为空");
         if(aid.getAidDate()==null)throw new IllegalArgumentException("资助日期不能为空");
+        InformationDateRules.requireNotFuture(aid.getAidDate(),"资助日期");
     }
     @Override
     public boolean addExperience(String UID,StudentExperience value)throws SQLException{
@@ -261,10 +266,10 @@ public class StudentService implements IStudentService {
     private void applyRelatedRecordOperation(Connection c,String studentId,StudentChangeItem item)throws SQLException {
         boolean changed=switch(item.getFieldName()) {
             case EXPERIENCE_ADD -> {StudentExperience x=gson.fromJson(item.getNewValue(),StudentExperience.class);x.setExperienceId(null);x.setStudentId(studentId);InformationRecordLimit.check(c,"tblStudentExperience",studentId);validateRelatedRecord(x);yield experiences.insert(c,x);}
-            case EXPERIENCE_UPDATE -> {StudentExperience x=gson.fromJson(item.getNewValue(),StudentExperience.class);yield experiences.update(c,studentId,x);}
+            case EXPERIENCE_UPDATE -> {StudentExperience x=gson.fromJson(item.getNewValue(),StudentExperience.class);validateRelatedRecord(x);yield experiences.update(c,studentId,x);}
             case EXPERIENCE_DELETE -> {StudentExperience x=gson.fromJson(item.getNewValue(),StudentExperience.class);yield experiences.delete(c,studentId,requiredId(x.getExperienceId(),"学习经历"));}
             case FAMILY_ADD -> {StudentFamilyMember x=gson.fromJson(item.getNewValue(),StudentFamilyMember.class);x.setMemberId(null);x.setStudentId(studentId);InformationRecordLimit.check(c,"tblStudentFamilyMember",studentId);validateRelatedRecord(x);yield familyMembers.insert(c,x);}
-            case FAMILY_UPDATE -> {StudentFamilyMember x=gson.fromJson(item.getNewValue(),StudentFamilyMember.class);yield familyMembers.update(c,studentId,x);}
+            case FAMILY_UPDATE -> {StudentFamilyMember x=gson.fromJson(item.getNewValue(),StudentFamilyMember.class);validateRelatedRecord(x);yield familyMembers.update(c,studentId,x);}
             case FAMILY_DELETE -> {StudentFamilyMember x=gson.fromJson(item.getNewValue(),StudentFamilyMember.class);yield familyMembers.delete(c,studentId,requiredId(x.getMemberId(),"家庭成员"));}
             default -> throw new IllegalArgumentException("未知关联信息变更类型");
         };
@@ -285,6 +290,7 @@ public class StudentService implements IStudentService {
             }
             if(field==null||!STUDENT_EDITABLE_FIELDS.contains(field)||!seen.add(field))
                 throw new SecurityException("学生无权修改字段: "+field);
+            validateStudentDateField(field,item.getNewValue());
             String actual=students.fieldValueAsString(current,field);
             if(!actual.equals(normalize(item.getOldValue())))throw new IllegalStateException("学籍信息已变化，请刷新后重新编辑");
             item.setOldValue(actual);
@@ -306,11 +312,30 @@ public class StudentService implements IStudentService {
     private static boolean requireChanged(boolean changed,String message){if(!changed)throw new IllegalStateException(message);return true;}
     private static void validateRelatedRecord(Object value){
         if(value instanceof StudentExperience x) {
-            if(x.getStartDate()==null||x.getEndDate()==null||normalize(x.getSchoolName()).isBlank()||normalize(x.getEducationLevel()).isBlank())throw new IllegalArgumentException("开始日期、结束日期、学校名称和学习阶段不能为空");
-            if(x.getEndDate().before(x.getStartDate()))throw new IllegalArgumentException("结束日期不能早于开始日期");
+            if(x.getStartDate()==null||normalize(x.getSchoolName()).isBlank()||normalize(x.getEducationLevel()).isBlank())throw new IllegalArgumentException("开始日期、学校名称和学习阶段不能为空");
+            if(x.getEndDate()!=null&&x.getEndDate().before(x.getStartDate()))throw new IllegalArgumentException("结束日期不能早于开始日期");
+            InformationDateRules.requireNotFuture(x.getStartDate(),"学习经历开始日期");
+            InformationDateRules.requireNotFuture(x.getEndDate(),"学习经历结束日期");
         } else if(value instanceof StudentFamilyMember x) {
             if(normalize(x.getName()).isBlank()||normalize(x.getRelationship()).isBlank()||x.getBirthDate()==null||normalize(x.getRegisteredResidence()).isBlank()||normalize(x.getWorkplace()).isBlank()||normalize(x.getPhone()).isBlank())throw new IllegalArgumentException("家庭成员姓名、关系、出生年月、户口所在地、工作单位和联系电话不能为空");
+            InformationDateRules.requireNotFuture(x.getBirthDate(),"家庭成员出生日期");
         }
+    }
+    private static void validateStudentDates(Student value){
+        InformationDateRules.requireNotFuture(value.getBirthDate(),"出生日期");
+        InformationDateRules.requireNotFuture(value.getIdIssueDate(),"身份证签发日期");
+        InformationDateRules.requireNotFuture(value.getLeagueJoinDate(),"入团日期");
+        InformationDateRules.requireNotFuture(value.getPartyJoinDate(),"入党日期");
+        InformationDateRules.requireNotFuture(value.getAdmissionDate(),"入学日期");
+    }
+    private static void validateStudentDateField(String field,String value){
+        String label=switch(field){case "birthDate"->"出生日期";case "idIssueDate"->"身份证签发日期";case "leagueJoinDate"->"入团日期";case "partyJoinDate"->"入党日期";case "admissionDate"->"入学日期";default->null;};
+        if(label!=null)InformationDateRules.requireNotFuture(value,label);
+    }
+    private void validateApprovedItem(StudentChangeItem item){
+        validateStudentDateField(item.getFieldName(),item.getNewValue());
+        if(Set.of(EXPERIENCE_ADD,EXPERIENCE_UPDATE).contains(item.getFieldName()))validateRelatedRecord(gson.fromJson(item.getNewValue(),StudentExperience.class));
+        if(Set.of(FAMILY_ADD,FAMILY_UPDATE).contains(item.getFieldName()))validateRelatedRecord(gson.fromJson(item.getNewValue(),StudentFamilyMember.class));
     }
     private static String normalize(String value){return value==null?"":value.trim();}
     private static boolean truthy(String value){return Set.of("true","1","是","在籍","在校").contains(normalize(value));}

@@ -28,6 +28,7 @@ public final class StudentBatchValidation {
             if (source.getAwardType() == null) throw new IllegalArgumentException("请选择奖励类型");
             a.setAwardType(source.getAwardType());
             if (source.getAwardDate() == null) throw new IllegalArgumentException("请选择奖励日期");
+            InformationDateRules.requireNotFuture(source.getAwardDate(), "奖励日期");
             a.setAwardDate(source.getAwardDate());
             a.setAwardLevel(text(source.getAwardLevel(), 50, false, "奖励级别"));
             a.setOrganization(text(source.getOrganization(), 100, false, "颁发单位"));
@@ -42,6 +43,7 @@ public final class StudentBatchValidation {
         a.setAidType(text(source.getAidType(), 50, true, "资助类型"));
         a.setAmount(amount(source.getAmount()));
         if (source.getAidDate() == null) throw new IllegalArgumentException("请选择资助日期");
+        InformationDateRules.requireNotFuture(source.getAidDate(), "资助日期");
         a.setAidDate(source.getAidDate());
         if (source.getStatus() == null) throw new IllegalArgumentException("请选择资助状态");
         a.setStatus(source.getStatus());

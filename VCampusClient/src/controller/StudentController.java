@@ -369,6 +369,7 @@ public class StudentController {
         if(DATE_FIELDS.contains(name)) {
 
             DatePicker picker=new DatePicker();
+            util.control.InformationDatePicker.install(picker);
 
             if(!initial.isBlank()) {
                 try {
@@ -1036,6 +1037,12 @@ public class StudentController {
         return items;
     }
     private String validateRequired() {
+        for(Control control:editable)if(control instanceof DatePicker picker)try{
+            util.control.InformationDatePicker.value(picker,title((String)control.getUserData()));
+            util.control.RequiredFieldValidation.mark(control,false);
+        }catch(IllegalArgumentException exception){
+            util.control.RequiredFieldValidation.mark(control,true);control.requestFocus();return exception.getMessage();
+        }
         if(isAdmin())return null;
         Map<String,String> values=new HashMap<>();
         for(Control control:editable)values.put((String)control.getUserData(),controlValue(control).trim());
@@ -1895,9 +1902,14 @@ public class StudentController {
             String key=entry.getKey();Node field;
             if(key.startsWith("开始年月")||key.startsWith("结束年月")){
                 ComboBox<Integer> year=new ComboBox<>(),month=new ComboBox<>();
-                int currentYear=java.time.Year.now().getValue();
-                for(int value=currentYear+10;value>=1900;value--)year.getItems().add(value);
+                int currentYear=util.InformationDateRules.today().getYear();
+                for(int value=currentYear;value>=1900;value--)year.getItems().add(value);
                 for(int value=1;value<=12;value++)month.getItems().add(value);
+                year.valueProperty().addListener((observable,oldYear,newYear)->{
+                    Integer selectedMonth=month.getValue();int last=newYear!=null&&newYear==currentYear?util.InformationDateRules.today().getMonthValue():12;
+                    month.getItems().setAll(java.util.stream.IntStream.rangeClosed(1,last).boxed().toList());
+                    if(selectedMonth!=null&&selectedMonth<=last)month.setValue(selectedMonth);else month.setValue(null);
+                });
                 String initialValue=entry.getValue();
                 if(!initialValue.isBlank())try{String[] parts=initialValue.split("-");year.setValue(Integer.parseInt(parts[0]));month.setValue(Integer.parseInt(parts[1]));}catch(Exception ignored){}
                 year.setPromptText("年份");month.setPromptText("月份");year.setPrefWidth(210);month.setPrefWidth(135);
@@ -1905,10 +1917,12 @@ public class StudentController {
                 readers.put(key,()->year.getValue()==null||month.getValue()==null?"":String.format("%04d-%02d",year.getValue(),month.getValue()));
             }else if(key.startsWith("出生年月")){
                 DatePicker picker=new DatePicker();
+                util.control.InformationDatePicker.install(picker);
                 if(!entry.getValue().isBlank())try{picker.setValue(java.time.LocalDate.parse(entry.getValue()));}catch(Exception ignored){}
                 picker.setPrefWidth(360);field=picker;readers.put(key,()->picker.getValue()==null?"":picker.getValue().toString());
             }else if("奖励日期".equals(key)||"资助日期".equals(key)){
                 DatePicker picker=new DatePicker();
+                util.control.InformationDatePicker.install(picker);
                 if(!entry.getValue().isBlank())try{picker.setValue(java.time.LocalDate.parse(entry.getValue()));}catch(Exception ignored){}
                 picker.setPrefWidth(360);field=picker;readers.put(key,()->picker.getValue()==null?"":picker.getValue().toString());
             }else if ("奖励名称".equals(key) && title.contains("奖励")) {
@@ -2019,7 +2033,7 @@ public class StudentController {
             }
             fields.put(key,field);
             Label label=new Label(key);label.setWrapText(true);label.setMaxWidth(250);
-            if((title.contains("学习经历")&&Set.of("开始年月","结束年月","学校名称","学习阶段").stream().anyMatch(key::startsWith))
+            if((title.contains("学习经历")&&Set.of("开始年月","学校名称","学习阶段").stream().anyMatch(key::startsWith))
                     ||(title.contains("家庭")&&Set.of("姓名","与本人关系","出生年月","户口所在地","工作单位","联系电话").contains(key))
                     ||(title.contains("奖励")&&Set.of("奖励名称","类型","奖励日期").contains(key))
                     ||(title.contains("资助")&&Set.of("资助名称","资助类型","资助日期").contains(key))){
@@ -2032,6 +2046,9 @@ public class StudentController {
         dialog.getDialogPane().setContent(grid);dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK,ButtonType.CANCEL);
         dialog.getDialogPane().lookupButton(ButtonType.OK).addEventFilter(javafx.event.ActionEvent.ACTION,event->{
             boolean invalid=false;
+            for(Map.Entry<String,Node> entry:fields.entrySet())if(entry.getValue() instanceof DatePicker picker)try{
+                util.control.InformationDatePicker.value(picker,entry.getKey());
+            }catch(IllegalArgumentException exception){util.control.RequiredFieldValidation.mark(picker,true);dialog.setHeaderText(exception.getMessage());event.consume();return;}
             for(String key:requiredKeys){
                 boolean missing=readers.get(key).get().isBlank();invalid|=missing;
                 Node field=fields.get(key);
@@ -2064,7 +2081,7 @@ public class StudentController {
     @FXML private void handleAddExperience(){
  if(overview==null)return;
  if(overview.getExperiences()!=null&&overview.getExperiences().size()>=util.InformationRules.STUDENT_EXPERIENCES){setStatus("学习经历最多4条，另1行预留当前大学经历");return;}
-LinkedHashMap<String,String> f=new LinkedHashMap<>();f.put("开始年月","");f.put("结束年月","");f.put("学校名称","");f.put("学习阶段","");f.put("备注","");showRecordDialog("新增主要学习经历",f).ifPresent(v->{try{validateExperienceForm(v);StudentExperience x=new StudentExperience();x.setStartDate(monthDate(v.get("开始年月")));x.setEndDate(monthDate(v.get("结束年月")));x.setSchoolName(v.get("学校名称"));x.setEducationLevel(v.get("学习阶段"));x.setDescription(v.get("备注"));service.addExperience(x,m->runOnPage(()->{setStatus(message(m,"学习经历已添加"));if(ok(m))refreshData();}));}catch(Exception e){setStatus("学习经历格式错误："+e.getMessage());}});}
+LinkedHashMap<String,String> f=new LinkedHashMap<>();f.put("开始年月","");f.put("结束年月","");f.put("学校名称","");f.put("学习阶段","");f.put("备注","");showRecordDialog("新增主要学习经历",f).ifPresent(v->{try{validateExperienceForm(v);StudentExperience x=new StudentExperience();x.setStartDate(monthDate(v.get("开始年月")));x.setEndDate(monthDateOrNull(v.get("结束年月")));x.setSchoolName(v.get("学校名称"));x.setEducationLevel(v.get("学习阶段"));x.setDescription(v.get("备注"));service.addExperience(x,m->runOnPage(()->{setStatus(message(m,"学习经历已添加"));if(ok(m))refreshData();}));}catch(Exception e){setStatus("学习经历格式错误："+e.getMessage());}});}
     @FXML private void handleAddFamilyMember(){
  if(overview==null)return;
  if(overview.getFamilyMembers()!=null&&overview.getFamilyMembers().size()>=util.InformationRules.STUDENT_FAMILY){setStatus("家庭成员最多4条");return;}
@@ -2083,7 +2100,7 @@ LinkedHashMap<String,String> f=new LinkedHashMap<>();f.put("姓名","");f.put("�
             changed.setExperienceId(source.getExperienceId());
             changed.setStudentId(source.getStudentId());
             changed.setStartDate(monthDate(values.get("开始年月")));
-            changed.setEndDate(monthDate(values.get("结束年月")));
+            changed.setEndDate(monthDateOrNull(values.get("结束年月")));
             changed.setSchoolName(values.get("学校名称"));
             changed.setEducationLevel(values.get("学习阶段"));
             changed.setDescription(values.get("备注"));
@@ -2095,12 +2112,15 @@ LinkedHashMap<String,String> f=new LinkedHashMap<>();f.put("姓名","");f.put("�
     @FXML private void handleDeleteFamilyMember(){StudentFamilyMember x=selectedFamilyMember;if(x==null){setStatus("请先选择家庭成员");return;}if(!confirmDelete("确定删除选中的家庭成员吗？"))return;service.deleteFamilyMember(x.getMemberId(),m->runOnPage(()->{setStatus(message(m,"家庭成员已删除"));if(ok(m))refreshData();}));}
     private boolean confirmDelete(String text){Alert alert=new Alert(Alert.AlertType.CONFIRMATION,text,ButtonType.OK,ButtonType.CANCEL);alert.setTitle("删除确认");alert.setHeaderText(null);return alert.showAndWait().orElse(ButtonType.CANCEL)==ButtonType.OK;}
     private void validateExperienceForm(Map<String,String> values){
-        for(String field:List.of("开始年月","结束年月","学校名称","学习阶段"))if(values.getOrDefault(field,"").isBlank())throw new IllegalArgumentException(field+"不能为空");
-        Date start=monthDate(values.get("开始年月")),end=monthDate(values.get("结束年月"));
-        if(end.before(start))throw new IllegalArgumentException("结束日期不能早于开始日期");
+        for(String field:List.of("开始年月","学校名称","学习阶段"))if(values.getOrDefault(field,"").isBlank())throw new IllegalArgumentException(field+"不能为空");
+        Date start=monthDate(values.get("开始年月")),end=monthDateOrNull(values.get("结束年月"));
+        util.InformationDateRules.requireNotFuture(start,"学习经历开始日期");
+        util.InformationDateRules.requireNotFuture(end,"学习经历结束日期");
+        if(end!=null&&end.before(start))throw new IllegalArgumentException("结束日期不能早于开始日期");
     }
-    private void validateFamilyForm(Map<String,String> values){for(String field:List.of("姓名","与本人关系","出生年月","户口所在地","工作单位","联系电话"))if(values.getOrDefault(field,"").isBlank())throw new IllegalArgumentException(field+"不能为空");}
+    private void validateFamilyForm(Map<String,String> values){for(String field:List.of("姓名","与本人关系","出生年月","户口所在地","工作单位","联系电话"))if(values.getOrDefault(field,"").isBlank())throw new IllegalArgumentException(field+"不能为空");util.InformationDateRules.requireNotFuture(values.get("出生年月"),"家庭成员出生日期");}
     private Date monthDate(String value){return Date.valueOf(value+"-01");}
+    private Date monthDateOrNull(String value){return value==null||value.isBlank()?null:monthDate(value);}
     private String showMonth(Date value){return value==null?"":value.toString().substring(0,7);}
     private String showForInput(Object value){return value==null?"":String.valueOf(value);}
     private void reloadCurrentOverview(){
