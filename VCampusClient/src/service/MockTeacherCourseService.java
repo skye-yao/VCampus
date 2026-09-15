@@ -171,6 +171,8 @@ public final class MockTeacherCourseService implements TeacherCourseService {
     private static final long MOCK_FILE_PORT_MAX_BYTES = 5L * 1024 * 1024;
     private static final String IMPORT_EXPIRED_TEXT = "导入预览已过期，请重新导入";
     private static final String IMPORT_PREVIEW_STALE_TEXT = "导入预览已更新，请重新加载预览后重试";
+    /** 首次预览的版本号，与真实服务一致（从 1 开始，每次修订递增）。 */
+    private static final int FIRST_PREVIEW_REVISION = 1;
 
     private final List<CourseTermDTO> terms = List.of(
             new CourseTermDTO(2025, 3, "2025-2026 春学期"),
@@ -616,7 +618,8 @@ public final class MockTeacherCourseService implements TeacherCourseService {
             if (book.revision() != baseDraft.getExpectedRevision()) {
                 throw gradeConflict("成绩草稿版本已变化，请重新加载后重试", snapshotOf(offeringId));
             }
-            return CompletableFuture.completedFuture(openPreview(baseDraft));
+            return CompletableFuture.completedFuture(
+                    openPreview(baseDraft, FIRST_PREVIEW_REVISION, null));
         } catch (RuntimeException failure) {
             return failed(failure);
         }
@@ -628,11 +631,10 @@ public final class MockTeacherCourseService implements TeacherCourseService {
         try {
             if (revise == null) throw badRequest("请求体不能为空");
             MockImportPreview stored = requirePreview(revise.getImportToken());
-            if (stored.preview().getPreviewRevision() != revise.getExpectedPreviewRevision()) {
-                throw gradeConflict(IMPORT_PREVIEW_STALE_TEXT, null);
-            }
-            // 候选不变（mock 没有原始文件行可重算），只有排除行数与预览版本会变。
-            return CompletableFuture.completedFuture(openPreview(stored.candidate()));
+            requirePreviewRevision(stored, revise.getExpectedPreviewRevision());
+            // 候选不变（mock 没有原始文件行可重算），但版本严格加一：客户端必须拿着新版本再来。
+            return CompletableFuture.completedFuture(openPreview(stored.preview().getCandidate(),
+                    stored.preview().getPreviewRevision() + 1, revise.getImportToken()));
         } catch (RuntimeException failure) {
             return failed(failure);
         }
@@ -648,12 +650,11 @@ public final class MockTeacherCourseService implements TeacherCourseService {
         try {
             if (confirm == null) throw badRequest("请求体不能为空");
             MockImportPreview stored = requirePreview(confirm.getImportToken());
-            if (stored.preview().getPreviewRevision() != confirm.getExpectedPreviewRevision()) {
-                throw gradeConflict(IMPORT_PREVIEW_STALE_TEXT, null);
-            }
+            requirePreviewRevision(stored, confirm.getExpectedPreviewRevision());
             String token = confirm.getImportToken();
             return gradeWrite(TeacherCourseActions.CONFIRM_GRADE_IMPORT,
-                    new WriteGradeBookRequestDTO(confirm.getOperationId(), stored.candidate()),
+                    new WriteGradeBookRequestDTO(confirm.getOperationId(),
+                            stored.preview().getCandidate()),
                     false).whenComplete((value, failure) -> {
                         if (failure == null) importPreviews.remove(token);
                     });
@@ -675,12 +676,19 @@ public final class MockTeacherCourseService implements TeacherCourseService {
                 MOCK_TICKET_SHA256, MOCK_TICKET_EXPIRES_AT);
     }
 
-    private GradeImportPreviewDTO openPreview(GradeBookContentDTO candidate) {
-        String token = "mock-import-" + (nextImportSequence++);
+    /**
+     * 建立/推进一次预览。版本号与真实服务同一条规则：首次为 1，每次修订严格加一；修订请求必须带上
+     * 当前版本，否则整个修订被拒绝（{@link #requirePreviewRevision}）。mock 没有解析出来的原始行，
+     * 因此异常计数恒为 0——但它不会假装修订永远成功，客户端「基版本拿旧了」的缺陷在这里就会暴露成
+     * 一次真实的冲突，而不是一个恒真的空实现。
+     */
+    private GradeImportPreviewDTO openPreview(GradeBookContentDTO candidate, int revision,
+            String token) {
         int rows = candidate.getRows().size();
-        GradeImportPreviewDTO preview = new GradeImportPreviewDTO(token, 1, candidate, rows, rows,
-                0, List.of(), MOCK_TICKET_EXPIRES_AT);
-        importPreviews.put(token, new MockImportPreview(preview, candidate));
+        GradeImportPreviewDTO preview = new GradeImportPreviewDTO(
+                token == null ? "mock-import-" + (nextImportSequence++) : token, revision, candidate,
+                rows, rows, 0, List.of(), MOCK_TICKET_EXPIRES_AT);
+        importPreviews.put(preview.getImportToken(), new MockImportPreview(preview));
         return preview;
     }
 
@@ -690,8 +698,15 @@ public final class MockTeacherCourseService implements TeacherCourseService {
         return stored;
     }
 
+    /** 修订/确认的版本闸门：与服务端一样要求严格相等，相等才放行。 */
+    private static void requirePreviewRevision(MockImportPreview stored, int expected) {
+        if (stored.preview().getPreviewRevision() != expected) {
+            throw gradeConflict(IMPORT_PREVIEW_STALE_TEXT, null);
+        }
+    }
+
     /** 一次导入预览：令牌、版本与候选内容；mock 里候选就是上传时的编辑副本。 */
-    private record MockImportPreview(GradeImportPreviewDTO preview, GradeBookContentDTO candidate) {
+    private record MockImportPreview(GradeImportPreviewDTO preview) {
     }
 
     /**

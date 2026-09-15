@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
@@ -152,7 +153,11 @@ public final class TeacherGradeImportController {
     private final Supplier<Window> ownerWindow;
 
     private Host host;
-    private boolean active;
+    /**
+     * 页面是否仍在活动。后台线程上的链要读它（{@link #requireStillImporting}），因此是 volatile：
+     * 离开上传页的判断必须对后台线程立即可见，否则「检查再派发」的防线可能读到旧值。
+     */
+    private volatile boolean active;
 
     private GradeImportPreviewDTO preview;
     /** 导入前的编辑副本；取消/离开时用它整体恢复（含 dirty）。 */
@@ -171,8 +176,16 @@ public final class TeacherGradeImportController {
     private boolean dialogOpen;
     private String feedbackText;
 
-    /** 每次导入/修订派发递增：只有最新一次的响应可以应用，迟到的旧预览直接丢弃。 */
-    private long generation;
+    /**
+     * 每次导入/修订派发递增：只有最新一次的响应可以应用，迟到的旧预览直接丢弃。
+     * 后台线程上的链读它（{@link #requireStillImporting}），因此是 volatile。
+     */
+    private volatile long generation;
+    /**
+     * 修正/排除的状态版本：每次改动递增。派发修订时记下当时的版本，响应落地后若已经更大，
+     * 就用刚拿到的 previewRevision 再冲刷一次——连续打字因此不会各自带着同一个基版本撞服务端。
+     */
+    private long correctionVersion;
     /** 下载各自一条线：回调只在仍是最新一次下载时写提示。 */
     private long downloadGeneration;
     /** 正在传输的短连接 Future：离开上传页时取消它，传输层据此关闭 Socket。 */
@@ -336,16 +349,23 @@ public final class TeacherGradeImportController {
         host.importStateChanged();
         CompletableFuture<GradeImportPreviewDTO> chain = CompletableFuture
                 .supplyAsync(() -> fingerprintOf(source), BACKGROUND)
-                .thenCompose(fingerprint -> service.beginGradeUpload(new TeacherFileUploadRequestDTO(
-                        draft.getOfferingId(), draft.getExpectedRevision(),
-                        fileNameOf(source), fingerprint.length(), fingerprint.sha256())))
+                .thenCompose(fingerprint -> {
+                    requireStillImporting(current);
+                    return service.beginGradeUpload(new TeacherFileUploadRequestDTO(
+                            draft.getOfferingId(), draft.getExpectedRevision(),
+                            fileNameOf(source), fingerprint.length(), fingerprint.sha256()));
+                })
                 .thenCompose(ticket -> {
+                    requireStillImporting(current);
                     // 票据只在这一段链里存在：兑换一次、预览一次，不落到任何字段或提示文案里。
                     inFlightTransfer = transport.upload(ticket, source);
                     return inFlightTransfer.thenApply(ignored -> ticket);
                 })
-                .thenCompose(ticket -> service.previewGradeImport(
-                        new PreviewGradeImportRequestDTO(ticket.getTicket(), draft)));
+                .thenCompose(ticket -> {
+                    requireStillImporting(current);
+                    return service.previewGradeImport(
+                            new PreviewGradeImportRequestDTO(ticket.getTicket(), draft));
+                });
         inFlightChain = chain;
         chain.whenComplete((next, failure) -> fxExecutor.accept(() -> {
             if (current != generation || !active) return;
@@ -364,6 +384,20 @@ public final class TeacherGradeImportController {
             clearCorrections();
             applyPreview(next, true);
         }));
+    }
+
+    /**
+     * 每个 compose 主体在派发下一步之前先确认这次导入还作数。
+     *
+     * <p>{@link CompletableFuture#cancel} 只让<b>当前</b>那一段以后不再继续，已经在跑的中间段会照常
+     * 执行完——所以在中间段里「先检查再派发」才是唯一真正挡住后续网络动作的地方。不这么做的话，
+     * 教师在指纹计算或申请票据的往返途中点「返回」，上传仍会开出一条没人在等的短连接，
+     * 白白消费掉一次性票据并留下一个孤儿临时文件。
+     */
+    private void requireStillImporting(long current) {
+        if (current != generation || !active) {
+            throw new CancellationException("导入已取消");
+        }
     }
 
     private void applyPreview(GradeImportPreviewDTO next, boolean firstPreview) {
@@ -418,6 +452,7 @@ public final class TeacherGradeImportController {
         if (!importing || field == null) return;
         corrections.computeIfAbsent(rowNumber, ignored -> new LinkedHashMap<>())
                 .put(field, text == null ? "" : text.trim());
+        correctionVersion++;
         revise();
     }
 
@@ -429,6 +464,7 @@ public final class TeacherGradeImportController {
         } else {
             excludedRows.remove(rowNumber);
         }
+        correctionVersion++;
         revise();
     }
 
@@ -438,12 +474,24 @@ public final class TeacherGradeImportController {
 
     /**
      * 修订预览：请求里带的是「完整修正状态」（修正集合 + 排除集合），因此取消一处修正或取消排除
-     * 同样能如实表达。发出请求前的旧预览从此作废——响应回来时若已经不是最新一次派发，直接丢弃。
+     * 同样能如实表达。
+     *
+     * <p><b>一次只派发一个修订。</b>服务端严格要求 {@code expectedPreviewRevision} 与它当前的预览版本
+     * 相等，而版本只有在响应回来时才前进；连续打字如果每次都立刻发一个请求，第二个请求带的就是同一个
+     * 基版本（要么被拒、要么把第一次的成功结果挤掉），教师的每一次击键都会因此永久卡死在这条
+     * 「预览已更新」上。所以修订在途时只累积修正，等响应落地拿到新的 previewRevision 之后再一次性
+     * 冲刷出去——请求数从「每个击键一次」降到「每个在途窗口一次」，而内容始终是那一刻的完整状态。
      */
     private void revise() {
         if (!importing || importToken == null || preview == null) return;
+        if (revising) return;         // 在途：只累积，响应落地后统一冲刷
+        dispatchRevise();
+    }
+
+    private void dispatchRevise() {
         long current = ++generation;
         revising = true;
+        long dispatchedAt = correctionVersion;
         feedbackText = REVISING_TEXT;
         host.feedback(feedbackText);
         host.importStateChanged();
@@ -461,6 +509,8 @@ public final class TeacherGradeImportController {
                     // 后面的预览不是「首次」：不重开反馈弹窗，同表预览原地更新。
                     applyPreview(next, false);
                     if (dialogOpen && dialog != null) dialog.render();
+                    // 在途期间教师又改了：现在才拿到新的 previewRevision，用这一刻的完整状态冲刷。
+                    if (correctionVersion != dispatchedAt) dispatchRevise();
                 }));
     }
 

@@ -81,6 +81,8 @@ public final class TeacherOfferingDetailController {
     private Consumer<String> openGrades = offeringId -> { };
     private boolean exporting;
     private String exportFeedbackText;
+    /** 每次导出派发递增：迟到的响应不能写到一个已经离开或换了教学班的页面上。 */
+    private long exportGeneration;
 
     private String offeringId;
     private boolean active;
@@ -271,12 +273,15 @@ public final class TeacherOfferingDetailController {
         exporting = true;
         exportFeedbackText = EXPORTING_TEXT;
         render();
+        long current = ++exportGeneration;
         CompletableFuture<Path> download = TeacherGradeImportController.downloadTicketToFile(
                 fileDialogs, fileTransport, this::confirmOverwrite,
                 () -> service.requestRosterExport(offeringId, blankToNull(rosterQuery),
                         enrollmentStatusCode()),
                 TeacherGradeImportController.EXPORT_FILENAME);
         download.whenComplete((saved, failure) -> fxExecutor.accept(() -> {
+            // 与本类其它在途请求同一条规矩：页面已经离开（或又点了一次导出）时，旧响应不写界面。
+            if (!active || offeringId == null || current != exportGeneration) return;
             exporting = false;
             if (failure != null) {
                 exportFeedbackText = TeacherGradeImportController.failureText(failure,

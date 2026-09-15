@@ -52,6 +52,7 @@ import dto.course.teacher.TeacherRosterRowDTO;
 import dto.course.teacher.TeacherScheduleWeekDTO;
 import dto.course.teacher.WriteGradeBookRequestDTO;
 import javafx.event.ActionEvent;
+import model.course.teacher.GradeBookEditorModel;
 import model.course.teacher.GradeBookEditorModel.Row;
 import protocol.MessageCode;
 import service.MockTeacherCourseService;
@@ -82,14 +83,18 @@ public final class TeacherGradeImportControllerTest {
     public static void main(String[] args) throws Exception {
         previewRendersInTheSameTableAndKeepsUnimportedColumns();
         dirtyEditCopyIsRestoredOnCancelIncludingTheDirtyFlag();
-        issueCellsGoThroughReviseAndStalePreviewsAreDiscarded();
+        issueCellsGoThroughReviseAndALateResponseIsDiscarded();
         unknownStudentRowsAreResolvedByExplicitExclusion();
         confirmUsesTheLatestServerPreviewAndNeverSubmits();
         confirmConflictKeepsThePreviewAndTheEditingCopy();
         leavingDuringImportCancelsTheTransferAndRestoresTheCopy();
+        leavingBeforeTheUploadIsDispatchedSpendsNoTicket();
+        rapidCorrectionsAreCoalescedAndAlwaysUseTheFreshPreviewRevision();
         feedbackShowsCountsAndAbnormalNamesWithoutTheImportToken();
         downloadsChooseTheFileOnTheCallingThreadAndTransferInBackground();
         bottomBarFreezesTheSchemeAndSwapsItsButtons();
+        exportFeedbackIgnoresAResponseThatArrivesAfterLeaving();
+        mockPreviewRevisionsIncrementAndRejectStaleOnes();
         importViewsDeclareTheirControllerIdsHandlersAndStyles();
         System.out.println("TeacherGradeImportControllerTest: PASS");
     }
@@ -194,9 +199,10 @@ public final class TeacherGradeImportControllerTest {
 
     /**
      * 异常格子的修正走 revise：非异常格子根本改不动，异常格子改了也不算完——请求里带上这次修订
-     * 后的完整修正状态，而红框只由服务端下一次预览消除；教师连续修正时，先返回的旧预览被丢弃。
+     * 后的完整修正状态，而红框只由服务端下一次预览消除；离开（取消）之后才到达的响应必须被丢弃，
+     * 不能把一个已经作废的预览按回界面上。
      */
-    private static void issueCellsGoThroughReviseAndStalePreviewsAreDiscarded() {
+    private static void issueCellsGoThroughReviseAndALateResponseIsDiscarded() {
         ImportService service = new ImportService();
         TeacherGradeBookController controller = controller(service, new FakeDialogs());
         controller.showOffering(OFFERING);
@@ -258,25 +264,20 @@ public final class TeacherGradeImportControllerTest {
                         row.cell(GradeComponentCodeDTO.FINALTERM).error()),
                 "本地敲字不能把红框抹掉：只有服务端的下一次预览能消除它");
 
-        // 第二处修正（同一份预览里的另一格）在第一次还没回来时发出：第二次修订带的是这份修订后
-        // 的完整修正状态，而先派发的第一次响应稍后到达时必须被丢弃。
-        controller.liveScoreEdit(row, GradeComponentCodeDTO.EXPERIMENT, "70");
-        require(service.revises.size() == 2, "第二处修正必须立刻再发一次修订");
-        ReviseGradeImportRequestDTO second = service.revises.get(1);
-        require(second.getCorrections().size() == 2,
-                "修订请求带的是完整修正状态（两处），收到 " + second.getCorrections().size());
-        require(second.getExpectedPreviewRevision() == 1,
-                "第二次修订仍以最近一次服务端预览为基准");
-        stale.complete(preview(2, candidateFor(controller,
-                row.enrollmentId(), new GradeScoresDTO(null, null, new BigDecimal("70"), null)),
-                1, 1, List.of(issue(3, row.studentUid(), row.studentName(), field, "abc",
-                        "期末成绩必须是 0-100 的数字"))));
+        // 修订还没回来就取消导入：此后到达的响应是把已经作废的预览按回界面的唯一途径，必须被丢弃。
+        controller.importController().cancelImport();
         settle(controller);
-        require(controller.importController().preview().getPreviewRevision() == 3,
-                "迟到的旧预览（v2）不能覆盖新状态，收到的版本是 "
-                        + controller.importController().preview().getPreviewRevision());
-        require(controller.importController().confirmEnabled(),
-                "最新服务端预览没有未解决异常行时确认才可用");
+        require(!controller.importController().importing()
+                        && controller.importController().preview() == null,
+                "取消之后不能还留着预览状态");
+        stale.complete(preview(9, candidateFor(controller, row.enrollmentId(),
+                new GradeScoresDTO(null, null, null, new BigDecimal("91"))), 1, 0, List.of()));
+        settle(controller);
+        require(controller.importController().preview() == null
+                        && !controller.importController().importing(),
+                "取消之后到达的响应必须被丢弃，不能把作废的预览按回界面");
+        require(!controller.dirty() && controller.model().state() != null,
+                "取消之后模型停在导入前的干净副本上");
     }
 
     /** 未知学生的行不在成绩表里：通过错误列表明确排除之后才算解决，排除同样走 revise。 */
@@ -434,6 +435,105 @@ public final class TeacherGradeImportControllerTest {
                 "恢复之后是否允许离开由恢复出来的 dirty 状态决定");
     }
 
+    /**
+     * 上传派发之前的那段窗口（算指纹、申请票据的往返）里离开：不能再去开短连接。
+     *
+     * <p>{@code CompletableFuture.cancel} 只让当前那一段以后不再继续，已经在跑的中间段会照常执行完，
+     * 所以在中间段里「先确认这次导入还作数、再派发」才是唯一挡得住后续网络动作的地方。这条断言
+     * 看的正是后果：没有它，票据会被花掉、一条没人在等的上传会把孤儿文件留在服务端。
+     */
+    private static void leavingBeforeTheUploadIsDispatchedSpendsNoTicket() {
+        ImportService service = new ImportService();
+        FakeTransport transport = new FakeTransport();
+        TeacherGradeBookController controller = controller(service, transport, new FakeDialogs());
+        controller.showOffering(OFFERING);
+        Row row = controller.rows().get(0);
+        controller.model().setScore(row.enrollmentId(), GradeComponentCodeDTO.DAILY, "55");
+
+        service.holdUploadTicket();     // 卡在「申请上传票据」这一步，还没轮到传输
+        controller.importController().startImport();
+        waitUntil(() -> service.uploadRequested, "导入链没有走到申请上传票据这一步");
+
+        controller.importController().cancelOnLeave();     // 教师在票据回来之前点了返回
+        service.completeHeldUploadTicket();
+        settle(controller);
+
+        require(transport.lastTicket == null,
+                "离开之后绝不能再去兑换票据开短连接");
+        require(!controller.importController().importing()
+                        && controller.importController().preview() == null,
+                "离开之后不能凭空出现预览");
+        require("55".equals(rowFor(controller, row.enrollmentId())
+                        .cell(GradeComponentCodeDTO.DAILY).text()) && controller.dirty(),
+                "导入前的编辑副本仍然完整恢复");
+        require(!TeacherGradeImportController.UPLOAD_FAILURE_TEXT.equals(controller.feedbackText()),
+                "被取消的导入不该报成上传失败，收到 " + controller.feedbackText());
+    }
+
+    /**
+     * 连续打字：修订在途时只累积，不各自带着同一个基版本去撞服务端；响应落地后用刚拿到的
+     * previewRevision 把这一刻的完整修正状态一次性冲刷出去。
+     *
+     * <p>这正是「每个击键发一次 revise」会踩的坑：服务端严格要求 {@code expectedPreviewRevision} 相等，
+     * 而版本只有在响应回来时才前进——两个请求带同一个基版本时只有一个能被接受，教师此后所有纠错都会
+     * 卡在「导入预览已更新」上（页面上并没有「重新加载预览」这个操作）。
+     */
+    private static void rapidCorrectionsAreCoalescedAndAlwaysUseTheFreshPreviewRevision() {
+        ImportService service = new ImportService();
+        TeacherGradeBookController controller = controller(service, new FakeDialogs());
+        controller.showOffering(OFFERING);
+        Row row = controller.rows().get(0);
+        String finalterm = GradeImportRowIssueDTO.FIELD_FINALTERM_SCORE;
+
+        // 三份候选都先算好：键入非法原文之后模型会拒绝再构造写内容（这正是模型该做的事）。
+        GradeBookContentDTO opened = candidateFor(controller, row.enrollmentId(),
+                new GradeScoresDTO(null, null, null, null));
+        GradeBookContentDTO afterFirst = candidateFor(controller, row.enrollmentId(),
+                new GradeScoresDTO(null, null, null, new BigDecimal("9.1")));
+        GradeBookContentDTO afterAll = candidateFor(controller, row.enrollmentId(),
+                new GradeScoresDTO(null, null, null, new BigDecimal("91.2")));
+        List<GradeImportRowIssueDTO> stillBroken = List.of(issue(3, row.studentUid(),
+                row.studentName(), finalterm, "abc", "期末成绩必须是 0-100 的数字"));
+
+        service.previewResponse = preview(1, opened, 1, 1, stillBroken);
+        controller.importController().startImport();
+        settle(controller);
+
+        CompletableFuture<GradeImportPreviewDTO> firstRevise = new CompletableFuture<>();
+        service.previewResponses.addLast(firstRevise);
+        service.previewResponses.addLast(
+                CompletableFuture.completedFuture(preview(3, afterAll, 1, 0, List.of())));
+
+        // 三连击：只有第一个请求出去，后面两个只在本地累积。
+        controller.liveScoreEdit(row, GradeComponentCodeDTO.FINALTERM, "9");
+        controller.liveScoreEdit(row, GradeComponentCodeDTO.FINALTERM, "91");
+        controller.liveScoreEdit(row, GradeComponentCodeDTO.FINALTERM, "912");
+        require(service.revises.size() == 1,
+                "修订在途时不能再派发第二个请求，收到 " + service.revises.size() + " 个");
+        require(service.revises.get(0).getExpectedPreviewRevision() == 1,
+                "第一个修订以当前预览版本为基");
+
+        firstRevise.complete(preview(2, afterFirst, 1, 1, stillBroken));
+        settle(controller);
+
+        require(service.revises.size() == 2,
+                "响应落地后要把在途期间累积的修正冲刷出去，收到 " + service.revises.size() + " 个");
+        ReviseGradeImportRequestDTO flushed = service.revises.get(1);
+        require(flushed.getExpectedPreviewRevision() == 2,
+                "冲刷必须带刚刚拿到的预览版本（v2），收到 " + flushed.getExpectedPreviewRevision());
+        require(Map.of(finalterm, "912").equals(flushed.getCorrections().get(0).getCorrectedCells()),
+                "冲刷的必须是最后一次修正后的完整状态，收到 "
+                        + flushed.getCorrections().get(0).getCorrectedCells());
+        require(controller.importController().preview().getPreviewRevision() == 3
+                        && controller.importController().confirmEnabled(),
+                "最新预览（v3，零异常）落地后确认才可用，收到 v"
+                        + controller.importController().preview().getPreviewRevision());
+        require(controller.feedbackText() != null
+                        && !controller.feedbackText().contains("导入预览已更新"),
+                "整个过程中不能出现「预览已更新」这种页面上无从操作的提示，收到 "
+                        + controller.feedbackText());
+    }
+
     // ------------------------------------------------------------------ 反馈与文件选择
 
     /** 反馈文案：总记录/有效/异常 + 异常姓名；任何提示里都不出现 importToken。 */
@@ -578,6 +678,82 @@ public final class TeacherGradeImportControllerTest {
         controller.showOffering(OFFERING);
         require(controller.importController().active() && controller.model() != null,
                 "重新进入成绩表要重新激活同一套导入编排");
+    }
+
+    /** 详情页的导出：页面已经离开（或又点了一次）之后到达的响应不写界面。 */
+    private static void exportFeedbackIgnoresAResponseThatArrivesAfterLeaving() throws Exception {
+        ImportService service = new ImportService();
+        // 目标文件刻意不存在：详情页的覆盖确认是真实对话框（无工具包环境里不能弹），
+        // 这条用例验证的是「响应迟到」，不是覆盖确认。
+        FakeDialogs dialogs = FakeDialogs.savingTo(Files
+                .createTempDirectory("vcampus-export-test").resolve("学生名单.xlsx"));
+        FakeTransport transport = new FakeTransport();
+        transport.holdDownload = true;
+        TeacherOfferingDetailController detail = new TeacherOfferingDetailController(service,
+                Runnable::run, transport, dialogs);
+        detail.showOffering(OFFERING);
+        detail.selectTab(1);
+
+        detail.handleExport(null);
+        require(detail.exporting(), "导出期间页面处于导出态");
+        require(transport.downloadFuture != null, "导出必须真的开始传输");
+        require(service.exports.size() == 1, "导出要用当前筛选条件申请票据");
+
+        // 教师离开这个教学班（页面 release 掉导出状态），之后下载才完成。
+        detail.release();
+        transport.downloadFuture.complete(null);
+
+        require(detail.exportFeedbackText() == null && !detail.exporting(),
+                "离开之后的导出响应不能写回界面，收到 " + detail.exportFeedbackText());
+    }
+
+    /**
+     * mock 的预览版本语义必须与真实服务一致（首次 1、每次修订严格加一、基版本不等就拒绝）——
+     * 否则用 mock 驱动的界面路径永远看不到「基版本拿旧了」这类缺陷，测试只能靠脚本化响应假装。
+     */
+    private static void mockPreviewRevisionsIncrementAndRejectStaleOnes() {
+        MockTeacherCourseService mock = new MockTeacherCourseService();
+        GradeBookContentDTO base = new GradeBookEditorModel(
+                mock.getGradeBook(OFFERING).join()).content();
+        TeacherFileTicketDTO ticket = mock.beginGradeUpload(new TeacherFileUploadRequestDTO(OFFERING,
+                base.getExpectedRevision(), "成绩.xlsx", base.getRows().size(),
+                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")).join();
+
+        GradeImportPreviewDTO first = mock.previewGradeImport(
+                new PreviewGradeImportRequestDTO(ticket.getTicket(), base)).join();
+        require(first.getPreviewRevision() == 1,
+                "首次预览的版本必须是 1，收到 " + first.getPreviewRevision());
+
+        GradeImportPreviewDTO second = mock.reviseGradeImport(new ReviseGradeImportRequestDTO(
+                first.getImportToken(), 1, List.of(), List.of(7))).join();
+        require(second.getPreviewRevision() == 2,
+                "每次修订必须严格加一，收到 " + second.getPreviewRevision());
+
+        try {
+            mock.reviseGradeImport(new ReviseGradeImportRequestDTO(first.getImportToken(), 1,
+                    List.of(), List.of())).join();
+            throw new AssertionError("带旧基版本的修订必须被拒绝");
+        } catch (CompletionException failure) {
+            TeacherCourseServiceException error =
+                    (TeacherCourseServiceException) failure.getCause();
+            require(error.getCode() == MessageCode.CONFLICT
+                            && error.getMessage().contains("导入预览已更新"),
+                    "旧基版本要以冲突拒绝，收到 " + error.getCode() + " / " + error.getMessage());
+        }
+
+        require(mock.confirmGradeImport(new ConfirmGradeImportRequestDTO(
+                        java.util.UUID.randomUUID().toString(), first.getImportToken(), 1, 0))
+                        .handle((value, failure) -> failure != null).join(),
+                "带旧基版本的确认同样必须被拒绝");
+        require(mock.confirmGradeImport(new ConfirmGradeImportRequestDTO(
+                        java.util.UUID.randomUUID().toString(), first.getImportToken(), 2,
+                        base.getExpectedRevision())).join().getValue() != null,
+                "带最新版本的确认才写草稿");
+
+        // 上传票据单次领取：同一张票不能再换一份预览。
+        require(mock.previewGradeImport(new PreviewGradeImportRequestDTO(ticket.getTicket(), base))
+                        .handle((value, failure) -> failure != null).join(),
+                "一次性上传票据不能被重复兑换");
     }
 
     // ------------------------------------------------------------------ FXML 契约
@@ -825,6 +1001,10 @@ public final class TeacherGradeImportControllerTest {
             this.saveTarget = saveTarget;
         }
 
+        private static FakeDialogs savingTo(Path saveTarget) {
+            return new FakeDialogs(saveTarget);
+        }
+
         @Override
         public Path chooseUploadSource() {
             callingThreads.add(Thread.currentThread());
@@ -844,6 +1024,8 @@ public final class TeacherGradeImportControllerTest {
         private Thread callingThread;
         private CompletableFuture<Void> uploadFuture;
         private boolean hold;
+        private boolean holdDownload;
+        private CompletableFuture<Void> downloadFuture;
         /** 可选的调用顺序记录：证明覆盖确认排在票据与传输之前。 */
         private List<String> order;
 
@@ -861,7 +1043,9 @@ public final class TeacherGradeImportControllerTest {
             lastTicket = ticket;
             callingThread = Thread.currentThread();
             if (order != null) order.add("transfer");
-            return CompletableFuture.completedFuture(null);
+            downloadFuture = holdDownload ? new CompletableFuture<>()
+                    : CompletableFuture.completedFuture(null);
+            return downloadFuture;
         }
     }
 
@@ -881,9 +1065,12 @@ public final class TeacherGradeImportControllerTest {
         private final List<WriteGradeBookRequestDTO> saved = new ArrayList<>();
         private final List<WriteGradeBookRequestDTO> submits = new ArrayList<>();
         private final List<String> cancelledTokens = new ArrayList<>();
+        private final List<String[]> exports = new ArrayList<>();
         private List<String> ticketOrder = new ArrayList<>();
         private TeacherFileUploadRequestDTO upload;
         private PreviewGradeImportRequestDTO previewRequest;
+        private boolean uploadRequested;
+        private CompletableFuture<TeacherFileTicketDTO> heldUploadTicket;
 
         @Override
         public CompletableFuture<List<CourseTermDTO>> listTerms() {
@@ -954,7 +1141,27 @@ public final class TeacherGradeImportControllerTest {
         public CompletableFuture<TeacherFileTicketDTO> beginGradeUpload(
                 TeacherFileUploadRequestDTO request) {
             upload = request;
+            uploadRequested = true;
+            if (heldUploadTicket != null) return heldUploadTicket;
             return CompletableFuture.completedFuture(ticketDto());
+        }
+
+        @Override
+        public CompletableFuture<TeacherFileTicketDTO> requestRosterExport(
+                String offeringId, String query, Integer enrollmentStatus) {
+            exports.add(new String[] {offeringId, query,
+                    enrollmentStatus == null ? null : enrollmentStatus.toString()});
+            return CompletableFuture.completedFuture(ticketDto());
+        }
+
+        /** 把上传票据那张请求挂住，用来验证「票据还没回来时离开」的窗口。 */
+        private void holdUploadTicket() {
+            heldUploadTicket = new CompletableFuture<>();
+        }
+
+        private void completeHeldUploadTicket() {
+            if (heldUploadTicket == null) throw new AssertionError("没有挂起的上传票据请求");
+            heldUploadTicket.complete(ticketDto());
         }
 
         @Override
