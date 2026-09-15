@@ -406,10 +406,11 @@ public class MainController {
         PageLeaveGuard previousGuard = PageLeaveGuard.active();
         if (previousGuard != null && !previousGuard.requestLeave()) return;
         try {
-            Parent view = FXMLUtil.load(fxmlPath);
+            // 必须先释放旧页：FXMLUtil.load 会先跑新页 initialize()，它会顶替清理器并看到旧守卫
             if (previousGuard != null) previousGuard.onClosed();
             PageLeaveGuard.clear(previousGuard);
             ClientMain.cleanupPage();
+            Parent view = FXMLUtil.load(fxmlPath);
             if (rootMain != null) {
                 rootMain.setCenter(view);
             }
