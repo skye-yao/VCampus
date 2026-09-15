@@ -3,7 +3,6 @@ package util;
 import entity.Book;
 import javafx.beans.property.ReadOnlyObjectWrapper;
 import javafx.scene.control.*;
-import javafx.scene.layout.VBox;
 
 /** 图书检索和管理共用的类别标签、表头筛选和馆藏显示。 */
 public final class LibraryCatalogTable {
@@ -30,15 +29,21 @@ public final class LibraryCatalogTable {
         filter.getItems().add(ALL_CATEGORIES);
         filter.getItems().addAll(Book.CATEGORIES);
         filter.setValue(ALL_CATEGORIES);
-        filter.setMinWidth(120);
-        filter.setPrefWidth(120);
+        filter.setMinWidth(64);
+        filter.setPrefWidth(64);
+        filter.setMaxWidth(64);
+        filter.setButtonCell(new ListCell<>() {
+            @Override protected void updateItem(String value, boolean empty) {
+                super.updateItem(value, empty);
+                setText("类别");
+                setGraphic(null);
+            }
+        });
         filter.getStyleClass().add("category-filter");
         filter.setAccessibleText("按图书类别筛选");
         filter.setTooltip(new Tooltip("选择类别筛选当前检索结果"));
-        VBox header = new VBox(3,new Label("类别"),filter);
-        header.getStyleClass().add("category-column-header");
         category.setText(null);
-        category.setGraphic(header);
+        category.setGraphic(filter);
         category.setSortable(false);
         category.setMinWidth(144);
         category.setPrefWidth(144);
@@ -46,7 +51,7 @@ public final class LibraryCatalogTable {
         inventory.setMinWidth(132);
         inventory.setPrefWidth(132);
         inventory.setMaxWidth(180);
-        inventory.setStyle("-fx-alignment: CENTER;");
+        inventory.setStyle("-fx-alignment: CENTER-LEFT;");
         inventory.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(
                 c.getValue().getAvailableCopies()+" / "+c.getValue().getTotalCopies()+" 册"));
         return filter;
