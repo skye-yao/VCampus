@@ -120,14 +120,27 @@ public final class GradeCalculatorTest {
         require(GradeCalculator.total(incomplete, scores("80.00", null, null, "90.00")) == null,
                 "an incomplete scheme must return NULL instead of a made-up total");
 
+        // 四项全禁用、权重全 0：草稿允许，正式提交必须正好落在“至少启用一项”这条规则上。
         GradeSchemeDTO noneEnabled = scheme(
-                component(GradeComponentCodeDTO.DAILY, false, 10000),
+                component(GradeComponentCodeDTO.DAILY, false, 0),
                 component(GradeComponentCodeDTO.MIDTERM, false, 0),
                 component(GradeComponentCodeDTO.EXPERIMENT, false, 0),
                 component(GradeComponentCodeDTO.FINALTERM, false, 0));
         GradeCalculator.validateScheme(noneEnabled, false);
-        expectIllegalArgument(() -> GradeCalculator.validateScheme(noneEnabled, true),
+        expectIllegalArgumentMessage(() -> GradeCalculator.validateScheme(noneEnabled, true),
+                "至少启用一项",
                 "a scheme without any enabled component must be rejected at submission");
+
+        // 权重来自网络：2^31-1 + 2^31-1 + 2 + 10000 在 int 里正好回绕成 10000，必须被挡住。
+        GradeSchemeDTO overflowing = scheme(
+                component(GradeComponentCodeDTO.DAILY, true, Integer.MAX_VALUE),
+                component(GradeComponentCodeDTO.MIDTERM, true, Integer.MAX_VALUE),
+                component(GradeComponentCodeDTO.EXPERIMENT, true, 2),
+                component(GradeComponentCodeDTO.FINALTERM, true, 10000));
+        expectIllegalArgument(() -> GradeCalculator.validateScheme(overflowing, true),
+                "int weights summing to 2^32 + 10000 must not wrap into an accepted 10000");
+        require(GradeCalculator.total(overflowing, scores("0.00", "0.00", "50.00", "90.00")) == null,
+                "an overflowing weight set must not produce a plausible-looking total");
 
         GradeSchemeDTO zeroEnabledWeight = scheme(
                 component(GradeComponentCodeDTO.DAILY, true, 0),
@@ -237,6 +250,19 @@ public final class GradeCalculatorTest {
             return;
         }
         throw new AssertionError(message);
+    }
+
+    /** 除类型外还要求命中具体规则：否则被别的规则先拒绝也会算通过。 */
+    private static void expectIllegalArgumentMessage(Runnable action, String messageFragment,
+                                                     String failureMessage) {
+        try {
+            action.run();
+        } catch (IllegalArgumentException expected) {
+            require(expected.getMessage() != null && expected.getMessage().contains(messageFragment),
+                    failureMessage + " (message was: " + expected.getMessage() + ")");
+            return;
+        }
+        throw new AssertionError(failureMessage);
     }
 
     private static void require(boolean condition, String message) {

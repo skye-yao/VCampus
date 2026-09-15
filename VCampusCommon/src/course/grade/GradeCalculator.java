@@ -69,6 +69,7 @@ public final class GradeCalculator {
         List<GradeComponentDTO> components = requireFourFixedComponents(scheme);
         if (weightProblem(components) != null) {
             // 草稿权重没配齐：总评没有意义，返回 NULL 而不是按当前权重凑一个数出来。
+            // 这个判断放在分数校验之前是有意的：不产出总评时就不会有任何分数被静默取整。
             return null;
         }
         if (scores == null) {
@@ -138,7 +139,8 @@ public final class GradeCalculator {
      * <p>正式提交和总评共用同一份规则：提交时用它生成错误信息，total 用它在草稿阶段返回 NULL。
      */
     private static String weightProblem(List<GradeComponentDTO> components) {
-        int enabledWeight = 0;
+        // 权重来自网络且是 int：用 long 累加，四个极大值相加在 int 里会回绕成 10000 而绕过“合计 10000”。
+        long enabledWeight = 0;
         boolean hasEnabled = false;
         for (GradeComponentDTO component : components) {
             if (component.isEnabled()) {
