@@ -5,6 +5,10 @@ import java.sql.*;
 import java.util.List;
 
 /** All methods use the caller's transaction; no connection or DDL is created here. */
+// The schema is supplied by resources/init.sql and migration_student_information_batch.sql.
+// IDE database connections are optional, so repository builds must not depend on a local
+// datasource being configured for SQL name resolution.
+@SuppressWarnings({"SqlResolve", "SqlNoDataSourceInspection"})
 public class StudentBatchDAO {
     public record Receipt(String adminId, String kind, String digest, String resultJson) {}
     public record Target(String studentId, String name) {}
