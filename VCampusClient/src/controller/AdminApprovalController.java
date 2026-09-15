@@ -133,9 +133,23 @@ public final class AdminApprovalController {
     @FXML
     void showGrades() {
         setTab(false);
-        // 只把当前共享筛选交给刚激活的子页；隐藏的调课页不刷新。
-        // 成绩页沿用三态枚举，共享筛选只可能是它与调课四态共有的三个状态。
-        if (gradePageController != null) gradePageController.activate(gradeStatus(status));
+        ApprovalStatusDTO gradeFilter = gradeFallback();
+        if (gradePageController != null) gradePageController.activate(gradeFilter);
+    }
+
+    /**
+     * 成绩页只有三态。共享筛选是它没有的已撤销时，把共享状态与组合框一起回落到成绩页实际加载的
+     * PENDING，避免标签（已撤销）与已加载的行（待审批）不符；setValue 会经监听器回到
+     * {@link #applyStatus}，而那时状态已经一致，不会重复请求。
+     */
+    private ApprovalStatusDTO gradeFallback() {
+        ApprovalStatusDTO mapped = gradeStatus(status);
+        if (mapped != null) return mapped;
+        status = AdjustmentRequestStatusDTO.PENDING;
+        if (statusFilter != null && !PENDING_LABEL.equals(statusFilter.getValue())) {
+            statusFilter.setValue(PENDING_LABEL);
+        }
+        return ApprovalStatusDTO.PENDING;
     }
 
     @FXML
@@ -171,7 +185,9 @@ public final class AdminApprovalController {
         }
         status = next; // 共享筛选；切换标签页时新激活的子页会拿到同一个值
         if (gradeActive) {
-            if (gradePageController != null) gradePageController.loadPage(gradeStatus(next), 1);
+            // 成绩页里直接改共享筛选也一样：没有三态对应项（已撤销）时状态与标签一起回落。
+            ApprovalStatusDTO gradeFilter = gradeFallback();
+            if (gradePageController != null) gradePageController.loadPage(gradeFilter, 1);
             return;
         }
         loadPage(next, 1);
@@ -389,14 +405,14 @@ public final class AdminApprovalController {
 
     /**
      * 每个目标一行：左侧原安排、右侧新安排。新安排显示该目标自己的实际日期（V006 之前的旧行
-     * 没有日期，退回原来的“星期 + 节次”显示）；教师申请没有新教师/新教室，显示目标原快照。
+     * 没有日期，退回原来的“星期 + 节次”显示），人员与教室按字段回落到该目标的原快照。
      */
     static List<ArrangementRow> arrangementRows(AdjustmentRequestDetailDTO detail) {
         List<ArrangementRow> rows = new ArrayList<>();
         for (AdjustmentTargetDTO target : detail.getTargets()) {
             rows.add(new ArrangementRow("第 " + target.getWeek() + " 周",
                     target.getOriginalStartAt() + "~" + target.getOriginalEndAt() + "　"
-                            + originalPersons(target) + "　"
+                            + personsText(null, null, target) + "　"
                             + orDash(target.getOriginalClassroom()),
                     describeAdjusted(detail, target)));
         }
@@ -416,34 +432,58 @@ public final class AdminApprovalController {
                 + "　[" + conflict.getType() + "/" + conflict.getSeverity() + "]";
     }
 
-    /** 请求级的新安排说明；目标日期能确定时一并列出（多目标按行显示各自日期）。 */
+    /**
+     * 请求级的新安排说明：人员与教室同样按字段回落到目标原快照（多目标申请以首个目标的快照为
+     * 代表，逐目标的精确值以每个目标行显示为准）；目标日期能确定时一并列出。
+     */
     private static String describeAdjusted(AdjustmentRequestDetailDTO detail) {
+        AdjustmentTargetDTO snapshot = detail.getTargets().isEmpty()
+                ? null : detail.getTargets().get(0);
         String text = weekdayName(detail.getNewDayOfWeek()) + " 第 " + detail.getNewStartPeriod()
-                + "-" + detail.getNewEndPeriod() + " 节　" + resourceName(detail.getNewTeacher())
-                + "　" + resourceName(detail.getNewClassroom());
+                + "-" + detail.getNewEndPeriod() + " 节　"
+                + personsText(detail.getNewTeacher(), detail.getNewAssistant(), snapshot)
+                + "　" + classroomText(detail.getNewClassroom(), snapshot);
         List<String> dates = targetDates(detail);
         return dates.isEmpty() ? text : text + "　目标日期：" + String.join("、", dates);
     }
 
     /**
-     * 单个目标的新安排：目标日期是显式的 ISO 本地日期；教师申请（newTeacher/newClassroom 为 null）
-     * 回落到该目标的原快照，管理员替换过人员/教室时显示新资源。
+     * 单个目标的新安排：目标日期是显式的 ISO 本地日期。服务端按字段写入替换资源
+     * （{@code ScheduleAdjustmentApprovalService} 只替换请求里给出的资源，其余保留目标原值），
+     * 因此这里也逐字段回落：只换教师时保留原助教，只换助教时保留原教师。
      */
     static String describeAdjusted(AdjustmentRequestDetailDTO detail, AdjustmentTargetDTO target) {
         String date = target.getTargetDate() == null ? "" : target.getTargetDate() + " ";
-        String teacher = detail.getNewTeacher() == null
-                ? originalPersons(target) : resourceName(detail.getNewTeacher());
-        String classroom = detail.getNewClassroom() == null
-                ? orDash(target.getOriginalClassroom()) : resourceName(detail.getNewClassroom());
         return date + weekdayName(detail.getNewDayOfWeek()) + " 第 " + detail.getNewStartPeriod()
-                + "-" + detail.getNewEndPeriod() + " 节　" + teacher + "　" + classroom;
+                + "-" + detail.getNewEndPeriod() + " 节　"
+                + personsText(detail.getNewTeacher(), detail.getNewAssistant(), target)
+                + "　" + classroomText(detail.getNewClassroom(), target);
     }
 
-    /** 原课次的任课教师与助教；教师申请的新安排沿用这份快照。 */
-    private static String originalPersons(AdjustmentTargetDTO target) {
-        String teacher = orDash(target.getOriginalTeacher());
-        return target.getOriginalAssistant() == null || target.getOriginalAssistant().isBlank()
-                ? teacher : teacher + ", " + target.getOriginalAssistant();
+    /**
+     * 新安排的人员：教师与助教各自独立回落 —— 只换教师时保留原助教，只换助教时保留原教师，
+     * 两侧都不替换时整体保持原快照。快照缺失或为空的一侧给占位符。
+     */
+    static String personsText(ScheduleResourceDTO newTeacher, ScheduleResourceDTO newAssistant,
+            AdjustmentTargetDTO snapshot) {
+        String teacher = newTeacher != null
+                ? orDash(newTeacher.getName())
+                : orDash(snapshot == null ? null : snapshot.getOriginalTeacher());
+        String assistant = newAssistant != null
+                ? orDash(newAssistant.getName())
+                : blankToNull(snapshot == null ? null : snapshot.getOriginalAssistant());
+        return assistant == null ? teacher : teacher + ", " + assistant;
+    }
+
+    /** 教室：请求给出新教室时显示新资源，否则回落到该目标的原教室；没有快照时给占位符。 */
+    private static String classroomText(ScheduleResourceDTO newClassroom,
+            AdjustmentTargetDTO snapshot) {
+        if (newClassroom != null) return orDash(newClassroom.getName());
+        return orDash(snapshot == null ? null : snapshot.getOriginalClassroom());
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
     }
 
     /** 请求里出现过的目标日期（去重、保持目标顺序）；旧行没有日期时为空。 */
@@ -456,10 +496,6 @@ public final class AdminApprovalController {
             }
         }
         return List.copyOf(dates);
-    }
-
-    private static String resourceName(ScheduleResourceDTO resource) {
-        return resource == null ? "沿用原安排" : resource.getName();
     }
 
     private static String orDash(String value) {

@@ -464,6 +464,10 @@ public final class TeacherAdjustmentApplicationMySqlTest {
     private static void verifyDetailSurvivesUnavailablePlan(
             TeacherAdjustmentApplicationService service) throws Exception {
         execute("UPDATE schedule_plan SET status='DRAFT' WHERE id=" + PLAN);
+        require(count("SELECT COUNT(*) FROM schedule_plan WHERE id=" + PLAN
+                        + " AND status='DRAFT'") == 1,
+                "the fixture plan must actually be DRAFT, otherwise the unavailable-plan"
+                        + " assertions below would pass vacuously");
         try {
             AdjustmentRequestDetailDTO detail = service.get(TEACHER_A,
                     Long.toString(pendingRequestId));

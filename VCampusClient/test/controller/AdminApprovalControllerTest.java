@@ -1,5 +1,6 @@
 package controller;
 
+import java.lang.reflect.Field;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -14,6 +15,7 @@ import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
 import dto.course.admin.approval.AdjustmentTargetDTO;
 import dto.course.admin.approval.ApprovalDecisionRequestDTO;
 import dto.course.admin.approval.ApprovalStatusDTO;
+import dto.course.admin.approval.GradeSubmissionPageDTO;
 import dto.course.AdjustmentRequestStatusDTO;
 import dto.course.admin.catalog.CourseEditorRequestDTO;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
@@ -30,7 +32,7 @@ import service.SocketAdminCourseService.AdminCourseServiceException;
  * 无 JavaFX 依赖的审批控制器测试：注入假服务、{@code Runnable::run} 的 FX 执行器与文本输入。
  */
 public final class AdminApprovalControllerTest {
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         testDefaultFilterAndRendering();
         testStatusFilterAndConflictsReachTheService();
         testStaleListCannotReplaceNewerResult();
@@ -42,6 +44,7 @@ public final class AdminApprovalControllerTest {
         testConflictKeepsTheLatestDetail();
         testWithdrawnFilterIsQueryableAndReadOnly();
         testDetailShowsTheRealTargetDateAndFallsBackForLegacyTargets();
+        testAdjustedResourcesFallBackPerField();
         testGradeTabFallsBackInsteadOfThrowingOnWithdrawn();
         System.out.println("AdminApprovalControllerTest: PASS");
     }
@@ -254,13 +257,110 @@ public final class AdminApprovalControllerTest {
                         + legacy.get(0).adjusted());
     }
 
-    /** T5：共享筛选切到成绩页时 WITHDRAWN 没有三态对应项，必须回落而不是抛异常。 */
-    private static void testGradeTabFallsBackInsteadOfThrowingOnWithdrawn() {
+    /**
+     * 终审修复：服务端按字段写入替换资源（{@code ScheduleAdjustmentApprovalService} 只替换请求
+     * 里给出的资源，其余保留目标原值），所以教师与助教必须各自独立回落到目标原快照：只换教师时
+     * 保留原助教、只换助教时保留原教师、都不换（教师申请）时显示原快照。请求级与目标级两个
+     * 渲染器共用同一套回落。
+     */
+    private static void testAdjustedResourcesFallBackPerField() {
+        // 只换教师：未替换的助教保留原值。
+        AdjustmentRequestDetailDTO teacherOnly = mixedDetail(
+                resource("T2001", "李老师", "teacher"), null, null);
+        require(AdminApprovalController.arrangementRows(teacherOnly).get(0).adjusted()
+                        .contains("李老师, 王助教"),
+                "a teacher-only replacement must keep the original assistant, saw "
+                        + AdminApprovalController.arrangementRows(teacherOnly).get(0).adjusted());
+        require(requestLine(teacherOnly).contains("李老师, 王助教"),
+                "the request-level line must keep the original assistant too, saw "
+                        + requestLine(teacherOnly));
+
+        // 只换助教：未替换的教师保留原值。
+        AdjustmentRequestDetailDTO assistantOnly = mixedDetail(null,
+                resource("T3001", "赵助教", "teacher"), null);
+        require(AdminApprovalController.arrangementRows(assistantOnly).get(0).adjusted()
+                        .contains("张老师, 赵助教"),
+                "an assistant-only replacement must keep the original teacher, saw "
+                        + AdminApprovalController.arrangementRows(assistantOnly).get(0).adjusted());
+        require(requestLine(assistantOnly).contains("张老师, 赵助教"),
+                "the request-level line must keep the original teacher too, saw "
+                        + requestLine(assistantOnly));
+
+        // 教师与助教同时替换：两个新资源都要出现。
+        AdjustmentRequestDetailDTO both = mixedDetail(resource("T2001", "李老师", "teacher"),
+                resource("T3001", "赵助教", "teacher"), null);
+        require(AdminApprovalController.arrangementRows(both).get(0).adjusted()
+                        .contains("李老师, 赵助教"),
+                "a full replacement must show both new persons, saw "
+                        + AdminApprovalController.arrangementRows(both).get(0).adjusted());
+        require(requestLine(both).contains("李老师, 赵助教"),
+                "the request-level line must show both new persons, saw " + requestLine(both));
+
+        // 都不替换（教师申请）：目标级与请求级都显示目标原快照，而不是占位符。
+        AdjustmentRequestDetailDTO unchanged = mixedDetail(null, null, null);
+        String unchangedRow = AdminApprovalController.arrangementRows(unchanged).get(0).adjusted();
+        require(unchangedRow.contains("张老师, 王助教") && unchangedRow.contains("教四-201"),
+                "an unreplaced request must show the target snapshot, saw " + unchangedRow);
+        require(requestLine(unchanged).contains("张老师, 王助教")
+                        && requestLine(unchanged).contains("教四-201"),
+                "the request-level line must show the target snapshot too, saw "
+                        + requestLine(unchanged));
+
+        // 只换教室：人员仍是原快照，教室显示新资源。
+        AdjustmentRequestDetailDTO classroomOnly = mixedDetail(null, null,
+                resource("3002", "教二-305", "classroom"));
+        String classroomRow = AdminApprovalController.arrangementRows(classroomOnly)
+                .get(0).adjusted();
+        require(classroomRow.contains("张老师, 王助教") && classroomRow.contains("教二-305"),
+                "a classroom-only replacement must keep the original persons, saw " + classroomRow);
+        require(requestLine(classroomOnly).contains("教二-305"),
+                "the request-level line must show the new classroom, saw "
+                        + requestLine(classroomOnly));
+        require(requestLine(classroomOnly).contains("张老师, 王助教"),
+                "the request-level line must keep the original persons too, saw "
+                        + requestLine(classroomOnly));
+    }
+
+    /**
+     * T5：共享筛选切到成绩页时 WITHDRAWN 没有三态对应项，必须回落而不是抛异常。终审修复：
+     * 回落后组合框标签必须与成绩页实际加载的行一致（此前标签仍显示 已撤销、行却是待审批）。
+     */
+    private static void testGradeTabFallsBackInsteadOfThrowingOnWithdrawn() throws Exception {
         require(AdminApprovalController.gradeStatus(AdjustmentRequestStatusDTO.WITHDRAWN) == null,
                 "the grade tab has no withdraw state; it must fall back to its own default");
         require(AdminApprovalController.gradeStatus(AdjustmentRequestStatusDTO.APPROVED)
                         == ApprovalStatusDTO.APPROVED,
                 "the shared three states must still map by name");
+
+        ControlledService service = new ControlledService();
+        Recorder recorder = new Recorder();
+        AdminApprovalController shell = controller(service, recorder, null);
+        GradeApprovalController child = new GradeApprovalController(service,
+                (title, message) -> ButtonType.OK, recorder::info, recorder::error,
+                Runnable::run, prompt -> null);
+        Field field = AdminApprovalController.class.getDeclaredField("gradePageController");
+        field.setAccessible(true);
+        field.set(shell, child);
+
+        shell.applyStatus(AdminApprovalController.WITHDRAWN_LABEL);
+        shell.showGrades();
+
+        require("PENDING|1|20".equals(service.gradeListCalls.get(0)),
+                "the grade tab must load the fallback PENDING rows, saw " + service.gradeListCalls);
+        require(AdminApprovalController.PENDING_LABEL.equals(
+                        AdminApprovalController.statusLabel(shell.status())),
+                "the filter label must match the rows the grade tab loaded, saw "
+                        + AdminApprovalController.statusLabel(shell.status()));
+
+        // 停在成绩页上直接改共享筛选也一样：已撤销没有三态对应项，状态与标签必须一起回落，
+        // 否则组合框又会和已加载的行不符。
+        shell.applyStatus(AdminApprovalController.WITHDRAWN_LABEL);
+        require("PENDING|1|20".equals(service.gradeListCalls.get(1))
+                        && AdminApprovalController.PENDING_LABEL.equals(
+                                AdminApprovalController.statusLabel(shell.status())),
+                "changing the filter on the grade tab must keep the label and the rows aligned,"
+                        + " saw " + service.gradeListCalls + " / "
+                        + AdminApprovalController.statusLabel(shell.status()));
     }
 
     // ------------------------------------------------------------------ 夹具
@@ -289,6 +389,29 @@ public final class AdminApprovalControllerTest {
                 List.of(new AdjustmentTargetDTO("8001", 1, "2026-09-08T00:00:00Z",
                         "2026-09-08T01:35:00Z", "张老师", null, "教四-201")),
                 conflicts, "2026-09-10T02:00:00Z", null, null, null);
+    }
+
+    /** 按字段回落用例的详情夹具：目标原快照固定为 张老师/王助教/教四-201。 */
+    private static AdjustmentRequestDetailDTO mixedDetail(ScheduleResourceDTO newTeacher,
+            ScheduleResourceDTO newAssistant, ScheduleResourceDTO newClassroom) {
+        return new AdjustmentRequestDetailDTO("970704", "2001", "T1001", "教师出差",
+                AdjustmentRequestStatusDTO.PENDING, 2, 4, 5, 6, newTeacher, newAssistant,
+                newClassroom,
+                List.of(new AdjustmentTargetDTO("8006", 2, "2026-09-15T00:00:00Z",
+                        "2026-09-15T01:35:00Z", "张老师", "王助教", "教四-201", "2026-09-18")),
+                List.of(), "2026-09-10T02:00:00Z", null, null, null);
+    }
+
+    private static ScheduleResourceDTO resource(String id, String name, String type) {
+        return new ScheduleResourceDTO(id, id, name, type, 0);
+    }
+
+    /** 详情里的请求级“新安排”行；缺失即夹具失效，直接失败而不是静默跳过。 */
+    private static String requestLine(AdjustmentRequestDetailDTO detail) {
+        return AdminApprovalController.detailLines(detail).stream()
+                .filter(line -> line.startsWith("新安排：")).findFirst()
+                .orElseThrow(() -> new AssertionError("missing 新安排 line in "
+                        + AdminApprovalController.detailLines(detail)));
     }
 
     private static void require(boolean condition, String message) {
@@ -324,6 +447,7 @@ public final class AdminApprovalControllerTest {
                 reviews = new ArrayDeque<>();
         private final List<String> listCalls = new ArrayList<>();
         private final List<String> detailCalls = new ArrayList<>();
+        private final List<String> gradeListCalls = new ArrayList<>();
         private final List<ApprovalDecisionRequestDTO> decisions = new ArrayList<>();
         private AdjustmentRequestPageDTO page;
         private AdjustmentRequestDetailDTO detail;
@@ -408,6 +532,18 @@ public final class AdminApprovalControllerTest {
             return CompletableFuture.completedFuture(
                     detail == null ? AdminApprovalControllerTest.detail(AdjustmentRequestStatusDTO.PENDING,
                             List.of()) : detail);
+        }
+
+        /**
+         * 成绩子页的替身入口：外壳切换标签页时会驱动子页加载，缺少覆写会落到默认实现上
+         * 直接抛 {@code UnsupportedOperationException}。
+         */
+        @Override
+        public CompletableFuture<GradeSubmissionPageDTO> listGradeSubmissionsPage(
+                ApprovalStatusDTO status, int pageNumber, int size) {
+            gradeListCalls.add(status + "|" + pageNumber + "|" + size);
+            return CompletableFuture.completedFuture(
+                    new GradeSubmissionPageDTO(List.of(), 0, pageNumber, size));
         }
 
         @Override

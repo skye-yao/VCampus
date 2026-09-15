@@ -137,6 +137,9 @@ $suites = @(
         # 但此前不在任何套件里：不登记等于 T6 改过的学生查询没有任何回归保护。它与
         # CourseConflictMySqlTest 同形——不解析 `mysql`，只要 db.properties 指向受保护测试库就
         # 真跑，并自带 `DATABASE()=virtual_campus_course_test` 守卫，绝不把 SKIP 当 PASS。
+        # CourseQueryMappingTest 同样一直不在任何套件里，但它是 DB-free 的（CachedRowSet 夹具）：
+        # 它钉住 mapScheduleRows 的“原行 + 生效目标成对”契约，正是学生跨周组合所依赖的服务端
+        # 映射，与 CourseQueryMySqlTest 一起登记。
         Server = @('database.TeacherAdjustmentMigrationTest',
             'handler.ScheduleAdjustmentApprovalHandlerTest',
             'handler.TeacherAdjustmentHandlerTest',
@@ -145,10 +148,15 @@ $suites = @(
             'service.ScheduleAdjustmentApprovalMySqlTest',
             'service.TeacherAdjustmentApplicationMySqlTest',
             'service.CourseConflictMySqlTest',
-            'service.CourseQueryMySqlTest')
+            'service.CourseQueryMySqlTest',
+            'dao.CourseQueryMappingTest')
         # T6 的真实 TCP 闭环（教师第 8 周申请 → 管理员审批 → 教师/学生查两周）。它同样会重建
         # 受保护的测试架构，所以必须串行单独运行；-WithTcp 才跑，未传时不会被当作已通过。
-        Tcp = @('integration.TeacherAdjustmentSocketEndToEndTest')
+        # ScheduleAdjustmentSocketEndToEndTest 是 T6 之前的管理员调课 TCP 闭环，此前不在任何
+        # 套件里（既有债）：T6 按新语义改写了它的通知断言，不登记就等于改过的断言没有回归保护。
+        # 两个类各自重建受保护测试架构，列表顺序串行执行，同一次 -WithTcp 运行内必须都通过。
+        Tcp = @('integration.ScheduleAdjustmentSocketEndToEndTest',
+            'integration.TeacherAdjustmentSocketEndToEndTest')
         # GUI 冒烟：真实 JavaFX 工具包装入教师外壳，走调课表单与“我的申请”并产出四张主题截图
         # （跨周 / 冲突 / 撤销 / 长原因）。同一个冒烟类也登记在 Foundation.Gui 与 Timetable.Gui，
         # 跨套件重复有先例（各套件跑各自的入口，冒烟内部覆盖全部教师页面）。

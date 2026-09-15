@@ -17,7 +17,37 @@ public final class AdjustmentApprovalDialogControllerTest {
         reusesTheApprovalControllerText();
         coversMissingResourcesAndReasons();
         showsTheRealTargetDateWhenPresent();
+        showsPerFieldFallbacksWhenOnlyOnePersonChanges();
         System.out.println("AdjustmentApprovalDialogControllerTest: PASS");
+    }
+
+    /**
+     * 终审修复：服务端按字段写入替换资源，弹窗复用的行渲染必须逐字段回落——只换教师时
+     * 保留原助教、只换助教时保留原教师、两个都换时都显示新资源、都不换时回到原快照。
+     */
+    private static void showsPerFieldFallbacksWhenOnlyOnePersonChanges() {
+        AdjustmentRequestDetailDTO teacherOnly = mixedDetail(
+                resource("T2001", "李老师", "teacher"), null, null);
+        require(adjustedText(teacherOnly).contains("李老师, 王助教"),
+                "a teacher-only replacement must keep the original assistant, saw "
+                        + adjustedText(teacherOnly));
+
+        AdjustmentRequestDetailDTO assistantOnly = mixedDetail(null,
+                resource("T3001", "赵助教", "teacher"), null);
+        require(adjustedText(assistantOnly).contains("张老师, 赵助教"),
+                "an assistant-only replacement must keep the original teacher, saw "
+                        + adjustedText(assistantOnly));
+
+        AdjustmentRequestDetailDTO both = mixedDetail(resource("T2001", "李老师", "teacher"),
+                resource("T3001", "赵助教", "teacher"), null);
+        require(adjustedText(both).contains("李老师, 赵助教"),
+                "a full replacement must show both new persons, saw " + adjustedText(both));
+
+        AdjustmentRequestDetailDTO unchanged = mixedDetail(null, null, null);
+        require(adjustedText(unchanged).contains("张老师, 王助教")
+                        && adjustedText(unchanged).contains("教四-201"),
+                "an unreplaced request must fall back to the target snapshot, saw "
+                        + adjustedText(unchanged));
     }
 
     /** T5：有明确目标日期的申请必须在弹窗里显示日期，教师申请回落到目标原快照。 */
@@ -93,15 +123,15 @@ public final class AdjustmentApprovalDialogControllerTest {
         require(rows.get(0).original().contains("—"),
                 "missing snapshot resources must render as a placeholder, saw "
                         + rows.get(0).original());
-        // T5 起每个目标的新安排显示该目标原快照里的教师/教室；目标快照也为空时只留占位符，
-        // 请求级的“新安排”行才用 沿用原安排 表示没有替换资源。
+        // T5 起每个目标的新安排显示该目标原快照里的教师/教室；终审修复后请求级与目标级一样
+        // 逐字段回落到目标原快照，快照自身为空时两边都只留占位符（不再有单独的“沿用原安排”）。
         require(rows.get(0).adjusted().contains("—"),
                 "missing snapshot resources must render as a placeholder, saw "
                         + rows.get(0).adjusted());
         require(AdminApprovalController.detailLines(bare).stream()
-                        .anyMatch(line -> line.startsWith("新安排：") && line.contains("沿用原安排")),
-                "the request level line must read a null proposed resource as inheriting the "
-                        + "original, saw " + AdminApprovalController.detailLines(bare));
+                        .anyMatch(line -> line.startsWith("新安排：") && line.contains("—")),
+                "the request level line must use the same snapshot placeholders as the target"
+                        + " rows, saw " + AdminApprovalController.detailLines(bare));
         require(AdminApprovalController.detailLines(bare).contains("冲突：无"),
                 "a request without conflicts must say so explicitly");
     }
@@ -113,6 +143,27 @@ public final class AdjustmentApprovalDialogControllerTest {
                 new ScheduleResourceDTO("T2002", "T2002", "王老师", "teacher", 0),
                 new ScheduleResourceDTO("3002", "3002", "教二-305", "classroom", 120),
                 targets, conflicts, "2026-09-10T02:00:00Z", null, null, null);
+    }
+
+    /** 按字段回落用例的详情夹具：目标原快照固定为 张老师/王助教/教四-201。 */
+    private static AdjustmentRequestDetailDTO mixedDetail(ScheduleResourceDTO newTeacher,
+            ScheduleResourceDTO newAssistant, ScheduleResourceDTO newClassroom) {
+        return new AdjustmentRequestDetailDTO("970704", "2001", "T1001", "教师出差",
+                AdjustmentRequestStatusDTO.PENDING, 2, 4, 5, 6, newTeacher, newAssistant,
+                newClassroom,
+                List.of(new AdjustmentTargetDTO("8006", 2, "2026-09-15T00:00:00Z",
+                        "2026-09-15T01:35:00Z", "张老师", "王助教", "教四-201", "2026-09-18")),
+                List.of(), "2026-09-10T02:00:00Z", null, null, null);
+    }
+
+    private static ScheduleResourceDTO resource(String id, String name, String type) {
+        return new ScheduleResourceDTO(id, id, name, type, 0);
+    }
+
+    /** 弹窗右列文案（与审批页共用 arrangementRows 的逐目标渲染）。 */
+    private static String adjustedText(AdjustmentRequestDetailDTO detail) {
+        return AdjustmentApprovalDialogController.adjustedColumn(
+                AdminApprovalController.arrangementRows(detail).get(0));
     }
 
     private static AdjustmentTargetDTO target(String occurrenceId, int week, String startAt,

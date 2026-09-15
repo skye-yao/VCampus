@@ -7,7 +7,7 @@ import java.util.List;
 import dto.course.admin.schedule.ScheduleResourceDTO;
 
 /**
- * 某个课次可以选择的调课目标（响应键 {@code adjustmentOptions}）。
+ * 某个课次可以选择的调课目标（响应键 {@code options}）。
  *
  * <p>只包含该课次所属教学日历的日期、节次和教室资源：日期给出真实教学日，节次来自当日模板，
  * 教师据此填写目标日期与节次，服务端仍会独立校验学期、教学日与冲突。

@@ -22,6 +22,7 @@ import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
 import dto.course.admin.approval.AdjustmentTargetDTO;
 import dto.course.admin.schedule.ScheduleConflictDTO;
 import dto.course.admin.schedule.ScheduleConflictSeverityDTO;
+import dto.course.admin.schedule.ScheduleResourceDTO;
 import dto.course.teacher.TeacherOperationResultDTO;
 import dto.course.teacher.TeacherPageDTO;
 import dto.course.teacher.WithdrawTeacherAdjustmentRequestDTO;
@@ -50,6 +51,7 @@ public final class TeacherApplicationsControllerTest {
         statusFilterMapsAllFourStates();
         selectingARowLoadsAndRendersTheDetailWithRealTargetDates();
         legacyTargetsWithoutADateKeepTheOldDisplay();
+        targetLineFallsBackPerFieldWhenOnlyOnePersonChanges();
         pendingCanWithdrawButTerminalCannot();
         withdrawSendsTheDetailVersionAndRefreshes();
         withdrawCannotBeSentTwiceWhileInFlightOrAfterCancelling();
@@ -155,6 +157,37 @@ public final class TeacherApplicationsControllerTest {
                 "a legacy target without a date must keep the weekday-only display, saw " + target);
         require(lines.stream().anyMatch(line -> line.contains("材料不全")),
                 "the review comment must be rendered for a terminal request, saw " + lines);
+    }
+
+    /**
+     * 终审修复：服务端按字段写入替换资源，我的申请页也必须逐字段回落——只换教师时保留原助教、
+     * 只换助教时保留原教师、两个都换时都显示新资源、都不换时保持原快照。
+     */
+    private static void targetLineFallsBackPerFieldWhenOnlyOnePersonChanges() {
+        AdjustmentTargetDTO target = new AdjustmentTargetDTO("9203", 8, "2026-10-27T00:00:00Z",
+                "2026-10-27T01:35:00Z", "陈老师", "王助教", "A-101", "2026-11-06");
+
+        String teacherOnly = TeacherApplicationsController.targetLine(
+                mixedDetail(resource("T2001", "李老师", "teacher"), null, null), target);
+        require(teacherOnly.contains("李老师, 王助教"),
+                "a teacher-only replacement must keep the original assistant, saw " + teacherOnly);
+
+        String assistantOnly = TeacherApplicationsController.targetLine(
+                mixedDetail(null, resource("T3001", "赵助教", "teacher"), null), target);
+        require(assistantOnly.contains("陈老师, 赵助教"),
+                "an assistant-only replacement must keep the original teacher, saw "
+                        + assistantOnly);
+
+        String both = TeacherApplicationsController.targetLine(
+                mixedDetail(resource("T2001", "李老师", "teacher"),
+                        resource("T3001", "赵助教", "teacher"), null), target);
+        require(both.contains("李老师, 赵助教"),
+                "a full replacement must show both new persons, saw " + both);
+
+        String unchanged = TeacherApplicationsController.targetLine(
+                mixedDetail(null, null, null), target);
+        require(unchanged.contains("陈老师, 王助教") && unchanged.contains("A-101"),
+                "an unreplaced request must keep the target snapshot, saw " + unchanged);
     }
 
     // ------------------------------------------------------------------ 撤销
@@ -378,6 +411,21 @@ public final class TeacherApplicationsControllerTest {
                 List.of(new AdjustmentTargetDTO("9202", 8, "2026-10-27T00:00:00Z",
                         "2026-10-27T01:35:00Z", "陈老师", "王助教", "A-101", "2026-11-06")),
                 List.of(), "2026-09-14T07:00:00Z", "admin-alpha", "2026-09-14T09:00:00Z", "同意");
+    }
+
+    /** 按字段回落用例的详情夹具：目标原快照固定为 陈老师/王助教/A-101。 */
+    private static AdjustmentRequestDetailDTO mixedDetail(ScheduleResourceDTO newTeacher,
+            ScheduleResourceDTO newAssistant, ScheduleResourceDTO newClassroom) {
+        return new AdjustmentRequestDetailDTO("9407", INTERACTION_OFFERING, "00001234", "临时调课",
+                AdjustmentRequestStatusDTO.PENDING, 1, 5, 5, 6, newTeacher, newAssistant,
+                newClassroom,
+                List.of(new AdjustmentTargetDTO("9203", 8, "2026-10-27T00:00:00Z",
+                        "2026-10-27T01:35:00Z", "陈老师", "王助教", "A-101", "2026-11-06")),
+                List.of(), "2026-09-14T07:00:00Z", null, null, null);
+    }
+
+    private static ScheduleResourceDTO resource(String id, String name, String type) {
+        return new ScheduleResourceDTO(id, id, name, type, 0);
     }
 
     private static AdjustmentRequestDetailDTO legacyDetail() {

@@ -514,17 +514,14 @@ public final class TeacherApplicationsController {
                 + classroom;
     }
 
-    /** 教师申请没有新教师/助教字段，显示该目标的原快照；管理员替换过人员时才显示新资源。 */
+    /**
+     * 教师申请没有新教师/助教字段，显示该目标的原快照；管理员替换过人员时逐字段回落——只换教师
+     * 时保留原助教，只换助教时保留原教师。实现与审批页共用 {@code AdminApprovalController} 的
+     * 纯文本函数，避免两个页面出现两套回落语义。
+     */
     static String personText(ScheduleResourceDTO newTeacher, ScheduleResourceDTO newAssistant,
             AdjustmentTargetDTO target) {
-        if (newTeacher != null || newAssistant != null) {
-            String teacher = newTeacher == null ? "—" : orDash(newTeacher.getName());
-            return newAssistant == null ? teacher : teacher + ", " + orDash(newAssistant.getName());
-        }
-        String teacher = orDash(target.getOriginalTeacher());
-        return target.getOriginalAssistant() == null || target.getOriginalAssistant().isBlank()
-                ? teacher
-                : teacher + ", " + target.getOriginalAssistant();
+        return AdminApprovalController.personsText(newTeacher, newAssistant, target);
     }
 
     /** 冲突行：message 是主要信息（同一类型字符串会被不同场景复用），类型/级别只做补充。 */
