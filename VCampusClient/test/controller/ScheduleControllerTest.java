@@ -1,5 +1,8 @@
 package controller;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.Collections;
 import java.util.Deque;
@@ -27,13 +30,54 @@ public final class ScheduleControllerTest {
     private static final CourseTermView OTHER_TERM =
             new CourseTermView(2025, 2, "2025-2026 春学期");
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         requestScheduleDataSendsServerTermAndWeek();
         staleScheduleDataCannotReplaceNewerResult();
         requestTermsIgnoresStaleTermLoads();
         scheduleFailureIsDeliveredThroughFxExecutor();
         adjustmentBlocksCarryTheirOwnStyleBadgeAndDetail();
+        weekSpinnerAcceptsTypedWeekNumbers();
+        typedWeekTextIsClampedToTheSpinnerBounds();
         System.out.println("ScheduleControllerTest: PASS");
+    }
+
+    /** 周次控件必须在视图里就可编辑，否则用户点进去也敲不进数字（输入约束由控制器再配置）。 */
+    private static void weekSpinnerAcceptsTypedWeekNumbers() throws Exception {
+        String view = readResource("/resources/fxml/ScheduleView.fxml");
+        int spinnerId = view.indexOf("fx:id=\"weekSpinner\"");
+        require(spinnerId >= 0, "the view must declare the week spinner: " + view);
+        // 从标签开头取到标签结束，属性顺序换了也不影响这条断言
+        String spinnerTag = view.substring(view.lastIndexOf('<', spinnerId),
+                view.indexOf('>', spinnerId));
+        require(spinnerTag.contains("editable=\"true\""),
+                "the week spinner must accept typed input: " + spinnerTag);
+    }
+
+    /** 输入框文本 → 周次：空/非数字不改动，越界夹取到 1..20（边界与 Spinner 同一个来源）。 */
+    private static void typedWeekTextIsClampedToTheSpinnerBounds() {
+        require(ScheduleController.commitWeek("7", 3, 1, 20) == 7,
+                "a typed week must be committed");
+        require(ScheduleController.commitWeek(" 7 ", 3, 1, 20) == 7,
+                "surrounding blanks must be tolerated");
+        require(ScheduleController.commitWeek("3", 3, 1, 20) == 3,
+                "an identical week must stay untouched so no reload is triggered");
+        require(ScheduleController.commitWeek("", 3, 1, 20) == 3
+                        && ScheduleController.commitWeek(null, 3, 1, 20) == 3,
+                "an emptied editor must leave the week untouched");
+        require(ScheduleController.commitWeek("abc", 3, 1, 20) == 3,
+                "non-numeric text must leave the week untouched");
+        require(ScheduleController.commitWeek("0", 3, 1, 20) == 1
+                        && ScheduleController.commitWeek("99", 3, 1, 20) == 20,
+                "out-of-range input must be clamped to the spinner bounds");
+        require(ScheduleController.commitWeek("99999999999999", 3, 1, 20) == 20,
+                "a number too large for int must clamp instead of throwing");
+    }
+
+    private static String readResource(String path) throws IOException {
+        try (InputStream stream = ScheduleControllerTest.class.getResourceAsStream(path)) {
+            if (stream == null) throw new IOException("Missing resource: " + path);
+            return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+        }
     }
 
     /** 两个位置读取同一份调课文案，因此从任一块打开详情都能看到完整说明。 */
