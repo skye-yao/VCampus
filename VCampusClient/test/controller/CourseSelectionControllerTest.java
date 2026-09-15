@@ -7,11 +7,13 @@ import java.util.ArrayDeque;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import javafx.scene.control.ButtonType;
 import model.course.CourseMeetingView;
 import model.course.CourseMutationResultView;
@@ -42,6 +44,9 @@ public final class CourseSelectionControllerTest {
         testSameOfferingDisablesEveryCopyAndStartsOneMutation();
         testFailureReconcilesBeforeReenable();
         testFailedReconciliationStaysDisabledUntilLaterSnapshot();
+        testAddToPlanPatchesOfferingRowInsteadOfRebuildingPage();
+        testRemoveFromPlanPatchesRowAndCacheInsteadOfRebuildingPage();
+        testPlanTabRemovalStillRebuildsWithoutPatching();
         testWaitlistOfferSupportsAcceptAbandonAndDismiss();
         testStaleMutationCannotReplaceCurrentTermSnapshot();
         testOutOfOrderMutationResultsUseAuthoritativeSnapshot();
@@ -171,6 +176,84 @@ public final class CourseSelectionControllerTest {
                 TERM, snapshot(item(1001L, SelectionStatus.PLANNED)));
         require(!disabled.get(),
                 "a later authoritative snapshot must release the pending offering");
+    }
+
+    private static void testAddToPlanPatchesOfferingRowInsteadOfRebuildingPage()
+            throws ReflectiveOperationException {
+        ControlledCourseService service = new ControlledCourseService();
+        CourseSelectionController controller = testController(service);
+        AtomicReference<CourseOfferingView> patched = new AtomicReference<>();
+        renderedRow(controller, 1001L, patched::set);
+        AtomicInteger rerenders = new AtomicInteger();
+
+        service.snapshotResults.addLast(CompletableFuture.completedFuture(
+                snapshot(item(1001L, SelectionStatus.PLANNED))));
+        controller.executeMutation(TERM, 1001L, rerenders::incrementAndGet,
+                operationId -> CompletableFuture.completedFuture(mutationResult(
+                        item(1001L, SelectionStatus.PLANNED), snapshot())));
+
+        require(patched.get() != null
+                        && patched.get().getSelectionStatus() == SelectionStatus.PLANNED,
+                "a succeeded plan change must refresh the rendered teaching-class row");
+        require(rerenders.get() == 0,
+                "adding to the plan in the all tab must not rebuild the page: a rebuild "
+                        + "collapses the expanded teaching-class list");
+    }
+
+    private static void testRemoveFromPlanPatchesRowAndCacheInsteadOfRebuildingPage()
+            throws ReflectiveOperationException {
+        ControlledCourseService service = new ControlledCourseService();
+        CourseSelectionController controller = testController(service);
+        AtomicReference<CourseOfferingView> patched = new AtomicReference<>();
+        renderedRow(controller, 1001L, patched::set);
+        AtomicInteger rerenders = new AtomicInteger();
+
+        Map<Long, List<CourseOfferingView>> cache = getField(controller, "offeringCache");
+        cache.put(101L, List.of(offering(1001L, 101L, SelectionStatus.PLANNED, 10, 30)));
+
+        // 移出计划后该教学班不再属于任何集合，快照里查不到，只能取变更结果的最终状态
+        service.snapshotResults.addLast(
+                CompletableFuture.completedFuture(snapshot()));
+        controller.executeMutation(TERM, 1001L, rerenders::incrementAndGet,
+                operationId -> CompletableFuture.completedFuture(mutationResult(
+                        item(1001L, SelectionStatus.AVAILABLE), snapshot())));
+
+        require(patched.get() != null
+                        && patched.get().getSelectionStatus() == SelectionStatus.AVAILABLE,
+                "removing from the plan must refresh the row with the final state");
+        require(cache.get(101L).get(0).getSelectionStatus() == SelectionStatus.AVAILABLE,
+                "the authoritative state must be written back into the offering cache");
+        require(rerenders.get() == 0,
+                "removing from the plan in the all tab must not rebuild the page");
+    }
+
+    private static void testPlanTabRemovalStillRebuildsWithoutPatching()
+            throws ReflectiveOperationException {
+        ControlledCourseService service = new ControlledCourseService();
+        CourseSelectionController controller = testController(service);
+        AtomicReference<CourseOfferingView> patched = new AtomicReference<>();
+        renderedRow(controller, 1001L, patched::set);
+        setField(controller, "selectedTab", CourseSelectionController.SelectionTab.PLAN);
+        AtomicInteger rerenders = new AtomicInteger();
+
+        service.snapshotResults.addLast(
+                CompletableFuture.completedFuture(snapshot()));
+        controller.executeMutation(TERM, 1001L, rerenders::incrementAndGet,
+                operationId -> CompletableFuture.completedFuture(mutationResult(
+                        item(1001L, SelectionStatus.AVAILABLE), snapshot())));
+
+        require(rerenders.get() == 1,
+                "the plan tab row must disappear, so that mutation still rebuilds the list");
+        require(patched.get() == null,
+                "a plan tab row must be dropped by the rebuild, never patched in place");
+    }
+
+    /** 模拟“该教学班行已经渲染在页面上”，登记它的就地刷新回调。 */
+    private static void renderedRow(CourseSelectionController controller, long offeringId,
+            Consumer<CourseOfferingView> patch) throws ReflectiveOperationException {
+        Map<Long, Consumer<CourseOfferingView>> rows =
+                getField(controller, "renderedOfferingRows");
+        rows.put(offeringId, patch);
     }
 
     private static void testWaitlistOfferSupportsAcceptAbandonAndDismiss() {

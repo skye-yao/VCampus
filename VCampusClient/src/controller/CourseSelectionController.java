@@ -74,7 +74,12 @@ public final class CourseSelectionController {
     private final Set<Long> failedOfferingCourseIds = new HashSet<>();
     private final Map<Long, List<Consumer<Boolean>>> renderedOfferingActions =
             new HashMap<>();
+    /** offeringId → 就地刷新该教学班行的入口，见 registerOfferingRowPatch。 */
+    private final Map<Long, Consumer<CourseOfferingView>> renderedOfferingRows =
+            new HashMap<>();
     private final Map<Long, List<CourseOfferingView>> offeringCache = new HashMap<>();
+    /** 已展开教学班列表的 courseId。整页重建后据此还原展开状态，见 restoreExpansion。 */
+    private final Set<Long> expandedCourseIds = new HashSet<>();
     private final Map<Long, CompletableFuture<List<CourseOfferingView>>> offeringLoads =
             new HashMap<>();
     private List<CourseView> courses = Collections.emptyList();
@@ -327,7 +332,7 @@ public final class CourseSelectionController {
                 finishMutation(offeringId, rerender);
                 return;
             }
-            reconcileMutation(term, offeringId, rerender, error);
+            reconcileMutation(term, offeringId, result, rerender, error);
         }));
     }
 
@@ -433,6 +438,7 @@ public final class CourseSelectionController {
     private void renderCourses() {
         if (courseList == null || searchField == null || typeFilter == null) return;
         renderedOfferingActions.clear();
+        renderedOfferingRows.clear();
         courseList.getChildren().clear();
 
         if (selectedTab == SelectionTab.ALL) {
@@ -469,33 +475,7 @@ public final class CourseSelectionController {
 
         Button expandButton = new Button("+");
         expandButton.getStyleClass().add("course-expand-button");
-        expandButton.setOnAction(event -> {
-            boolean expanded = !offeringList.isVisible();
-            offeringList.setVisible(expanded);
-            offeringList.setManaged(expanded);
-            expandButton.setText(expanded ? "-" : "+");
-            if (shouldRequestOfferings(course.getCourseId(), expanded,
-                    offeringList.getChildren().isEmpty())) {
-                Label loading = styledLabel("正在加载教学班...", "course-empty-state");
-                offeringList.getChildren().add(loading);
-                requestCourseOfferings(currentTerm, course.getCourseId(), loaded -> {
-                    offeringList.getChildren().clear();
-                    if (loaded.isEmpty()) {
-                        offeringList.getChildren().add(styledLabel(
-                                "暂无可用教学班", "course-empty-state"));
-                    } else {
-                        for (CourseOfferingView offering : loaded) {
-                            offeringList.getChildren().add(
-                                    createOfferingRow(course, offering, true));
-                        }
-                    }
-                }, error -> {
-                    offeringList.getChildren().setAll(styledLabel(
-                            "教学班加载失败，请重试", "course-empty-state"));
-                    errorReporter.accept("教学班加载失败", errorMessage(error));
-                });
-            }
-        });
+        expandButton.setOnAction(event -> toggleExpansion(offeringList, expandButton, course));
 
         VBox titleBlock = new VBox(2.0,
                 styledLabel(course.getCourseName(), "course-row-title"),
@@ -511,7 +491,67 @@ public final class CourseSelectionController {
         header.setAlignment(Pos.CENTER_LEFT);
         header.getStyleClass().add("course-row-header");
         row.getChildren().addAll(header, offeringList);
+        if (expandedCourseIds.contains(course.getCourseId())) {
+            restoreExpansion(offeringList, expandButton, course);
+        }
         return row;
+    }
+
+    /** 用户点击展开/收起：缓存里有内容就直接渲染，否则按需拉取教学班。 */
+    private void toggleExpansion(VBox offeringList, Button expandButton, CourseView course) {
+        boolean expanded = !offeringList.isVisible();
+        offeringList.setVisible(expanded);
+        offeringList.setManaged(expanded);
+        expandButton.setText(expanded ? "-" : "+");
+        if (!expanded) {
+            expandedCourseIds.remove(course.getCourseId());
+            return;
+        }
+        expandedCourseIds.add(course.getCourseId());
+        List<CourseOfferingView> cached = offeringCache.get(course.getCourseId());
+        if (cached != null && offeringList.getChildren().isEmpty()) {
+            fillOfferingList(offeringList, course, cached);
+            return;
+        }
+        if (shouldRequestOfferings(course.getCourseId(), true,
+                offeringList.getChildren().isEmpty())) {
+            offeringList.getChildren().add(
+                    styledLabel("正在加载教学班...", "course-empty-state"));
+            requestCourseOfferings(currentTerm, course.getCourseId(),
+                    loaded -> fillOfferingList(offeringList, course, loaded),
+                    error -> {
+                        offeringList.getChildren().setAll(styledLabel(
+                                "教学班加载失败，请重试", "course-empty-state"));
+                        errorReporter.accept("教学班加载失败", errorMessage(error));
+                    });
+        }
+    }
+
+    /**
+     * 整页重建后还原展开的教学班列表。内容只从缓存取：重新请求会让列表闪成加载态，
+     * 也会把用户已经看到的数据换成空白。缓存里还没有内容时这一轮先保持收起，标记留着，
+     * 等缓存被装满后的下一次重建再还原。
+     */
+    private void restoreExpansion(VBox offeringList, Button expandButton, CourseView course) {
+        List<CourseOfferingView> cached = offeringCache.get(course.getCourseId());
+        if (cached == null) return;
+        offeringList.setVisible(true);
+        offeringList.setManaged(true);
+        expandButton.setText("-");
+        fillOfferingList(offeringList, course, cached);
+    }
+
+    private void fillOfferingList(VBox offeringList, CourseView course,
+            List<CourseOfferingView> offerings) {
+        offeringList.getChildren().clear();
+        if (offerings.isEmpty()) {
+            offeringList.getChildren().add(
+                    styledLabel("暂无可用教学班", "course-empty-state"));
+            return;
+        }
+        for (CourseOfferingView offering : offerings) {
+            offeringList.getChildren().add(createOfferingRow(course, offering, true));
+        }
     }
 
     private VBox createSelectionRow(CourseSelectionItemView item) {
@@ -534,11 +574,12 @@ public final class CourseSelectionController {
         Label status = styledLabel(statusText(offering.getSelectionStatus()),
                 statusStyle(offering.getSelectionStatus()));
         status.getStyleClass().add("course-status-label");
+        Label capacity = styledLabel(offering.getEnrolledCount() + "/"
+                + offering.getCapacity(), "course-capacity");
         HBox header = new HBox(9.0,
                 titleBlock,
                 styledLabel(teacherText(offering), "course-row-meta"),
-                styledLabel(offering.getEnrolledCount() + "/"
-                        + offering.getCapacity(), "course-capacity"),
+                capacity,
                 status);
         header.setAlignment(Pos.CENTER_LEFT);
 
@@ -547,7 +588,27 @@ public final class CourseSelectionController {
         HBox actions = createActions(course, offering);
         VBox.setVgrow(actions, Priority.NEVER);
         row.getChildren().addAll(header, meeting, actions);
+        registerOfferingRowPatch(row, course, status, capacity, offering);
         return row;
+    }
+
+    /**
+     * 登记“就地刷新本行”的回调：加入/移除计划只改一个教学班，整页重建会让展开的教学班
+     * 列表塌陷，用户得重新展开才看得到结果。actions 恒为行内最后一个子节点。
+     */
+    private void registerOfferingRowPatch(VBox row, CourseView course, Label status,
+            Label capacity, CourseOfferingView offering) {
+        renderedOfferingRows.put(offering.getOfferingId(), updated -> {
+            status.setText(statusText(updated.getSelectionStatus()));
+            status.getStyleClass().setAll(
+                    statusStyle(updated.getSelectionStatus()), "course-status-label");
+            capacity.setText(updated.getEnrolledCount() + "/" + updated.getCapacity());
+            // 状态变了按钮组合也会变（加入计划 ⇄ 移除计划 ⇄ 已选…），整块重建；旧按钮的
+            // 注册必须一起丢掉，否则每次点击都会在 renderedOfferingActions 里留下死回调
+            renderedOfferingActions.remove(offering.getOfferingId());
+            row.getChildren().set(row.getChildren().size() - 1,
+                    createActions(course, updated));
+        });
     }
 
     private HBox createActions(CourseView course, CourseOfferingView offering) {
@@ -666,21 +727,27 @@ public final class CourseSelectionController {
 
     private void reconcileFailure(CourseTermView term, long offeringId,
             Runnable rerender, Throwable mutationError) {
-        reconcileMutation(term, offeringId, rerender, mutationError);
+        reconcileMutation(term, offeringId, null, rerender, mutationError);
     }
 
+    /** result 为 null 表示这次变更没拿到结果（请求异常），此时只有快照能说明状态。 */
     private void reconcileMutation(CourseTermView term, long offeringId,
-            Runnable rerender, Throwable mutationError) {
+            CourseMutationResultView result, Runnable rerender,
+            Throwable mutationError) {
         reconciliationPendingOfferingIds.add(offeringId);
         requestSnapshot(term, loaded -> {
             acceptAuthoritativeSnapshot(term, loaded);
-            invalidateOfferingCache();
-            rerender.run();
+            CourseOfferingView updated = authoritativeOffering(offeringId, loaded, result);
+            // 缓存不再整块作废：只把这次变更的教学班写回，缓存才能继续当展开列表的数据源
+            refreshCachedOffering(updated);
+            if (!reconcileOfferingInPlace(offeringId, updated)) {
+                rerender.run();
+            }
             if (mutationError != null) {
                 errorReporter.accept("操作失败", errorMessage(mutationError));
             }
         }, refreshError -> {
-            invalidateOfferingCache();
+            refreshCachedOffering(resultOffering(result));
             rerender.run();
             String message = mutationError == null
                     ? "操作结果尚未确认"
@@ -688,6 +755,54 @@ public final class CourseSelectionController {
             message += "；状态刷新失败：" + errorMessage(refreshError);
             errorReporter.accept("状态待确认", message);
         });
+    }
+
+    /**
+     * 加入/移除计划只改变一个教学班的状态，就地刷新那一行就够了；“全部”页签的行只由课程
+     * 列表决定，成员永远不会增减，整页重建在这里只会把展开的教学班列表掀掉。返回 false
+     * 表示调用方仍需整页重建（其它页签的成员会随操作增删）。
+     */
+    private boolean reconcileOfferingInPlace(long offeringId, CourseOfferingView updated) {
+        if (selectedTab != SelectionTab.ALL) return false;
+        Consumer<CourseOfferingView> patch = renderedOfferingRows.get(offeringId);
+        // updated 为 null 说明变更失败且该教学班不在任何集合里，即它的状态没被改动，
+        // 保持现状即是正确状态；按钮由 finishMutation 重新启用。
+        if (patch != null && updated != null) {
+            patch.accept(updated);
+        }
+        return true;
+    }
+
+    /**
+     * 该教学班当前的权威视图。移出计划/退选后它不再属于任何集合，快照里查不到，只能取
+     * 本次变更的最终状态；两者都没有时返回 null，表示状态未知。
+     */
+    private static CourseOfferingView authoritativeOffering(long offeringId,
+            CoursePlanSnapshotView loaded, CourseMutationResultView result) {
+        CourseSelectionItemView inSnapshot = loaded == null ? null : loaded.find(offeringId);
+        return inSnapshot != null ? inSnapshot.getOffering() : resultOffering(result);
+    }
+
+    private static CourseOfferingView resultOffering(CourseMutationResultView result) {
+        return result == null || result.getItem() == null ? null : result.getItem().getOffering();
+    }
+
+    /** 把权威状态写回 offeringCache；课程从没展开过（没缓存）时无事可做。 */
+    private void refreshCachedOffering(CourseOfferingView updated) {
+        if (updated == null) return;
+        List<CourseOfferingView> cached = offeringCache.get(updated.getCourseId());
+        if (cached == null) return;
+        List<CourseOfferingView> replaced = new ArrayList<>(cached.size());
+        boolean found = false;
+        for (CourseOfferingView offering : cached) {
+            if (offering.getOfferingId() == updated.getOfferingId()) {
+                replaced.add(updated);
+                found = true;
+            } else {
+                replaced.add(offering);
+            }
+        }
+        if (found) offeringCache.put(updated.getCourseId(), List.copyOf(replaced));
     }
 
     void acceptAuthoritativeSnapshot(CourseTermView term,
@@ -726,6 +841,8 @@ public final class CourseSelectionController {
         offeringCache.clear();
         offeringLoads.clear();
         offeringCacheGeneration++;
+        // 缓存没了就没有东西可以还原，展开状态一并作废，否则重建后会留下空白的展开行
+        expandedCourseIds.clear();
     }
 
     private void updateSummary() {
