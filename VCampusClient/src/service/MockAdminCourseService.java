@@ -1498,27 +1498,32 @@ public final class MockAdminCourseService implements AdminCourseService {
      * （84/85/86 → 85.00，91/88/90 → 90.00，70/72/69 → 70.00，55/61/52 → 55.00，
      * 92/94/91 → 92.00，94/96/93 → 94.00），因此明细与方案自洽，而既有 mock 测试断言的分数、
      * 均值与分布一个都不用改。
+     *
+     * <p>等级（{@code grade_level}）一律留 NULL：新批次的明细只写十列，里面没有等级编码
+     * （{@code TeacherGradeBookDAO.insertSubmissionItem}），所以生产里真实批次的等级列就是空的，
+     * 界面按 {@code GradeApprovalController.levelText(null)} 渲染成 {@code --}。夹具不能编造
+     * 生产写不出来、也就永远读不到的值。
      */
     private void seedGradeSubmissions() {
         addGradeSubmission(gradeDetail("9001", "1001", "数据结构", "OFF-1001", 1, "T1001", "张老师",
                 "2026-09-11T09:00:00Z", ApprovalStatusDTO.PENDING, null, null, null,
                 GradeSnapshot.initial(),
-                item("8001", "20240031", "陈晨", 84.0, 85.0, null, 86.0, 3),
-                item("8002", "20240032", "林晓", 91.0, 88.0, null, 90.0, 4)));
+                item("8001", "20240031", "陈晨", 84.0, 85.0, null, 86.0),
+                item("8002", "20240032", "林晓", 91.0, 88.0, null, 90.0)));
         addGradeSubmission(gradeDetail("9002", "2001", "操作系统", "OFF-2001", 2, "T2001", "李老师",
                 "2026-09-10T09:00:00Z", ApprovalStatusDTO.APPROVED, REVIEWER, MOCK_NOW, "同意",
                 GradeSnapshot.initial(),
-                item("8003", "20240033", "王强", 70.0, 72.0, null, 69.0, 1)));
+                item("8003", "20240033", "王强", 70.0, 72.0, null, 69.0)));
         addGradeSubmission(gradeDetail("9003", "1001", "数据结构", "OFF-1001", 1, "T1001", "张老师",
                 "2026-09-10T08:00:00Z", ApprovalStatusDTO.REJECTED, REVIEWER, MOCK_NOW, "材料不足",
                 GradeSnapshot.initial(),
-                item("8004", "20240034", "赵敏", 55.0, 61.0, null, 52.0, 0)));
+                item("8004", "20240034", "赵敏", 55.0, 61.0, null, 52.0)));
         // 9004 是 9001 的重提：详情必须一起给出基础批次与提交后新增、尚未纳入批次的学生人数。
         addGradeSubmission(gradeDetail("9004", "1001", "数据结构", "OFF-1001", 2, "T1001", "张老师",
                 "2026-09-12T09:00:00Z", ApprovalStatusDTO.PENDING, null, null, null,
                 new GradeSnapshot(gradeScheme(), "9001", 1),
-                item("8001", "20240031", "陈晨", 92.0, 94.0, null, 91.0, 4),
-                item("8002", "20240032", "林晓", 94.0, 96.0, null, 93.0, 4)));
+                item("8001", "20240031", "陈晨", 92.0, 94.0, null, 91.0),
+                item("8002", "20240032", "林晓", 94.0, 96.0, null, 93.0)));
     }
 
     /** 批次快照夹具：与 V007 的三列一一对应（方案、基础批次、提交后新增人数）。 */
@@ -1580,14 +1585,14 @@ public final class MockAdminCourseService implements AdminCourseService {
                 snapshot.uncoveredCount());
     }
 
-    /** 一名学生的四项组成（未启用的组成必须是 NULL）与等级；总评/绩点由批次方案算出。 */
+    /** 一名学生的四项组成（未启用的组成必须是 NULL）；总评/绩点由批次方案算出。 */
     private record ItemSpec(String enrollmentId, String studentUid, String studentName,
-            Double daily, Double midterm, Double experiment, Double finalterm, Integer level) { }
+            Double daily, Double midterm, Double experiment, Double finalterm) { }
 
     private static ItemSpec item(String enrollmentId, String studentUid, String studentName,
-            Double daily, Double midterm, Double experiment, Double finalterm, Integer level) {
+            Double daily, Double midterm, Double experiment, Double finalterm) {
         return new ItemSpec(enrollmentId, studentUid, studentName, daily, midterm, experiment,
-                finalterm, level);
+                finalterm);
     }
 
     private static List<GradeSubmissionItemDTO> gradeItems(GradeSchemeDTO scheme, ItemSpec... specs) {
@@ -1601,9 +1606,10 @@ public final class MockAdminCourseService implements AdminCourseService {
                         "夹具缺少启用组成的分数: " + spec.enrollmentId());
             }
             BigDecimal point = GradePointScale.gradePointFor(total);
+            // 等级列一律 NULL：正式提交的明细不写 grade_level（TeacherGradeBookDAO.insertSubmissionItem）。
             items.add(new GradeSubmissionItemDTO(spec.enrollmentId(), spec.studentUid(),
                     spec.studentName(), spec.daily(), spec.midterm(), spec.experiment(),
-                    spec.finalterm(), total.doubleValue(), spec.level(), point.doubleValue()));
+                    spec.finalterm(), total.doubleValue(), null, point.doubleValue()));
         }
         return List.copyOf(items);
     }

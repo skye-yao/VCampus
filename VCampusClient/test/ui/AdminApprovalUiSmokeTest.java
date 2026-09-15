@@ -147,11 +147,13 @@ public final class AdminApprovalUiSmokeTest {
                 require(table("#itemTable", "成绩明细").getItems().size() == 2,
                         "成绩明细应有两行");
                 // 明细的每一格都必须与上面那行方案自洽：40/20/未启用/40 重算出来正好是这些总评与绩点，
-                // 实验列是 NULL 所以显示 --。夹具一旦与方案脱节（例如给启用项留空、或总评写错），这里必炸。
-                require(List.of("20240031", "陈晨", "84.0", "85.0", "--", "86.0", "85.0", "3", "3.5")
+                // 实验列是 NULL 所以显示 --。等级列同样必须是 --：正式提交写明不写 grade_level
+                // （TeacherGradeBookDAO.insertSubmissionItem 的列里没有它），所以真实批次的等级永远是空的。
+                // 夹具一旦与方案脱节（例如给启用项留空、或总评写错），这里必炸。
+                require(List.of("20240031", "陈晨", "84.0", "85.0", "--", "86.0", "85.0", "--", "3.5")
                                 .equals(itemRow(0))
                                 && List.of("20240032", "林晓", "91.0", "88.0", "--", "90.0",
-                                "90.0", "4", "4.0").equals(itemRow(1)),
+                                "90.0", "--", "4.0").equals(itemRow(1)),
                         "明细必须与方案行自洽（40/20/-/40），实际 " + itemRow(0) + " / " + itemRow(1));
                 require(!gradeNode("#approveButton", Button.class, "通过按钮").isDisabled(),
                         "PENDING 批次必须可以审批");
