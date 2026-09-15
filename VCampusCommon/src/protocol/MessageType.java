@@ -38,6 +38,7 @@ STUDENT_REVIEW,             // 管理员审核通过/驳
 STUDENT_ADMIN_UPDATE,       // 管理员直接修改正式学籍
 STUDENT_EDIT_BEGIN,         // 学生或管理员进入学籍编辑状态
 STUDENT_EDIT_END,           // 学生或管理员退出学籍编辑状态
+STUDENT_AWARD_BATCH_ADD, STUDENT_AID_BATCH_ADD,
 STUDENT_AWARD_ADD,          // 新增奖励
 STUDENT_AWARD_UPDATE,       // 修改奖励
 STUDENT_AWARD_DELETE,       // 删除奖励

@@ -8,6 +8,7 @@ import vo.StudentReviewVO;
 public class StudentHandler {
     private final IStudentService service=new StudentService();
     private final Gson gson=new Gson();
+    private final service.StudentBatchService batchService=new service.StudentBatchService();
     public Message handle(Message q) {
         Message r=new Message(MessageType.RESPONSE,"student",q.getAction());
         r.setUID(q.getUID());
@@ -16,6 +17,9 @@ public class StudentHandler {
             if(s==null)return fail(r,MessageCode.UNAUTHORIZED,"请先登录");
             boolean admin="管理员".equals(s.getRole())||"ADMIN".equalsIgnoreCase(s.getRole());
             if(q.getType()==null)return fail(r,MessageCode.BAD_REQUEST,"缺少消息类型");
+            if(q.getType()==MessageType.STUDENT_AWARD_BATCH_ADD||q.getType()==MessageType.STUDENT_AID_BATCH_ADD){
+                needAdmin(admin);return handleBatch(q,r,s);
+            }
             String key=mutationKey(q,s,admin);
             lock.ResourceLockManager locks=lock.ResourceLockManager.getInstance();
             try(lock.ResourceLockManager.Guard guard=key==null?null:locks.guard(key)) {
@@ -102,6 +106,19 @@ public class StudentHandler {
         catch(Exception e) {
             return fail(r,MessageCode.ERROR,"学籍服务异常");
         }
+    }
+    private Message handleBatch(Message q,Message r,UserSession user) {
+        try {
+            vo.StudentBatchResult result=batchService.add(user,value(q,"batch",vo.StudentBatchRequest.class),q.getType()==MessageType.STUDENT_AWARD_BATCH_ADD);
+            r.putData("batchResult",result);r.putData("resultConfirmed",true);r.setCode(MessageCode.SUCCESS);
+            r.setMessage("已为"+result.successCount()+"名学生添加记录");return r;
+        }catch(exception.StudentBatchConflictException e){
+            r.putData("batchResult",e.getResult());r.putData("resultConfirmed",true);return fail(r,MessageCode.CONFLICT,e.getMessage());
+        }catch(IllegalArgumentException e){
+            // Conservatively retain the operation on mismatched-ID retries.
+            return fail(r,MessageCode.BAD_REQUEST,e.getMessage());
+        }catch(SecurityException e){return fail(r,MessageCode.FORBIDDEN,e.getMessage());}
+        catch(Exception e){return fail(r,MessageCode.ERROR,"批次结果暂未确认，请使用原批次重试；若持续失败，请检查服务端批次表迁移及数据库连接");}
     }
     private String mutationKey(Message q,UserSession user,boolean admin)throws Exception {
         return switch(q.getType()) {
