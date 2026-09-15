@@ -190,6 +190,17 @@ public final class TeacherGradeDraftMySqlTest {
             throws Exception {
         TeacherGradeBookDTO virtual = service.getGradeBook(TEACHER_A,
                 Long.toString(OFFERING_MAIN));
+        TeacherGradeBookService.ConflictException premature =
+                expect(TeacherGradeBookService.ConflictException.class,
+                        () -> service.saveDraft(TEACHER_A,
+                                request(op(23), 7, ROSTER_DIGEST, virtual.getScheme(), List.of())),
+                        "a first save may not claim a revision that does not exist yet");
+        require(premature.getEntity() != null && premature.getEntity().getRevision() == 0,
+                "the refused save hands back the virtual draft so the client can reload");
+        require(count("SELECT COUNT(*) FROM teacher_grade_book WHERE offering_id=" + OFFERING_MAIN)
+                        == 0,
+                "a first save with a non-zero expectedRevision creates nothing");
+
         String operationId = op(1);
         TeacherOperationResultDTO<TeacherGradeBookDTO> result = service.saveDraft(TEACHER_A,
                 request(operationId, 0, ROSTER_DIGEST, virtual.getScheme(), List.of()));
@@ -366,6 +377,32 @@ public final class TeacherGradeDraftMySqlTest {
                         + OFFERING_MAIN + " AND enrollment_id IS NULL"
                         + " AND operation_id IN ('" + op(3) + "','" + op(4) + "')") == 2,
                 "each weight change logs its own class-level audit row");
+
+        // 组成顺序不是方案内容：把四项打乱顺序发出去，既不该记审计，也不该多涨版本。
+        current = service.getGradeBook(TEACHER_A, Long.toString(OFFERING_MAIN));
+        int auditBefore = count("SELECT COUNT(*) FROM teacher_grade_change_log WHERE offering_id="
+                + OFFERING_MAIN);
+        TeacherGradeBookDTO reordered = service.saveDraft(TEACHER_A,
+                request(op(24), current.getRevision(), current.getRosterDigest(),
+                        new GradeSchemeDTO(List.of(
+                                component(GradeComponentCodeDTO.FINALTERM, 3000),
+                                component(GradeComponentCodeDTO.EXPERIMENT, 2000),
+                                component(GradeComponentCodeDTO.DAILY, 3000),
+                                component(GradeComponentCodeDTO.MIDTERM, 2000))),
+                        List.of(row(S1, "80.00", "90.00", "70.00", "95.90")))).getValue();
+        require(reordered.getRevision() == current.getRevision() + 1,
+                "a reordered scheme commits exactly one revision (observed "
+                        + reordered.getRevision() + " after " + current.getRevision() + ")");
+        require(schemeText(scheme(3000, 2000, 2000, 3000)).equals(schemeText(reordered.getScheme())),
+                "the response returns the scheme in fixed component order (observed "
+                        + schemeText(reordered.getScheme()) + ")");
+        require(count("SELECT COUNT(*) FROM teacher_grade_change_log WHERE offering_id="
+                        + OFFERING_MAIN) == auditBefore,
+                "reordering the four components is not a scheme change: no audit row");
+        require(count("SELECT COUNT(*) FROM teacher_grade_book WHERE offering_id=" + OFFERING_MAIN
+                        + " AND JSON_EXTRACT(scheme_json,'$.components[*].code')="
+                        + "JSON_ARRAY('DAILY','MIDTERM','EXPERIMENT','FINALTERM')") == 1,
+                "the stored scheme stays in fixed component order");
     }
 
     // ------------------------------------------------------- stale revision
@@ -556,14 +593,17 @@ public final class TeacherGradeDraftMySqlTest {
         TeacherOperationResultDTO<TeacherGradeBookDTO> first = service.saveDraft(TEACHER_A,
                 request(operationId, current.getRevision(), current.getRosterDigest(),
                         current.getScheme(),
-                        List.of(row(S1, "80.00", "90.00", "70.00", "95.90"))));
+                        List.of(row(S1, "80.00", "90.00", "70.00", "95.90"),
+                                row(S2, "60.00", "50.00", null, "100.00"))));
         require(!first.isReplayed() && first.getValue().getRevision() == current.getRevision() + 1,
                 "a fresh operationId commits and bumps the revision");
 
+        // 同一份内容换了写法：行序颠倒、分数写成 80.0/90/100 这样的等值文本，摘要必须不变。
         TeacherOperationResultDTO<TeacherGradeBookDTO> replay = service.saveDraft(TEACHER_A,
                 request(operationId, current.getRevision(), current.getRosterDigest(),
                         current.getScheme(),
-                        List.of(row(S1, "80.00", "90.00", "70.00", "95.90"))));
+                        List.of(row(S2, "60.0", "50.0", null, "100"),
+                                row(S1, "80.0", "90", "70.0", "95.9"))));
         require(replay.isReplayed()
                         && replay.getValue().getRevision() == first.getValue().getRevision(),
                 "the same operationId replays the stored response even though its revision is now"
@@ -582,7 +622,8 @@ public final class TeacherGradeDraftMySqlTest {
                 () -> service.saveDraft(TEACHER_A,
                         request(operationId, current.getRevision(), current.getRosterDigest(),
                                 current.getScheme(),
-                                List.of(row(S1, "80.00", "90.00", "70.00", "95.91")))),
+                                List.of(row(S2, "60.00", "50.00", null, "100.00"),
+                                        row(S1, "80.00", "90.00", "70.00", "95.91")))),
                 "the same operationId with different content is a digest conflict");
         require(count("SELECT COUNT(*) FROM teacher_grade_draft_item WHERE offering_id="
                         + OFFERING_MAIN + " AND enrollment_id=" + S1 + " AND finalterm_score=95.90")
@@ -854,15 +895,23 @@ public final class TeacherGradeDraftMySqlTest {
                 + courseId + ",2026,3,'" + uid + "'," + status + ",'" + selectTime + "')");
     }
 
+    /**
+     * 清场按“自己的教学班范围 + 自己的 UID 前缀”删除，不按 enrollment_id / submission_id 区间：
+     * 这个受保护测试库被同一台机器上的多个串行测试共用，别的测试的自增 ID 会落进同一段数字，
+     * 按区间删除会连别人的行一起删掉。
+     */
     private static void cleanup() throws SQLException {
         execute("DELETE FROM teacher_course_operation_log WHERE teacher_uid LIKE '" + PREFIX + "%'");
         execute("DELETE FROM teacher_grade_change_log WHERE teacher_uid LIKE '" + PREFIX + "%'");
         execute("DELETE FROM teacher_grade_draft_item WHERE offering_id BETWEEN 947300 AND 947399");
         execute("DELETE FROM teacher_grade_book WHERE offering_id BETWEEN 947300 AND 947399");
-        execute("DELETE FROM grade WHERE enrollment_id BETWEEN 947400 AND 947499");
-        execute("DELETE FROM grade_submission_item WHERE submission_id BETWEEN 947500 AND 947599");
-        execute("DELETE FROM grade_submission WHERE submission_id BETWEEN 947500 AND 947599");
-        execute("DELETE FROM enrollment WHERE enrollment_id BETWEEN 947400 AND 947499");
+        execute("DELETE FROM grade WHERE enrollment_id IN (SELECT enrollment_id FROM enrollment"
+                + " WHERE offering_id BETWEEN 947300 AND 947399)");
+        execute("DELETE FROM grade_submission_item WHERE submission_id IN (" + SUBMISSION_REJECTED
+                + "," + SUBMISSION_APPROVED + ")");
+        execute("DELETE FROM grade_submission WHERE submission_id IN (" + SUBMISSION_REJECTED + ","
+                + SUBMISSION_APPROVED + ")");
+        execute("DELETE FROM enrollment WHERE offering_id BETWEEN 947300 AND 947399");
         execute("DELETE FROM course_offering_teacher WHERE offering_id BETWEEN 947300 AND 947399");
         execute("DELETE FROM course_offering WHERE offering_id BETWEEN 947300 AND 947399");
         execute("DELETE FROM course WHERE course_id BETWEEN 947200 AND 947299");
@@ -878,14 +927,15 @@ public final class TeacherGradeDraftMySqlTest {
                         + " BETWEEN 947300 AND 947399") == 0
                         && count("SELECT COUNT(*) FROM teacher_grade_book WHERE offering_id BETWEEN"
                         + " 947300 AND 947399") == 0
-                        && count("SELECT COUNT(*) FROM grade WHERE enrollment_id BETWEEN 947400"
-                        + " AND 947499") == 0
-                        && count("SELECT COUNT(*) FROM grade_submission_item WHERE submission_id"
-                        + " BETWEEN 947500 AND 947599") == 0
-                        && count("SELECT COUNT(*) FROM grade_submission WHERE submission_id BETWEEN"
-                        + " 947500 AND 947599") == 0
-                        && count("SELECT COUNT(*) FROM enrollment WHERE enrollment_id BETWEEN 947400"
-                        + " AND 947499") == 0
+                        && count("SELECT COUNT(*) FROM grade WHERE enrollment_id IN (" + S1 + ","
+                        + S2 + "," + S3 + "," + S4 + "," + DROPPED + "," + ADDED + "," + FOREIGN
+                        + ")") == 0
+                        && count("SELECT COUNT(*) FROM grade_submission_item WHERE submission_id IN"
+                        + " (" + SUBMISSION_REJECTED + "," + SUBMISSION_APPROVED + ")") == 0
+                        && count("SELECT COUNT(*) FROM grade_submission WHERE submission_id IN ("
+                        + SUBMISSION_REJECTED + "," + SUBMISSION_APPROVED + ")") == 0
+                        && count("SELECT COUNT(*) FROM enrollment WHERE offering_id BETWEEN 947300"
+                        + " AND 947399") == 0
                         && count("SELECT COUNT(*) FROM course_offering WHERE offering_id BETWEEN"
                         + " 947300 AND 947399") == 0
                         && count("SELECT COUNT(*) FROM course WHERE course_id BETWEEN 947200 AND"

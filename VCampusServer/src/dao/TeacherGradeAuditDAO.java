@@ -55,8 +55,9 @@ public class TeacherGradeAuditDAO {
     }
 
     /**
-     * 学生级快照：学生、四项分数与服务器按当时方案算出的总评/绩点。缺失分数保持 JSON null，
-     * 不能写成 0；总评算不出来（权重未配齐或缺启用项）时省略这两个键，不写伪造的数字。
+     * 学生级快照：学生、四项分数与服务器按当时方案算出的总评/绩点。缺失的分数不会被写成 0
+     * （Gson 会省略 map 里的 null 值，所以快照里干脆没有这个键，读取方按“键不存在”理解）；
+     * 总评算不出来（权重未配齐或缺启用项）时同样省略 totalScore/gradePoint，不写伪造的数字。
      */
     public static String scoreSnapshot(long enrollmentId, GradeScoresDTO scores,
                                        BigDecimal totalScore, BigDecimal gradePoint) {

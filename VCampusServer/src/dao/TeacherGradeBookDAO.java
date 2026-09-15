@@ -40,10 +40,13 @@ import java.util.Set;
 public class TeacherGradeBookDAO {
     private static final Gson GSON = new Gson();
     private static final char SEPARATOR = '\n';
-    /** 工作副本的所有列；{@code b.} 前缀与 {@link #LIST_FROM} 的别名一致。 */
+    /** 非锁定读的工作副本列；{@code b.} 前缀与 {@link #LIST_FROM} 的别名一致，批次状态来自 join。 */
     private static final String BOOK_COLUMNS = "b.revision,b.draft_open,b.draft_kind,"
             + "b.base_submission_id,b.last_submission_id,b.scheme_json,b.correction_reason,"
             + "s.status AS submission_status";
+    /** 锁定读的工作副本列：不带 grade_submission（见 {@link #findBookForUpdate}）。 */
+    private static final String BOOK_COLUMNS_LOCKED = "revision,draft_open,draft_kind,"
+            + "base_submission_id,last_submission_id,scheme_json,correction_reason";
     private static final String BOOK_JOINS = " FROM teacher_grade_book b"
             + " LEFT JOIN grade_submission s ON s.submission_id=b.last_submission_id";
     private static final String LIST_SELECT = "SELECT o.offering_id,o.offering_code,o.academic_year,"
@@ -109,29 +112,46 @@ public class TeacherGradeBookDAO {
         }
     }
 
+    /** 非锁定读：工作副本 + 最后一次批次的状态。 */
     public GradeBookRow findBook(Connection connection, long offeringId) throws SQLException {
-        return findBook(connection, offeringId, false);
-    }
-
-    /** 写事务里的工作副本行锁；与 offering 锁一起构成“offering → book → 明细”的顺序。 */
-    public GradeBookRow findBookForUpdate(Connection connection, long offeringId)
-            throws SQLException {
-        return findBook(connection, offeringId, true);
-    }
-
-    private GradeBookRow findBook(Connection connection, long offeringId, boolean lock)
-            throws SQLException {
-        String sql = "SELECT " + BOOK_COLUMNS + BOOK_JOINS + " WHERE b.offering_id=?"
-                + (lock ? " FOR UPDATE" : "");
+        String sql = "SELECT " + BOOK_COLUMNS + BOOK_JOINS + " WHERE b.offering_id=?";
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setLong(1, offeringId);
             try (ResultSet rows = statement.executeQuery()) {
-                return rows.next() ? bookRow(rows) : null;
+                return rows.next() ? bookRow(rows, rows.getString("submission_status")) : null;
             }
         }
     }
 
-    /** 批次状态；批次不存在返回 null。 */
+    /**
+     * 写事务里的工作副本行锁；与 offering 锁一起构成“offering → book → 明细”的顺序。
+     *
+     * <p>这个 SELECT 刻意不 join {@code grade_submission}：MySQL 的锁定读会把 join 到的批次行也锁住，
+     * 等于在 plan 规定的 offering → grade_book 之间多插一个锁，而审批先改批次状态、再动工作副本，
+     * 两边顺序互为倒序，驳回后的重提保存会死锁（1213）。批次状态因此单独做一次非锁定读：
+     * 驳回是终态，非锁定读最多“还没有看到 REJECTED”，只会让这次保存拿到一个可重试的冲突，
+     * 不会放行不该放行的写入。
+     */
+    public GradeBookRow findBookForUpdate(Connection connection, long offeringId)
+            throws SQLException {
+        String sql = "SELECT " + BOOK_COLUMNS_LOCKED + " FROM teacher_grade_book"
+                + " WHERE offering_id=? FOR UPDATE";
+        GradeBookRow row;
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, offeringId);
+            try (ResultSet rows = statement.executeQuery()) {
+                if (!rows.next()) return null;
+                row = bookRow(rows, null);
+            }
+        }
+        if (row.lastSubmissionId() == null) return row;
+        return new GradeBookRow(row.revision(), row.draftOpen(), row.draftKind(),
+                row.baseSubmissionId(), row.lastSubmissionId(), row.scheme(),
+                row.correctionReason(),
+                findSubmissionStatus(connection, row.lastSubmissionId()));
+    }
+
+    /** 批次状态；批次不存在返回 null。锁定读路径用它单独取状态，避免锁住批次行。 */
     public String findSubmissionStatus(Connection connection, long submissionId)
             throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
@@ -236,7 +256,8 @@ public class TeacherGradeBookDAO {
                             rows.getString("course_code"), rows.getString("course_name"),
                             rows.getDouble("credit"), rows.getInt("academic_year"),
                             rows.getInt("semester"), rows.getInt("capacity"),
-                            rows.getInt("status"), bookRow(rows)));
+                            rows.getInt("status"),
+                            bookRow(rows, rows.getString("submission_status"))));
                 }
                 return List.copyOf(offerings);
             }
@@ -357,7 +378,8 @@ public class TeacherGradeBookDAO {
     }
 
     /** {@code revision} 为 NULL 表示这一行没有工作副本，其余列都是 NULL。 */
-    private static GradeBookRow bookRow(ResultSet rows) throws SQLException {
+    private static GradeBookRow bookRow(ResultSet rows, String submissionStatus)
+            throws SQLException {
         int revision = rows.getInt("revision");
         if (rows.wasNull()) return null;
         long baseSubmissionId = rows.getLong("base_submission_id");
@@ -367,7 +389,7 @@ public class TeacherGradeBookDAO {
         return new GradeBookRow(revision, rows.getBoolean("draft_open"),
                 rows.getString("draft_kind"), base, last,
                 scheme(rows.getString("scheme_json")), rows.getString("correction_reason"),
-                rows.getString("submission_status"));
+                submissionStatus);
     }
 
     private static GradeScoresDTO scores(ResultSet rows) throws SQLException {

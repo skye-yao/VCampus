@@ -222,6 +222,12 @@ public class TeacherGradeBookService {
 
         TeacherGradeBookDAO.GradeBookRow book =
                 dao.findBookForUpdate(connection, request.offeringId());
+        if (book == null && request.expectedRevision() != 0) {
+            // 还没有工作副本时唯一合法的期望版本是 0：客户端看到的就是 revision=0 的虚拟草稿，
+            // 任何别的版本号都说明它读到的不是这份状态，只给冲突、不给静默创建。
+            throw new ConflictException("该教学班还没有成绩草稿，expectedRevision 必须为 0",
+                    readBook(connection, request.offeringId(), true));
+        }
         List<Long> rosterIds = dao.normalEnrollmentIds(connection, request.offeringId());
         if (!TeacherGradeBookDAO.rosterDigest(rosterIds).equals(request.rosterDigest())) {
             throw new ConflictException("名单已变化，请重新加载成绩表并合并已输入的成绩",
@@ -240,8 +246,7 @@ public class TeacherGradeBookService {
         String schemeJson = TeacherGradeBookDAO.schemeJson(request.scheme());
         int revision;
         if (book == null) {
-            // 首次创建不比较 expectedRevision：客户端看到的就是 revision=0 的虚拟草稿，
-            // 没有任何旧内容会被这次写入覆盖掉。
+            // expectedRevision 已在上面的守卫里要求为 0：首次创建只认“客户端也没有草稿”。
             dao.insertBook(connection, request.offeringId(), schemeJson, request.uid(),
                     clock.instant());
             revision = 1;
@@ -521,7 +526,10 @@ public class TeacherGradeBookService {
         return new BookState(STATE_DRAFT, false);
     }
 
-    /** 已录入 = 至少一项非 null 分数；缺失 = 至少一个启用项没有分数（全空自然也算缺失）。 */
+    /**
+     * 已录入 = 至少一项非 null 分数；缺失 = 至少一个启用项没有分数（全空自然也算缺失）。
+     * 四项都被禁用时没人缺分：没有启用项就没有“缺了什么”可言，缺失数因此是 0。
+     */
     private static Counters counters(GradeSchemeDTO scheme,
                                      List<TeacherGradeBookDAO.RosterScoreRow> roster) {
         int entered = 0;
