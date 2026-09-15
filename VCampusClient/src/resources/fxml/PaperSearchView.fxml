@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<BorderPane xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.PaperSearchController" styleClass="content-pane">
+    <padding><Insets top="14" right="14" bottom="12" left="14"/></padding>
+    <top>
+        <VBox spacing="9">
+            <Label text="发现学术论文" styleClass="panel-title"/>
+            <Label text="Europe PMC 偏生命科学与医学；arXiv 偏理工科 · 建议使用英文关键词" wrapText="true" styleClass="paper-meta"/>
+            <HBox spacing="10" alignment="CENTER_LEFT">
+                <TextField fx:id="keyword" promptText="搜索标题、作者、摘要关键词…" onAction="#search" HBox.hgrow="ALWAYS"/>
+                <ComboBox fx:id="sourceChoice" prefWidth="138"/>
+                <ComboBox fx:id="sort" prefWidth="116"/>
+                <Button fx:id="searchButton" text="检索论文" onAction="#search" styleClass="btn-primary"/>
+                <Button text="网页检索" onAction="#webSearch" styleClass="btn-secondary"/>
+            </HBox>
+            <Label fx:id="status" text="输入关键词后开始检索，无需数据库账号" wrapText="true"/>
+            <Region prefHeight="3"/>
+        </VBox>
+    </top>
+    <center>
+        <SplitPane dividerPositions="0.57">
+            <items>
+                <ListView fx:id="results" minWidth="240"/>
+                <VBox spacing="12" minWidth="240" styleClass="detail-panel">
+                    <padding><Insets top="16" right="16" bottom="16" left="16"/></padding>
+                    <Label fx:id="paperTitle" text="选择一篇论文" wrapText="true" minHeight="-Infinity" styleClass="panel-title"/>
+                    <Label fx:id="paperMeta" text="在此查看摘要与全文" wrapText="true" minHeight="-Infinity" styleClass="paper-meta"/>
+                    <Separator/>
+                    <Label text="摘要 / Abstract" styleClass="panel-title-small"/>
+                    <TextArea fx:id="abstractText" editable="false" wrapText="true" VBox.vgrow="ALWAYS" prefRowCount="8"/>
+                    <FlowPane hgap="8" vgap="8">
+                        <Button fx:id="readButton" text="内部阅读" onAction="#read" styleClass="btn-primary"/>
+                        <Button fx:id="downloadButton" text="下载全文" onAction="#download" styleClass="btn-secondary"/>
+                        <Button fx:id="browserButton" text="浏览器打开" onAction="#browser" styleClass="btn-secondary"/>
+                        <Button fx:id="sourceButton" text="原文页面" onAction="#source" styleClass="btn-secondary"/>
+                    </FlowPane>
+                    <Label fx:id="fileStatus" text="PDF 支持内部阅读与下载；部分论文为未经同行评审的预印本。" wrapText="true" minHeight="-Infinity" styleClass="paper-meta"/>
+                </VBox>
+            </items>
+        </SplitPane>
+    </center>
+    <bottom>
+        <HBox spacing="12" alignment="CENTER_RIGHT">
+            <padding><Insets top="10"/></padding>
+            <Button fx:id="previousButton" text="上一页" onAction="#previous" styleClass="btn-secondary"/>
+            <Label fx:id="pageLabel" text="尚未检索"/>
+            <Button fx:id="nextButton" text="下一页" onAction="#next" styleClass="btn-secondary"/>
+        </HBox>
+    </bottom>
+</BorderPane>

@@ -82,6 +82,7 @@ public class LibraryCatalogFXMLTest {
         loader.setControllerFactory(type -> {
             if (type == LibraryController.class) return new OfflineReader();
             if (type == LibraryAdminController.class) return new OfflineAdmin();
+            if (type == PaperSearchController.class) return new PaperSearchController();
             throw new AssertionError("Unexpected controller: " + type);
         });
         Parent root = loader.load();
@@ -167,9 +168,10 @@ public class LibraryCatalogFXMLTest {
         filter.layout();
         // ComboBox skin also contains a hidden measurement cell with empty text.
         Labeled buttonCell = filter.lookupAll(".list-cell").stream().filter(Node::isVisible)
-                .map(node -> (Labeled) node).filter(label -> category.equals(label.getText()))
-                .findFirst().orElseThrow(() -> new AssertionError("Selected category not rendered"));
-        requireRenderedText(buttonCell, category);
+                .map(node -> (Labeled) node).filter(label -> "类别".equals(label.getText()))
+                .findFirst().orElseThrow(() -> new AssertionError("Category header not rendered"));
+        requireRenderedText(buttonCell, "类别");
+        require(category.equals(filter.getValue()), "Header must retain the selected filter value");
         filter.setValue(LibraryCatalogTable.ALL_CATEGORIES);
         layout(root);
     }

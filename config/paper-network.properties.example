@@ -1,0 +1,6 @@
+# Optional proxy used only for arXiv metadata and PDF requests.
+# Copy to paper-network.properties and choose system/direct/http/socks.
+proxy.type=system
+# For Clash, set type=http and use the HTTP/mixed port shown in Clash.
+proxy.host=127.0.0.1
+proxy.port=7890

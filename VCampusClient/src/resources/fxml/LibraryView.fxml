@@ -70,6 +70,9 @@
                         </center>
                     </BorderPane>
                 </Tab>
+                <Tab fx:id="paperTab" text="论文检索">
+                    <fx:include source="PaperSearchView.fxml"/>
+                </Tab>
                 <Tab fx:id="myLibraryTab" text="我的图书馆">
                     <VBox spacing="9.0" styleClass="content-pane">
                         <padding><Insets bottom="12.0" left="14.0" right="14.0" top="12.0"/></padding>

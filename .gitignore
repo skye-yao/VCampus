@@ -38,6 +38,7 @@ nbdist/
 # Local database and environment configuration
 **/db.properties
 .env
+config/paper-network.properties
 .env.*
 !.env.example
 

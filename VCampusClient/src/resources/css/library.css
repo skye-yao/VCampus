@@ -1,4 +1,7 @@
 /* 仅作用于图书馆页面，不改变登录页与其他模块。 */
+.library-root .paper-result-title { -fx-font-size: 14px; -fx-font-weight: bold; -fx-text-fill: #234d3e; }
+.library-root .paper-meta { -fx-text-fill: #667d6e; -fx-font-size: 11px; }
+.library-root .paper-card { -fx-padding: 6 3; }
 .library-root {
     -fx-background-color: #f3f6f3;
     -fx-font-family: "Microsoft YaHei", "Segoe UI";

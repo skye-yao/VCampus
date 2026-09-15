@@ -33,6 +33,7 @@ public class LibraryController {
     private final javafx.collections.ObservableList<Book> searchResults = javafx.collections.FXCollections.observableArrayList();
     private final javafx.collections.transformation.FilteredList<Book> filteredBooks = new javafx.collections.transformation.FilteredList<>(searchResults);
     private ComboBox<String> categoryFilter;
+    @FXML private Tab paperTab;
     @FXML private Button previewButton;
     @FXML private Button downloadButton;
     @FXML private Label ebookStatus;
@@ -244,7 +245,7 @@ public class LibraryController {
             if (administrator && newTab == fineTab) {
                 return;
             }
-            if (newTab != adminTab) {
+            if (newTab != adminTab && newTab != paperTab) {
                 handleSearch();
                 refreshMyLibrary();
             }
