@@ -31,6 +31,8 @@ public final class GradeBookEditorModelTest {
     private static final String ROW_B = "50032";
     /** 四项都填 85：加权后总评 85.00、绩点 3.5，用来验证共享计算规则被真正调用。 */
     private static final String FILL_SCORE = "85";
+    /** 管理员对被驳回批次写的审核意见，用来验证它在“教师正在改”的整个过程中都可见。 */
+    private static final String REVIEW_COMMENT = "期中给分偏低，请复核后重新提交";
 
     private GradeBookEditorModelTest() {
     }
@@ -240,6 +242,27 @@ public final class GradeBookEditorModelTest {
         require(draft.stateNotice() == null,
                 "普通可编辑草稿没有要交代的批次状态，不显示提示");
         require(draft.reviewComment() == null, "没有批次的草稿没有审核意见");
+
+        // 被驳回后保存过一次：state 回到 DRAFT，但 lastSubmissionId 仍指向被驳回的批次。
+        // 教师正在照着意见改，这句话不能因为一次保存就消失。
+        GradeBookEditorModel reopened = new GradeBookEditorModel(reopenedBook(REVIEW_COMMENT));
+        require(reopened.canEdit() && "DRAFT".equals(reopened.state()),
+                "重开的草稿是可编辑草稿：state=DRAFT, canEdit=true");
+        require(reopened.stateNotice() != null
+                        && reopened.stateNotice().contains(REVIEW_COMMENT)
+                        && reopened.stateNotice().contains("重新提交"),
+                "被驳回后重开的草稿必须继续显示审核意见，收到 " + reopened.stateNotice());
+
+        GradeBookEditorModel reopenedWithoutComment =
+                new GradeBookEditorModel(reopenedBook(null));
+        require(reopenedWithoutComment.stateNotice() == null,
+                "没有意见可显示时，可编辑草稿保持静默，收到 "
+                        + reopenedWithoutComment.stateNotice());
+
+        // 更正草稿（基于已通过的批次）不显示那一次审批的意见：要求只覆盖“被驳回后在改”。
+        GradeBookEditorModel correction = new GradeBookEditorModel(correctionBook());
+        require(correction.canEdit() && correction.stateNotice() == null,
+                "更正草稿不显示上一次审批的意见，收到 " + correction.stateNotice());
     }
 
     /** dirty 只由真实修改置位，只由服务端快照清零；重复输入同样的文本不置位。 */
@@ -356,6 +379,18 @@ public final class GradeBookEditorModelTest {
             String reviewComment) {
         return new TeacherGradeBookDTO(OFFERING_ID, 4, DIGEST, state, fullScheme(), rows(),
                 "9001", null, canEdit, null, false, reviewComment);
+    }
+
+    /** 被驳回后重开并已保存过一次的草稿：state=DRAFT、可编辑，批次仍指向被驳回的那一份。 */
+    private static TeacherGradeBookDTO reopenedBook(String reviewComment) {
+        return new TeacherGradeBookDTO(OFFERING_ID, 5, DIGEST, "DRAFT", fullScheme(), rows(),
+                "9001", null, true, null, false, reviewComment);
+    }
+
+    /** 更正草稿：基于已通过的批次复制而来，带更正原因，审核意见属于那一次审批。 */
+    private static TeacherGradeBookDTO correctionBook() {
+        return new TeacherGradeBookDTO(OFFERING_ID, 6, DIGEST, "DRAFT", fullScheme(), rows(),
+                "9001", "9001", true, "期末成绩录入有误", false, "已批准，成绩已发布");
     }
 
     private static int weightOf(GradeSchemeDTO scheme, GradeComponentCodeDTO code) {

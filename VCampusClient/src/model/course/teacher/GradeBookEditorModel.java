@@ -472,34 +472,43 @@ public final class GradeBookEditorModel {
     }
 
     /**
-     * 批次状态说明（审核状态、审核意见、更正原因、名单变化）；普通可编辑草稿返回 null。
+     * 批次状态说明（审核状态、审核意见、更正原因、名单变化）；没有要交代的批次状态时返回 null。
      *
-     * <p>被驳回的草稿对教师仍是可编辑的，但恰恰是这时候最需要看到管理员的审核意见，所以这里不按
-     * {@code canEdit} 一刀切，而是按“有没有需要向教师交代的批次状态”决定：只有
-     * 可编辑 + DRAFT 的普通草稿才什么都不显示。
+     * <p><b>可编辑不等于没有意见要显示。</b>被驳回的批次重开之后（{@code draft_open=1} 让 state 回到
+     * DRAFT，而 {@code lastSubmissionId} 仍指向被驳回的那一批）教师正在照着管理员的意见改，这句话
+     * 必须一直在，不能因为他保存了一次草稿就消失。因此这里的分支不是“可编辑就整体静默”，而是：
+     *
+     * <ul>
+     *   <li>只读（PENDING/APPROVED，或没有编辑权限）：照旧显示状态行 + 审核意见；</li>
+     *   <li>可编辑且上一次提交被驳回（有批次、没有更正原因、有审核意见）：只显示这句话与意见，
+     *       状态行仍然静默；</li>
+     *   <li>可编辑的普通草稿（没有批次）与更正草稿（基于已通过的批次，意见属于那一次审批、
+     *       不属于这次更正）：都不显示。</li>
+     * </ul>
      */
     public String stateNotice() {
-        boolean readOnly = !canEdit;
-        if (!readOnly && "DRAFT".equals(state)) return null;
-        StringBuilder notice = new StringBuilder(
-                readOnly ? "当前成绩表为只读状态：" : "上一次提交未通过：");
-        notice.append(stateLabel(state));
+        String comment = reviewComment == null || reviewComment.isBlank() ? null : reviewComment;
+        if (canEdit) {
+            if (lastSubmissionId == null || correctionReason != null || comment == null) return null;
+            // 上一次提交未通过、教师正在改：意见必须一直可见，直到他再次提交。
+            return "上一次提交未通过（批次 " + lastSubmissionId + "）　审核意见：" + comment
+                    + "　可以修改后重新提交。" + rosterChangedSentence();
+        }
+        StringBuilder notice = new StringBuilder("当前成绩表为只读状态：").append(stateLabel(state));
         if (lastSubmissionId != null) {
             notice.append("（批次 ").append(lastSubmissionId).append("）");
         }
-        if (reviewComment != null && !reviewComment.isBlank()) {
-            notice.append("　审核意见：").append(reviewComment);
+        if (comment != null) {
+            notice.append("　审核意见：").append(comment);
         }
         if (correctionReason != null && !correctionReason.isBlank()) {
             notice.append("　更正原因：").append(correctionReason);
         }
-        if (!readOnly) {
-            notice.append("　可以修改后重新提交。");
-        }
-        if (rosterChangedSinceSubmission) {
-            notice.append("　提交之后名单有变化，新学生尚未纳入已提交批次。");
-        }
-        return notice.toString();
+        return notice.append(rosterChangedSentence()).toString();
+    }
+
+    private String rosterChangedSentence() {
+        return rosterChangedSinceSubmission ? "　提交之后名单有变化，新学生尚未纳入已提交批次。" : "";
     }
 
     /** 最后一次批次的审核意见；没有批次或批次没有意见时为 null。 */

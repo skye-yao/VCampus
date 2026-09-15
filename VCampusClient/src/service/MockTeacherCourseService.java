@@ -153,7 +153,6 @@ public final class MockTeacherCourseService implements TeacherCourseService {
     private static final String GRADE_STATE_REJECTED = "REJECTED";
     private static final String GRADE_SAVED_MESSAGE = "成绩草稿已保存";
     private static final String GRADE_SUBMITTED_MESSAGE = "成绩批次已提交";
-    private static final String GRADE_CORRECTION_REASON = "期末成绩录入有误，需更正后重新提交";
     /** 被驳回批次的审核意见（管理员填写）；待审核批次还没有意见，保持 null。 */
     private static final String GRADE_REVIEW_COMMENT = "总分与平时分不一致，请核对后重新提交";
     private static final String GRADE_SUBMISSION_ID = "9601";
@@ -935,9 +934,9 @@ public final class MockTeacherCourseService implements TeacherCourseService {
         rejected.save(weightedScheme(GRADE_WEIGHTS), completeScores(AUTUMN_OFFERING, 11));
         rejected.state = GRADE_STATE_REJECTED;
         rejected.canEdit = true;
-        rejected.correctionReason = GRADE_CORRECTION_REASON;
         rejected.lastSubmissionId = GRADE_SUBMISSION_ID;
-        // 已驳回的批次带管理员的审核意见：只读提示里显示的就是这句。
+        // 已驳回的批次带管理员的审核意见：教师改这一版的时候它必须一直可见。
+        // 被驳回不是更正草稿（更正草稿基于已通过的批次并带着更正原因），所以这里没有更正原因。
         rejected.reviewComment = GRADE_REVIEW_COMMENT;
         gradeBooks.put(rejected.offeringId, rejected);
     }

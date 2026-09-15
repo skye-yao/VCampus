@@ -390,6 +390,18 @@ public final class TeacherGradeBookControllerTest {
                 "被驳回时必须显示审核意见，收到 " + rejected.model().stateNotice());
         require(rejected.model().stateNotice().contains("重新提交"),
                 "被驳回时还要说明可以改后重提，收到 " + rejected.model().stateNotice());
+
+        // 保存一次之后草稿重开（state 回到 DRAFT）：教师正在照着意见改，审核意见必须还在。
+        // 该夹具的名单为空，因此用一次真实的权重修改来产生编辑内容。
+        rejected.model().setWeightText(GradeComponentCodeDTO.DAILY, "35");
+        require(rejected.dirty(), "改权重之后必须是未保存状态");
+        rejected.save();
+        require(!rejectedService.saves.isEmpty(), "被驳回的草稿必须可以保存");
+        require("DRAFT".equals(rejected.model().state()) && rejected.model().canEdit(),
+                "保存之后草稿重开，收到 " + rejected.model().state());
+        require(rejected.model().stateNotice() != null
+                        && rejected.model().stateNotice().contains(REJECTED_REVIEW_COMMENT),
+                "重开之后审核意见不能消失，收到 " + rejected.model().stateNotice());
     }
 
     // ------------------------------------------------------------------ 视图契约
