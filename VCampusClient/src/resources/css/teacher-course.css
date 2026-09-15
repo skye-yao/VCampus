@@ -16,7 +16,8 @@
     -fx-text-fill: #ffffff;
 }
 
-.teacher-course-nav-button {
+/* 分阶段占位入口：本阶段一律禁用，置灰表明功能尚未接入。 */
+.teacher-course-entry {
     -fx-background-color: transparent;
     -fx-background-radius: 0;
     -fx-border-color: transparent;
@@ -29,22 +30,26 @@
     -fx-cursor: hand;
 }
 
-.teacher-course-nav-button:hover {
-    -fx-background-color: rgba(255, 255, 255, 0.14);
+/* 悬停压暗而非提亮：白字压在 #587558 上只有 5.12:1，再提亮会跌破 AA 的 4.5:1。 */
+.teacher-course-entry:hover {
+    -fx-background-color: rgba(0, 0, 0, 0.10);
     -fx-text-fill: #ffffff;
 }
 
-/* 分阶段占位入口：本阶段一律禁用，置灰表明功能尚未接入。 */
-.teacher-course-entry {
-    -fx-background-color: transparent;
-    -fx-background-radius: 0;
-    -fx-border-color: transparent;
+/* 当前页对应的入口：镜像管理端 course-admin-nav-button:selected 的深绿底 + 黄色下划线。
+   不抄学生端的浅色底——顶栏是 #587558 深绿，浅底会把白字压成不可读（#fef9df 上白字只有 1.1:1）。
+   底色 #3f553f 对白字 8.1:1，黄线沿用基类的 border-width: 0 0 3px 0，高亮不改变按钮高度。 */
+.teacher-course-entry-active {
+    -fx-background-color: #3f553f;
+    -fx-border-color: transparent transparent #fdd000 transparent;
     -fx-border-width: 0 0 3px 0;
-    -fx-border-radius: 0;
-    -fx-text-fill: #eaf1ea;
-    -fx-font-size: 14px;
-    -fx-font-weight: bold;
-    -fx-padding: 8px 14px 5px 14px;
+    -fx-text-fill: #ffffff;
+}
+
+/* 伪类比单类更具体，悬停会把激活底色顶掉，所以激活态单独给一档更深的底色保住高亮。 */
+.teacher-course-entry-active:hover {
+    -fx-background-color: #354835;
+    -fx-text-fill: #ffffff;
 }
 
 .teacher-course-entry:disabled {
@@ -220,7 +225,10 @@
     -fx-text-fill: #657067;
 }
 
+/* 空状态文案居中：与 .course-empty-state / .course-admin-empty-state 同一条约定——标签常常带
+   maxWidth，不设 alignment 时文字会贴在左边缘。 */
 .teacher-course-empty-state {
+    -fx-alignment: center;
     -fx-font-size: 13px;
     -fx-text-fill: #657067;
 }

@@ -10,8 +10,10 @@
 <?import javafx.scene.layout.VBox?>
 
 <!--
-  教师工作台外壳：左上“返回首页”，右上四入口。沿用 860x580 主窗口。
-  四个入口（教学课程表、教学班、成绩录入、我的申请）自 T5 起全部接入，因此不再有禁用占位。
+  教师工作台外壳：左上标题，右上四入口。沿用 860x580 主窗口。
+  四个入口（教学课程表、教学班、成绩录入、我的申请）自 T5 起全部接入，因此不再有禁用占位；
+  每个入口都给 fx:id，控制器在 render() 里按当前页加/去 .teacher-course-entry-active 高亮
+  （与 MainController 的普通按钮 + 激活样式类同一套做法，不用 ToggleButton）。
   子页与外壳共用一套 fx:include + visible/managed 的托管机制，与管理员后台一致；
   有未保存内容的子页会在导航/关闭时通过 PageLeaveGuard 拦一次。
 -->
@@ -22,13 +24,12 @@
                 <Insets left="20.0" right="20.0" top="1.0" />
             </padding>
             <children>
-                <Button onAction="#handleBack" prefHeight="64.0" styleClass="teacher-course-nav-button" text="返回首页" />
-                <Label styleClass="teacher-course-title" text="教师工作台" />
+                <Label styleClass="teacher-course-title" text="教务管理系统" />
                 <Region HBox.hgrow="ALWAYS" />
-                <Button onAction="#handleOpenTimetable" prefHeight="64.0" styleClass="teacher-course-entry" text="教学课程表" />
-                <Button onAction="#handleOpenOfferings" prefHeight="64.0" styleClass="teacher-course-entry" text="教学班" />
-                <Button onAction="#handleOpenGrades" prefHeight="64.0" styleClass="teacher-course-entry" text="成绩录入" />
-                <Button onAction="#handleOpenApplications" prefHeight="64.0" styleClass="teacher-course-entry" text="我的申请" />
+                <Button fx:id="timetableEntryButton" onAction="#handleOpenTimetable" prefHeight="64.0" styleClass="teacher-course-entry" text="教学课程表" />
+                <Button fx:id="offeringsEntryButton" onAction="#handleOpenOfferings" prefHeight="64.0" styleClass="teacher-course-entry" text="教学班" />
+                <Button fx:id="gradesEntryButton" onAction="#handleOpenGrades" prefHeight="64.0" styleClass="teacher-course-entry" text="成绩录入" />
+                <Button fx:id="applicationsEntryButton" onAction="#handleOpenApplications" prefHeight="64.0" styleClass="teacher-course-entry" text="我的申请" />
             </children>
         </HBox>
     </top>

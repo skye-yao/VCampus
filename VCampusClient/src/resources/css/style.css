@@ -1770,8 +1770,8 @@
 }
 
 .course-admin-topbar {
-    -fx-background-color: #151E49;
-    -fx-border-color: #0f1633;
+    -fx-background-color: #587558;
+    -fx-border-color: #3f553f;
     -fx-border-width: 0 0 1px 0;
 }
 
@@ -1787,15 +1787,21 @@
     -fx-border-color: transparent;
     -fx-border-width: 0 0 3px 0;
     -fx-border-radius: 0;
-    -fx-text-fill: #e6e9f5;
+    -fx-text-fill: #ffffff;
     -fx-font-size: 14px;
     -fx-font-weight: bold;
     -fx-padding: 8px 14px 5px 14px;
     -fx-cursor: hand;
 }
 
+/* 悬停压暗而非提亮：白字压在 #587558 上只有 5.12:1，再提亮会跌破 AA 的 4.5:1。 */
+.course-admin-nav-button:hover {
+    -fx-background-color: rgba(0, 0, 0, 0.10);
+    -fx-text-fill: #ffffff;
+}
+
 .course-admin-nav-button:selected {
-    -fx-background-color: #212b5c;
+    -fx-background-color: #3f553f;
     -fx-border-color: transparent transparent #fdd000 transparent;
     -fx-text-fill: #ffffff;
 }
@@ -1836,14 +1842,14 @@
 
 .course-admin-search-field:focused,
 .course-admin-status-filter:focused {
-    -fx-border-color: #151E49;
+    -fx-border-color: #587558;
 }
 
 .course-admin-refresh-button,
 .course-admin-action,
 .course-admin-retry-button,
 .course-admin-dialog-save {
-    -fx-background-color: #151E49;
+    -fx-background-color: #587558;
     -fx-background-radius: 4px;
     -fx-text-fill: #ffffff;
     -fx-font-weight: bold;
@@ -1862,11 +1868,11 @@
 .course-admin-action:hover,
 .course-admin-retry-button:hover,
 .course-admin-dialog-save:hover {
-    -fx-background-color: #212b5c;
+    -fx-background-color: #3f553f;
 }
 
 .course-admin-create-button:hover {
-    -fx-background-color: #3f5a3f;
+    -fx-background-color: #3f553f;
 }
 
 .course-admin-action:disabled,
@@ -1999,6 +2005,8 @@
     -fx-text-fill: #587558;
 }
 
+/* “未开放”是金色系状态族的一员，文字沿用规格里的深色信息色藏青，改绿会和同族的
+   stopped（琥珀）/cancelled（红）语义打架，也会和 open 的绿字混淆。 */
 .course-admin-offering-status-not_open {
     -fx-background-color: #fef9df;
     -fx-text-fill: #151E49;
@@ -2076,7 +2084,7 @@
 
 .course-admin-dialog-field:focused,
 .course-admin-dialog-area:focused {
-    -fx-border-color: #151E49;
+    -fx-border-color: #587558;
 }
 
 .course-admin-dialog-field:disabled {
@@ -2218,16 +2226,16 @@
 }
 
 .course-admin-force-save {
-    -fx-background-color: #e8b84b;
+    -fx-background-color: #fdd000;
     -fx-background-radius: 4px;
-    -fx-text-fill: #3d2f0c;
+    -fx-text-fill: #151E49;
     -fx-font-weight: bold;
     -fx-cursor: hand;
     -fx-padding: 6px 14px;
 }
 
 .course-admin-force-save:hover {
-    -fx-background-color: #d9a634;
+    -fx-background-color: #f6ab00;
 }
 
 .course-admin-schedule-button {

@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -35,6 +36,7 @@ import dto.course.teacher.TeacherPageDTO;
 import dto.course.teacher.TeacherRosterRowDTO;
 import dto.course.teacher.TeacherScheduleWeekDTO;
 import javafx.event.Event;
+import javafx.scene.control.Button;
 import service.MockTeacherCourseService;
 import service.TeacherCourseService;
 import service.TeacherCourseServices;
@@ -58,6 +60,9 @@ public final class TeacherCourseManagementControllerTest {
     private static final String CSS = "/resources/css/teacher-course.css";
     private static final String HOME_NOTICE = "教学班、教学课程表、成绩录入、我的申请已接入。";
     private static final String HOME_VIEW = "/resources/fxml/MainView.fxml";
+    /** 顶栏标题：与另外两个教务外壳（学生/管理员）统一。 */
+    private static final String TITLE = "教务管理系统";
+    private static final String TITLE_CLASS = "teacher-course-title";
     private static final String OFFERING = "9007199254740993";
     private static final String APP_STYLESHEET = "@../css/style.css";
     private static final String VIEW_STYLESHEET = "@../css/teacher-course.css";
@@ -69,6 +74,7 @@ public final class TeacherCourseManagementControllerTest {
 
     public static void main(String[] args) throws Exception {
         Document view = parseView();
+        String css = readResource(CSS);
 
         defaultConstructorUsesTheSharedTeacherService();
         injectedServiceIsRetainedForLaterSubpages();
@@ -84,11 +90,18 @@ public final class TeacherCourseManagementControllerTest {
         openingAGradeBookActivatesTheEditor();
         refusedLeaveKeepsTheCurrentPage();
 
+        theEntryHighlightFollowsEveryNavigationPath();
+        theEntryHighlightMapsDetailsAndTheEditorToTheirList();
+        everyEntryKeepsItsFxIdAndStaysAPlainButton(view);
+        theActiveEntryHighlightFitsTheDarkTopbar(css);
+        theSharedEmptyStateCentresItsText(css);
+
         viewIsTheTeacherWorkspaceShell(view);
+        theShellHasNoBackButtonOfItsOwn(view);
         everyEntryIsWiredAndNoneStaysDisabled(view);
         noElementUsesTheReadOnlyDisabledAttribute(view);
         everyFxIdAndOnActionResolvesOnTheController(view);
-        everyStyleClassExistsInTheStylesheet(view, readResource(CSS));
+        everyStyleClassExistsInTheStylesheet(view, css);
         System.out.println("TeacherCourseManagementControllerTest: PASS");
     }
 
@@ -325,6 +338,170 @@ public final class TeacherCourseManagementControllerTest {
 
     // ------------------------------------------------------------------ 视图契约
 
+    /**
+     * 右上入口高亮的导航契约：每条真实导航路径走完后，{@code currentPage} 必须落在那个入口自己身上，
+     * 首页则一个都不点亮。高亮是 {@code render()} 的产物，所以这里钉住的正是“点下去之后高亮跟得上”。
+     */
+    private static void theEntryHighlightFollowsEveryNavigationPath() {
+        FakeService service = new FakeService();
+        TeacherOfferingController offerings = offerings(service);
+        TeacherOfferingDetailController detail = detail(service);
+        TeacherScheduleController schedule = schedule(service);
+        TeacherApplicationsController applications = applications(service);
+        TeacherGradeController grades = grades(service);
+        TeacherGradeBookController gradeBook = gradeBook(service);
+        TeacherCourseManagementController controller = controller(service);
+        wireAll(controller, service, offerings, detail, schedule, applications, grades, gradeBook);
+        try {
+            controller.openOfferings();
+            requireHighlight(controller, TeacherCourseManagementController.ENTRY_OFFERINGS, "教学班");
+            controller.openTimetable();
+            requireHighlight(controller, TeacherCourseManagementController.ENTRY_TIMETABLE,
+                    "教学课程表");
+            controller.openApplications();
+            requireHighlight(controller, TeacherCourseManagementController.ENTRY_APPLICATIONS,
+                    "我的申请");
+            controller.openGrades(null);
+            requireHighlight(controller, TeacherCourseManagementController.ENTRY_GRADES, "成绩录入");
+            controller.showOffering(OFFERING);
+            requireHighlight(controller, TeacherCourseManagementController.ENTRY_OFFERINGS,
+                    "教学班详情");
+            controller.showHome();
+            requireHighlight(controller, null, "工作台首页");
+        } finally {
+            PageLeaveGuard.clear();
+        }
+    }
+
+    /** 页→入口映射本身：详情页算教学班、成绩编辑表算成绩录入，首页与未知页没有入口。 */
+    private static void theEntryHighlightMapsDetailsAndTheEditorToTheirList() {
+        requireHighlightPage(TeacherCourseManagementController.PAGE_SCHEDULE,
+                TeacherCourseManagementController.ENTRY_TIMETABLE);
+        requireHighlightPage(TeacherCourseManagementController.PAGE_OFFERINGS,
+                TeacherCourseManagementController.ENTRY_OFFERINGS);
+        requireHighlightPage(TeacherCourseManagementController.PAGE_DETAIL,
+                TeacherCourseManagementController.ENTRY_OFFERINGS);
+        requireHighlightPage(TeacherCourseManagementController.PAGE_GRADES,
+                TeacherCourseManagementController.ENTRY_GRADES);
+        requireHighlightPage(TeacherCourseManagementController.PAGE_GRADE_BOOK,
+                TeacherCourseManagementController.ENTRY_GRADES);
+        requireHighlightPage(TeacherCourseManagementController.PAGE_APPLICATIONS,
+                TeacherCourseManagementController.ENTRY_APPLICATIONS);
+        requireHighlightPage(TeacherCourseManagementController.PAGE_HOME, null);
+    }
+
+    private static void requireHighlightPage(String page, String expectedEntry) {
+        String active = TeacherCourseManagementController.entryForPage(page);
+        require(Objects.equals(expectedEntry, active),
+                "page " + page + " must highlight " + expectedEntry + ", saw " + active);
+    }
+
+    private static void requireHighlight(TeacherCourseManagementController controller,
+            String expectedEntry, String context) {
+        String active = TeacherCourseManagementController.entryForPage(controller.currentPage());
+        require(Objects.equals(expectedEntry, active),
+                context + " must highlight " + expectedEntry + ", saw " + active + " for page "
+                        + controller.currentPage());
+    }
+
+    /**
+     * 四个入口的 fx:id 必须与 FXML、控制器字段名三者一致，条目还得是普通 {@code Button}：
+     * 高亮走 {@code MainController} 的“普通按钮 + 激活样式类”约定，换成 {@code ToggleButton}
+     * 会让冒烟测试的 {@code node instanceof Button} 查找落空。
+     */
+    private static void everyEntryKeepsItsFxIdAndStaysAPlainButton(Document view) {
+        requireEntryElement(view, TeacherCourseManagementController.ENTRY_TIMETABLE, "教学课程表",
+                "#handleOpenTimetable");
+        requireEntryElement(view, TeacherCourseManagementController.ENTRY_OFFERINGS, "教学班",
+                "#handleOpenOfferings");
+        requireEntryElement(view, TeacherCourseManagementController.ENTRY_GRADES, "成绩录入",
+                "#handleOpenGrades");
+        requireEntryElement(view, TeacherCourseManagementController.ENTRY_APPLICATIONS, "我的申请",
+                "#handleOpenApplications");
+    }
+
+    private static void requireEntryElement(Document view, String id, String text, String handler) {
+        Element button = elementWithId(view, id);
+        require(button != null, "the " + text + " entry must carry fx:id=\"" + id + "\"");
+        require("Button".equals(button.getTagName()),
+                "the " + text + " entry must stay a plain Button element, saw " + button.getTagName());
+        require(text.equals(button.getAttribute("text")),
+                "fx:id=\"" + id + "\" must be the " + text + " entry, saw " + button.getAttribute("text"));
+        require(handler.equals(button.getAttribute("onAction")),
+                "the " + text + " entry must stay wired to " + handler);
+        require(hasStyleClass(button, "teacher-course-entry"),
+                "the " + text + " entry must keep .teacher-course-entry: the smoke test looks it up, saw "
+                        + button.getAttribute("styleClass"));
+
+        Field field = findField(TeacherCourseManagementController.class, id);
+        require(field != null,
+                "the controller must expose a field named " + id + " for the " + text + " entry");
+        require(field.getType() == Button.class,
+                "the " + text + " entry must stay a plain javafx.scene.control.Button, saw "
+                        + field.getType().getName());
+    }
+
+    /**
+     * 高亮的 CSS 契约：顶栏是 #587558 深绿，激活态必须用管理端的深绿底 + 黄下划线（对比度 ≥ 4.5:1），
+     * 并且沿用基类的 3px 下边框宽度，否则高亮会让按钮换行抖动。
+     */
+    private static void theActiveEntryHighlightFitsTheDarkTopbar(String css) {
+        String selector = "." + TeacherCourseManagementController.ENTRY_ACTIVE_CLASS;
+        require(css.contains(selector),
+                "teacher-course.css must define " + selector + " for the active entry");
+
+        String background = cssDeclaration(css, selector, "-fx-background-color");
+        String textFill = cssDeclaration(css, selector, "-fx-text-fill");
+        String borderColor = cssDeclaration(css, selector, "-fx-border-color");
+        require(background != null && textFill != null && borderColor != null,
+                selector + " must set background, text fill and border colour, saw "
+                        + background + " / " + textFill + " / " + borderColor);
+        require("#3f553f".equals(background),
+                selector + " must use the admin dark green #3f553f (the top bar is dark green), saw "
+                        + background);
+        require(borderColor.contains("#fdd000"),
+                selector + " must underline the active entry in yellow like the admin shell, saw "
+                        + borderColor);
+        double contrast = contrastRatio(textFill, background);
+        require(contrast >= 4.5,
+                selector + " must keep the entry label at or above WCAG AA 4.5:1, saw "
+                        + textFill + " on " + background + " = " + contrast);
+
+        String baseBorderWidth = cssDeclaration(css, ".teacher-course-entry", "-fx-border-width");
+        require("0 0 3px 0".equals(baseBorderWidth),
+                "the base entry keeps the 3px bottom border so highlighting never shifts layout, saw "
+                        + baseBorderWidth);
+    }
+
+    /**
+     * 空状态文案居中：{@code .teacher-course-empty-state} 的标签常带 maxWidth，没有
+     * {@code -fx-alignment: center} 时文字会贴在左边缘（学生端/管理端的同类样式都带这一条）。
+     */
+    private static void theSharedEmptyStateCentresItsText(String css) {
+        String alignment = cssDeclaration(css, ".teacher-course-empty-state", "-fx-alignment");
+        require("center".equals(alignment),
+                "the shared teacher empty state must centre its text like the student and admin ones, saw "
+                        + alignment);
+    }
+
+    /**
+     * 顶栏不再自带“返回首页”按钮：外壳由主窗口侧边栏的“选课”入口装进 center，侧边栏在
+     * {@code MainController#loadCenterView} 之后仍然可见，主页按钮就在那里。因此外壳里不该再有任何
+     * 元素把 {@code #handleBack} 接到界面上——控制器方法本身保留（导航与离开守卫仍要用它），
+     * 只是没有按钮指向它。按 {@code onAction} 断言，注释或被注释掉的元素块都骗不过。
+     */
+    private static void theShellHasNoBackButtonOfItsOwn(Document view) {
+        for (Element element : elementsWithTag(view, "*")) {
+            require(!"#handleBack".equals(element.getAttribute("onAction")),
+                    "<" + element.getTagName()
+                            + "> must not bind #handleBack: the sidebar is the way home");
+        }
+        require(buttonWithText(view, "返回首页") == null,
+                "the removed 返回首页 button must not come back under another handler");
+        require(buttonWithText(view, "返回主菜单") == null,
+                "the teacher shell must not adopt the student shell's 返回主菜单 label");
+    }
+
     private static void viewIsTheTeacherWorkspaceShell(Document view) {
         Element root = view.getDocumentElement();
         require("BorderPane".equals(root.getTagName()),
@@ -344,10 +521,12 @@ public final class TeacherCourseManagementControllerTest {
                 "the workspace must reuse the 860x580 main window, saw "
                         + root.getAttribute("prefWidth") + "x" + root.getAttribute("prefHeight"));
 
-        Element back = buttonWithText(view, "返回首页");
-        require(back != null, "the top-left entry must be a 返回首页 button");
-        require("#handleBack".equals(back.getAttribute("onAction")),
-                "返回首页 must be bound to #handleBack, saw " + back.getAttribute("onAction"));
+        Element title = labelWithStyleClass(view, TITLE_CLASS);
+        require(title != null,
+                "the top bar must lead with a ." + TITLE_CLASS + " title label");
+        require(TITLE.equals(title.getAttribute("text")),
+                "the shell title must read " + TITLE + " like the other course shells, saw "
+                        + title.getAttribute("text"));
 
         Element statusLabel = elementWithId(view, "statusLabel");
         require(statusLabel != null,
@@ -529,6 +708,16 @@ public final class TeacherCourseManagementControllerTest {
         return null;
     }
 
+    /** 按 styleClass 定位标签；styleClass 可以是逗号分隔的多值，因此逐 token 比对。 */
+    private static Element labelWithStyleClass(Document view, String styleClass) {
+        for (Element label : elementsWithTag(view, "Label")) {
+            for (String token : label.getAttribute("styleClass").split(",")) {
+                if (styleClass.equals(token.trim())) return label;
+            }
+        }
+        return null;
+    }
+
     private static Element elementWithId(Document view, String id) {
         NodeList elements = view.getElementsByTagName("*");
         for (int index = 0; index < elements.getLength(); index++) {
@@ -536,6 +725,53 @@ public final class TeacherCourseManagementControllerTest {
             if (id.equals(element.getAttribute("fx:id"))) return element;
         }
         return null;
+    }
+
+    /** styleClass 可以是逗号分隔的多值，因此逐 token 比对。 */
+    private static boolean hasStyleClass(Element element, String styleClass) {
+        for (String token : element.getAttribute("styleClass").split(",")) {
+            if (styleClass.equals(token.trim())) return true;
+        }
+        return false;
+    }
+
+    /**
+     * 取 {@code selector} 块里的某条声明值；选择器写作 {@code .x {…}}（逐字匹配，因此
+     * {@code .teacher-course-entry} 不会命中 {@code .teacher-course-entry-active}）。找不到返回 null。
+     */
+    private static String cssDeclaration(String css, String selector, String property) {
+        int start = css.indexOf(selector + " {");
+        if (start < 0) return null;
+        int end = css.indexOf('}', start);
+        if (end < 0) return null;
+        for (String line : css.substring(start, end).split("\n")) {
+            String trimmed = line.trim();
+            if (!trimmed.startsWith(property + ":")) continue;
+            return trimmed.substring(property.length() + 1).replace(";", "").trim();
+        }
+        return null;
+    }
+
+    /** WCAG 2.1 对比度：用真正的相对亮度公式算，而不是看一眼颜色“觉得很清楚”。 */
+    private static double contrastRatio(String foreground, String background) {
+        double first = relativeLuminance(foreground);
+        double second = relativeLuminance(background);
+        return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
+    }
+
+    private static double relativeLuminance(String hex) {
+        String value = hex.startsWith("#") ? hex.substring(1) : hex;
+        int red = Integer.parseInt(value.substring(0, 2), 16);
+        int green = Integer.parseInt(value.substring(2, 4), 16);
+        int blue = Integer.parseInt(value.substring(4, 6), 16);
+        return 0.2126 * linearChannel(red) + 0.7152 * linearChannel(green)
+                + 0.0722 * linearChannel(blue);
+    }
+
+    private static double linearChannel(int value) {
+        double normalized = value / 255.0;
+        return normalized <= 0.03928 ? normalized / 12.92
+                : Math.pow((normalized + 0.055) / 1.055, 2.4);
     }
 
     private static Field findField(Class<?> type, String name) {

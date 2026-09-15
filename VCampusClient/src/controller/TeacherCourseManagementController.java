@@ -5,6 +5,7 @@ import app.ClientMain;
 import javafx.event.Event;
 import javafx.fxml.FXML;
 import javafx.scene.Node;
+import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import service.TeacherCourseService;
 import service.TeacherCourseServices;
@@ -42,6 +43,18 @@ public final class TeacherCourseManagementController {
     static final String PAGE_GRADES = "grades";
     static final String PAGE_GRADE_BOOK = "gradeBook";
 
+    /**
+     * 当前页入口的高亮样式类。右上入口沿用 {@code MainController#updateActiveNavButton} 的做法
+     * （普通 {@code Button} + 一个激活样式类），而不是学生端的 {@code ToggleButton}:selected——
+     * 入口必须继续是普通按钮，冒烟测试按 {@code Button} 类型查找它们。
+     */
+    static final String ENTRY_ACTIVE_CLASS = "teacher-course-entry-active";
+    /** 四个入口的 fx:id：与 FXML 的 fx:id 及控制器字段名逐字一致，{@link #entryForPage} 也返回它们。 */
+    static final String ENTRY_TIMETABLE = "timetableEntryButton";
+    static final String ENTRY_OFFERINGS = "offeringsEntryButton";
+    static final String ENTRY_GRADES = "gradesEntryButton";
+    static final String ENTRY_APPLICATIONS = "applicationsEntryButton";
+
     private final TeacherCourseService service;
     private Runnable backAction = () -> ClientMain.switchScene(HOME_VIEW);
     private String currentPage = PAGE_HOME;
@@ -60,6 +73,10 @@ public final class TeacherCourseManagementController {
     @FXML private TeacherGradeController gradesPageController;
     @FXML private Node gradeBookPage;
     @FXML private TeacherGradeBookController gradeBookPageController;
+    @FXML private Button timetableEntryButton;
+    @FXML private Button offeringsEntryButton;
+    @FXML private Button gradesEntryButton;
+    @FXML private Button applicationsEntryButton;
     @FXML private Label statusLabel;
 
     public TeacherCourseManagementController() {
@@ -301,8 +318,47 @@ public final class TeacherCourseManagementController {
         setPageState(applicationsPage, PAGE_APPLICATIONS.equals(currentPage));
         setPageState(gradesPage, PAGE_GRADES.equals(currentPage));
         setPageState(gradeBookPage, PAGE_GRADE_BOOK.equals(currentPage));
+        highlightCurrentEntry();
         if (statusLabel != null) {
             statusLabel.setText(noticeText);
+        }
+    }
+
+    /**
+     * 右上入口的高亮跟随当前页：只有 {@link #entryForPage} 指到的那个入口带
+     * {@link #ENTRY_ACTIVE_CLASS}，其余三个一律去掉。
+     *
+     * <p>挂在 {@code render()} 里而不是各个点击处理里，因此程序化导航（详情页返回列表、成绩编辑表
+     * 返回列表、课次详情的“查看教学班”）和点击一样会让高亮保持真实；首页没有对应入口，四个入口
+     * 都不高亮。
+     */
+    private void highlightCurrentEntry() {
+        String activeEntry = entryForPage(currentPage);
+        setEntryActive(timetableEntryButton, ENTRY_TIMETABLE.equals(activeEntry));
+        setEntryActive(offeringsEntryButton, ENTRY_OFFERINGS.equals(activeEntry));
+        setEntryActive(gradesEntryButton, ENTRY_GRADES.equals(activeEntry));
+        setEntryActive(applicationsEntryButton, ENTRY_APPLICATIONS.equals(activeEntry));
+    }
+
+    /**
+     * 当前页该点亮哪个右上入口，返回它的 fx:id；首页（以及任何未列出的页）返回 {@code null}，
+     * 表示没有入口处于激活态。教学班详情算“教学班”，成绩编辑表算“成绩录入”，这样从列表钻进
+     * 详情/编辑表时入口不会突然熄灭。
+     */
+    static String entryForPage(String page) {
+        if (PAGE_SCHEDULE.equals(page)) return ENTRY_TIMETABLE;
+        if (PAGE_OFFERINGS.equals(page) || PAGE_DETAIL.equals(page)) return ENTRY_OFFERINGS;
+        if (PAGE_GRADES.equals(page) || PAGE_GRADE_BOOK.equals(page)) return ENTRY_GRADES;
+        if (PAGE_APPLICATIONS.equals(page)) return ENTRY_APPLICATIONS;
+        return null;
+    }
+
+    /** 节点可以为 {@code null}（控制器测试不加载 FXML），加/去样式类都可以重复调用。 */
+    private static void setEntryActive(Button entry, boolean active) {
+        if (entry == null) return;
+        entry.getStyleClass().remove(ENTRY_ACTIVE_CLASS);
+        if (active) {
+            entry.getStyleClass().add(ENTRY_ACTIVE_CLASS);
         }
     }
 
