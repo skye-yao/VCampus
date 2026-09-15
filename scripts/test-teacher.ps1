@@ -164,11 +164,15 @@ $suites = @(
     # 成绩套件：先建立公共契约（草稿/方案/快照的 JSON 保真、精确 ID、不可变列表）与 V007 迁移契约。
     # GradeApprovalDtoJsonTest 是管理员成绩审批的既有 DTO 契约，T1 扩充提交快照后必须继续通过，
     # 它此前不在任何套件里，登记它是为了让本计划“不破坏管理员成绩审批”的断言真的被执行。
+    # T2 的两个纯计算测试（总评 BigDecimal 舍入与学校绩点连续区间）是服务端提交事务与客户端预览
+    # 共用的同一份规则，不碰数据库和界面，但必须每次都跟着跑；它们也是 T4 重算总评前的唯一保护。
     # TeacherGradeMigrationTest 自带 `mysql` 开关，只有 -WithMySql 才跑真实库，未传时打印 SKIP
     # 且不算通过；Tcp/Gui 列表暂时留空，等后续任务补上对应的端到端与界面用例。
     [pscustomobject]@{ Name = 'GradeBook'
         Common = @('dto.course.teacher.TeacherGradeDtoJsonTest',
-            'dto.course.admin.GradeApprovalDtoJsonTest')
+            'dto.course.admin.GradeApprovalDtoJsonTest',
+            'course.grade.GradeCalculatorTest',
+            'course.grade.GradePointScaleTest')
         Client = @()
         Server = @('database.TeacherGradeMigrationTest')
         Tcp = @()
