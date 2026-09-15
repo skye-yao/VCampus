@@ -161,7 +161,18 @@ $suites = @(
         # （跨周 / 冲突 / 撤销 / 长原因）。同一个冒烟类也登记在 Foundation.Gui 与 Timetable.Gui，
         # 跨套件重复有先例（各套件跑各自的入口，冒烟内部覆盖全部教师页面）。
         Gui = @('ui.TeacherCourseUiSmokeTest') }
-    [pscustomobject]@{ Name = 'GradeBook'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }
+    # 成绩套件：先建立公共契约（草稿/方案/快照的 JSON 保真、精确 ID、不可变列表）与 V007 迁移契约。
+    # GradeApprovalDtoJsonTest 是管理员成绩审批的既有 DTO 契约，T1 扩充提交快照后必须继续通过，
+    # 它此前不在任何套件里，登记它是为了让本计划“不破坏管理员成绩审批”的断言真的被执行。
+    # TeacherGradeMigrationTest 自带 `mysql` 开关，只有 -WithMySql 才跑真实库，未传时打印 SKIP
+    # 且不算通过；Tcp/Gui 列表暂时留空，等后续任务补上对应的端到端与界面用例。
+    [pscustomobject]@{ Name = 'GradeBook'
+        Common = @('dto.course.teacher.TeacherGradeDtoJsonTest',
+            'dto.course.admin.GradeApprovalDtoJsonTest')
+        Client = @()
+        Server = @('database.TeacherGradeMigrationTest')
+        Tcp = @()
+        Gui = @() }
     [pscustomobject]@{ Name = 'ImportExport'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }
     [pscustomobject]@{ Name = 'Applications'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }
 )
