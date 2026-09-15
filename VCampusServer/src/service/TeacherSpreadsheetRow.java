@@ -19,7 +19,7 @@ import java.util.List;
  *       两者都表示「没有值」，上层一律保留已有草稿值，不写成 0。</li>
  * </ul>
  *
- * <p>{@code cellErrors} 是该行的结构错误（学号为空、成绩列是公式、学号重复、学号不在名单里等），
+ * <p>{@code cellErrors} 是该行的结构错误（学号为空、学号重复、学号不在名单里、姓名与名单不一致等），
  * 没有错误时是空列表。错误按 {@code field}/{@code rawValue}/{@code message} 三段表达，与
  * {@code GradeImportRowIssueDTO} 一一对应，预览据此定位到具体单元格而不是只给整行一句提示。
  */
@@ -27,13 +27,13 @@ public record TeacherSpreadsheetRow(int rowNumber, String studentUid, String stu
         String rawDailyScore, String rawMidtermScore, String rawExperimentScore,
         String rawFinaltermScore, List<CellError> cellErrors) {
 
-    /** 字段名与 JSON 字段同名：studentUid/studentName/dailyScore/midtermScore/experimentScore/finaltermScore。 */
+    /**
+     * 字段名与行字段同名：解析阶段只会给出这两个身份字段的错误（学号为空/重复、学号不在名单、
+     * 姓名与名单不一致）；成绩字段的错误由上层按 dailyScore/midtermScore/experimentScore/
+     * finaltermScore 的同一套命名补齐。
+     */
     public static final String FIELD_STUDENT_UID = "studentUid";
     public static final String FIELD_STUDENT_NAME = "studentName";
-    public static final String FIELD_DAILY_SCORE = "dailyScore";
-    public static final String FIELD_MIDTERM_SCORE = "midtermScore";
-    public static final String FIELD_EXPERIMENT_SCORE = "experimentScore";
-    public static final String FIELD_FINALTERM_SCORE = "finaltermScore";
 
     public TeacherSpreadsheetRow {
         studentUid = studentUid == null ? "" : studentUid;

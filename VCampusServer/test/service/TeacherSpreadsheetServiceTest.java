@@ -25,17 +25,24 @@ import session.SessionManager;
 import session.UserSession;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.Enumeration;
 import java.util.List;
 import java.util.Locale;
+import java.util.Random;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
+import java.util.zip.ZipOutputStream;
 
 /**
  * 教师成绩 Excel 的服务端行为矩阵（本套件无数据库：读数、写数都不碰 MySQL）。
@@ -43,7 +50,8 @@ import java.util.stream.Stream;
  * <p>三条主线，各自钉住真实文件而不是桩：
  * <ol>
  *   <li><b>解析</b>上传的工作簿：中文姓名、前导零学号（{@code DataFormatter} 文本而不是数字转换）、
- *       缺列、空白、0/100/小数、重复学号、公式、错误表头、损坏文件与超过 5000 行。</li>
+ *       缺列、空白、0/100/小数、重复学号、公式（拒绝整份文件）、错误表头、损坏文件、超限压缩内容
+ *       与超过 5000 行。</li>
  *   <li><b>生成</b>成绩模板与名单导出：用 POI 重新打开生成的文件，核对表头文字、文本格式/加粗样式与
  *       行数；模板第二张说明表写教学班、权重与禁用项。</li>
  *   <li><b>下载票据</b>：Handler 的两个新动作只回票据不回文件字节，且**先校验归属再生成文件**——
@@ -63,6 +71,8 @@ public final class TeacherSpreadsheetServiceTest {
             List.of("学号", "姓名", "平时成绩", "期中成绩", "实验成绩", "期末成绩");
     private static final List<String> ROSTER_HEADERS =
             List.of("学号", "姓名", "专业", "状态", "选课时间", "退课时间");
+    /** 单个填充压缩项的上限：留出余量，让超限用例命中「解压后总量」而不是「单个压缩项」规则。 */
+    private static final long PADDING_ENTRY_BYTES = 20L * 1024 * 1024;
 
     private static Path tempDirectory;
 
@@ -79,10 +89,11 @@ public final class TeacherSpreadsheetServiceTest {
             verifyMissingColumnsAndBlanks(service);
             verifyZeroHundredAndDecimals(service);
             verifyHeaderProblemsStopThePreview(service);
-            verifyFormulaCells(service);
+            verifyFormulaCellsStopTheParse(service);
             verifyDuplicateStudentUids(service);
             verifyOnlyTheFirstSheetIsRead(service);
             verifyCorruptFilesAreRejected(service);
+            verifyOversizedArchivesAreRejected(service);
             verifyRowLimit(service);
             verifyRosterMatching(service);
             verifyGradeTemplate(service);
@@ -172,30 +183,48 @@ public final class TeacherSpreadsheetServiceTest {
     }
 
     /**
-     * 公式：学号是公式直接拒绝整份文件（原文里没有可归属的学号）；成绩是公式则保留原文并按行报错，
-     * 绝不把 POI 算出来的值当成教师填的分数。
+     * 公式：学号、姓名与四项成绩都是「按字面读」的列，任何一处出现公式都拒绝**整份文件**——与
+     * 「损坏的工作簿」同一个拒绝桶（设计第 9 节）。解析阶段就停下，公式原文不会以任何形式进入预览，
+     * 因此预览可以假定拿到的是文件里的字面内容。
      */
-    private static void verifyFormulaCells(TeacherSpreadsheetService service) {
+    private static void verifyFormulaCellsStopTheParse(TeacherSpreadsheetService service) {
         Path formulaUid = workbook("formula-uid.xlsx", TEMPLATE_HEADERS,
                 sheet -> row(sheet, 1, new Formula("CONCATENATE(\"000\",\"123\")"), "张三", "88.5", null, null, null));
         expectInvalid("学号不能是公式", () -> service.parse(formulaUid));
 
         Path formulaScore = workbook("formula-score.xlsx", TEMPLATE_HEADERS,
-                sheet -> row(sheet, 1, "000123", "张三", "88.5", new Formula("90+5"), null, null),
+                sheet -> row(sheet, 1, "000123", "张三", "88.5", new Formula("SUM(B1:C1)"), null, null),
                 sheet -> row(sheet, 2, "000124", "李四", "70", "80", "90", "100"));
-        List<TeacherSpreadsheetRow> rows = service.parse(formulaScore);
-        require(rows.size() == 2, "a formula cell must not drop the row: " + rows.size());
-        TeacherSpreadsheetRow flagged = rows.get(0);
-        require(flagged.cellErrors().size() == 1, "exactly one cell error, saw " + flagged.cellErrors());
-        TeacherSpreadsheetRow.CellError error = flagged.cellErrors().get(0);
-        require("midtermScore".equals(error.field()),
-                "the error must point at the offending field, saw " + error.field());
-        require(error.rawValue() != null && !error.rawValue().isEmpty(),
-                "the raw cell text must be preserved for the preview, saw " + error.rawValue());
-        require("期中成绩不能是公式".equals(error.message()), "saw " + error.message());
-        require(flagged.rawMidtermScore() != null && flagged.rawMidtermScore().equals(error.rawValue()),
-                "the flagged raw text must also be available as the row value");
-        require(!rows.get(1).hasCellErrors(), "a formula in one row must not contaminate the others");
+        expectInvalid("期中成绩不能是公式", () -> service.parse(formulaScore));
+
+        Path formulaName = workbook("formula-name.xlsx", TEMPLATE_HEADERS,
+                sheet -> row(sheet, 1, "000123", new Formula("VLOOKUP(A1,名单!A:B,2)"), "88.5", null, null, null));
+        expectInvalid("姓名不能是公式", () -> service.parse(formulaName));
+    }
+
+    /** 超限压缩内容：文件本身与解压后的体量都在打开工作簿之前由本仓库显式判定。 */
+    private static void verifyOversizedArchivesAreRejected(TeacherSpreadsheetService service) {
+        // 文件本身超过 5 MiB：随机字节不可压缩，声明体积（约 6 MiB）仍在解压上限之内，
+        // 所以只有文件大小这一条会命中。
+        Path tooLarge = archiveWithPadding("too-large.xlsx", 6L * 1024 * 1024, true);
+        require(fileSize(tooLarge) > TeacherFileTicketService.MAX_FILE_BYTES,
+                "the fixture must really exceed the file limit, saw " + fileSize(tooLarge));
+        expectInvalid("文件上限", () -> service.parse(tooLarge));
+
+        // 解压后超过 64 MiB：填充物全是零字节，压缩后很小，文件大小检查不会命中。
+        Path tooInflated = archiveWithPadding("too-inflated.xlsx", 70L * 1024 * 1024, false);
+        require(fileSize(tooInflated) < TeacherFileTicketService.MAX_FILE_BYTES,
+                "the fixture must stay under the file limit, saw " + fileSize(tooInflated));
+        expectInvalid("解压后超过", () -> service.parse(tooInflated));
+
+        // 对照：POI 用与服务端相同的只读方式打开同一个包毫无问题——拒绝它的是本层的显式上限，
+        // 而不是「文件坏了」。
+        try (Workbook ignored = WorkbookFactory.create(tooInflated.toFile(), null, true)) {
+            require(ignored.getNumberOfSheets() == 1,
+                    "the rejected fixture must still be a readable workbook");
+        } catch (IOException failure) {
+            throw new UncheckedIOException(failure);
+        }
     }
 
     /** 重复学号：按行报错（两行都标），不能静默只留一行。 */
@@ -579,6 +608,71 @@ public final class TeacherSpreadsheetServiceTest {
     private static void write(Workbook workbook, Path target) throws IOException {
         try (OutputStream out = Files.newOutputStream(target)) {
             workbook.write(out);
+        }
+    }
+
+    /**
+     * 造一个仍然可读、但压缩体积或解压体积越界的 xlsx：先写一份正常的模板，把它的条目原样复制到
+     * 新包里，再追加若干填充条目。
+     *
+     * <p>{@code incompressible=true} 用随机字节（1 MiB 一块，块间相隔远超 deflate 的 32 KiB 窗口，
+     * 因此压不动）来撑大**文件本身**；{@code false} 用零字节撑大**解压后**的体积而文件几乎不涨。
+     * 填充物按块流式写入，测试本身不会占几十 MiB 堆。每个填充条目都不超过上限的一半，所以 70 MiB
+     * 的用例命中的是「解压后总量」这条规则，而不是「单个压缩项」那条。
+     */
+    private static Path archiveWithPadding(String fileName, long payloadBytes, boolean incompressible) {
+        Path source = workbook(fileName + ".source.xlsx", TEMPLATE_HEADERS,
+                sheet -> row(sheet, 1, "000123", "张三", "88.5", "90", "77", "100"));
+        Path target = tempDirectory.resolve(fileName);
+        byte[] block = new byte[1024 * 1024];
+        if (incompressible) {
+            new Random(20260916L).nextBytes(block);
+        }
+        try (ZipFile archive = new ZipFile(source.toFile());
+             ZipOutputStream out = new ZipOutputStream(Files.newOutputStream(target))) {
+            Enumeration<? extends ZipEntry> entries = archive.entries();
+            while (entries.hasMoreElements()) {
+                ZipEntry entry = entries.nextElement();
+                out.putNextEntry(new ZipEntry(entry.getName()));
+                if ("[Content_Types].xml".equals(entry.getName())) {
+                    // OPC 要求每个 part 都有内容类型：给填充条目的扩展名补一条 Default 规则，
+                    // 这样加过料的包仍然是「POI 打得开的合法工作簿」，被拒只可能是因为我们的上限。
+                    String xml = new String(archive.getInputStream(entry).readAllBytes(),
+                            StandardCharsets.UTF_8);
+                    out.write(xml.replace("</Types>", "<Default Extension=\"bin\""
+                            + " ContentType=\"application/octet-stream\"/></Types>")
+                            .getBytes(StandardCharsets.UTF_8));
+                } else {
+                    try (InputStream content = archive.getInputStream(entry)) {
+                        content.transferTo(out);
+                    }
+                }
+                out.closeEntry();
+            }
+            long remaining = payloadBytes;
+            int index = 0;
+            while (remaining > 0) {
+                long size = Math.min(PADDING_ENTRY_BYTES, remaining);
+                ZipEntry padding = new ZipEntry("xl/media/padding" + (index++) + ".bin");
+                padding.setSize(size);
+                out.putNextEntry(padding);
+                for (long written = 0; written < size; written += block.length) {
+                    out.write(block, 0, (int) Math.min(block.length, size - written));
+                }
+                out.closeEntry();
+                remaining -= size;
+            }
+        } catch (IOException failure) {
+            throw new UncheckedIOException(failure);
+        }
+        return target;
+    }
+
+    private static long fileSize(Path path) {
+        try {
+            return Files.size(path);
+        } catch (IOException failure) {
+            throw new UncheckedIOException(failure);
         }
     }
 

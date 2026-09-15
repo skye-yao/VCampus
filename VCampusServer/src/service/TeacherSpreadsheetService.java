@@ -24,11 +24,15 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipException;
+import java.util.zip.ZipFile;
 
 /**
  * 教师成绩 Excel 的服务端「表格大脑」：解析上传的工作簿、生成空白成绩模板、导出完整名单。
@@ -41,9 +45,12 @@ import java.util.Map;
  * <ul>
  *   <li>只读第一张工作表；表头必须是第一行，且至少包含「学号」列。缺少必需列、已知列重复属于
  *       **文件结构错误**，直接抛出并停止预览；未知的多余列被忽略（教师可能自加备注列）。</li>
- *   <li>学号列与成绩列都用 {@link DataFormatter} 取文本，绝不把学号当数字转换（前导零必须保留）；
- *       学号是公式则整份文件拒绝，成绩/姓名是公式则该行按错误行保留原文，交给预览修正或排除。</li>
+ *   <li>学号、姓名与四项成绩都用 {@link DataFormatter} 取文本，绝不把学号当数字转换（前导零必须保留）；
+ *       这些列里的**公式一律拒绝整份文件**（与「损坏的工作簿」同一个拒绝桶，设计第 9 节）：
+ *       本服务不求值，公式一旦被当作成绩读出来，就是一个服务端猜的值冒充教师填的分数。</li>
  *   <li>成绩列可以整列缺失；空白单元格保留原文本，绝不转成 0。</li>
+ *   <li>打开工作簿之前先拒绝超限的压缩内容：文件本身不得超过
+ *       {@link TeacherFileTicketService#MAX_FILE_BYTES}，解压后总字节不得超过 {@link #MAX_INFLATED_BYTES}。</li>
  *   <li>一个工作簿最多 {@link #MAX_ROWS} 个数据行：解析超限即拒绝，导出超限明确报错，绝不截断。</li>
  * </ul>
  */
@@ -51,6 +58,15 @@ public final class TeacherSpreadsheetService {
 
     /** 单个工作簿的数据行上限：解析、成绩模板与名单导出共用同一口径（设计第 9 节的 5000 行）。 */
     public static final int MAX_ROWS = 5000;
+
+    /**
+     * 单个工作簿解压后的字节上限（64 MiB）。
+     *
+     * <p>设计第 9 节要求拒绝「超限压缩内容」。这个上界由本仓库显式判定，不依赖 POI 的
+     * {@code ZipSecureFile} 默认值——默认最小压缩比 0.01 意味着一个 5 MiB 的包可以膨胀到几百 MiB
+     * 才被拦下。合法工作簿（≤5000 行、六列短文本）解压后远小于这个数。
+     */
+    public static final long MAX_INFLATED_BYTES = 64L * 1024 * 1024;
 
     /** 成绩模板第一张表的固定列，顺序即列序；校验时同一份名单也是「已知表头」的定义。 */
     static final List<String> TEMPLATE_HEADERS =
@@ -76,8 +92,8 @@ public final class TeacherSpreadsheetService {
      * <p>不做名册校验（本方法拿不到名单）：学号是否在本班、姓名是否一致由
      * {@link #parse(Path, Collection)} 或 {@link #matchRoster} 叠加。
      *
-     * @throws IllegalArgumentException 文件不存在、不是有效的 .xlsx、加密、损坏、表头缺少学号列、
-     *         已知表头重复、学号列出现公式、或者数据行超过 {@link #MAX_ROWS}
+     * @throws IllegalArgumentException 文件不存在、不是有效的 .xlsx、加密、损坏、超过文件或解压体积上限、
+     *         表头缺少学号列、已知表头重复、任一处出现公式、或者数据行超过 {@link #MAX_ROWS}
      */
     public List<TeacherSpreadsheetRow> parse(Path workbook) {
         try (Workbook book = openWorkbook(workbook)) {
@@ -238,6 +254,7 @@ public final class TeacherSpreadsheetService {
         if (workbook == null || !Files.isRegularFile(workbook)) {
             throw new IllegalArgumentException("待解析的 Excel 文件不存在");
         }
+        requireWithinCompressionLimits(workbook);
         try {
             // readOnly：解析只需要读，流式读取共享字符串表更省内存。
             return WorkbookFactory.create(workbook.toFile(), null, true);
@@ -246,6 +263,53 @@ public final class TeacherSpreadsheetService {
         } catch (UnsupportedFileFormatException failure) {
             throw new IllegalArgumentException("文件不是有效的 .xlsx 工作簿", failure);
         } catch (IOException | RuntimeException failure) {
+            throw new IllegalArgumentException("工作簿已损坏，无法读取", failure);
+        }
+    }
+
+    /**
+     * 打开工作簿**之前**拒绝超限的压缩内容：先量文件本身，再逐个累加压缩包中央目录里声明的解压后
+     * 大小。任何一项越界都在解压器启动之前失败，因此一个 5 MiB 的包不能让这次解析吃掉任意内存。
+     *
+     * <p>为什么不能只靠 POI：{@code ZipSecureFile} 的默认最小压缩比是 0.01，也就是允许膨胀到
+     * 原文件的 100 倍（5 MiB → 约 500 MiB）才拦下；而且它只对真正被读到的条目生效，包里的
+     * 无关巨型条目可以一路留到解析结束。这里判定的正是「这个包整体有多大」，与内容是否被读到无关。
+     * 中央目录可以谎报大小，那是 POI 在流式读取时的防线（{@code ZipSecureFile} 默认值仍然生效），
+     * 与本层的声明体积上限互补。
+     */
+    private static void requireWithinCompressionLimits(Path workbook) {
+        long fileBytes;
+        try {
+            fileBytes = Files.size(workbook);
+        } catch (IOException failure) {
+            throw new IllegalArgumentException("无法读取工作簿的大小", failure);
+        }
+        if (fileBytes > TeacherFileTicketService.MAX_FILE_BYTES) {
+            throw new IllegalArgumentException("工作簿超过 "
+                    + TeacherFileTicketService.MAX_FILE_BYTES / (1024 * 1024) + " MiB 文件上限");
+        }
+        long inflated = 0;
+        try (ZipFile archive = new ZipFile(workbook.toFile())) {
+            Enumeration<? extends ZipEntry> entries = archive.entries();
+            while (entries.hasMoreElements()) {
+                long entryBytes = entries.nextElement().getSize();
+                // -1 表示中央目录没有给出大小：无法担保的包一律拒绝，绝不「边读边看」。
+                if (entryBytes < 0 || entryBytes > MAX_INFLATED_BYTES) {
+                    throw new IllegalArgumentException("工作簿包含超过 "
+                            + MAX_INFLATED_BYTES / (1024 * 1024) + " MiB 的压缩项");
+                }
+                inflated += entryBytes;
+                if (inflated > MAX_INFLATED_BYTES) {
+                    throw new IllegalArgumentException("工作簿解压后超过 "
+                            + MAX_INFLATED_BYTES / (1024 * 1024) + " MiB 上限");
+                }
+            }
+        } catch (ZipException failure) {
+            // 不是 ZIP 包：加密或旧版工作簿是 OLE2 复合文档，另外还有彻底损坏的文件。三者都不该
+            // 在解压器里尝试，说明里都要给出可执行的下一步，而不是一句「服务端内部错误」。
+            throw new IllegalArgumentException("文件不是有效的 .xlsx 工作簿（可能已加密、是旧版格式或已损坏），"
+                    + "请用 Excel 另存为 .xlsx 后重试", failure);
+        } catch (IOException failure) {
             throw new IllegalArgumentException("工作簿已损坏，无法读取", failure);
         }
     }
@@ -311,24 +375,21 @@ public final class TeacherSpreadsheetService {
     /** 读一行；整行已知列都为空时返回 null（Excel 尾部常见空行，不是错误行）。 */
     private static TeacherSpreadsheetRow readRow(Row row, int rowNumber, Columns columns,
                                                 DataFormatter formatter) {
-        List<TeacherSpreadsheetRow.CellError> errors = new ArrayList<>();
-        String uid = readStudentUid(cellAt(row, columns.uid()), formatter);
-        String name = columns.name() < 0 ? "" : readCheckedText(cellAt(row, columns.name()),
-                formatter, TeacherSpreadsheetRow.FIELD_STUDENT_NAME, HEADER_STUDENT_NAME, errors);
+        String uid = readLiteralText(cellAt(row, columns.uid()), formatter, HEADER_STUDENT_UID);
+        String name = readLiteralText(cellAt(row, columns.name()), formatter, HEADER_STUDENT_NAME);
         String daily = readScore(row, columns.daily(), formatter,
-                TeacherSpreadsheetRow.FIELD_DAILY_SCORE, headerOf(GradeComponentCodeDTO.DAILY), errors);
+                headerOf(GradeComponentCodeDTO.DAILY));
         String midterm = readScore(row, columns.midterm(), formatter,
-                TeacherSpreadsheetRow.FIELD_MIDTERM_SCORE, headerOf(GradeComponentCodeDTO.MIDTERM), errors);
+                headerOf(GradeComponentCodeDTO.MIDTERM));
         String experiment = readScore(row, columns.experiment(), formatter,
-                TeacherSpreadsheetRow.FIELD_EXPERIMENT_SCORE,
-                headerOf(GradeComponentCodeDTO.EXPERIMENT), errors);
+                headerOf(GradeComponentCodeDTO.EXPERIMENT));
         String finalterm = readScore(row, columns.finalterm(), formatter,
-                TeacherSpreadsheetRow.FIELD_FINALTERM_SCORE,
-                headerOf(GradeComponentCodeDTO.FINALTERM), errors);
+                headerOf(GradeComponentCodeDTO.FINALTERM));
         if (uid.isEmpty() && name.isEmpty() && isBlank(daily) && isBlank(midterm)
                 && isBlank(experiment) && isBlank(finalterm)) {
             return null;
         }
+        List<TeacherSpreadsheetRow.CellError> errors = new ArrayList<>();
         if (uid.isEmpty()) {
             errors.add(new TeacherSpreadsheetRow.CellError(TeacherSpreadsheetRow.FIELD_STUDENT_UID,
                     "", "学号不能为空"));
@@ -338,41 +399,26 @@ public final class TeacherSpreadsheetService {
     }
 
     /**
-     * 学号单元格：只接受文本/数字等普通单元格，原文由 {@link DataFormatter} 给出（前导零保留）。
-     * 公式一律拒绝整份文件：学号是行的身份，靠公式算出来的学号说明文件结构本身就是错的。
+     * 读取一列我们当作字面文本使用的单元格（学号、姓名、四项成绩）：整列缺失返回 {@code null}，
+     * 单元格缺失/空白返回空串，公式则拒绝**整份文件**。
+     *
+     * <p>公式与「损坏的工作簿」是同一个拒绝桶（设计第 9 节）：本服务不求值，`=SUM(B2:C2)` 一旦
+     * 作为成绩读进来，就是一个服务端猜的值冒充教师填的分数。这里在解析阶段就停下，而不是把公式
+     * 原文当成一项待修正的数据往后传——预览阶段必须能假定拿到的是文件里的字面内容。
      */
-    private static String readStudentUid(Cell cell, DataFormatter formatter) {
+    private static String readLiteralText(Cell cell, DataFormatter formatter, String label) {
         if (cell == null) {
             return "";
         }
         if (cell.getCellType() == CellType.FORMULA) {
-            throw new IllegalArgumentException("学号不能是公式");
+            throw new IllegalArgumentException(label + "不能是公式");
         }
         return formatter.formatCellValue(cell).strip();
     }
 
-    /**
-     * 成绩单元格：整列缺失返回 {@code null}；单元格空白返回空串；公式保留原文并记错误行，
-     * 让预览显示问题单元格而不是在解析时把它吞掉。
-     */
-    private static String readScore(Row row, int column, DataFormatter formatter, String field,
-                                    String label, List<TeacherSpreadsheetRow.CellError> errors) {
-        if (column < 0) {
-            return null;
-        }
-        return readCheckedText(cellAt(row, column), formatter, field, label, errors);
-    }
-
-    private static String readCheckedText(Cell cell, DataFormatter formatter, String field,
-                                          String label, List<TeacherSpreadsheetRow.CellError> errors) {
-        if (cell == null) {
-            return "";
-        }
-        String text = formatter.formatCellValue(cell).strip();
-        if (cell.getCellType() == CellType.FORMULA) {
-            errors.add(new TeacherSpreadsheetRow.CellError(field, text, label + "不能是公式"));
-        }
-        return text;
+    /** 成绩列：整列缺失（列下标为 -1）时该行没有值，与「列存在但单元格空白」区分开。 */
+    private static String readScore(Row row, int column, DataFormatter formatter, String label) {
+        return column < 0 ? null : readLiteralText(cellAt(row, column), formatter, label);
     }
 
     /** 同一学号在文件里出现多次：无法合并到同一行，逐行报错交给预览修正或排除。 */
