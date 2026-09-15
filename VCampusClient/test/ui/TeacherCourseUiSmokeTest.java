@@ -704,8 +704,11 @@ public final class TeacherCourseUiSmokeTest {
 
             // ------------------------------------------------------------ T5：导入区接线
             // 真实工具包里断言导入区已经接上处理器：FXML 里写错的 fx:id/onAction 只会让按钮变成
-            // 没有反应的摆件（无工具包的控制器测试连 Button 都造不出来），而“还没进入预览”时
-            // 取消/确认/异常明细三个按钮必须藏起来——这套显隐只有真实渲染能证明。
+            // 没有反应的摆件（无工具包的控制器测试连 Button 都造不出来）。
+            // 下面那条「未预览时三个按钮不可见」方向是反的：它们在 FXML 里本来就是
+            // visible="false"/managed="false"，所以它只能抓住「控制器在启动时错把它们点亮」；
+            // 「预览到达后显示出来、确认按钮可用」那条方向由无工具包的 TeacherGradeImportControllerTest
+            // 覆盖（mock 给不出 issues，这里造不出来，也不伪造）。
             steps.add(() -> {
                 Button template = button("#gradeBookDownloadTemplateButton", "下载成绩模板按钮");
                 Button export = button("#gradeBookExportRosterButton", "导出名单按钮");

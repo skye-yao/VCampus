@@ -736,6 +736,13 @@ public final class TeacherGradeImportSocketEndToEndTest {
                         && detail.getSummary().getStudentCount() == MAIN_STUDENTS,
                 "the administrator's detail must be the batch this run submitted");
         requirePublishedGrades();
+        // 正向对照：审批之后这同一个探针必须真的看得见已发布的成绩。没有这一句，前面三处
+        // 「grade 未变化」的比较（预览前后、确认后）就可能退化成 '' == ''——探针一旦因为 id 范围
+        // 变了、或者新加的列没 COALESCE 而让 GROUP_CONCAT 跳过整行，那三处断言会在预览/确认其实
+        // 往 grade 写了数据的情况下依然全绿。
+        require(!publishedSnapshot().isBlank(),
+                "the published snapshot probe must see the approved grades, otherwise the"
+                        + " untouched-grade comparisons before it are vacuous");
         GradeSummaryDTO summary = grades(student, studentToken);
         GradeRecordDTO record = recordFor(summary, "TGIE984A");
         require(record != null, "the student must see the approved course");

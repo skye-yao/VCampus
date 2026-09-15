@@ -529,13 +529,16 @@ public final class TeacherGradeImportController {
      * 所以它不等于「还没解决的行数」。按它判断按钮的话，教师排除掉未知学生行之后
      * {@code errorRows} 仍然是 1，确认按钮会永远不可用；而服务端的 {@code blocked()} 恰恰允许确认
      * （「请修正或明确排除后再确认导入」）。这里因此复用服务端同一份事实：逐条问题看
-     * {@code isExcluded}。{@code issues} 为缺失（老响应）时按没有未解决问题处理，与服务端
-     * 「没有问题时 blocked() 为 false」一致。
+     * {@code isExcluded}。
+     *
+     * <p>响应里根本没有问题列表时**关掉**确认（fail-closed）：那种响应既没告诉我们有多少未解决的
+     * 问题，服务端也多半会拒绝，把按钮点亮只会让教师白点一次、拿到一句服务端拒绝文案。
+     * （当前服务端一定会带上这个数组，所以这是对畸形响应的兜底，方向选安全的那一边。）
      */
     boolean confirmEnabled() {
         if (!importing || confirming || revising || uploading || preview == null) return false;
         List<GradeImportRowIssueDTO> issues = preview.getIssues();
-        return issues == null || issues.stream().noneMatch(issue -> !issue.isExcluded());
+        return issues != null && issues.stream().noneMatch(issue -> !issue.isExcluded());
     }
 
     /**
@@ -691,9 +694,15 @@ public final class TeacherGradeImportController {
                 + " 条　异常 " + preview.getErrorRows() + " 条";
     }
 
-    /** 异常学生姓名（姓名优先，缺姓名回退学号，再回退行号）；已排除的行不再算「待处理」但仍列出。 */
+    /**
+     * 异常学生姓名（姓名优先，缺姓名回退学号，再回退行号）；已排除的行不再算「待处理」但仍列出。
+     *
+     * <p>响应里没有带问题列表时不谎称「没有异常行」——总记录那半句里的异常条数可能仍然大于 0，
+     * 那会自相矛盾；这时只说明明细不可用（{@link #confirmEnabled()} 也已经关掉确认）。
+     */
     static String abnormalNames(GradeImportPreviewDTO preview) {
-        if (preview == null || preview.getIssues().isEmpty()) return "没有异常行";
+        if (preview == null || preview.getIssues() == null) return "异常明细不可用";
+        if (preview.getIssues().isEmpty()) return "没有异常行";
         List<String> names = new ArrayList<>();
         for (GradeImportRowIssueDTO issue : preview.getIssues()) {
             String name = issueLabel(issue);
@@ -769,10 +778,17 @@ public final class TeacherGradeImportController {
         return null;
     }
 
-    /** 服务端问题落到表格格子上的映射：学号 → 这一行，字段 → 哪一个成绩格。 */
+    /**
+     * 服务端问题落到表格格子上的映射：学号 → 这一行，字段 → 哪一个成绩格。
+     *
+     * <p>响应没带问题列表时没有任何红框可画：返回空映射，而不是在这里抛 NPE 把整条预览链截断
+     * （同形响应的展示口径见 {@link #abnormalNames(GradeImportPreviewDTO)}）。
+     */
     private Map<String, Map<GradeComponentCodeDTO, String>> issueCells(GradeImportPreviewDTO next) {
         Map<String, Map<GradeComponentCodeDTO, String>> byEnrollment = new LinkedHashMap<>();
-        if (host == null || host.model() == null || next == null) return byEnrollment;
+        if (host == null || host.model() == null || next == null || next.getIssues() == null) {
+            return byEnrollment;
+        }
         for (GradeImportRowIssueDTO issue : next.getIssues()) {
             if (issue.isExcluded()) continue;
             GradeComponentCodeDTO code = componentOf(issue.getField());
@@ -892,7 +908,9 @@ public final class TeacherGradeImportController {
             }
             if (feedbackIssueList == null) return;
             feedbackIssueList.getChildren().clear();
-            if (preview == null) return;
+            // 响应没带问题列表（畸形/老响应）时只渲染空列表：这里抛异常会被 showFeedbackDialog
+            // 的兜底吞掉，教师看到的是「弹窗没打开」而不是「弹出去了但内容不对」。
+            if (preview == null || preview.getIssues() == null) return;
             for (GradeImportRowIssueDTO issue : preview.getIssues()) {
                 feedbackIssueList.getChildren().add(issueRow(issue));
             }

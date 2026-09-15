@@ -9,6 +9,7 @@ import dto.course.teacher.PreviewGradeImportRequestDTO;
 import dto.course.teacher.ReviseGradeImportRequestDTO;
 import dto.course.teacher.TeacherAdjustmentWriteDTO;
 import dto.course.teacher.TeacherCourseActions;
+import dto.course.teacher.TeacherFileTicketDTO;
 import dto.course.teacher.TeacherFileUploadRequestDTO;
 import dto.course.teacher.TeacherGradeBookDTO;
 import dto.course.teacher.TeacherOperationResultDTO;
@@ -240,9 +241,9 @@ public class TeacherCourseHandler {
                     TeacherFileTicketService fileService = files();
                     String offeringId = decimalId(request, "offeringId");
                     TeacherGradeBookDTO gradeBook = grades().getGradeBook(uid, offeringId);
-                    Path target = generateDownloadFile(fileService, "成绩模板.xlsx",
-                            path -> spreadsheets.writeGradeTemplate(path, gradeBook));
-                    response.putData("ticket", fileService.issueDownload(session, offeringId, target));
+                    response.putData("ticket", issueDownloadFile(fileService, session, offeringId,
+                            "成绩模板.xlsx",
+                            path -> spreadsheets.writeGradeTemplate(path, gradeBook)));
                 }
                 case TeacherCourseActions.REQUEST_ROSTER_EXPORT -> {
                     // 与名单列表同一个归属校验入口；过滤条件相同，区别只是取全部结果而不是当前页。
@@ -250,9 +251,8 @@ public class TeacherCourseHandler {
                     String offeringId = decimalId(request, "offeringId");
                     List<TeacherRosterRowDTO> roster = queries.listAllOfferingStudents(uid, offeringId,
                             optionalText(request, "query"), enrollmentStatus(request));
-                    Path target = generateDownloadFile(fileService, "学生名单.xlsx",
-                            path -> spreadsheets.writeRoster(path, roster));
-                    response.putData("ticket", fileService.issueDownload(session, offeringId, target));
+                    response.putData("ticket", issueDownloadFile(fileService, session, offeringId,
+                            "学生名单.xlsx", path -> spreadsheets.writeRoster(path, roster)));
                 }
                 case TeacherCourseActions.PREVIEW_GRADE_IMPORT -> {
                     // 预览不写库：兑换上传票据、解析、把候选与问题一起回给界面。
@@ -332,22 +332,24 @@ public class TeacherCourseHandler {
     }
 
     /**
-     * 在文件服务的临时目录里生成一个下载用的表格，返回它的路径（随后交给
-     * {@link TeacherFileTicketService#issueDownload}）。
+     * 在文件服务的临时目录里生成一个下载用的表格**并签发票据**，返回票据（响应键 {@code ticket}）。
      *
-     * <p>文件名由服务端生成，客户端只贡献扩展名；生成中途失败时删掉半截文件再抛，避免一个永远
-     * 不会被领取的残件留在临时目录里。
+     * <p>文件名由服务端生成，客户端只贡献扩展名。生成与签发必须共用同一个收尾：写表失败与签发失败
+     * （工作簿超过 5 MiB、会话失效）都会留下一个**没有票据条目**的文件，而
+     * {@link TeacherFileTicketService#purgeExpired} 是按票据条目回收临时文件的——看不见它，就永远
+     * 收不走，一份这样的残件会一直占到停服。因此两步放在同一个 try 里，任何一步抛出都先删掉半成品
+     * 再抛（下载方向文件连接也会在成功发送后回收，那条路径已经不会留孤儿了）。
      */
-    private Path generateDownloadFile(TeacherFileTicketService fileService, String clientFileName,
-            Consumer<Path> writer) {
+    private TeacherFileTicketDTO issueDownloadFile(TeacherFileTicketService fileService,
+            UserSession session, String offeringId, String clientFileName, Consumer<Path> writer) {
         Path target = fileService.newTempFile(clientFileName);
         try {
             writer.accept(target);
+            return fileService.issueDownload(session, offeringId, target);
         } catch (RuntimeException failure) {
             TeacherFileTicketService.deleteQuietly(target);
             throw failure;
         }
-        return target;
     }
 
     /** 写操作响应：结果信封进 result，响应消息取自操作结果，与管理员课程写操作一致。 */

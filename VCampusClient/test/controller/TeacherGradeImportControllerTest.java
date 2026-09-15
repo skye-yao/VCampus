@@ -88,6 +88,7 @@ public final class TeacherGradeImportControllerTest {
         issueCellsGoThroughReviseAndALateResponseIsDiscarded();
         unknownStudentRowsAreResolvedByExplicitExclusion();
         excludedRowsLeaveTheConfirmAvailable();
+        missingIssueListKeepsTheConfirmClosed();
         confirmUsesTheLatestServerPreviewAndNeverSubmits();
         confirmConflictKeepsThePreviewAndTheEditingCopy();
         leavingDuringImportCancelsTheTransferAndRestoresTheCopy();
@@ -349,6 +350,56 @@ public final class TeacherGradeImportControllerTest {
                         + service.revises.get(1).getExcludedRows());
         require(controller.importController().confirmEnabled(),
                 "全部异常行都被明确排除之后，确认按钮才可用");
+    }
+
+    /**
+     * 响应里根本没有问题列表时确认必须关着（fail-closed）。
+     *
+     * <p>当前服务端一定会带上 {@code issues}（{@code merge} 返回 {@code List.copyOf(issues)}），
+     * 所以这是对畸形/老响应的兜底；但两个方向里只有「关掉」是安全的：缺列表时我们并不知道还有没有
+     * 未解决的问题，点亮按钮只会让教师白点一次、拿到一句服务端拒绝文案。
+     *
+     * <p>夹具必须像 Gson 那样**直接写字段**——{@link GradeImportPreviewDTO} 的构造器会把 null
+     * 规范成空列表（{@code immutableCopy}），而 Gson 反序列化不走构造器，所以「响应里没有 issues」
+     * 在客户端里就是 null。这条用例同时钉住「缺列表时预览链不会抛 NPE」：否则异常被吞掉，
+     * 界面停在半途而测试仍然全绿。
+     */
+    private static void missingIssueListKeepsTheConfirmClosed() {
+        ImportService service = new ImportService();
+        TeacherGradeBookController controller = controller(service, new FakeDialogs());
+        controller.showOffering(OFFERING);
+
+        GradeImportPreviewDTO withoutIssues = preview(1, candidateFor(controller,
+                        controller.rows().get(0).enrollmentId(),
+                        new GradeScoresDTO(new BigDecimal("60"), null, null, null)),
+                5, 2, List.of());
+        nullOutIssues(withoutIssues);
+        service.previewResponse = withoutIssues;
+        controller.importController().startImport();
+        settle(controller);
+
+        GradeImportPreviewDTO landed = controller.importController().preview();
+        require(landed != null && landed.getIssues() == null,
+                "夹具必须真的没有带问题列表，收到 "
+                        + (landed == null ? "没有预览" : String.valueOf(landed.getIssues())));
+        require(!controller.importController().confirmEnabled(),
+                "缺问题列表时确认必须关着（fail-closed），不能当成「没有未解决的问题」");
+        // 摘要照旧走完：异常条数照实显示，异常姓名那半句不谎称「没有异常行」。
+        require(controller.feedbackText() != null
+                        && controller.feedbackText().contains("异常 2 条")
+                        && controller.feedbackText().contains("异常明细不可用"),
+                "缺列表时预览仍要落地并如实显示条数，收到 " + controller.feedbackText());
+    }
+
+    /** 像 Gson 那样把 {@code issues} 写成 null：构造器会规范化，反序列化不会。 */
+    private static void nullOutIssues(GradeImportPreviewDTO preview) {
+        try {
+            Field field = GradeImportPreviewDTO.class.getDeclaredField("issues");
+            field.setAccessible(true);
+            field.set(preview, null);
+        } catch (ReflectiveOperationException failure) {
+            throw new AssertionError("无法把 issues 置空", failure);
+        }
     }
 
     /**
