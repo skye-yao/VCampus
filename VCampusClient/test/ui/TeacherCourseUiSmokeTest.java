@@ -14,19 +14,25 @@ import javafx.animation.PauseTransition;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.embed.swing.SwingFXUtils;
+import javafx.event.ActionEvent;
 import javafx.fxml.FXMLLoader;
 import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
+import javafx.scene.control.ButtonType;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
+import javafx.scene.control.DialogPane;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
+import javafx.scene.control.TableCell;
 import javafx.scene.control.TableRow;
 import javafx.scene.control.TableView;
 import javafx.scene.control.TextArea;
+import javafx.scene.control.TextField;
 import javafx.scene.image.WritableImage;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.VBox;
@@ -90,6 +96,22 @@ public final class TeacherCourseUiSmokeTest {
             "教师因参加全国课程建设研讨会需要出差，随行还有两位助教；会议日程与本周课程冲突，"
             + "已与教学班学生代表协商改期，并确认目标教室在没有其他课程占用，"
             + "希望教务处审批后把本次课次调整到新的教学日，后续如有变动会第一时间重新提交申请。";
+    /** T6 成绩夹具：CS203-01 草稿（每五人缺一个实验分）、CS301-01 空班、CS204-01 已驳回、CS352-01 待审核。 */
+    private static final String GRADE_DRAFT_OFFERING = "CS203-01";
+    private static final String GRADE_EMPTY_OFFERING = "CS301-01";
+    private static final String GRADE_REJECTED_OFFERING = "CS204-01";
+    private static final String GRADE_PENDING_OFFERING = "CS352-01";
+    private static final String AUTUMN_TERM_LABEL = "2025-2026 秋学期";
+    /** = TeacherGradeBookController.LEAVE_PROMPT_TEXT 的对话框标题与正文片段。 */
+    private static final String LEAVE_PROMPT_TITLE = "未保存的成绩";
+    private static final String LEAVE_PROMPT_FRAGMENT = "未保存的修改";
+    /** Mock 的被驳回批次审核意见与待审核批次号。 */
+    private static final String REVIEW_COMMENT_FRAGMENT = "总分与平时分不一致";
+    private static final String PENDING_SUBMISSION_ID = "9601";
+    /** = TeacherGradeBookController 的未录入占位符与单元格样式类，界面上必须真的画出来。 */
+    private static final String PLACEHOLDER = "—";
+    private static final String GRADE_CELL_ERROR_CLASS = "teacher-course-grade-cell-error";
+    private static final String GRADE_CELL_DISABLED_CLASS = "teacher-course-grade-cell-disabled";
     private static final String[] FILES = {
             "offering-list.png", "detail-basic-info.png", "detail-roster-page1.png",
             "roster-page2.png", "detail-schedule.png", "detail-grades.png", "roster-empty.png",
@@ -97,7 +119,11 @@ public final class TeacherCourseUiSmokeTest {
             "schedule-empty-week.png",
             // T5 的四张主题截图（跨周 / 冲突 / 撤销 / 长原因）。
             "adjustment-dialog-cross-week.png", "adjustment-dialog-conflict.png",
-            "adjustment-dialog-long-reason.png", "adjustment-applications-withdrawn.png"
+            "adjustment-dialog-long-reason.png", "adjustment-applications-withdrawn.png",
+            // T6 的八张成绩录入截图（列表 / 部分填写 / 非法值 / 灰列 / 未保存提示 / 确认提交 / 只读 / 驳回）。
+            "grade-offering-list.png", "gradebook-partial.png", "gradebook-invalid-cell.png",
+            "gradebook-disabled-column.png", "gradebook-unsaved-prompt.png",
+            "gradebook-submit-confirm.png", "gradebook-read-only.png", "gradebook-rejected.png"
     };
     private static final Path OUTPUT = Path.of(".codex-tmp", "teacher");
 
@@ -120,6 +146,8 @@ public final class TeacherCourseUiSmokeTest {
         private Parent root;
         private Stage primaryStage;
         private int stepIndex;
+        /** 确认框可能晚一个脉冲才建窗，重新排队的次数上限。 */
+        private int leavePromptAttempts;
 
         @Override
         public void start(Stage stage) throws Exception {
@@ -586,6 +614,219 @@ public final class TeacherCourseUiSmokeTest {
                         "撤销必须真实改变查询快照（已撤销列表里出现 9404 与 9405）");
             });
 
+            // ------------------------------------------------------------ T6：成绩录入
+            // 真实加载 TeacherGradeView/TeacherGradeBookView（两个新 FXML 的转义与绑定只有真实工具包能证明），
+            // 依次走：成绩列表 → 草稿班（部分填写 / 非法值 / 灰列 / 未保存提示）→ 提交后的只读页 → 被驳回页。
+            steps.add(() -> entryButton("成绩录入").fire());
+            steps.add(() -> {
+                require(effectivelyVisible(requireNode("#gradesPage", Parent.class, "成绩录入页")),
+                        "进入成绩录入后成绩列表页必须可见");
+                TableView<?> list = table("#gradeOfferingTable", "成绩列表");
+                require(list.getItems().size() == 2,
+                        "2025/3 应列出 2 个教学班，实际 " + list.getItems().size());
+                require(cellText(list, 0, 0).contains(GRADE_DRAFT_OFFERING)
+                                && "草稿".equals(cellText(list, 0, 3))
+                                && "24 人".equals(cellText(list, 0, 4))
+                                && "5 人".equals(cellText(list, 0, 5)),
+                        "第一行必须是 CS203-01 的草稿与录入进度，实际 " + rowCells(list, 0));
+                require(cellText(list, 1, 0).contains(GRADE_EMPTY_OFFERING),
+                        "第二行必须是空班 CS301-01，实际 " + rowCells(list, 1));
+                // 操作列是按钮（没有单元格数据），所以按状态反查它的“录入成绩”按钮并确认真实可用。
+                require(!gradeEntryButtonForState("草稿").isDisabled(),
+                        "草稿行必须带可用的录入成绩按钮");
+                snapshot("grade-offering-list.png");
+            });
+            steps.add(() -> gradeEntryButtonForState("草稿").fire());
+            steps.add(() -> {
+                require(effectivelyVisible(requireNode("#gradeBookPage", Parent.class, "成绩编辑表")),
+                        "点录入成绩后成绩编辑表必须可见");
+                require(!effectivelyVisible(requireNode("#gradesPage", Parent.class, "成绩录入页")),
+                        "进入成绩编辑表后成绩列表页必须被替换掉");
+                TableView<?> book = table("#gradeBookTable", "成绩表");
+                require(book.getItems().size() == 24,
+                        "草稿班应有 24 名正常修读学生，实际 " + book.getItems().size());
+                require(labelText("#gradeBookStateLabel").contains("草稿")
+                                && labelText("#gradeBookStateLabel").contains("v4"),
+                        "状态行必须显示草稿与版本，实际 " + labelText("#gradeBookStateLabel"));
+                require(labelText("#gradeBookSchemeLabel").contains("权重合计：10000/10000")
+                                && labelText("#gradeBookSchemeLabel").contains("已配齐"),
+                        "方案行必须显示已配齐的权重，实际 " + labelText("#gradeBookSchemeLabel"));
+                require(!button("#gradeBookSaveButton", "保存草稿").isDisabled()
+                                && !button("#gradeBookSubmitButton", "提交成绩").isDisabled(),
+                        "草稿状态下保存与提交必须可用");
+                require(emptyCellsIn(book, 4) > 0 && emptyCellsIn(book, 2) == 0,
+                        "部分填写：实验列必须有留空的单元格、平时列不应有，实际 "
+                                + emptyCellsIn(book, 4) + "/" + emptyCellsIn(book, 2));
+                require("总评".equals(book.getColumns().get(6).getText())
+                                && PLACEHOLDER.equals(cellText(book, 3, 6))
+                                && !PLACEHOLDER.equals(cellText(book, 0, 6)),
+                        "缺分行的总评必须显示占位符而不是伪造的数字，实际 "
+                                + cellText(book, 3, 6) + "/" + cellText(book, 0, 6));
+                snapshot("gradebook-partial.png");
+            });
+
+            // 非法值：真实编辑单元格 → 单元格标红 → 本地校验挡住保存（不发一个注定被拒绝的请求）。
+            steps.add(() -> {
+                TableView<?> book = table("#gradeBookTable", "成绩表");
+                editCell(book, 0, 2);
+            });
+            steps.add(() -> {
+                TextField editor = cellEditor(table("#gradeBookTable", "成绩表"));
+                require(editor != null, "双击单元格后必须出现输入框");
+                editor.setText("8.8.8");
+                editor.fireEvent(new ActionEvent());
+            });
+            steps.add(() -> {
+                TableView<?> book = table("#gradeBookTable", "成绩表");
+                require(styledCellsIn(book, 2, GRADE_CELL_ERROR_CLASS) == 1,
+                        "非法分数必须把该单元格标红，实际标红 "
+                                + styledCellsIn(book, 2, GRADE_CELL_ERROR_CLASS) + " 格");
+                button("#gradeBookSaveButton", "保存草稿").fire();
+            });
+            steps.add(() -> {
+                String feedback = labelText("#gradeBookFeedbackLabel");
+                require(feedback.contains("存在非法输入") && feedback.contains("平时"),
+                        "保存必须被本地校验挡住并指出是哪一格，实际 " + feedback);
+                require(labelText("#gradeBookStateLabel").contains("v4"),
+                        "被挡下的保存不得改变版本，实际 " + labelText("#gradeBookStateLabel"));
+                snapshot("gradebook-invalid-cell.png");
+            });
+
+            // 修正后保存成功：非法样式消失、版本前进，用户输入的内容被服务端快照确认。
+            steps.add(() -> {
+                TableView<?> book = table("#gradeBookTable", "成绩表");
+                editCell(book, 0, 2);
+            });
+            steps.add(() -> {
+                TextField editor = cellEditor(table("#gradeBookTable", "成绩表"));
+                require(editor != null, "第二次编辑必须同样出现输入框");
+                editor.setText("71.5");
+                editor.fireEvent(new ActionEvent());
+            });
+            steps.add(() -> {
+                TableView<?> book = table("#gradeBookTable", "成绩表");
+                require(styledCellsIn(book, 2, GRADE_CELL_ERROR_CLASS) == 0,
+                        "修正后的单元格不得再标红");
+                button("#gradeBookSaveButton", "保存草稿").fire();
+            });
+            steps.add(() -> {
+                require(labelText("#gradeBookFeedbackLabel").contains("成绩草稿已保存"),
+                        "修正后的保存必须成功，实际 " + labelText("#gradeBookFeedbackLabel"));
+                require(labelText("#gradeBookStateLabel").contains("v5"),
+                        "保存成功后版本必须前进到 v5，实际 " + labelText("#gradeBookStateLabel"));
+            });
+
+            // 灰列：禁用一列组成 → 该列整体置灰、权重输入禁用、权重合计变成未配齐。
+            steps.add(() -> requireNode("#gradeBookExperimentEnabled", CheckBox.class, "实验启用开关")
+                    .setSelected(false));
+            steps.add(() -> {
+                TableView<?> book = table("#gradeBookTable", "成绩表");
+                require(styledCellsIn(book, 4, GRADE_CELL_DISABLED_CLASS) > 0,
+                        "禁用组成的整列必须置灰，实际置灰 "
+                                + styledCellsIn(book, 4, GRADE_CELL_DISABLED_CLASS) + " 格");
+                require(requireNode("#gradeBookExperimentWeight", TextField.class, "实验权重")
+                                .isDisabled(),
+                        "禁用组成的权重输入必须不可编辑");
+                require(labelText("#gradeBookSchemeLabel").contains("权重合计：8000/10000")
+                                && labelText("#gradeBookSchemeLabel").contains("未配齐"),
+                        "禁用后权重合计必须变成未配齐的 8000，实际 "
+                                + labelText("#gradeBookSchemeLabel"));
+                snapshot("gradebook-disabled-column.png");
+            });
+
+            // 未保存提示：有改动时离开先弹确认框，取消后必须停在原页且保留编辑内容。
+            // 确认框在自己的嵌套事件循环里渲染并阻塞调用方，所以先排队处理任务，再触发导航。
+            steps.add(() -> {
+                leavePromptAttempts = 0;
+                Platform.runLater(this::captureAndRefuseLeavePrompt);
+                entryButton("教学班").fire();
+            });
+            steps.add(() -> {
+                require(effectivelyVisible(requireNode("#gradeBookPage", Parent.class, "成绩编辑表")),
+                        "被拒绝的离开必须停在成绩表页面");
+                require(!effectivelyVisible(requireNode("#offeringsPage", Parent.class, "教学班页")),
+                        "被拒绝的离开不得切换到教学班页");
+                require(!requireNode("#gradeBookExperimentEnabled", CheckBox.class, "实验启用开关")
+                                .isSelected(),
+                        "被拒绝的离开不得丢掉未保存的编辑（实验仍是禁用态）");
+                require(Window.getWindows().size() == 1,
+                        "确认框作答后不能留下多余窗口，实际 " + Window.getWindows().size() + " 个");
+            });
+
+            // 补齐权重（禁用实验后 40/20/-/40）并真实提交：二次确认 → 只读的待审核页。
+            steps.add(() -> requireNode("#gradeBookDailyWeight", TextField.class, "平时权重")
+                    .setText("40"));
+            steps.add(() -> requireNode("#gradeBookFinaltermWeight", TextField.class, "期末权重")
+                    .setText("40"));
+            steps.add(() -> {
+                require(labelText("#gradeBookSchemeLabel").contains("权重合计：10000/10000")
+                                && labelText("#gradeBookSchemeLabel").contains("已配齐"),
+                        "禁用实验后 40/20/-/40 必须重新配齐，实际 "
+                                + labelText("#gradeBookSchemeLabel"));
+                button("#gradeBookSubmitButton", "提交成绩").fire();
+            });
+            steps.add(() -> {
+                Button confirm = button("#gradeBookConfirmSubmitButton", "确认提交");
+                require(confirm.isVisible() && !confirm.isDisabled(),
+                        "第一次点击提交必须只进入可用的确认态");
+                require(!labelText("#gradeBookFeedbackLabel").contains("成绩批次已提交"),
+                        "进入确认态时不得已经提交");
+                snapshot("gradebook-submit-confirm.png");
+                confirm.fire();
+            });
+            steps.add(() -> {
+                require(labelText("#gradeBookFeedbackLabel").contains("成绩批次已提交"),
+                        "确认提交后必须提交成功，实际 " + labelText("#gradeBookFeedbackLabel"));
+                require(labelText("#gradeBookStateLabel").contains("已提交待审核")
+                                && labelText("#gradeBookStateLabel").contains("v6"),
+                        "提交成功后必须进入待审核只读态，实际 " + labelText("#gradeBookStateLabel"));
+                Label notice = requireNode("#gradeBookNoticeLabel", Label.class, "只读提示");
+                require(notice.isVisible() && notice.getText().contains("只读状态")
+                                && notice.getText().contains(PENDING_SUBMISSION_ID),
+                        "只读提示必须写明状态与批次，实际 " + notice.getText());
+                require(button("#gradeBookSaveButton", "保存草稿").isDisabled()
+                                && button("#gradeBookSubmitButton", "提交成绩").isDisabled(),
+                        "只读状态下保存与提交必须禁用");
+                require(requireNode("#gradeBookDailyEnabled", CheckBox.class, "平时启用开关")
+                                .isDisabled()
+                                && requireNode("#gradeBookDailyWeight", TextField.class, "平时权重")
+                                .isDisabled(),
+                        "只读状态下方案开关与权重输入必须不可编辑");
+                require(table("#gradeBookTable", "成绩表").getItems().size() == 24,
+                        "提交后的成绩表必须仍然显示整份名单");
+                snapshot("gradebook-read-only.png");
+            });
+
+            // 被驳回页：切到 2025/2，被驳回的批次可以继续编辑，且必须一直显示管理员的审核意见。
+            steps.add(() -> entryButton("教学班").fire());
+            steps.add(() -> entryButton("成绩录入").fire());
+            steps.add(() -> selectComboValue(requireNode("#gradesPage", Parent.class, "成绩录入页"),
+                    "#gradeTermFilter", AUTUMN_TERM_LABEL));
+            steps.add(() -> {
+                TableView<?> list = table("#gradeOfferingTable", "成绩列表");
+                require(list.getItems().size() == 2,
+                        "2025/2 应列出 2 个教学班，实际 " + list.getItems().size());
+                require(cellText(list, 0, 0).contains(GRADE_REJECTED_OFFERING)
+                                && "审核未通过（已驳回）".equals(cellText(list, 0, 3))
+                                && cellText(list, 1, 0).contains(GRADE_PENDING_OFFERING)
+                                && "已提交待审核".equals(cellText(list, 1, 3)),
+                        "2025/2 必须同时给出被驳回与待审核两行，实际 " + rowCells(list, 0) + "/"
+                                + rowCells(list, 1));
+            });
+            steps.add(() -> gradeEntryButtonForState("审核未通过（已驳回）").fire());
+            steps.add(() -> {
+                require(labelText("#gradeBookStateLabel").contains("审核未通过"),
+                        "被驳回批次必须显示驳回状态，实际 " + labelText("#gradeBookStateLabel"));
+                Label notice = requireNode("#gradeBookNoticeLabel", Label.class, "批次提示");
+                require(notice.isVisible() && notice.getText().contains("上一次提交未通过")
+                                && notice.getText().contains(REVIEW_COMMENT_FRAGMENT)
+                                && notice.getText().contains("可以修改后重新提交"),
+                        "被驳回后管理员的意见必须一直可见，实际 " + notice.getText());
+                require(!button("#gradeBookSaveButton", "保存草稿").isDisabled(),
+                        "被驳回的草稿必须可以继续修改");
+                snapshot("gradebook-rejected.png");
+            });
+
             // 收尾：课次详情弹窗是 WINDOW_MODAL + show()（不阻塞），结束时不能有遗留窗口。
             steps.add(() -> {
                 require(Window.getWindows().size() == 1,
@@ -605,7 +846,9 @@ public final class TeacherCourseUiSmokeTest {
             }
             Runnable step = steps.get(stepIndex++);
             PauseTransition settle = new PauseTransition(Duration.millis(SETTLE_MILLIS));
-            settle.setOnFinished(event -> {
+            // 步骤本身经 Platform.runLater 进入事件队列：否则在动画处理期间触发模态的
+            // showAndWait() 会被 JavaFX 拒绝（“未保存提示”的确认框正是这条路径）。
+            settle.setOnFinished(event -> Platform.runLater(() -> {
                 try {
                     step.run();
                 } catch (Throwable failure) {
@@ -615,7 +858,7 @@ public final class TeacherCourseUiSmokeTest {
                     return;
                 }
                 advance();
-            });
+            }));
             settle.play();
         }
 
@@ -746,6 +989,129 @@ public final class TeacherCourseUiSmokeTest {
         /** 我的申请子页的根节点：里面的 fx:id 带 application 前缀，但仍按子页作用域查找。 */
         private Parent applicationsScope() {
             return requireNode("#applicationsPage", Parent.class, "我的申请子页");
+        }
+
+        // ---------------------------------------------------------------- 成绩表查找
+
+        /** 成绩列表里状态为 {@code stateText} 的那一行的“录入成绩”按钮（真实点击）。 */
+        private Button gradeEntryButtonForState(String stateText) {
+            TableView<?> list = table("#gradeOfferingTable", "成绩列表");
+            for (Node node : list.lookupAll(".teacher-course-row-detail-button")) {
+                if (node instanceof Button button) {
+                    TableRow<?> row = enclosingRow(node);
+                    if (row != null && stateText.equals(cellText(list, row.getIndex(), 3))) {
+                        return button;
+                    }
+                }
+            }
+            throw new IllegalStateException("找不到成绩状态为 " + stateText + " 的教学班");
+        }
+
+        /** 表格列里第 {@code rowIndex} 行的数据文本；不依赖单元格是否已经布局在视口里。 */
+        private static String cellText(TableView<?> table, int rowIndex, int columnIndex) {
+            Object value = table.getColumns().get(columnIndex).getCellData(rowIndex);
+            return value == null ? "" : value.toString();
+        }
+
+        /** 一整行的数据文本，用于失败信息里说明“实际看到的是什么”。 */
+        private static List<String> rowCells(TableView<?> table, int rowIndex) {
+            List<String> values = new ArrayList<>();
+            for (int column = 0; column < table.getColumns().size(); column++) {
+                values.add(cellText(table, rowIndex, column));
+            }
+            return values;
+        }
+
+        /** 某列界面上真实存在的单元格：表格按行虚拟化，视口之外的行没有单元格可断言。 */
+        private static List<TableCell<?, ?>> renderedCells(TableView<?> table, int columnIndex) {
+            Object column = table.getColumns().get(columnIndex);
+            List<TableCell<?, ?>> cells = new ArrayList<>();
+            for (Node node : table.lookupAll(".table-cell")) {
+                if (node instanceof TableCell<?, ?> cell && !cell.isEmpty()
+                        && column.equals(cell.getTableColumn())) {
+                    cells.add(cell);
+                }
+            }
+            return cells;
+        }
+
+        /** 某列里留空（未录入）的已渲染单元格数。 */
+        private static int emptyCellsIn(TableView<?> table, int columnIndex) {
+            int count = 0;
+            for (TableCell<?, ?> cell : renderedCells(table, columnIndex)) {
+                if (cell.getText() == null || cell.getText().isEmpty()) count++;
+            }
+            return count;
+        }
+
+        /** 某列里带某个样式类的已渲染单元格数（标红/置灰要真的画在单元格上，不只是算出一个布尔）。 */
+        private static int styledCellsIn(TableView<?> table, int columnIndex, String styleClass) {
+            int count = 0;
+            for (TableCell<?, ?> cell : renderedCells(table, columnIndex)) {
+                if (cell.getStyleClass().contains(styleClass)) count++;
+            }
+            return count;
+        }
+
+        /** 开始编辑某一格；类型参数由调用点推导，避免通配符捕获与 {@code TableColumn<?,?>} 冲突。 */
+        private static <S> void editCell(TableView<S> table, int rowIndex, int columnIndex) {
+            table.edit(rowIndex, table.getColumns().get(columnIndex));
+        }
+
+        /** 正在编辑的单元格输入框；成绩表里只有单元格编辑器是 TextField（方案条不在表内）。 */
+        private static TextField cellEditor(TableView<?> table) {
+            for (Node node : table.lookupAll(".text-field")) {
+                if (node instanceof TextField field && field.isVisible()) return field;
+            }
+            return null;
+        }
+
+        // ---------------------------------------------------------------- 窗口与确认框
+
+        /** 控制器经 AlertUtil 打开的模态框：Alert 的场景根就是它的 DialogPane。 */
+        private static DialogPane renderedDialogPane() {
+            for (Window window : Window.getWindows()) {
+                if (!window.isShowing() || window.getScene() == null) continue;
+                if (window.getScene().getRoot() instanceof DialogPane pane) return pane;
+            }
+            return null;
+        }
+
+        /**
+         * 在确认框自己的嵌套事件循环里运行：断言它说的就是未保存的修改、截图，然后取消。
+         * showAndWait 先建窗再进循环，所以找不到对话框时重新排队，而不是直接判失败。
+         */
+        private void captureAndRefuseLeavePrompt() {
+            DialogPane pane = renderedDialogPane();
+            if (pane == null) {
+                if (++leavePromptAttempts > 60) {
+                    fail(new IllegalStateException("有未保存修改时离开必须弹出确认框"));
+                    return;
+                }
+                Platform.runLater(this::captureAndRefuseLeavePrompt);
+                return;
+            }
+            try {
+                Window window = pane.getScene().getWindow();
+                require(window instanceof Stage stage && LEAVE_PROMPT_TITLE.equals(stage.getTitle()),
+                        "确认框必须是" + LEAVE_PROMPT_TITLE);
+                require(pane.getContentText() != null
+                                && pane.getContentText().contains(LEAVE_PROMPT_FRAGMENT),
+                        "确认框必须说明未保存的修改会丢失，实际 " + pane.getContentText());
+                snapshotNode(pane, "gradebook-unsaved-prompt.png");
+                Node cancel = pane.lookupButton(ButtonType.CANCEL);
+                require(cancel instanceof Button, "确认框必须提供取消按钮");
+                ((Button) cancel).fire();
+            } catch (Throwable failure) {
+                fail(failure);
+            }
+        }
+
+        /** 排队任务里的失败不靠异常回传（它在嵌套事件循环里），直接以退出码 1 结束。 */
+        private void fail(Throwable failure) {
+            failure.printStackTrace();
+            Platform.exit();
+            System.exit(1);
         }
 
         /** 我的申请列表里按申请编号反查那一行的“查看”按钮（真实点击）。 */

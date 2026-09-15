@@ -33,6 +33,9 @@ import dto.course.admin.schedule.ScheduleConflictSeverityDTO;
 import dto.course.admin.schedule.SchedulePlanDTO;
 import dto.course.admin.schedule.ScheduleResourceDTO;
 import dto.course.admin.schedule.ScheduleSlotDTO;
+import dto.course.teacher.GradeComponentCodeDTO;
+import dto.course.teacher.GradeComponentDTO;
+import dto.course.teacher.GradeSchemeDTO;
 import model.course.admin.AdminCourseView;
 import model.course.admin.AdminEnrollmentPageView;
 import model.course.admin.AdminOfferingView;
@@ -1437,8 +1440,11 @@ public final class MockAdminCourseService implements AdminCourseService {
                 summary.getTeacherName(), summary.getStudentCount(), summary.getAverage(),
                 summary.getHighest(), summary.getLowest(), summary.getFailCount(), status,
                 summary.getSubmittedAt());
+        // 快照字段必须原样带过去：方案/基础批次/未纳入人数是批次的提交时事实，审批不会改写它们，
+        // 丢掉它们会让审批后的详情退回“历史批次未记录方案快照”的兜底显示。
         GradeSubmissionDetailDTO decided = new GradeSubmissionDetailDTO(decidedSummary,
-                current.getDistribution(), current.getItems(), REVIEWER, MOCK_NOW, reviewComment);
+                current.getDistribution(), current.getItems(), REVIEWER, MOCK_NOW, reviewComment,
+                current.getSchemeSnapshot(), current.getBaseSubmissionId(), current.getUncoveredCount());
         gradeSubmissions.put(decidedSummary.getSubmissionId(), decided);
         return decided;
     }
@@ -1486,18 +1492,40 @@ public final class MockAdminCourseService implements AdminCourseService {
     private void seedGradeSubmissions() {
         addGradeSubmission(gradeDetail("9001", "1001", "数据结构", "OFF-1001", 1, "T1001", "张老师",
                 "2026-09-11T09:00:00Z", ApprovalStatusDTO.PENDING, null, null, null,
+                GradeSnapshot.initial(),
                 List.of(item("8001", "20240031", "陈晨", 88.0, 86.0, null, 84.0, 85.0, 3, 3.5),
                         item("8002", "20240032", "林晓", 90.0, 92.0, 91.0, 89.0, 90.0, 4, 4.0))));
         addGradeSubmission(gradeDetail("9002", "2001", "操作系统", "OFF-2001", 2, "T2001", "李老师",
                 "2026-09-10T09:00:00Z", ApprovalStatusDTO.APPROVED, REVIEWER, MOCK_NOW, "同意",
+                GradeSnapshot.initial(),
                 List.of(item("8003", "20240033", "王强", 70.0, 72.0, null, 68.0, 70.0, 1, 1.0))));
         addGradeSubmission(gradeDetail("9003", "1001", "数据结构", "OFF-1001", 1, "T1001", "张老师",
                 "2026-09-10T08:00:00Z", ApprovalStatusDTO.REJECTED, REVIEWER, MOCK_NOW, "材料不足",
+                GradeSnapshot.initial(),
                 List.of(item("8004", "20240034", "赵敏", 55.0, 58.0, null, 52.0, 55.0, 0, null))));
+        // 9004 是 9001 的重提：详情必须一起给出基础批次与提交后新增、尚未纳入批次的学生人数。
         addGradeSubmission(gradeDetail("9004", "1001", "数据结构", "OFF-1001", 2, "T1001", "张老师",
                 "2026-09-12T09:00:00Z", ApprovalStatusDTO.PENDING, null, null, null,
+                new GradeSnapshot(gradeScheme(), "9001", 1),
                 List.of(item("8001", "20240031", "陈晨", 92.0, 94.0, null, 90.0, 92.0, 4, 4.0),
                         item("8002", "20240032", "林晓", 94.0, 96.0, 95.0, 93.0, 94.0, 4, 4.0))));
+    }
+
+    /** 批次快照夹具：与 V007 的三列一一对应（方案、基础批次、提交后新增人数）。 */
+    private record GradeSnapshot(GradeSchemeDTO scheme, String baseSubmissionId, int uncoveredCount) {
+        /** 普通首次提交：有方案、没有基础批次、没有未纳入的新学生。 */
+        private static GradeSnapshot initial() {
+            return new GradeSnapshot(gradeScheme(), null, 0);
+        }
+    }
+
+    /** Mock 的确定性方案快照：30/20/20/30，四项组成全部启用（与教师端 Mock 的权重一致）。 */
+    private static GradeSchemeDTO gradeScheme() {
+        return new GradeSchemeDTO(List.of(
+                new GradeComponentDTO(GradeComponentCodeDTO.DAILY, true, 3000),
+                new GradeComponentDTO(GradeComponentCodeDTO.MIDTERM, true, 2000),
+                new GradeComponentDTO(GradeComponentCodeDTO.EXPERIMENT, true, 2000),
+                new GradeComponentDTO(GradeComponentCodeDTO.FINALTERM, true, 3000)));
     }
 
     private void addGradeSubmission(GradeSubmissionDetailDTO detail) {
@@ -1507,7 +1535,8 @@ public final class MockAdminCourseService implements AdminCourseService {
     private static GradeSubmissionDetailDTO gradeDetail(String submissionId, String offeringId,
             String courseName, String offeringCode, int version, String teacherUid,
             String teacherName, String submittedAt, ApprovalStatusDTO status, String reviewedBy,
-            String reviewedAt, String reviewComment, List<GradeSubmissionItemDTO> items) {
+            String reviewedAt, String reviewComment, GradeSnapshot snapshot,
+            List<GradeSubmissionItemDTO> items) {
         List<Double> scores = new ArrayList<>();
         int failed = 0;
         for (GradeSubmissionItemDTO item : items) {
@@ -1525,7 +1554,8 @@ public final class MockAdminCourseService implements AdminCourseService {
                 courseName, offeringCode, version, teacherUid, teacherName, items.size(), average,
                 highest, lowest, failed, status, submittedAt);
         return new GradeSubmissionDetailDTO(summary, gradeDistribution(items), List.copyOf(items),
-                reviewedBy, reviewedAt, reviewComment);
+                reviewedBy, reviewedAt, reviewComment, snapshot.scheme(), snapshot.baseSubmissionId(),
+                snapshot.uncoveredCount());
     }
 
     private static double round2(double value) {

@@ -114,7 +114,7 @@ $suites = @(
         # 无工具包测试在 T1 迁移到四态后一直没有套件保护，T5 正好改动它们（已撤销筛选、目标日期显示），
         # 一并登记，避免“写了测试却永不执行”。GradeApprovalControllerTest 覆盖审批外壳与成绩子页
         # 的共享筛选：T5 把外壳改用四态主名后它的替身必须跟着覆写，不登记就等于没有任何回归保护
-        # （GradeBook 套件目前还是空占位）。
+        # （成绩子页当时还没有自己的套件；GradeBook 套件在 T6 起才登记 Tcp/Gui 两列）。
         Client = @('service.SocketTeacherCourseServiceTest',
             'service.MockTeacherCourseServiceTest',
             'service.SocketAdminCourseServiceTest',
@@ -169,7 +169,7 @@ $suites = @(
     # T5 追加两个离屏客户端测试：编辑模型（原文/解析结果分离、非法文本与未配齐权重）与成绩页
     # 控制器（保存失败保留编辑、提交二次确认与重复点击、离开守卫、FXML 结构）。
     # TeacherGradeMigrationTest 自带 `mysql` 开关，只有 -WithMySql 才跑真实库，未传时打印 SKIP
-    # 且不算通过；Tcp/Gui 列表暂时留空，等后续任务补上对应的端到端与界面用例。
+    # 且不算通过。
     [pscustomobject]@{ Name = 'GradeBook'
         Common = @('dto.course.teacher.TeacherGradeDtoJsonTest',
             'dto.course.admin.GradeApprovalDtoJsonTest',
@@ -195,8 +195,22 @@ $suites = @(
             'service.TeacherGradeSubmissionMySqlTest', 'service.GradeApprovalMySqlTest',
             'service.AdminEnrollmentMySqlTest', 'handler.TeacherGradeHandlerTest',
             'handler.TeacherCourseHandlerTest')
-        Tcp = @()
-        Gui = @() }
+        # T6 的真实 TCP 闭环：教师保存部分草稿 → 补齐提交 → 管理员审批同一条批次 → 学生 loadGrades
+        # 读回四项组成（含禁用项的 NULL）、总评、13 档绩点与按学分加权 GPA。教师侧与管理员侧此前
+        # 各自对着自己写的夹具断言，只有这一条跨过接缝的链路能证明两侧没有漂移。
+        # integration.GradeApprovalSocketEndToEndTest 是管理员成绩审批的既有 TCP 端到端，此前不在
+        # 任何套件里（既有债）：T6 登记它是为了让“管理员成绩审批”这条回归真的被执行。
+        # 两个类都会重建受保护的测试架构，必须串行、且只在 -WithTcp 下运行。
+        Tcp = @('integration.TeacherGradeSocketEndToEndTest',
+            'integration.GradeApprovalSocketEndToEndTest')
+        # T6 的 GUI 列：真实 JavaFX 工具包装入教师工作台与管理员审批页。
+        # ui.TeacherCourseUiSmokeTest 覆盖成绩录入页（列表 / 部分填写 / 非法值 / 灰列 / 未保存提示 /
+        # 二次确认提交 / 只读 / 驳回），也就是“FXML 里一个未转义的 % 会让整页加载失败”这类只有真实
+        # 工具包能抓住的缺陷；ui.AdminApprovalUiSmokeTest 覆盖管理员成绩审批详情的新显示（组成与权重、
+        # 提交人数、基础批次、未纳入批次的新成员），它同时钉住 MockAdminCourseService 必须给出快照字段。
+        # ui.TeacherCourseUiPreview / ui.AdminCourseUiPreview 是人工预览工具（只有收到 --smoke 才自动
+        # 关闭，而套件运行传的是 --config），登记它们会让一次无人值守运行停在打开的窗口上永不退出。
+        Gui = @('ui.TeacherCourseUiSmokeTest', 'ui.AdminApprovalUiSmokeTest') }
     [pscustomobject]@{ Name = 'ImportExport'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }
     [pscustomobject]@{ Name = 'Applications'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }
 )
