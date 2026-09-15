@@ -220,7 +220,8 @@ $suites = @(
         # ui.TeacherCourseUiPreview / ui.AdminCourseUiPreview 是人工预览工具（只有收到 --smoke 才自动
         # 关闭，而套件运行传的是 --config），登记它们会让一次无人值守运行停在打开的窗口上永不退出。
         Gui = @('ui.TeacherCourseUiSmokeTest', 'ui.AdminApprovalUiSmokeTest') }
-    # 成绩导入导出套件：T1 先建立文件票据与短连接传输，T2 再加上服务端的表格读写，T3 加上预览与确认。
+    # 成绩导入导出套件：T1 先建立文件票据与短连接传输，T2 再加上服务端的表格读写，T3 加上预览与确认，
+    # T5 补上跨两个真实端口的端到端闭环与名单导出的真实库覆盖。
     # 两个 T1 测试都是 DB-free 的：CourseFileServerTest 在端口 0 上起真实文件监听器并用原始 Socket
     # 逐条验证票据矩阵（无效/过期/他人 token、错误方向、超限、截断、SHA 不符、重复领取、停服），
     # SocketTeacherFileTransportTest 自带一个端口 0 的对端 ServerSocket（客户端 classpath 里没有
@@ -229,14 +230,27 @@ $suites = @(
     # （见该目录的 teacher-excel-dependencies.md）。T3 的 TeacherGradeImportMySqlTest 自带 `mysql`
     # 开关（-WithMySql 才跑真实库，未传时打印 SKIP 且不算通过）：预览不写库、缺列/空白保留原草稿值、
     # 非法值保留原文本、未知与重复学号、修正与排除、名单/版本冲突、令牌过期与串用、确认重放都必须
-    # 对着真实库和真实外键验证。四个类都不需要 -WithTcp/-WithGui。
+    # 对着真实库和真实外键验证。T5 的 TeacherCourseExportMySqlTest 同样自带 `mysql` 开关，补上此前
+    # 完全没有覆盖的名单导出路径：归属校验（别人的教学班导不出）、5001 行明确报错而 5000 行整份导出
+    # （上限判定一次查询内完成，绝不静默截断）、导出与列表共用同一份过滤与排序。
     [pscustomobject]@{ Name = 'ImportExport'
         Common = @()
         Client = @('service.SocketTeacherFileTransportTest',
             'controller.TeacherGradeImportControllerTest')
         Server = @('service.TeacherSpreadsheetServiceTest', 'network.CourseFileServerTest',
-            'service.TeacherGradeImportMySqlTest')
-        Tcp = @(); Gui = @() }
+            'service.TeacherGradeImportMySqlTest', 'service.TeacherCourseExportMySqlTest')
+        # T5 的真实闭环：下载模板 → 填表（缺列/空白/105 越界/未知学号）→ 文件端口上传 → 预览不写库
+        # → 修正与排除 → 确认只写草稿 → 补齐提交 → 管理员审批 → 学生查成绩；再加取消、上传中断、
+        # 票据复用、确认重放、超过一页的名单导出、他人兑换票据被拒与停服后的线程/临时文件回收。
+        # 它同时起业务端口与文件端口，并会重建受保护的测试架构，所以必须串行单独运行；-WithTcp 才跑，
+        # 未传时不会出现在运行列表里，也就不会被当作通过。
+        Tcp = @('integration.TeacherGradeImportSocketEndToEndTest')
+        # GUI 冒烟：真实 JavaFX 工具包装入教师外壳，T5 追加的两步验证导入区三个入口的接线与
+        # ui.TeacherGradeImportFeedback 弹窗真实加载（弹窗的加载失败在控制器里被吞掉，只有真实工具包
+        # 能抓住 FXML 里的 fx:id/onAction/controller 错误）。只登记冒烟类：ui.TeacherCourseUiPreview
+        # 是人工预览工具且不注册进任何套件（详见 Foundation.Gui 的说明）。同一个冒烟类同时出现在
+        # Foundation/Timetable/GradeBook 的 Gui 列，跨套件重复有先例。
+        Gui = @('ui.TeacherCourseUiSmokeTest') }
     [pscustomobject]@{ Name = 'Applications'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }
 )
 

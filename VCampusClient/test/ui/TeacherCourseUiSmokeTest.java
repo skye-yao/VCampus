@@ -112,6 +112,18 @@ public final class TeacherCourseUiSmokeTest {
     /** = TeacherGradeBookController.LEAVE_PROMPT_TEXT 的对话框标题与正文片段。 */
     private static final String LEAVE_PROMPT_TITLE = "未保存的成绩";
     private static final String LEAVE_PROMPT_FRAGMENT = "未保存的修改";
+    /** T5 验证的导入区：三个入口的文案，以及异常明细弹窗的 FXML / 标题 / 提示片段。 */
+    private static final String TEMPLATE_BUTTON_TEXT = "下载成绩模板";
+    private static final String EXPORT_BUTTON_TEXT = "导出名单";
+    private static final String IMPORT_BUTTON_TEXT = "导入 Excel";
+    private static final String IMPORT_FEEDBACK_VIEW =
+            "/resources/fxml/TeacherGradeImportFeedback.fxml";
+    private static final String IMPORT_FEEDBACK_TITLE = "导入异常明细";
+    /**
+     * 未绑定宿主时 {@code Feedback.render()} 走的那一句：真实流程里弹窗总是先 bind 到导入控制器，
+     * 这里的加载守卫拿到的是没有预览、也没有宿主的空态。
+     */
+    private static final String IMPORT_FEEDBACK_HINT_TEXT = "异常行已全部解决，可以回到成绩表确认导入。";
     /** Mock 的被驳回批次审核意见与待审核批次号。 */
     private static final String REVIEW_COMMENT_FRAGMENT = "总分与平时分不一致";
     private static final String PENDING_SUBMISSION_ID = "9601";
@@ -134,7 +146,10 @@ public final class TeacherCourseUiSmokeTest {
             // Excel 式录入的五张：单击即编辑（整段选中）/ Enter 下移 / Tab 右移 / Esc 还原 / 2×2 批量粘贴。
             "gradebook-cell-editing.png", "gradebook-navigate-enter.png",
             "gradebook-navigate-tab.png", "gradebook-esc-reverted.png",
-            "gradebook-paste-block.png", "gradebook-inline-error.png"
+            "gradebook-paste-block.png", "gradebook-inline-error.png",
+            // T5 的导入证据：异常明细弹窗的真实加载（空态）。预览红框与异常姓名要有一份真实服务端
+            // 预览才画得出来，那部分由无工具包的控制器用例与服务端 E2E 覆盖。
+            "gradebook-import-feedback.png"
     };
     private static final Path OUTPUT = Path.of(".codex-tmp", "teacher");
 
@@ -687,6 +702,32 @@ public final class TeacherCourseUiSmokeTest {
                 snapshot("gradebook-partial.png");
             });
 
+            // ------------------------------------------------------------ T5：导入区接线
+            // 真实工具包里断言导入区已经接上处理器：FXML 里写错的 fx:id/onAction 只会让按钮变成
+            // 没有反应的摆件（无工具包的控制器测试连 Button 都造不出来），而“还没进入预览”时
+            // 取消/确认/异常明细三个按钮必须藏起来——这套显隐只有真实渲染能证明。
+            steps.add(() -> {
+                Button template = button("#gradeBookDownloadTemplateButton", "下载成绩模板按钮");
+                Button export = button("#gradeBookExportRosterButton", "导出名单按钮");
+                Button importButton = button("#gradeBookImportButton", "导入 Excel 按钮");
+                require(TEMPLATE_BUTTON_TEXT.equals(template.getText())
+                                && EXPORT_BUTTON_TEXT.equals(export.getText())
+                                && IMPORT_BUTTON_TEXT.equals(importButton.getText()),
+                        "三个导入入口的文案必须与交付一致，实际 " + template.getText() + "/"
+                                + export.getText() + "/" + importButton.getText());
+                require(!template.isDisabled() && !export.isDisabled() && !importButton.isDisabled(),
+                        "草稿页上的下载模板/导出名单/导入 Excel 必须可用");
+                require(template.getOnAction() != null && export.getOnAction() != null
+                                && importButton.getOnAction() != null,
+                        "三个导入入口必须真的接上处理器（FXML 的 onAction）");
+                for (String hidden : List.of("#gradeBookImportSummaryLabel",
+                        "#gradeBookImportIssuesButton", "#gradeBookCancelImportButton",
+                        "#gradeBookConfirmImportButton")) {
+                    require(!requireNode(hidden, Node.class, hidden).isVisible(),
+                            hidden + " 在没有导入预览时必须隐藏，实际可见");
+                }
+            });
+
             // ------------------------------------------------ Excel 式录入：单击即编辑、输入即生效
             // 单击（不是双击）就进入编辑，并且打开时整段选中——下一次敲键直接覆盖旧值。
             steps.add(() -> clickCell(table("#gradeBookTable", "成绩表"), 0, 2));
@@ -989,6 +1030,52 @@ public final class TeacherCourseUiSmokeTest {
                 require(!button("#gradeBookSaveButton", "保存草稿").isDisabled(),
                         "被驳回的草稿必须可以继续修改");
                 snapshot("gradebook-rejected.png");
+            });
+
+            // ------------------------------------------------ T5：导入异常明细弹窗的加载守卫
+            // 这个弹窗只会在预览回来时由 TeacherGradeImportController 打开，而那条路径把加载失败
+            // 整个吞掉（`catch (IOException | RuntimeException | LinkageError)`，预览照常合并进表格），
+            // 所以 FXML 坏掉时界面上只是少一个弹窗、没有任何测试会红。这里用真实工具包直接加载它：
+            // fx:controller 解析不到、fx:id 写错、onAction 指向不存在的方法都会在这一步失败。
+            steps.add(() -> {
+                Parent feedbackRoot;
+                try {
+                    FXMLLoader loader = new FXMLLoader(getClass().getResource(IMPORT_FEEDBACK_VIEW));
+                    feedbackRoot = loader.load();
+                    Object controller = loader.getController();
+                    require(controller != null && "controller.TeacherGradeImportController$Feedback"
+                                    .equals(controller.getClass().getName()),
+                            "弹窗的 fx:controller 必须解析到导入控制器的 Feedback，实际 "
+                                    + (controller == null ? "null" : controller.getClass().getName()));
+                } catch (IOException failure) {
+                    throw new UncheckedIOException("导入异常明细弹窗加载失败", failure);
+                }
+                Stage stage = new Stage();
+                stage.initOwner(primaryStage);
+                stage.setTitle(IMPORT_FEEDBACK_TITLE);
+                stage.setScene(new Scene(feedbackRoot));
+                stage.show();
+                // 异常列表在 ScrollPane 里，而滚动面板的内容要等皮肤建出来才挂进场景图：
+                // 先把皮肤与布局跑一遍，之后按 id 查节点才能真的查到（否则只会查到空儿童的控件）。
+                feedbackRoot.applyCss();
+                feedbackRoot.layout();
+                requireIn(feedbackRoot, "#feedbackIssueList", VBox.class, "异常列表");
+                requireIn(feedbackRoot, "#feedbackSummaryLabel", Label.class, "异常摘要标签");
+                requireIn(feedbackRoot, "#feedbackHintLabel", Label.class, "异常提示标签");
+                // 这两个标签的文案证明 initialize() → render() 真的跑过（空态而不是没渲染）：
+                // 摘要为空（还没有预览），提示是未绑定宿主时那句。
+                require(labelIn(feedbackRoot, "#feedbackSummaryLabel").isEmpty(),
+                        "没有预览时摘要必须为空，实际 "
+                                + labelIn(feedbackRoot, "#feedbackSummaryLabel"));
+                require(IMPORT_FEEDBACK_HINT_TEXT.equals(labelIn(feedbackRoot,
+                                "#feedbackHintLabel")),
+                        "弹窗必须已经渲染过，实际提示 " + labelIn(feedbackRoot,
+                                "#feedbackHintLabel"));
+                snapshotNode(feedbackRoot, "gradebook-import-feedback.png");
+                requireIn(feedbackRoot, "#feedbackCloseButton", Button.class, "关闭按钮").fire();
+                require(!stage.isShowing(), "关闭按钮必须真的关掉弹窗");
+                require(Window.getWindows().size() == 1,
+                        "关闭弹窗后不能留下多余窗口，实际 " + Window.getWindows().size());
             });
 
             // 收尾：课次详情弹窗是 WINDOW_MODAL + show()（不阻塞），结束时不能有遗留窗口。

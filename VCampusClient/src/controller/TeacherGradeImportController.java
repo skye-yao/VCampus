@@ -79,8 +79,9 @@ import util.AlertUtil;
  *       （{@link #cancelOnLeave()}）先取消在途 Future（传输层据此关闭短连接）再恢复。</li>
  *   <li><b>迟到的预览响应被丢弃</b>：每次预览/修订派发都递增 {@code generation}，只有最新一次
  *       的响应对得上号，教师修正期间返回的旧预览绝不覆盖新状态。</li>
- *   <li><b>确认按钮取最新服务端预览的有效性</b>：{@link #confirmEnabled()} 只看最近一次预览的
- *       {@code errorRows}，不看本地红框是否被敲掉。</li>
+ *   <li><b>确认按钮取最新服务端预览的有效性</b>：{@link #confirmEnabled()} 只看最近一次预览里
+ *       还有没有**未被明确排除**的异常行（服务端 {@code blocked()} 的同一份事实），不看本地红框
+ *       是否被敲掉，也不看会把已排除行算进去的 {@code errorRows}。</li>
  * </ul>
  *
  * <p>确认导入只调用 {@code confirmGradeImport}：它是保存草稿，不是提交审批，本类里没有
@@ -520,10 +521,21 @@ public final class TeacherGradeImportController {
 
     // ------------------------------------------------------------------ 确认与取消
 
-    /** 确认按钮是否可用：只看最近一次服务端预览的有效性（没有未解决异常行），不看本地状态。 */
+    /**
+     * 确认按钮是否可用：只看最近一次服务端预览的**有效性**——还有没有未被明确排除的异常行。
+     *
+     * <p>刻意不用 {@code errorRows}：那是文件里的异常行数，**把教师已经排除的行也算在内**
+     * （服务端的口径是「有效 + 异常 = 文件数据行数」，见 {@code TeacherGradeImportService#merge}），
+     * 所以它不等于「还没解决的行数」。按它判断按钮的话，教师排除掉未知学生行之后
+     * {@code errorRows} 仍然是 1，确认按钮会永远不可用；而服务端的 {@code blocked()} 恰恰允许确认
+     * （「请修正或明确排除后再确认导入」）。这里因此复用服务端同一份事实：逐条问题看
+     * {@code isExcluded}。{@code issues} 为缺失（老响应）时按没有未解决问题处理，与服务端
+     * 「没有问题时 blocked() 为 false」一致。
+     */
     boolean confirmEnabled() {
-        return importing && !confirming && !revising && !uploading && preview != null
-                && preview.getErrorRows() == 0;
+        if (!importing || confirming || revising || uploading || preview == null) return false;
+        List<GradeImportRowIssueDTO> issues = preview.getIssues();
+        return issues == null || issues.stream().noneMatch(issue -> !issue.isExcluded());
     }
 
     /**

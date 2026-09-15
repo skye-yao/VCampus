@@ -45,8 +45,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *
  * <p>上传先写 {@code .part} 临时文件，长度与 SHA-256 都核对通过后才原子改名到票据落点；提前
  * EOF、摘要不符、写盘失败都会删除半截文件，服务端不会留下半个工作簿。落盘成功之后才向票据服务
- * 交接「已落地」状态，业务侧随后的导入预览据此拿到同一个文件；失败的上传不会交接。所有外部可见
- * 的错误文案都是固定中文短语，异常堆栈只进服务端日志。
+ * 交接「已落地」状态，业务侧随后的导入预览据此拿到同一个文件；失败的上传不会交接。下载方向反过来：
+ * 字节发完（或中途断开）就回收服务端那份源文件——票据已经消费，它不会再被任何人领取，留着只会
+ * 变成票据服务看不见的孤儿。所有外部可见的错误文案都是固定中文短语，异常堆栈只进服务端日志。
  */
 public final class CourseFileConnection implements AutoCloseable {
 
@@ -94,7 +95,15 @@ public final class CourseFileConnection implements AutoCloseable {
                 // 兑换到的必须是真正落盘的那个文件，中途失败的上传不许留下一张“已落地”的票。
                 tickets.markUploaded(metadata.ticket());
             } else {
-                send(ticket, out);
+                try {
+                    send(ticket, out);
+                } finally {
+                    // 下载只有一次：票据在这一步已经被消费（{@link TeacherFileTicketService#claim}
+                    // 对下载方向直接摘除条目），落点文件不再有人能领取，因此成功还是中途断开都
+                    // 立即回收。不回收就是孤儿——条目已不在票据表里，过期清理器再也看不见它，
+                    // 一份被下载过的模板会一直占到停服。
+                    TeacherFileTicketService.deleteQuietly(ticket.path());
+                }
             }
             respond(out, true, "OK");
         } catch (TransferFailure expected) {

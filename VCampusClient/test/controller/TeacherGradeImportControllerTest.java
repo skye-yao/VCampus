@@ -87,6 +87,7 @@ public final class TeacherGradeImportControllerTest {
         dirtyEditCopyIsRestoredOnCancelIncludingTheDirtyFlag();
         issueCellsGoThroughReviseAndALateResponseIsDiscarded();
         unknownStudentRowsAreResolvedByExplicitExclusion();
+        excludedRowsLeaveTheConfirmAvailable();
         confirmUsesTheLatestServerPreviewAndNeverSubmits();
         confirmConflictKeepsThePreviewAndTheEditingCopy();
         leavingDuringImportCancelsTheTransferAndRestoresTheCopy();
@@ -307,35 +308,86 @@ public final class TeacherGradeImportControllerTest {
                         .contains("陌生人"),
                 "异常姓名必须出现在摘要里，未知学生也不例外");
 
-        // 先排除未知学生行；服务端说还剩一行没解决，确认仍然不可用。
+        // 先排除未知学生行；服务端仍说张三那一行没解决，确认仍然不可用。
+        // 夹具按服务端的口径给：被排除的行照样计入 errorRows（有效 + 异常 = 文件数据行数），
+        // 只是它的问题被标记成 excluded。
         service.previewResponses.clear();
         service.previewResponses.addLast(CompletableFuture.completedFuture(preview(2,
                 candidateFor(controller, controller.rows().get(0).enrollmentId(),
                         new GradeScoresDTO(new BigDecimal("60"), null, null, null)),
-                5, 1, List.of(issue(11, "00005678", "张三",
-                        GradeImportRowIssueDTO.FIELD_DAILY_SCORE, "abc",
-                        "平时成绩必须是 0-100 的数字")))));
+                5, 2, List.of(
+                        excludedIssue(9, "00009999", "陌生人",
+                                GradeImportRowIssueDTO.FIELD_STUDENT_UID, "00009999",
+                                "学号不在本教学班名单中"),
+                        issue(11, "00005678", "张三",
+                                GradeImportRowIssueDTO.FIELD_DAILY_SCORE, "abc",
+                                "平时成绩必须是 0-100 的数字")))));
         controller.importController().setExcluded(9, true);
         settle(controller);
         ReviseGradeImportRequestDTO excluded = service.revises.get(0);
         require(excluded.getExcludedRows().equals(List.of(9)),
                 "明确排除的行号必须原样发给服务端，收到 " + excluded.getExcludedRows());
         require(!controller.importController().confirmEnabled(),
-                "服务端仍报异常时确认按钮仍不可用（结论只来自最新预览）");
+                "服务端仍报未解决异常时确认按钮仍不可用（结论只来自最新预览）");
 
-        // 排除最后一行：服务端返回零异常，确认才可用。
+        // 排除最后一行：服务端把两行都标成 excluded（errorRows 仍是 2），确认此时才可用。
         service.previewResponses.clear();
         service.previewResponses.addLast(CompletableFuture.completedFuture(preview(3,
                 candidateFor(controller, controller.rows().get(0).enrollmentId(),
                         new GradeScoresDTO(new BigDecimal("60"), null, null, null)),
-                5, 0, List.of())));
+                5, 2, List.of(
+                        excludedIssue(9, "00009999", "陌生人",
+                                GradeImportRowIssueDTO.FIELD_STUDENT_UID, "00009999",
+                                "学号不在本教学班名单中"),
+                        excludedIssue(11, "00005678", "张三",
+                                GradeImportRowIssueDTO.FIELD_DAILY_SCORE, "abc",
+                                "平时成绩必须是 0-100 的数字")))));
         controller.importController().setExcluded(11, true);
         settle(controller);
         require(service.revises.get(1).getExcludedRows().size() == 2,
                 "修订请求带的是这份修订后的完整排除集合，收到 "
                         + service.revises.get(1).getExcludedRows());
         require(controller.importController().confirmEnabled(),
-                "服务端确认没有未解决异常行之后，确认按钮才可用");
+                "全部异常行都被明确排除之后，确认按钮才可用");
+    }
+
+    /**
+     * 排除掉异常行就必须能确认导入——这是本计划「未知学生行通过错误列表修正/明确排除」的落点，
+     * 也是 {@code errorRows} 不能当作可确认信号的原因。
+     *
+     * <p>服务端的 {@code errorRows} 把已排除的行照样算进去（「有效 + 异常 = 文件数据行数」），
+     * 因此教师排除掉两个坏行之后它仍然是 2；服务端的 {@code blocked()} 在这时返回 false，
+     * 确认是允许的。曾经按 {@code errorRows == 0} 判断的按钮会永久停在不可用，教师无论怎么
+     * 排除都确认不了——这条用例就是那次漂移的回归。
+     */
+    private static void excludedRowsLeaveTheConfirmAvailable() {
+        ImportService service = new ImportService();
+        TeacherGradeBookController controller = controller(service, new FakeDialogs());
+        controller.showOffering(OFFERING);
+
+        List<GradeImportRowIssueDTO> allExcluded = List.of(
+                excludedIssue(9, "00009999", "陌生人", GradeImportRowIssueDTO.FIELD_STUDENT_UID,
+                        "00009999", "学号不在本教学班名单中"),
+                excludedIssue(11, "00005678", "张三", GradeImportRowIssueDTO.FIELD_DAILY_SCORE, "abc",
+                        "平时成绩必须是 0-100 的数字"));
+        service.previewResponse = preview(1, candidateFor(controller,
+                        controller.rows().get(0).enrollmentId(),
+                        new GradeScoresDTO(new BigDecimal("60"), null, null, null)),
+                5, 2, allExcluded);
+        controller.importController().startImport();
+        settle(controller);
+
+        GradeImportPreviewDTO landed = controller.importController().preview();
+        require(landed.getErrorRows() == 2,
+                "夹具必须保留服务端的口径：已排除的行同样计入 errorRows，收到 "
+                        + landed.getErrorRows());
+        require(controller.importController().confirmEnabled(),
+                "所有异常行都被明确排除后确认必须可用（errorRows 仍为 " + landed.getErrorRows() + "）");
+        require(!controller.importController().busy(),
+                "确认可用不代表流程还在跑：在途标志必须都已经落下");
+        require(TeacherGradeImportController.countsText(landed).contains("异常 2 条"),
+                "异常条数照旧如实显示文件里的坏行数，收到 "
+                        + TeacherGradeImportController.countsText(landed));
     }
 
     // ------------------------------------------------------------------ 确认
@@ -908,6 +960,12 @@ public final class TeacherGradeImportControllerTest {
     private static GradeImportRowIssueDTO issue(int rowNumber, String uid, String name, String field,
             String raw, String message) {
         return new GradeImportRowIssueDTO(rowNumber, uid, name, field, raw, message, false);
+    }
+
+    /** 教师已经明确排除的那一行的问题：服务端照样把它列出来，只是打上 excluded。 */
+    private static GradeImportRowIssueDTO excludedIssue(int rowNumber, String uid, String name,
+            String field, String raw, String message) {
+        return new GradeImportRowIssueDTO(rowNumber, uid, name, field, raw, message, true);
     }
 
     private static TeacherFileTicketDTO ticketDto() {

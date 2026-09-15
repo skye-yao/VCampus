@@ -147,6 +147,10 @@ public final class CourseFileServerTest {
         byte[] received = download(server.getPort(), metadata, CONTENT.length);
         require(Arrays.equals(received, CONTENT),
                 "the download must return the server file byte for byte");
+        // 票据已消费，源文件也不会再被领取：下载完成就回收，否则它成了票据表之外的孤儿
+        // （过期清理器按票据条目回收，而下载票据在兑换时就被摘除了）。
+        require(!Files.exists(generated),
+                "a claimed download must reclaim the served file, saw " + generated);
         expectRejected(server.getPort(), metadata, null, "文件票据无效或已被使用");
     }
 
@@ -222,7 +226,9 @@ public final class CourseFileServerTest {
                 new byte[CourseFileConnection.MAX_METADATA_BYTES + 1]);
 
         requireNoPartialFile(tickets.getTempDirectory());
-        require(tempFiles(tickets.getTempDirectory()).size() == filesBefore,
+        // 被拒绝的传输一律不落文件；这里比之前的文件数少一个，唯一的原因是上面那次**成功**的
+        // 下载把服务端源文件回收了（票据已消费，没人能再领它）。
+        require(tempFiles(tickets.getTempDirectory()).size() == filesBefore - 1,
                 "a rejected transfer must not add any file, saw "
                         + tempFiles(tickets.getTempDirectory()));
 
