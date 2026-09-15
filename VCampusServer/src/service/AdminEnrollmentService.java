@@ -102,6 +102,7 @@ public class AdminEnrollmentService {
             connection.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
             connection.setAutoCommit(false);
             Throwable inFlight = null;
+            boolean committed = false;
             try {
                 AdminCourseOperationDAO.StoredOperation stored = operations.find(connection, admin, request.getOperationId());
                 if (stored == null) {
@@ -115,11 +116,15 @@ public class AdminEnrollmentService {
                     execution = persist(connection, admin, action, request, digest, execution);
                 }
                 connection.commit();
+                committed = true;
             } catch (RuntimeException | SQLException failure) {
                 inFlight = failure;
                 rollback(connection, failure);
                 throw failure;
             } finally {
+                if (!committed) {
+                    rollback(connection, inFlight);
+                }
                 restoreAutoCommit(connection, originalAutoCommit, inFlight);
             }
         } catch (SQLException failure) { throw new DatabaseException("管理教学班学生事务执行失败", failure); }
@@ -258,9 +263,11 @@ public class AdminEnrollmentService {
         if (page < 1 || size < 1 || size > 100) throw new IllegalArgumentException("页码必须大于 0，每页条数必须为 1 至 100");
     }
 
+    /** Null-safe: an unfinished transaction is rolled back even when no failure is in flight,
+     *  and a failed rollback is swallowed rather than replacing an escaping {@link Error}. */
     private static void rollback(Connection connection, Throwable failure) {
         try { connection.rollback(); }
-        catch (SQLException rollbackFailure) { failure.addSuppressed(rollbackFailure); }
+        catch (SQLException rollbackFailure) { if (failure != null) failure.addSuppressed(rollbackFailure); }
     }
 
     private static void restoreAutoCommit(Connection connection, boolean autoCommit, Throwable inFlight) {

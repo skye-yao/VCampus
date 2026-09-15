@@ -150,16 +150,21 @@ public class TeacherAdjustmentApplicationService {
             connection.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
             connection.setAutoCommit(false);
             Throwable inFlight = null;
+            boolean committed = false;
             try {
                 TeacherOperationResultDTO<AdjustmentRequestDetailDTO> result =
                         submitTransaction(connection, teacher, request, action, digest);
                 connection.commit();
+                committed = true;
                 return result;
             } catch (RuntimeException | SQLException failure) {
                 inFlight = failure;
                 rollback(connection, failure);
                 throw failure;
             } finally {
+                if (!committed) {
+                    rollback(connection, inFlight);
+                }
                 restoreAutoCommit(connection, originalAutoCommit, inFlight);
             }
         } catch (SQLException failure) {
@@ -223,16 +228,21 @@ public class TeacherAdjustmentApplicationService {
             connection.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
             connection.setAutoCommit(false);
             Throwable inFlight = null;
+            boolean committed = false;
             try {
                 TeacherOperationResultDTO<AdjustmentRequestDetailDTO> result =
                         withdrawTransaction(connection, teacher, request, action, digest);
                 connection.commit();
+                committed = true;
                 return result;
             } catch (RuntimeException | SQLException failure) {
                 inFlight = failure;
                 rollback(connection, failure);
                 throw failure;
             } finally {
+                if (!committed) {
+                    rollback(connection, inFlight);
+                }
                 restoreAutoCommit(connection, originalAutoCommit, inFlight);
             }
         } catch (SQLException failure) {
@@ -664,11 +674,13 @@ public class TeacherAdjustmentApplicationService {
 
     // ------------------------------------------------------------ transaction
 
+    /** Null-safe: an unfinished transaction is rolled back even when no failure is in flight,
+     *  and a failed rollback is swallowed rather than replacing an escaping {@link Error}. */
     private static void rollback(Connection connection, Throwable failure) {
         try {
             connection.rollback();
         } catch (SQLException rollbackFailure) {
-            failure.addSuppressed(rollbackFailure);
+            if (failure != null) failure.addSuppressed(rollbackFailure);
         }
     }
 
