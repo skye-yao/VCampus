@@ -174,11 +174,15 @@ $suites = @(
             'course.grade.GradeCalculatorTest',
             'course.grade.GradePointScaleTest')
         Client = @()
-        # T3 的 TeacherGradeDraftMySqlTest 自带 `mysql` 开关，只有 -WithMySql 才跑真实库，未传时打印
-        # SKIP 且不算通过；AdminEnrollmentMySqlTest 是管理员学生维护的既有回归（V007 给 enrollment
-        # 加了唯一键与复合外键），它不解析 `mysql`，只要 db.properties 指向受保护测试库就真跑，
-        # 登记它是为了让“草稿写入没有破坏管理员学生维护”这条验收证据真的被执行。
+        # T3 的 TeacherGradeDraftMySqlTest 与 T4 的 TeacherGradeSubmissionMySqlTest 自带 `mysql`
+        # 开关，只有 -WithMySql 才跑真实库，未传时打印 SKIP 且不算通过；AdminEnrollmentMySqlTest
+        # 是管理员学生维护的既有回归（V007 给 enrollment 加了唯一键与复合外键），它不解析 `mysql`，
+        # 只要 db.properties 指向受保护测试库就真跑，登记它是为了让“草稿写入没有破坏管理员学生维护”
+        # 这条验收证据真的被执行。T4 同时登记 GradeApprovalMySqlTest：它是管理员成绩审批的既有回归，
+        # 此前不在任何套件里，而 T4 改了审批路径的方案快照核验，不登记就等于没有回归保护；
+        # 它同样不解析 `mysql`，只要配置指向受保护测试库就真跑。
         Server = @('database.TeacherGradeMigrationTest', 'service.TeacherGradeDraftMySqlTest',
+            'service.TeacherGradeSubmissionMySqlTest', 'service.GradeApprovalMySqlTest',
             'service.AdminEnrollmentMySqlTest')
         Tcp = @()
         Gui = @() }

@@ -1,8 +1,11 @@
 package service;
 
 import com.google.gson.reflect.TypeToken;
+import course.grade.GradeCalculator;
+import course.grade.GradePointScale;
 import dao.AdminCourseOperationDAO;
 import dao.GradeApprovalDAO;
+import dao.TeacherGradeBookDAO;
 import dto.course.admin.AdminCourseActions;
 import dto.course.admin.approval.ApprovalDecisionRequestDTO;
 import dto.course.admin.approval.ApprovalStatusDTO;
@@ -12,6 +15,8 @@ import dto.course.admin.approval.GradeSubmissionItemDTO;
 import dto.course.admin.approval.GradeSubmissionPageDTO;
 import dto.course.admin.approval.GradeSubmissionSummaryDTO;
 import dto.course.admin.result.AdminOperationResultDTO;
+import dto.course.teacher.GradeSchemeDTO;
+import dto.course.teacher.GradeScoresDTO;
 import exception.DatabaseException;
 import util.DBUtil;
 
@@ -32,11 +37,16 @@ import java.util.Set;
  * Administrator review of teacher grade submissions.
  *
  * <p>A submission is a frozen batch: its header and items are never rewritten. Approval is
- * all-or-nothing — it recomputes and validates the batch against the offering's eligible active
- * enrollments, then upserts one current {@code grade} row per item in a single READ_COMMITTED
- * transaction, publishing every row with one transaction timestamp before marking the submission
- * APPROVED and committing. Rejection only stamps the submission's review fields, so the current
- * projection is never touched and a corrected batch can follow.
+ * all-or-nothing — it validates the batch, then upserts one current {@code grade} row per item in
+ * a single READ_COMMITTED transaction, publishing every row with one transaction timestamp before
+ * marking the submission APPROVED and committing. Rejection only stamps the submission's review
+ * fields, so the current projection is never touched and a corrected batch can follow.
+ *
+ * <p>The validation depends on the batch. A batch captured with its scheme (V007) is judged by what
+ * it captured: it must cover exactly its own students, each recomputed against that captured scheme,
+ * and enrollments added after submission neither join the batch nor invalidate it. A legacy batch
+ * without a scheme snapshot keeps the original rule — its items must equal the offering's eligible
+ * active enrollments — and no recomputation is invented for it.
  *
  * <p>Whole-batch decisions only: a single item can neither be approved nor rejected on its own.
  */
@@ -98,7 +108,7 @@ public class GradeApprovalService {
         try (Connection connection = DBUtil.getConnection()) {
             GradeApprovalDAO.SubmissionRow row = dao.findSubmission(connection, id);
             if (row == null) throw new NotFoundException("成绩提交不存在");
-            return detail(row, dao.findItems(connection, id));
+            return detail(connection, row, dao.findItems(connection, id));
         } catch (SQLException failure) {
             throw new DatabaseException("查询成绩提交详情失败", failure);
         }
@@ -155,10 +165,10 @@ public class GradeApprovalService {
         dao.lockItems(connection, submissionId);
         List<GradeApprovalDAO.ItemRow> items = dao.findItems(connection, submissionId);
         if (row.status() != ApprovalStatusDTO.PENDING) {
-            throw conflict("成绩提交已被处理，请刷新后重试", row, items);
+            throw conflict(connection, "成绩提交已被处理，请刷新后重试", row, items);
         }
         if (row.version() != request.getExpectedVersion()) {
-            throw conflict("成绩提交版本已变化，请刷新后重试", row, items);
+            throw conflict(connection, "成绩提交版本已变化，请刷新后重试", row, items);
         }
         // Validation constrains approval only. Declining a frozen batch must stay possible even
         // when that batch could never be approved.
@@ -166,7 +176,7 @@ public class GradeApprovalService {
             return persistRejection(connection, admin, request, action, digest, row, items);
         }
         String problem = validationProblem(connection, row, items);
-        if (problem != null) throw conflict(problem, row, items);
+        if (problem != null) throw conflict(connection, problem, row, items);
         return persistApproval(connection, admin, request, action, digest, row, items);
     }
 
@@ -179,7 +189,7 @@ public class GradeApprovalService {
                 ApprovalStatusDTO.REJECTED, admin, now, request.getReviewComment());
         if (affected == 0) throw new ConflictException("成绩提交状态已变化，请刷新后重试");
         GradeApprovalDAO.SubmissionRow decided = dao.findSubmission(connection, row.submissionId());
-        GradeSubmissionDetailDTO entity = detail(decided, items);
+        GradeSubmissionDetailDTO entity = detail(connection, decided, items);
         AdminOperationResultDTO<GradeSubmissionDetailDTO> result = new AdminOperationResultDTO<>(
                 request.getOperationId(), OK, "成绩提交已驳回", entity, List.of());
         return auditOrRecover(connection, admin, request, action, digest, result);
@@ -200,7 +210,7 @@ public class GradeApprovalService {
                 ApprovalStatusDTO.APPROVED, admin, now, request.getReviewComment());
         if (affected == 0) throw new ConflictException("成绩提交状态已变化，请刷新后重试");
         GradeApprovalDAO.SubmissionRow decided = dao.findSubmission(connection, row.submissionId());
-        GradeSubmissionDetailDTO entity = detail(decided, items);
+        GradeSubmissionDetailDTO entity = detail(connection, decided, items);
         AdminOperationResultDTO<GradeSubmissionDetailDTO> result = new AdminOperationResultDTO<>(
                 request.getOperationId(), OK, "成绩提交已通过", entity, List.of());
         return auditOrRecover(connection, admin, request, action, digest, result);
@@ -241,10 +251,14 @@ public class GradeApprovalService {
     // -------------------------------------------------------------- validation
 
     /**
-     * Null-safe and rounded whole-batch validation: the covered enrollment set must equal the
-     * offering's eligible active enrollments, every component and the grade point must be in range,
-     * and the header snapshot must agree with what the items recompute. A {@code NULL} stored
-     * statistic matches only when no item carries a non-null score.
+     * Null-safe and rounded whole-batch validation: every component and the grade point must be in
+     * range, the covered set must be approvable and the header snapshot must agree with what the
+     * items recompute. A {@code NULL} stored statistic matches only when no item carries a non-null
+     * score.
+     *
+     * <p>Which covered set is approvable depends on the batch: a batch that captured its scheme
+     * (V007) must publish exactly the students it captured, while a legacy batch with a NULL
+     * snapshot keeps the original "must cover every eligible enrollment" rule verbatim.
      *
      * @return the reason the batch cannot be approved, or {@code null} when it is approvable
      */
@@ -256,8 +270,14 @@ public class GradeApprovalService {
             String problem = range(item);
             if (problem != null) return problem;
         }
-        if (!covered.equals(dao.findEligibleEnrollmentIds(connection, row.offeringId()))) {
-            return "成绩明细未覆盖教学班全部有效选课学生";
+        if (row.schemeSnapshotJson() == null) {
+            // 旧批次没有方案快照：保留原有验证与原有失败信息，不伪造可重算性。
+            if (!covered.equals(dao.findEligibleEnrollmentIds(connection, row.offeringId()))) {
+                return "成绩明细未覆盖教学班全部有效选课学生";
+            }
+        } else {
+            String problem = capturedProblem(connection, row, items);
+            if (problem != null) return problem;
         }
         if (row.totalCount() != items.size()) {
             return "成绩提交人数与成绩明细数量不一致";
@@ -283,6 +303,58 @@ public class GradeApprovalService {
             }
         }
         if (row.failedCount() != failed) return "不及格人数与成绩明细不一致";
+        return null;
+    }
+
+    /**
+     * Validation of a batch that captured its scheme. Approval publishes <em>exactly</em> the
+     * captured student set: a student who dropped after submission stays in the batch, and a
+     * student who enrolled afterwards neither gets stuffed into the batch nor invalidates it (the
+     * detail carries the count of such students, and the follow-up version picks them up).
+     *
+     * <p>What is still verified: every item's enrollment must belong to the offering whatever its
+     * status, the captured identity must match the enrollment, and every item's stored component
+     * scores, total and grade point must recompute from the captured scheme with the same pure
+     * calculator the teacher's submission used.
+     *
+     * @return the reason the batch cannot be approved, or {@code null} when it is approvable
+     */
+    private String capturedProblem(Connection connection, GradeApprovalDAO.SubmissionRow row,
+                                   List<GradeApprovalDAO.ItemRow> items) throws SQLException {
+        GradeSchemeDTO scheme;
+        try {
+            scheme = TeacherGradeBookDAO.scheme(row.schemeSnapshotJson());
+            GradeCalculator.validateScheme(scheme, true);
+        } catch (IllegalArgumentException broken) {
+            return "成绩方案快照非法: " + broken.getMessage();
+        }
+        for (GradeApprovalDAO.ItemRow item : items) {
+            GradeApprovalDAO.EnrollmentRow enrollment =
+                    dao.findEnrollment(connection, item.enrollmentId());
+            if (enrollment == null || enrollment.offeringId() != row.offeringId()) {
+                return "成绩明细包含不属于该教学班的选课记录";
+            }
+            if (item.snapshotUid() != null && !item.snapshotUid().equals(enrollment.uid())) {
+                return "成绩明细的学生身份与选课记录不一致";
+            }
+            BigDecimal total;
+            try {
+                total = GradeCalculator.total(scheme, new GradeScoresDTO(item.dailyScore(),
+                        item.midtermScore(), item.experimentScore(), item.finaltermScore()));
+            } catch (IllegalArgumentException broken) {
+                return "成绩明细与方案快照不一致: " + broken.getMessage();
+            }
+            if (total == null) {
+                return "成绩明细缺少启用组成分数，无法按方案快照重算总评";
+            }
+            if (item.score() == null || item.score().compareTo(total) != 0) {
+                return "总评与方案快照重算结果不一致";
+            }
+            BigDecimal point = GradePointScale.gradePointFor(total);
+            if (item.gradePoint() == null || item.gradePoint().compareTo(point) != 0) {
+                return "绩点与方案快照重算结果不一致";
+            }
+        }
         return null;
     }
 
@@ -318,11 +390,31 @@ public class GradeApprovalService {
 
     // ---------------------------------------------------------------- mapping
 
-    private GradeSubmissionDetailDTO detail(GradeApprovalDAO.SubmissionRow row,
-                                            List<GradeApprovalDAO.ItemRow> items) {
+    private GradeSubmissionDetailDTO detail(Connection connection, GradeApprovalDAO.SubmissionRow row,
+                                            List<GradeApprovalDAO.ItemRow> items) throws SQLException {
         return new GradeSubmissionDetailDTO(GradeApprovalDAO.summary(row), distribution(items),
                 mapItems(items), row.reviewedBy(), GradeApprovalDAO.instantText(row.reviewedAt()),
-                row.reviewComment());
+                row.reviewComment(), TeacherGradeBookDAO.scheme(row.schemeSnapshotJson()),
+                row.baseSubmissionId() == null ? null : Long.toString(row.baseSubmissionId()),
+                uncoveredCount(connection, row, items));
+    }
+
+    /**
+     * The students the offering now has as normal enrollments but the batch never captured. It is
+     * what the administrator's "尚未纳入已提交批次" hint counts; approving the batch neither adds
+     * them nor refuses it, so the display is the only place the gap becomes visible.
+     */
+    private int uncoveredCount(Connection connection, GradeApprovalDAO.SubmissionRow row,
+                               List<GradeApprovalDAO.ItemRow> items) throws SQLException {
+        Set<Long> covered = new LinkedHashSet<>();
+        for (GradeApprovalDAO.ItemRow item : items) {
+            covered.add(item.enrollmentId());
+        }
+        int uncovered = 0;
+        for (Long enrollmentId : dao.findEligibleEnrollmentIds(connection, row.offeringId())) {
+            if (!covered.contains(enrollmentId)) uncovered++;
+        }
+        return uncovered;
     }
 
     private static List<GradeSubmissionItemDTO> mapItems(List<GradeApprovalDAO.ItemRow> items) {
@@ -364,9 +456,10 @@ public class GradeApprovalService {
         return value == null ? null : value.doubleValue();
     }
 
-    private ConflictException conflict(String message, GradeApprovalDAO.SubmissionRow row,
-                                       List<GradeApprovalDAO.ItemRow> items) {
-        return new ConflictException(message, detail(row, items));
+    private ConflictException conflict(Connection connection, String message,
+                                       GradeApprovalDAO.SubmissionRow row,
+                                       List<GradeApprovalDAO.ItemRow> items) throws SQLException {
+        return new ConflictException(message, detail(connection, row, items));
     }
 
     // ------------------------------------------------------------- validation

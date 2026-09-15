@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import dto.course.teacher.GradeSchemeDTO;
 import dto.course.teacher.GradeScoresDTO;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -11,7 +12,9 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.sql.Timestamp;
+import java.sql.Types;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -24,11 +27,13 @@ import java.util.Set;
 
 /**
  * 教师成绩工作副本（{@code teacher_grade_book}）与草稿明细（{@code teacher_grade_draft_item}）
- * 的读与写，外加名单摘要与成绩录入列表所需的只读查询。
+ * 的读与写、提交批次（{@code grade_submission}/{@code grade_submission_item}）的写入，
+ * 外加名单摘要与成绩录入列表所需的只读查询。
  *
  * <p>所有写方法都在调用方事务内执行，调用方负责锁顺序：先锁 offering，再锁工作副本行，最后按
- * {@code enrollment_id} 升序写明细。{@link #upsertItem} 是可覆写的接缝，用来证明保存事务的
- * 回滚是整笔的。
+ * {@code enrollment_id} 升序写明细。提交在同一顺序里新建批次行（offering → book → 明细 → 批次），
+ * 审批路径只锁批次、不回锁工作副本，两边不存在环。{@link #upsertItem} 与
+ * {@link #insertSubmissionItem} 是可覆写的接缝，用来证明保存与提交事务的回滚都是整笔的。
  *
  * <p>{@link #rosterDigest} 是名单摘要的唯一定义：<b>正常（status=2）选课记录 ID 升序、每个 ID
  * 后跟随一个换行符、UTF-8 字节的 SHA-256 小写十六进制</b>。计算与复核都调用这一个方法，
@@ -366,6 +371,115 @@ public class TeacherGradeBookDAO {
         }
     }
 
+    // ------------------------------------------------------------------ 提交
+
+    /**
+     * 该教学班唯一的 PENDING 批次；没有返回 {@code null}。调用方已持 offering 锁，所以这个非锁定
+     * 读与随后的批次插入处在同一个串行区间里，“每班至多一个 PENDING”因此不依赖读的隔离级别。
+     */
+    public Long findPendingSubmission(Connection connection, long offeringId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT submission_id FROM grade_submission WHERE offering_id=? AND status='PENDING'")) {
+            statement.setLong(1, offeringId);
+            try (ResultSet rows = statement.executeQuery()) {
+                return rows.next() ? rows.getLong(1) : null;
+            }
+        }
+    }
+
+    /** 提交版本取该班历史最大 version + 1；绝不能拿可编辑草稿的 revision 冒充提交版本。 */
+    public int nextSubmissionVersion(Connection connection, long offeringId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT COALESCE(MAX(version),0)+1 FROM grade_submission WHERE offering_id=?")) {
+            statement.setLong(1, offeringId);
+            try (ResultSet rows = statement.executeQuery()) {
+                rows.next();
+                return rows.getInt(1);
+            }
+        }
+    }
+
+    /**
+     * 建立 immutable 批次头：方案/名单摘要/身份快照与统计一次写入，状态从 PENDING 开始。
+     * {@code grade_level} 不在明细里写：新批次不编造等级编码。
+     *
+     * @return 新批次的 submission_id
+     */
+    public long insertSubmission(Connection connection, SubmissionInsert insert) throws SQLException {
+        String sql = "INSERT INTO grade_submission(offering_id,version,submitted_by,submitted_at,"
+                + "status,scheme_snapshot_json,roster_digest,base_submission_id,correction_reason,"
+                + "submission_kind,average_score,max_score,min_score,failed_count,total_count)"
+                + " VALUES(?,?,?,?,'PENDING',?,?,?,?,?,?,?,?,?,?)";
+        try (PreparedStatement statement = connection.prepareStatement(sql,
+                Statement.RETURN_GENERATED_KEYS)) {
+            statement.setLong(1, insert.offeringId());
+            statement.setInt(2, insert.version());
+            statement.setString(3, insert.submittedBy());
+            statement.setTimestamp(4, timestamp(insert.submittedAt()));
+            statement.setString(5, insert.schemeSnapshotJson());
+            statement.setString(6, insert.rosterDigest());
+            if (insert.baseSubmissionId() == null) statement.setNull(7, Types.BIGINT);
+            else statement.setLong(7, insert.baseSubmissionId());
+            statement.setString(8, insert.correctionReason());
+            statement.setString(9, insert.submissionKind());
+            statement.setBigDecimal(10, insert.averageScore());
+            statement.setBigDecimal(11, insert.maxScore());
+            statement.setBigDecimal(12, insert.minScore());
+            statement.setInt(13, insert.failedCount());
+            statement.setInt(14, insert.totalCount());
+            statement.executeUpdate();
+            try (ResultSet keys = statement.getGeneratedKeys()) {
+                if (!keys.next()) throw new SQLException("成绩提交插入没有返回主键");
+                return keys.getLong(1);
+            }
+        }
+    }
+
+    /**
+     * 写一条批次明细快照：四项分数（禁用项已置 NULL）、服务器重算的总评/绩点与提交时捕获的身份。
+     * 可覆写接缝，用于证明提交事务的整笔回滚。
+     */
+    public void insertSubmissionItem(Connection connection, long submissionId,
+                                     SubmissionItemRow item) throws SQLException {
+        String sql = "INSERT INTO grade_submission_item(submission_id,enrollment_id,daily_score,"
+                + "midterm_score,experiment_score,finalterm_score,score,grade_point,"
+                + "student_uid_snapshot,student_name_snapshot) VALUES(?,?,?,?,?,?,?,?,?,?)";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, submissionId);
+            statement.setLong(2, item.enrollmentId());
+            GradeScoresDTO scores = item.scores();
+            statement.setBigDecimal(3, scores == null ? null : scores.getDailyScore());
+            statement.setBigDecimal(4, scores == null ? null : scores.getMidtermScore());
+            statement.setBigDecimal(5, scores == null ? null : scores.getExperimentScore());
+            statement.setBigDecimal(6, scores == null ? null : scores.getFinaltermScore());
+            statement.setBigDecimal(7, item.totalScore());
+            statement.setBigDecimal(8, item.gradePoint());
+            statement.setString(9, item.studentUid());
+            statement.setString(10, item.studentName());
+            statement.executeUpdate();
+        }
+    }
+
+    /**
+     * 关闭草稿并记录最后一次批次：明细全部写完后才执行，版本与 {@code draft_open} 一起参与条件，
+     * 任何在提交途中被改动的草稿都不会被静默关闭。
+     *
+     * @return 受影响行数，调用方必须要求恰好 1
+     */
+    public int markSubmitted(Connection connection, long offeringId, int revision, long submissionId,
+                             String updatedBy, Instant updatedAt) throws SQLException {
+        String sql = "UPDATE teacher_grade_book SET draft_open=0,last_submission_id=?,updated_by=?,"
+                + "updated_at=? WHERE offering_id=? AND revision=? AND draft_open=1";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, submissionId);
+            statement.setString(2, updatedBy);
+            statement.setTimestamp(3, timestamp(updatedAt));
+            statement.setLong(4, offeringId);
+            statement.setInt(5, revision);
+            return statement.executeUpdate();
+        }
+    }
+
     // ---------------------------------------------------------------- helpers
 
     private static int bindListFilter(PreparedStatement statement, int index, String uid,
@@ -417,6 +531,20 @@ public class TeacherGradeBookDAO {
 
     /** 一条草稿明细；四项分数为 null 表示尚未录入。 */
     public record ItemRow(long enrollmentId, GradeScoresDTO scores) {
+    }
+
+    /** 批次头的全部写入字段；统计与快照由服务层在同一事务里算好后一次写入。 */
+    public record SubmissionInsert(long offeringId, int version, String submittedBy,
+                                   Instant submittedAt, String schemeSnapshotJson,
+                                   String rosterDigest, Long baseSubmissionId,
+                                   String correctionReason, String submissionKind, int totalCount,
+                                   int failedCount, BigDecimal averageScore, BigDecimal maxScore,
+                                   BigDecimal minScore) {
+    }
+
+    /** 一条批次明细快照；{@code scores} 里的禁用组成已由服务层置 NULL，总评/绩点由服务器重算。 */
+    public record SubmissionItemRow(long enrollmentId, GradeScoresDTO scores, BigDecimal totalScore,
+                                    BigDecimal gradePoint, String studentUid, String studentName) {
     }
 
     /** 成绩录入列表的一行原始数据；名单人数与可编辑位由服务层补齐。 */

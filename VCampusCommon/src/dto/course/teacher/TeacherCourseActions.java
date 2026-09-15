@@ -22,6 +22,7 @@ public final class TeacherCourseActions {
     public static final String LIST_GRADE_OFFERINGS = "listGradeOfferings";
     public static final String GET_GRADE_BOOK = "getGradeBook";
     public static final String SAVE_GRADE_DRAFT = "saveGradeDraft";
+    public static final String SUBMIT_GRADE_BOOK = "submitGradeBook";
 
     private TeacherCourseActions() {
     }

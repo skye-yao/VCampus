@@ -28,9 +28,11 @@ import util.DBUtil;
 
 import java.lang.reflect.Type;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -59,6 +61,12 @@ import java.util.UUID;
  * 响应（哪怕此时 expectedRevision 已经过期，重试不会变成冲突）；相同 operationId 但内容不同是
  * CONFLICT。规范化请求按 enrollment_id 升序、方案按固定四项枚举顺序、分数按两位小数文本生成摘要，
  * 所以行序或 {@code 88.5}/{@code 88.50} 的写法不会造成假冲突。
+ *
+ * <p>提交（设计第 8 节）在同一把 offering 锁内完成：先按同一套规则保存工作副本，再用 <em>刚写入的
+ * 草稿行</em>捕获整份正常名单（方案、名单摘要、身份、统计与每条明细）建成一个不可变批次，最后关闭
+ * 草稿并记下 last_submission_id，全程一个事务。提交版本取该班历史最大 version+1，不与草稿 revision
+ * 混用；“每班至多一个 PENDING 批次”在 offering 锁内检查，并发的第二次提交拿到 CONFLICT 而不是第二
+ * 个待审批次。提交快照里禁用组成写 NULL（草稿仍保留原值），等级不写（不编造等级编码）。
  */
 public class TeacherGradeBookService {
     /** 教师操作日志的目标类型：一份教学班成绩工作副本。 */
@@ -72,7 +80,14 @@ public class TeacherGradeBookService {
     private static final String STATE_PENDING = "PENDING";
     private static final String STATE_APPROVED = "APPROVED";
     private static final String STATE_REJECTED = "REJECTED";
+    /** 工作副本的草稿类型：与 V007 的 CHECK 取值一一对应。 */
+    private static final String DRAFT_KIND_INITIAL = "INITIAL";
+    private static final String DRAFT_KIND_RESUBMISSION = "RESUBMISSION";
     private static final int SCORE_SCALE = 2;
+    /** 不及格线：总评严格小于 60 计入批次头的 failed_count。 */
+    private static final BigDecimal FAIL_SCORE = new BigDecimal("60");
+    private static final String SAVE_FAILURE = "保存成绩草稿事务执行失败";
+    private static final String SUBMIT_FAILURE = "提交成绩批次事务执行失败";
     /** 一行完全没有分数；与 DTO 的字段顺序一致。 */
     private static final GradeScoresDTO EMPTY_SCORES =
             new GradeScoresDTO(null, null, null, null);
@@ -180,7 +195,7 @@ public class TeacherGradeBookService {
         String teacher = requireUid(uid);
         AdminOperationTransaction.validate(teacher, raw == null ? null : raw.getOperationId());
         String operationId = UUID.fromString(raw.getOperationId().trim()).toString();
-        Normalized request = normalize(teacher, raw, operationId);
+        Normalized request = normalize(teacher, raw, operationId, false);
         String action = TeacherCourseActions.SAVE_GRADE_DRAFT;
         String digest = operations.digest(action, request.canonical());
         try (Connection connection = DBUtil.getConnection()) {
@@ -198,10 +213,48 @@ public class TeacherGradeBookService {
                 rollback(connection, failure);
                 throw failure;
             } finally {
-                restoreAutoCommit(connection, originalAutoCommit, inFlight);
+                restoreAutoCommit(connection, originalAutoCommit, inFlight, SAVE_FAILURE);
             }
         } catch (SQLException failure) {
-            throw new DatabaseException("保存成绩草稿事务执行失败", failure);
+            throw new DatabaseException(SAVE_FAILURE, failure);
+        }
+    }
+
+    /**
+     * 正式提交：请求就是当前完整编辑内容，事务内先按草稿规则保存工作副本，再把它整份捕获成一个
+     * 不可变批次（方案/名单摘要/身份/统计/明细），关闭草稿并记录 last_submission_id。
+     *
+     * <p>与 {@link #saveDraft} 的差别：方案必须配齐权重（否则提交没有确定的总评），整份正常名单的
+     * 每个启用组成都必须有分数（缺失不是 0 分，拒绝而不是补 0），并且该教学班不能已有 PENDING 批次。
+     * 提交不额外写正式成绩：只有管理员审批成功才发布 {@code grade} 投影。
+     */
+    public TeacherOperationResultDTO<TeacherGradeBookDTO> submitGradeBook(String uid,
+            WriteGradeBookRequestDTO raw) {
+        String teacher = requireUid(uid);
+        AdminOperationTransaction.validate(teacher, raw == null ? null : raw.getOperationId());
+        String operationId = UUID.fromString(raw.getOperationId().trim()).toString();
+        Normalized request = normalize(teacher, raw, operationId, true);
+        String action = TeacherCourseActions.SUBMIT_GRADE_BOOK;
+        String digest = operations.digest(action, request.canonical());
+        try (Connection connection = DBUtil.getConnection()) {
+            boolean originalAutoCommit = connection.getAutoCommit();
+            connection.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
+            connection.setAutoCommit(false);
+            Throwable inFlight = null;
+            try {
+                TeacherOperationResultDTO<TeacherGradeBookDTO> result =
+                        submitTransaction(connection, request, action, digest);
+                connection.commit();
+                return result;
+            } catch (RuntimeException | SQLException failure) {
+                inFlight = failure;
+                rollback(connection, failure);
+                throw failure;
+            } finally {
+                restoreAutoCommit(connection, originalAutoCommit, inFlight, SUBMIT_FAILURE);
+            }
+        } catch (SQLException failure) {
+            throw new DatabaseException(SUBMIT_FAILURE, failure);
         }
     }
 
@@ -241,33 +294,29 @@ public class TeacherGradeBookService {
             }
         }
 
+        writeDraft(connection, request, book, action);
+
+        TeacherGradeBookDTO entity = readBook(connection, request.offeringId(), true);
+        TeacherOperationResultDTO<TeacherGradeBookDTO> result =
+                new TeacherOperationResultDTO<>(request.operationId(), "成绩草稿已保存", entity,
+                        false);
+        return auditOrRecover(connection, request, action, digest, result);
+    }
+
+    /**
+     * 保存草稿的公共写路径：方案/版本原子更新 → 按 enrollment_id 升序写合并后的明细 → 变更审计。
+     * 保存与提交共用它，所以提交保存的草稿和单独保存草稿得到的是同一份状态。
+     */
+    private PreparedBook writeDraft(Connection connection, Normalized request,
+                                    TeacherGradeBookDAO.GradeBookRow book, String action)
+            throws SQLException {
         List<TeacherGradeBookDAO.ItemRow> previousItems = book == null
                 ? List.of() : dao.listItems(connection, request.offeringId());
-        String schemeJson = TeacherGradeBookDAO.schemeJson(request.scheme());
-        int revision;
-        if (book == null) {
-            // expectedRevision 已在上面的守卫里要求为 0：首次创建只认“客户端也没有草稿”。
-            dao.insertBook(connection, request.offeringId(), schemeJson, request.uid(),
-                    clock.instant());
-            revision = 1;
-        } else {
-            if (!book.draftOpen()) reopenDraft(connection, request, book);
-            // 条件里的版本是客户端看到的 expectedRevision，不是刚读到的版本：乐观锁由这一行
-            // 影响行数来判定，过期请求一个明细字节都写不出去。
-            int affected = dao.updateScheme(connection, request.offeringId(),
-                    request.expectedRevision(), schemeJson, request.uid(), clock.instant());
-            if (affected != 1) {
-                // 版本过期或草稿已关闭：明细一个字节都不许写。
-                throw new ConflictException("成绩草稿版本已变化，请重新加载后重试",
-                        readBook(connection, request.offeringId(), true));
-            }
-            revision = book.revision() + 1;
-        }
-
         Map<Long, GradeScoresDTO> previous = new HashMap<>();
         for (TeacherGradeBookDAO.ItemRow item : previousItems) {
             previous.put(item.enrollmentId(), item.scores());
         }
+        PreparedBook prepared = prepareBook(connection, request, book);
         List<Row> storedRows = new ArrayList<>();
         for (Row row : request.rows()) {
             storedRows.add(new Row(row.enrollmentId(),
@@ -277,14 +326,40 @@ public class TeacherGradeBookService {
         for (Row row : storedRows) {
             dao.upsertItem(connection, request.offeringId(), row.enrollmentId(), row.scores());
         }
-        auditChanges(connection, request, book == null ? null : book.scheme(), previous, storedRows,
-                revision);
+        auditChanges(connection, request, action, book == null ? null : book.scheme(), previous,
+                storedRows, prepared.revision());
+        return prepared;
+    }
 
-        TeacherGradeBookDTO entity = readBook(connection, request.offeringId(), true);
-        TeacherOperationResultDTO<TeacherGradeBookDTO> result =
-                new TeacherOperationResultDTO<>(request.operationId(), "成绩草稿已保存", entity,
-                        false);
-        return auditOrRecover(connection, request, action, digest, result);
+    /**
+     * 工作副本的方案与版本原子更新。首次创建只认 {@code expectedRevision=0}（守卫在调用方）；
+     * 被驳回的关闭草稿先惰性重开；其余关闭状态（PENDING/APPROVED）直接冲突。
+     *
+     * @return 本次写入后的 revision 与工作副本类型，供提交记录批次来源
+     */
+    private PreparedBook prepareBook(Connection connection, Normalized request,
+                                     TeacherGradeBookDAO.GradeBookRow book) throws SQLException {
+        String schemeJson = TeacherGradeBookDAO.schemeJson(request.scheme());
+        if (book == null) {
+            dao.insertBook(connection, request.offeringId(), schemeJson, request.uid(),
+                    clock.instant());
+            return new PreparedBook(1, DRAFT_KIND_INITIAL, null);
+        }
+        boolean reopened = !book.draftOpen();
+        if (reopened) reopenDraft(connection, request, book);
+        // 条件里的版本是客户端看到的 expectedRevision，不是刚读到的版本：乐观锁由这一行
+        // 影响行数来判定，过期请求一个明细字节都写不出去。
+        int affected = dao.updateScheme(connection, request.offeringId(),
+                request.expectedRevision(), schemeJson, request.uid(), clock.instant());
+        if (affected != 1) {
+            // 版本过期或草稿已关闭：明细一个字节都不许写。
+            throw new ConflictException("成绩草稿版本已变化，请重新加载后重试",
+                    readBook(connection, request.offeringId(), true));
+        }
+        // 重开的草稿类型固定是 RESUBMISSION，基础批次就是被驳回的那一批（DAO 在重开时写入）。
+        return new PreparedBook(book.revision() + 1,
+                reopened ? DRAFT_KIND_RESUBMISSION : book.draftKind(),
+                reopened ? book.lastSubmissionId() : book.baseSubmissionId());
     }
 
     /**
@@ -306,10 +381,137 @@ public class TeacherGradeBookService {
         }
     }
 
+    /**
+     * 提交事务。锁顺序与保存一致：offering → grade book → 按 enrollment_id 排序的明细；
+     * 新建的批次行排在最后（批次头 → 明细 → 关闭草稿），审批路径只锁批次、从不回锁工作副本，
+     * 两边不存在环。
+     *
+     * <p>捕获的快照直接来自刚写入的草稿行：提交不引入第二条数据通路，事务内被拒绝时整笔回滚
+     * （草稿、批次、统计、日志一起消失），所以“响应丢失后重试”只会重放一个已提交批次，
+     * 不会留下半个批次。
+     */
+    private TeacherOperationResultDTO<TeacherGradeBookDTO> submitTransaction(Connection connection,
+            Normalized request, String action, String digest) throws SQLException {
+        TeacherCourseOperationDAO.StoredOperation stored =
+                operations.find(connection, request.uid(), request.operationId());
+        if (stored != null) return replay(stored, digest, request.operationId());
+
+        if (!dao.lockOffering(connection, request.offeringId())) {
+            throw new TeacherAccessPolicy.AccessDeniedException("没有编辑该教学班成绩的权限");
+        }
+        accessPolicy.requireEditGrades(connection, request.uid(), request.offeringId());
+        // A duplicate request may have committed while this one waited for the offering lock.
+        stored = operations.find(connection, request.uid(), request.operationId());
+        if (stored != null) return replay(stored, digest, request.operationId());
+
+        // 每班至多一个 PENDING 批次：持 offering 锁时检查，随后插入的批次也在同一锁内完成。
+        if (dao.findPendingSubmission(connection, request.offeringId()) != null) {
+            throw new ConflictException("该教学班已有待审批的成绩批次，不能重复提交",
+                    readBook(connection, request.offeringId(), true));
+        }
+        TeacherGradeBookDAO.GradeBookRow book =
+                dao.findBookForUpdate(connection, request.offeringId());
+        if (book == null && request.expectedRevision() != 0) {
+            throw new ConflictException("该教学班还没有成绩草稿，expectedRevision 必须为 0",
+                    readBook(connection, request.offeringId(), true));
+        }
+        List<Long> rosterIds = dao.normalEnrollmentIds(connection, request.offeringId());
+        if (!TeacherGradeBookDAO.rosterDigest(rosterIds).equals(request.rosterDigest())) {
+            throw new ConflictException("名单已变化，请重新加载成绩表并合并已输入的成绩",
+                    readBook(connection, request.offeringId(), true));
+        }
+        Set<Long> roster = new HashSet<>(rosterIds);
+        for (Row row : request.rows()) {
+            if (!roster.contains(row.enrollmentId())) {
+                throw new IllegalArgumentException(
+                        "学生不在本教学班当前名单中: " + row.enrollmentId());
+            }
+        }
+
+        PreparedBook prepared = writeDraft(connection, request, book, action);
+
+        // 快照来自刚写入的草稿行：正常名单里的每个学生都按当前方案重算，缺启用项分数一律拒绝。
+        Map<Long, GradeScoresDTO> storedScores = new HashMap<>();
+        for (TeacherGradeBookDAO.ItemRow item : dao.listItems(connection, request.offeringId())) {
+            storedScores.put(item.enrollmentId(), item.scores());
+        }
+        List<TeacherGradeBookDAO.SubmissionItemRow> items = new ArrayList<>();
+        BigDecimal sum = BigDecimal.ZERO;
+        BigDecimal max = null;
+        BigDecimal min = null;
+        int failed = 0;
+        for (TeacherGradeBookDAO.RosterScoreRow student
+                : dao.listRosterScores(connection, List.of(request.offeringId()))) {
+            GradeScoresDTO snapshot = disabledAsNull(storedScores.get(student.enrollmentId()),
+                    request.scheme());
+            BigDecimal total;
+            try {
+                total = GradeCalculator.total(request.scheme(), snapshot);
+            } catch (IllegalArgumentException broken) {
+                throw new IllegalArgumentException("提交成绩失败: " + broken.getMessage());
+            }
+            if (total == null) {
+                // 缺失不是 0 分：整份名单的启用组成都必须有分数才能提交。
+                throw new IllegalArgumentException(
+                        "提交成绩前必须补齐所有启用组成的成绩，缺少学生: " + student.studentUid());
+            }
+            BigDecimal point = GradePointScale.gradePointFor(total);
+            sum = sum.add(total);
+            max = max == null || total.compareTo(max) > 0 ? total : max;
+            min = min == null || total.compareTo(min) < 0 ? total : min;
+            if (total.compareTo(FAIL_SCORE) < 0) failed++;
+            items.add(new TeacherGradeBookDAO.SubmissionItemRow(student.enrollmentId(), snapshot,
+                    total, point, student.studentUid(), student.studentName()));
+        }
+        items.sort(Comparator.comparingLong(TeacherGradeBookDAO.SubmissionItemRow::enrollmentId));
+        int totalCount = items.size();
+        BigDecimal average = totalCount == 0 ? null
+                : sum.divide(BigDecimal.valueOf(totalCount), SCORE_SCALE, RoundingMode.HALF_UP);
+
+        Instant now = clock.instant();
+        long submissionId = dao.insertSubmission(connection, new TeacherGradeBookDAO.SubmissionInsert(
+                request.offeringId(), dao.nextSubmissionVersion(connection, request.offeringId()),
+                request.uid(), now, TeacherGradeBookDAO.schemeJson(request.scheme()),
+                request.rosterDigest(), prepared.baseSubmissionId(), book == null ? null
+                        : book.correctionReason(), prepared.draftKind(), totalCount, failed,
+                average, max, min));
+        for (TeacherGradeBookDAO.SubmissionItemRow item : items) {
+            dao.insertSubmissionItem(connection, submissionId, item);
+        }
+        if (dao.markSubmitted(connection, request.offeringId(), prepared.revision(), submissionId,
+                request.uid(), now) != 1) {
+            throw new ConflictException("成绩草稿版本已变化，请重新加载后重试",
+                    readBook(connection, request.offeringId(), true));
+        }
+
+        TeacherGradeBookDTO entity = readBook(connection, request.offeringId(), true);
+        TeacherOperationResultDTO<TeacherGradeBookDTO> result =
+                new TeacherOperationResultDTO<>(request.operationId(), "成绩批次已提交", entity, false);
+        return auditOrRecover(connection, request, action, digest, result);
+    }
+
+    /** 提交快照的组成值：禁用组成一律写 NULL，草稿里的旧值绝不进入正式批次。 */
+    private static GradeScoresDTO disabledAsNull(GradeScoresDTO scores, GradeSchemeDTO scheme) {
+        if (scores == null) return EMPTY_SCORES;
+        return new GradeScoresDTO(
+                enabledScore(GradeComponentCodeDTO.DAILY, scores.getDailyScore(), scheme),
+                enabledScore(GradeComponentCodeDTO.MIDTERM, scores.getMidtermScore(), scheme),
+                enabledScore(GradeComponentCodeDTO.EXPERIMENT, scores.getExperimentScore(), scheme),
+                enabledScore(GradeComponentCodeDTO.FINALTERM, scores.getFinaltermScore(), scheme));
+    }
+
+    private static BigDecimal enabledScore(GradeComponentCodeDTO code, BigDecimal score,
+                                           GradeSchemeDTO scheme) {
+        for (GradeComponentDTO component : scheme.getComponents()) {
+            if (component.getCode() == code) return component.isEnabled() ? score : null;
+        }
+        return null;
+    }
+
     // ----------------------------------------------------------------- 规范化
 
     private static Normalized normalize(String uid, WriteGradeBookRequestDTO raw,
-                                        String operationId) {
+                                        String operationId, boolean requireComplete) {
         if (raw == null || raw.getContent() == null) {
             throw new IllegalArgumentException("请求体不能为空");
         }
@@ -322,7 +524,8 @@ public class TeacherGradeBookService {
         String rosterDigest = requireDigest(content.getRosterDigest());
         GradeSchemeDTO scheme =
                 content.getScheme() == null ? defaultScheme() : content.getScheme();
-        GradeCalculator.validateScheme(scheme, false);
+        // 提交（requireComplete）还要求权重配齐：没有确定权重就没有可核验的总评。
+        GradeCalculator.validateScheme(scheme, requireComplete);
         scheme = canonicalScheme(scheme);
 
         List<Row> rows = new ArrayList<>();
@@ -405,7 +608,7 @@ public class TeacherGradeBookService {
 
     /**
      * 禁用项不是“清空”：客户端没有给值时保留草稿里已有的值，重新启用后原值还在。
-     * 提交时的“禁用项写 NULL”发生在 Task 4，草稿阶段不做这个替换。
+     * 只有提交快照把禁用项置 NULL（{@link #disabledAsNull}），草稿阶段不做这个替换。
      */
     private static GradeScoresDTO mergeDisabled(GradeScoresDTO incoming, GradeScoresDTO stored,
                                                 GradeSchemeDTO scheme) {
@@ -435,15 +638,16 @@ public class TeacherGradeBookService {
     /**
      * 权重（方案）变化记班级级日志，分数变化记学生级日志；首次创建没有 before_json。
      * 学生级快照带服务器按当时方案算出的总评与绩点，便于追责时核对“当时是多少”。
+     * {@code action} 是触发本次写入的动作：单独保存记 saveGradeDraft，提交连带保存记 submitGradeBook。
      */
-    private void auditChanges(Connection connection, Normalized request,
+    private void auditChanges(Connection connection, Normalized request, String action,
                               GradeSchemeDTO beforeScheme, Map<Long, GradeScoresDTO> before,
                               List<Row> after, int revision) throws SQLException {
         String schemeJson = TeacherGradeBookDAO.schemeJson(request.scheme());
         if (beforeScheme == null
                 || !TeacherGradeBookDAO.schemeJson(beforeScheme).equals(schemeJson)) {
             audit.insert(connection, request.uid(), request.offeringId(), null,
-                    request.operationId(), revision, TeacherCourseActions.SAVE_GRADE_DRAFT,
+                    request.operationId(), revision, action,
                     beforeScheme == null ? null : TeacherGradeBookDAO.schemeJson(beforeScheme),
                     schemeJson, null);
         }
@@ -453,7 +657,7 @@ public class TeacherGradeBookService {
                 continue;
             }
             audit.insert(connection, request.uid(), request.offeringId(), row.enrollmentId(),
-                    request.operationId(), revision, TeacherCourseActions.SAVE_GRADE_DRAFT,
+                    request.operationId(), revision, action,
                     previous == null ? null
                             : TeacherGradeAuditDAO.scoreSnapshot(row.enrollmentId(), previous,
                                     total(beforeScheme, previous),
@@ -614,7 +818,8 @@ public class TeacherGradeBookService {
     private TeacherOperationResultDTO<TeacherGradeBookDTO> replay(
             TeacherCourseOperationDAO.StoredOperation stored, String digest, String operationId) {
         if (!digest.equals(stored.requestDigest())) {
-            throw new ConflictException("operationId 已用于不同的成绩保存请求");
+            // 保存与提交也共用这一份日志：同一个 operationId 换个动作或换个内容都是冲突。
+            throw new ConflictException("operationId 已用于不同的成绩写入请求");
         }
         TeacherOperationResultDTO<TeacherGradeBookDTO> storedResult =
                 operations.decode(stored.responseJson(), RESULT_TYPE);
@@ -632,14 +837,14 @@ public class TeacherGradeBookService {
 
     /** Never replaces an in-flight failure with a connection-cleanup failure. */
     private static void restoreAutoCommit(Connection connection, boolean autoCommit,
-                                          Throwable inFlight) {
+                                          Throwable inFlight, String failureMessage) {
         try {
             connection.setAutoCommit(autoCommit);
         } catch (SQLException restoration) {
             if (inFlight != null) {
                 inFlight.addSuppressed(restoration);
             } else {
-                throw new DatabaseException("保存成绩草稿事务执行失败", restoration);
+                throw new DatabaseException(failureMessage, restoration);
             }
         }
     }
@@ -686,6 +891,13 @@ public class TeacherGradeBookService {
     }
 
     private record Counters(int entered, int missing) {
+    }
+
+    /**
+     * 保存/提交写入后的工作副本状态：{@code revision} 是本次写入后的版本，类型与基础批次供提交
+     * 记录批次来源（重开的草稿固定是 RESUBMISSION，基础批次是被驳回的那一批）。
+     */
+    private record PreparedBook(int revision, String draftKind, Long baseSubmissionId) {
     }
 
     private record Normalized(String uid, String operationId, long offeringId, int expectedRevision,

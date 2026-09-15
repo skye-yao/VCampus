@@ -12,6 +12,9 @@ import dto.course.admin.approval.GradeSubmissionDetailDTO;
 import dto.course.admin.approval.GradeSubmissionItemDTO;
 import dto.course.admin.approval.GradeSubmissionPageDTO;
 import dto.course.admin.approval.GradeSubmissionSummaryDTO;
+import dto.course.teacher.GradeComponentCodeDTO;
+import dto.course.teacher.GradeComponentDTO;
+import dto.course.teacher.GradeSchemeDTO;
 
 public final class GradeApprovalDtoJsonTest {
     private static final Gson GSON = new Gson();
@@ -160,6 +163,28 @@ public final class GradeApprovalDtoJsonTest {
 
         requireStringId(copy.getSummary(), "submissionId", SUBMISSION_ID);
         requireStringId(copy.getSummary(), "offeringId", OFFERING_ID);
+
+        // T4 的提交快照字段同样走这条线：管理员按它显示组成与权重、基础批次和未纳入批次的新成员。
+        GradeSubmissionDetailDTO captured = new GradeSubmissionDetailDTO(
+                summary(SUBMISSION_ID, ApprovalStatusDTO.PENDING), List.of(), List.of(), null, null,
+                null, new GradeSchemeDTO(List.of(
+                        new GradeComponentDTO(GradeComponentCodeDTO.DAILY, true, 4000),
+                        new GradeComponentDTO(GradeComponentCodeDTO.MIDTERM, true, 2000),
+                        new GradeComponentDTO(GradeComponentCodeDTO.EXPERIMENT, false, 0),
+                        new GradeComponentDTO(GradeComponentCodeDTO.FINALTERM, true, 4000))),
+                "9007199254740999", 2);
+        GradeSubmissionDetailDTO capturedCopy = GSON.fromJson(
+                GSON.toJson(captured), GradeSubmissionDetailDTO.class);
+        require(capturedCopy.getSchemeSnapshot() != null
+                        && capturedCopy.getSchemeSnapshot().getComponents().size() == 4
+                        && capturedCopy.getSchemeSnapshot().getComponents().get(0)
+                        .getWeightBasisPoints() == 4000
+                        && !capturedCopy.getSchemeSnapshot().getComponents().get(2).isEnabled(),
+                "the captured scheme must survive JSON with its weights and enabled flags");
+        require("9007199254740999".equals(capturedCopy.getBaseSubmissionId()),
+                "the base batch ID must stay exact beyond the JavaScript safe integer");
+        require(capturedCopy.getUncoveredCount() == 2,
+                "the uncovered-member count must survive JSON");
     }
 
     private static void detailKeepsUnreviewedFieldsNull() {
@@ -176,6 +201,9 @@ public final class GradeApprovalDtoJsonTest {
                 "an unreviewed submission must stay pending");
         require(copy.getDistribution().isEmpty() && copy.getItems().isEmpty(),
                 "an empty submission must keep its empty collections empty");
+        require(copy.getSchemeSnapshot() == null && copy.getBaseSubmissionId() == null
+                        && copy.getUncoveredCount() == 0,
+                "a legacy detail built without a captured scheme must keep those fields empty");
     }
 
     private static void unknownWireStatusBecomesNullInsteadOfValidStatus() {

@@ -18,6 +18,9 @@ import dto.course.admin.approval.GradeSubmissionPageDTO;
 import dto.course.admin.approval.GradeSubmissionSummaryDTO;
 import dto.course.admin.catalog.CourseEditorRequestDTO;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
+import dto.course.teacher.GradeComponentCodeDTO;
+import dto.course.teacher.GradeComponentDTO;
+import dto.course.teacher.GradeSchemeDTO;
 import javafx.scene.control.ButtonType;
 import model.course.admin.AdminCourseView;
 import model.course.admin.AdminOfferingView;
@@ -47,6 +50,7 @@ public final class GradeApprovalControllerTest {
         testOperationIdIsReusedOnlyForAnIdenticalRetry();
         testConflictRendersTheLatestServerState();
         testCompletedSubmissionRendersReadOnlyWithReview();
+        testCapturedSchemeAndUncoveredMembersRender();
         testShellSharesFilterAndOnlyLoadsTheActiveTab();
         System.out.println("GradeApprovalControllerTest: PASS");
     }
@@ -284,6 +288,43 @@ public final class GradeApprovalControllerTest {
 
         require(service.gradeDecisions.isEmpty(),
                 "a completed batch must stay read-only and never submit a decision");
+    }
+
+    /**
+     * 管理员要在成绩详情里看到提交时的组成与权重、提交人数和“未纳入已提交批次”的新成员提示。
+     * 历史批次没有方案快照：显示规则时不编造权重，也不显示本批没有的批次来源与成员缺口。
+     */
+    private static void testCapturedSchemeAndUncoveredMembersRender() {
+        GradeSchemeDTO scheme = new GradeSchemeDTO(List.of(
+                new GradeComponentDTO(GradeComponentCodeDTO.DAILY, true, 3000),
+                new GradeComponentDTO(GradeComponentCodeDTO.MIDTERM, true, 2000),
+                new GradeComponentDTO(GradeComponentCodeDTO.EXPERIMENT, false, 0),
+                new GradeComponentDTO(GradeComponentCodeDTO.FINALTERM, true, 5000)));
+        GradeSubmissionDetailDTO captured = new GradeSubmissionDetailDTO(
+                summary("9001", ApprovalStatusDTO.PENDING), List.of(), List.of(), null, null, null,
+                scheme, "8999", 2);
+
+        List<String> lines = GradeApprovalController.detailLines(captured);
+
+        require(lines.contains("成绩组成：平时 30.00%　期中 20.00%　实验 未启用　期末 50.00%"),
+                "the captured scheme must render every component with its weight, saw " + lines);
+        require(lines.contains("提交人数：42 人　不及格：4 人"),
+                "the detail must show the submitted student count, saw " + lines);
+        require(lines.contains("基础批次：8999"),
+                "a resubmitted batch must name the batch it came from, saw " + lines);
+        require(lines.contains("未纳入批次的新成员：2 人（尚未纳入已提交批次，待该批结束后补录）"),
+                "the detail must warn about students the batch never captured, saw " + lines);
+
+        GradeSubmissionDetailDTO legacy = new GradeSubmissionDetailDTO(
+                summary("9002", ApprovalStatusDTO.PENDING), List.of(), List.of(), null, null, null);
+        List<String> legacyLines = GradeApprovalController.detailLines(legacy);
+
+        require(legacyLines.contains("成绩组成：历史批次未记录方案快照，按旧验证规则审批"),
+                "a legacy batch must not invent weights, saw " + legacyLines);
+        require(legacyLines.stream().noneMatch(line -> line.startsWith("基础批次"))
+                        && legacyLines.stream().noneMatch(line -> line.startsWith("未纳入批次")),
+                "a legacy batch shows neither a base batch nor an uncovered-member hint, saw "
+                        + legacyLines);
     }
 
     private static void testShellSharesFilterAndOnlyLoadsTheActiveTab() throws Exception {

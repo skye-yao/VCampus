@@ -1,5 +1,6 @@
 package controller;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -15,6 +16,9 @@ import dto.course.admin.approval.GradeDistributionBucketDTO;
 import dto.course.admin.approval.GradeSubmissionDetailDTO;
 import dto.course.admin.approval.GradeSubmissionItemDTO;
 import dto.course.admin.approval.GradeSubmissionSummaryDTO;
+import dto.course.teacher.GradeComponentCodeDTO;
+import dto.course.teacher.GradeComponentDTO;
+import dto.course.teacher.GradeSchemeDTO;
 import javafx.application.Platform;
 import javafx.beans.property.ReadOnlyStringWrapper;
 import javafx.fxml.FXML;
@@ -404,9 +408,17 @@ public final class GradeApprovalController {
         lines.add("教学班：" + summary.getOfferingId() + "　" + summary.getCourseName() + "　"
                 + summary.getOfferingCode());
         lines.add("任课教师：" + summary.getTeacherName() + "（" + summary.getTeacherUid() + "）");
-        lines.add("学生人数：" + summary.getStudentCount() + " 人　不及格："
+        lines.add("提交人数：" + summary.getStudentCount() + " 人　不及格："
                 + summary.getFailCount() + " 人");
         lines.add("提交版本：v" + summary.getVersion() + "　提交：" + summary.getSubmittedAt());
+        lines.add(schemeLine(detail.getSchemeSnapshot()));
+        if (detail.getBaseSubmissionId() != null) {
+            lines.add("基础批次：" + detail.getBaseSubmissionId());
+        }
+        if (detail.getUncoveredCount() > 0) {
+            lines.add("未纳入批次的新成员：" + detail.getUncoveredCount()
+                    + " 人（尚未纳入已提交批次，待该批结束后补录）");
+        }
         if (detail.getReviewedBy() != null) {
             lines.add("审批人：" + detail.getReviewedBy() + "　审批时间：" + detail.getReviewedAt());
         }
@@ -414,6 +426,41 @@ public final class GradeApprovalController {
             lines.add("审批意见：" + detail.getReviewComment());
         }
         return List.copyOf(lines);
+    }
+
+    /** 组成与权重一行显示：启用项按万分比给出百分比，禁用项写明未启用；历史批次没有快照。 */
+    static String schemeLine(GradeSchemeDTO scheme) {
+        if (scheme == null || scheme.getComponents() == null || scheme.getComponents().isEmpty()) {
+            return "成绩组成：历史批次未记录方案快照，按旧验证规则审批";
+        }
+        StringBuilder line = new StringBuilder("成绩组成：");
+        for (GradeComponentDTO component : scheme.getComponents()) {
+            if (line.length() > "成绩组成：".length()) line.append('　');
+            if (component == null) {
+                // Gson 直接写字段、可以绕过构造器：空组成按“未知”显示，绝不当作合法权重。
+                line.append("未知 未启用");
+                continue;
+            }
+            line.append(componentLabel(component.getCode())).append(' ');
+            line.append(component.isEnabled() ? weightText(component.getWeightBasisPoints())
+                    : "未启用");
+        }
+        return line.toString();
+    }
+
+    private static String componentLabel(GradeComponentCodeDTO code) {
+        if (code == null) return "未知";
+        return switch (code) {
+            case DAILY -> "平时";
+            case MIDTERM -> "期中";
+            case EXPERIMENT -> "实验";
+            case FINALTERM -> "期末";
+        };
+    }
+
+    /** 权重是整数万分比：3000 → 30.00%。 */
+    private static String weightText(int weightBasisPoints) {
+        return BigDecimal.valueOf(weightBasisPoints, 2).toPlainString() + "%";
     }
 
     /** 一名学生的整行单元格文本，与成绩表列顺序一一对应。 */

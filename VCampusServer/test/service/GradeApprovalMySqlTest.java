@@ -2,6 +2,7 @@ package service;
 
 import dao.AdminCourseOperationDAO;
 import dao.GradeApprovalDAO;
+import dao.TeacherGradeBookDAO;
 import dto.course.GradeRecordDTO;
 import dto.course.GradeSummaryDTO;
 import dto.course.admin.approval.ApprovalDecisionRequestDTO;
@@ -47,6 +48,13 @@ import static dto.course.admin.approval.ApprovalStatusDTO.REJECTED;
  * administrators racing, two requests sharing one operation id and an injected mid-projection
  * failure that rolls the whole decision back.
  *
+ * <p>Batches that captured their scheme (V007) are decided by what they captured: the approval
+ * publishes exactly the captured students — a student who dropped after submission stays in, a
+ * student who enrolled afterwards neither joins nor invalidates the batch, and the detail reports
+ * that newcomer — while every item still has to belong to the offering and to recompute, from the
+ * captured scheme, to its stored total and grade point. Legacy batches without a snapshot keep the
+ * original coverage rule.
+ *
  * <p>Fixtures live in the 974xxx id range and are removed by {@link #cleanup()}.
  */
 public final class GradeApprovalMySqlTest {
@@ -66,6 +74,14 @@ public final class GradeApprovalMySqlTest {
     private static final String S4 = "gra974-s4";
     private static final String S5 = "gra974-s5";
     private static final String S6 = "gra974-s6";
+    /** Only ever enrolled after the snapshot batch below was submitted. */
+    private static final String S7 = "gra974-s7";
+    /** The captured scheme of the V007 fixtures: 40/20/10/30 percent. */
+    private static final String SCHEME_SNAPSHOT =
+            "{\"components\":[{\"code\":\"DAILY\",\"enabled\":true,\"weightBasisPoints\":4000},"
+            + "{\"code\":\"MIDTERM\",\"enabled\":true,\"weightBasisPoints\":2000},"
+            + "{\"code\":\"EXPERIMENT\",\"enabled\":true,\"weightBasisPoints\":1000},"
+            + "{\"code\":\"FINALTERM\",\"enabled\":true,\"weightBasisPoints\":3000}]}";
 
     private static final int YEAR = 2026;
     private static final int SEMESTER = 3;
@@ -84,6 +100,8 @@ public final class GradeApprovalMySqlTest {
     private static final long OFFERING_BADSTAT = 974312L;
     private static final long OFFERING_ROUNDED = 974313L;
     private static final long OFFERING_TIGHT = 974314L;
+    private static final long OFFERING_SNAPSHOT = 974315L;
+    private static final long OFFERING_TAMPER = 974316L;
 
     private static final long SUB_PLAIN = 974701L;
     private static final long SUB_NULL = 974702L;
@@ -100,6 +118,8 @@ public final class GradeApprovalMySqlTest {
     private static final long SUB_BADSTAT = 974713L;
     private static final long SUB_ROUNDED = 974714L;
     private static final long SUB_TIGHT = 974715L;
+    private static final long SUB_SNAPSHOT = 974716L;
+    private static final long SUB_TAMPER = 974717L;
 
     private static final List<String> BANDS = List.of("90-100", "80-89", "70-79", "60-69", "0-59");
 
@@ -126,6 +146,10 @@ public final class GradeApprovalMySqlTest {
                     GradeApprovalMySqlTest::verifyTypedRefusals);
             verify("stored-statistic tolerance is rounded, not exact",
                     GradeApprovalMySqlTest::verifyRoundedStatisticTolerance);
+            verify("a captured scheme publishes exactly the captured students",
+                    GradeApprovalMySqlTest::verifyCapturedSchemeApproval);
+            verify("captured-scheme inconsistencies are typed refusals",
+                    GradeApprovalMySqlTest::verifyCapturedSchemeRefusals);
             verify("duplicate operation replays", GradeApprovalMySqlTest::verifyDuplicateReplay);
             verify("stale version conflicts", GradeApprovalMySqlTest::verifyStaleVersion);
             verify("concurrent administrators", GradeApprovalMySqlTest::verifyConcurrentAdmins);
@@ -150,15 +174,15 @@ public final class GradeApprovalMySqlTest {
         long strays = count("SELECT COUNT(*) FROM grade_submission"
                 + " WHERE status='PENDING' AND submission_id NOT BETWEEN 974700 AND 974799");
         GradeSubmissionPageDTO all = service.listGradeSubmissionsPage(null, 1, 100);
-        require(all.getTotalCount() == 15 + strays && all.getItems().size() == 15 + strays
+        require(all.getTotalCount() == 17 + strays && all.getItems().size() == 17 + strays
                         && all.getPageNumber() == 1 && all.getPageSize() == 100,
                 "the default page filters PENDING and reports the server total (observed total="
                         + all.getTotalCount() + " items=" + all.getItems().size() + " expected="
-                        + (15 + strays) + ")");
+                        + (17 + strays) + ")");
         List<String> ordered = ids(all);
-        require(fixtures(ordered).equals(List.of("974715", "974714", "974713", "974712", "974711",
-                        "974710", "974709", "974708", "974707", "974706", "974705", "974704",
-                        "974703", "974702", "974701")),
+        require(fixtures(ordered).equals(List.of("974717", "974716", "974715", "974714", "974713",
+                        "974712", "974711", "974710", "974709", "974708", "974707", "974706",
+                        "974705", "974704", "974703", "974702", "974701")),
                 "the list orders by submitted_at then submission_id descending (observed "
                         + fixtures(ordered) + ")");
 
@@ -409,7 +433,7 @@ public final class GradeApprovalMySqlTest {
      */
     private static void verifyOutOfRangeItemsAreTyped() throws Exception {
         GradeApprovalService outOfRange = service(new CraftedItemDao(SUB_INVALID, new GradeApprovalDAO.ItemRow(
-                0L, SUB_INVALID, enrollmentId(S2, OFFERING_INVALID), S2, "Gra Student 2",
+                0L, SUB_INVALID, enrollmentId(S2, OFFERING_INVALID), S2, "Gra Student 2", null,
                 null, null, null, null, new BigDecimal("150.00"), null, null)));
         GradeApprovalService.ConflictException score = expect(
                 GradeApprovalService.ConflictException.class,
@@ -421,7 +445,7 @@ public final class GradeApprovalMySqlTest {
                 "the range refusal names the component and carries the current detail");
 
         GradeApprovalService gradePoint = service(new CraftedItemDao(SUB_TIGHT, new GradeApprovalDAO.ItemRow(
-                0L, SUB_TIGHT, enrollmentId(S1, OFFERING_TIGHT), S1, "Gra Student 1",
+                0L, SUB_TIGHT, enrollmentId(S1, OFFERING_TIGHT), S1, "Gra Student 1", null,
                 null, null, null, null, new BigDecimal("70.00"), null, new BigDecimal("6.0"))));
         GradeApprovalService.ConflictException point = expect(
                 GradeApprovalService.ConflictException.class,
@@ -512,6 +536,107 @@ public final class GradeApprovalMySqlTest {
                         + " (SELECT enrollment_id FROM enrollment WHERE offering_id="
                         + OFFERING_TIGHT + ")") == 0,
                 "the tolerance refusal writes no projection");
+    }
+
+    // ---------------------------------------------------------------- group 8b
+
+    /**
+     * A V007 batch is published exactly as captured: the detail exposes the scheme for review, the
+     * student who dropped after submission stays in the batch, and the student who enrolled
+     * afterwards neither joins the batch nor invalidates it — the detail counts them instead.
+     */
+    private static void verifyCapturedSchemeApproval() throws Exception {
+        GradeApprovalService service = service(new GradeApprovalDAO());
+        long dropped = enrollmentId(S3, OFFERING_SNAPSHOT);
+        long added = enrollmentId(S7, OFFERING_SNAPSHOT);
+
+        GradeSubmissionDetailDTO detail = service.getGradeSubmission(Long.toString(SUB_SNAPSHOT));
+        require(detail.getSchemeSnapshot() != null
+                        && detail.getSchemeSnapshot().getComponents().size() == 4
+                        && detail.getSchemeSnapshot().getComponents().get(0).getWeightBasisPoints()
+                        == 4000,
+                "the detail exposes the captured scheme so the administrator can check the weights");
+        require(detail.getBaseSubmissionId() == null && detail.getUncoveredCount() == 1,
+                "a plain captured batch carries no base and reports one post-submission newcomer"
+                        + " (observed base=" + detail.getBaseSubmissionId() + " uncovered="
+                        + detail.getUncoveredCount() + ")");
+        require(detail.getItems().size() == 3
+                        && studentIds(detail.getItems()).equals(List.of(S1, S2, S3)),
+                "the captured students are shown with their submission-time identity (observed "
+                        + studentIds(detail.getItems()) + ")");
+
+        AdminOperationResultDTO<GradeSubmissionDetailDTO> approved = service.review(ADMIN_A,
+                decision(op(23), SUB_SNAPSHOT, 1, true, null, null, false));
+        require(APPROVED == approved.getEntity().getSummary().getStatus(),
+                "a batch that captured its scheme approves although a student enrolled afterwards");
+        require(count("SELECT COUNT(*) FROM grade WHERE enrollment_id IN (SELECT enrollment_id FROM"
+                        + " enrollment WHERE offering_id=" + OFFERING_SNAPSHOT + ")"
+                        + " AND is_published=1 AND publish_time='" + CLOCK_TEXT + "'") == 3,
+                "the approval publishes exactly the captured student set");
+        require(count("SELECT COUNT(*) FROM grade WHERE enrollment_id=" + dropped
+                        + " AND score=80.00 AND is_published=1") == 1,
+                "a student who dropped after submission stays in the batch and is published");
+        require(count("SELECT COUNT(*) FROM grade WHERE enrollment_id=" + added) == 0,
+                "the post-submission newcomer is not stuffed into the old batch");
+    }
+
+    /**
+     * A captured batch is still refused when it cannot be trusted: a total that does not recompute
+     * from the captured scheme, an item whose enrollment belongs to another offering, and an item
+     * whose captured identity is not the enrollment's student. Crafting goes through the read seam
+     * because some of those states are kept out of the table by the schema's constraints.
+     */
+    private static void verifyCapturedSchemeRefusals() throws Exception {
+        GradeApprovalService service = service(new GradeApprovalDAO());
+        long tamperEnrollment = enrollmentId(S1, OFFERING_TAMPER);
+
+        GradeApprovalService.ConflictException total = expect(
+                GradeApprovalService.ConflictException.class,
+                () -> service.review(ADMIN_A,
+                        decision(op(24), SUB_TAMPER, 2, true, null, null, false)),
+                "a stored total that disagrees with the captured scheme is refused");
+        require(total.getMessage() != null
+                        && total.getMessage().contains("总评与方案快照重算结果不一致")
+                        && total.getEntity() != null
+                        && Long.toString(SUB_SNAPSHOT).equals(total.getEntity().getBaseSubmissionId()),
+                "the refusal names the total and carries the base batch of the resubmission"
+                        + " (observed " + total.getMessage() + ")");
+
+        GradeApprovalService foreign = service(new CraftedItemDao(SUB_TAMPER,
+                new GradeApprovalDAO.ItemRow(0L, SUB_TAMPER, enrollmentId(S1, OFFERING_PLAIN), S1,
+                        "Gra Student 1", S1, new BigDecimal("80.00"), new BigDecimal("80.00"),
+                        new BigDecimal("80.00"), new BigDecimal("80.00"), new BigDecimal("80.00"),
+                        null, new BigDecimal("3.0"))));
+        GradeApprovalService.ConflictException membership = expect(
+                GradeApprovalService.ConflictException.class,
+                () -> foreign.review(ADMIN_A,
+                        decision(op(25), SUB_TAMPER, 2, true, null, null, false)),
+                "an item whose enrollment belongs to another offering is refused");
+        require(membership.getMessage() != null
+                        && membership.getMessage().contains("不属于该教学班"),
+                "the membership refusal names the reason (observed " + membership.getMessage() + ")");
+
+        GradeApprovalService impostor = service(new CraftedItemDao(SUB_TAMPER,
+                new GradeApprovalDAO.ItemRow(0L, SUB_TAMPER, tamperEnrollment, S1, "Gra Student 1",
+                        "gra974-impostor", new BigDecimal("80.00"), new BigDecimal("80.00"),
+                        new BigDecimal("80.00"), new BigDecimal("80.00"), new BigDecimal("80.00"),
+                        null, new BigDecimal("3.0"))));
+        GradeApprovalService.ConflictException identity = expect(
+                GradeApprovalService.ConflictException.class,
+                () -> impostor.review(ADMIN_A,
+                        decision(op(26), SUB_TAMPER, 2, true, null, null, false)),
+                "an item whose captured identity is not the enrollment's student is refused");
+        require(identity.getMessage() != null
+                        && identity.getMessage().contains("身份与选课记录不一致"),
+                "the identity refusal names the reason (observed " + identity.getMessage() + ")");
+
+        require(count("SELECT COUNT(*) FROM grade WHERE enrollment_id IN (SELECT enrollment_id FROM"
+                        + " enrollment WHERE offering_id=" + OFFERING_TAMPER + ")") == 0
+                        && count("SELECT COUNT(*) FROM grade_submission WHERE submission_id="
+                        + SUB_TAMPER + " AND status='PENDING'") == 1
+                        && count("SELECT COUNT(*) FROM admin_course_operation_log WHERE operation_id"
+                        + " IN ('" + op(24) + "','" + op(25) + "','" + op(26) + "')") == 0,
+                "every captured-scheme refusal makes no partial write");
     }
 
     // ------------------------------------------------------------------ group 9
@@ -739,13 +864,14 @@ public final class GradeApprovalMySqlTest {
                 + "('" + S3 + "','Gra Student 3','x','x',2,'Engineering','Student'),"
                 + "('" + S4 + "','Gra Student 4','x','x',2,'Engineering','Student'),"
                 + "('" + S5 + "','Gra Student 5','x','x',2,'Engineering','Student'),"
-                + "('" + S6 + "','Gra Student 6','x','x',2,'Engineering','Student')");
+                + "('" + S6 + "','Gra Student 6','x','x',2,'Engineering','Student'),"
+                + "('" + S7 + "','Gra Student 7','x','x',2,'Engineering','Student')");
 
         StringBuilder courses = new StringBuilder("INSERT INTO course(course_id,course_code,"
                 + "course_name,credit,credit_hours,course_type,status) VALUES");
         StringBuilder offerings = new StringBuilder("INSERT INTO course_offering(offering_id,"
                 + "offering_code,course_id,academic_year,semester,capacity,status) VALUES");
-        for (int index = 0; index < 14; index++) {
+        for (int index = 0; index < 16; index++) {
             if (index > 0) {
                 courses.append(',');
                 offerings.append(',');
@@ -840,6 +966,33 @@ public final class GradeApprovalMySqlTest {
         item(SUB_TIGHT, eTightA, "70.00", "70.00", "70.00", "70.00", "70.00", 2, "2.0");
         item(SUB_TIGHT, eTightB, "71.00", "71.00", "71.00", "71.00", "71.00", 2, "2.0");
         item(SUB_TIGHT, eTightC, "71.00", "71.00", "71.00", "71.00", "71.00", 2, "2.0");
+
+        // L: a V007 batch that captured its scheme, its students and their identity. The roster
+        // digest is taken while the dropped student is still normal, i.e. exactly at submission.
+        long eSnapA = enroll(S1, OFFERING_SNAPSHOT);
+        long eSnapB = enroll(S2, OFFERING_SNAPSHOT);
+        long eSnapDropped = enroll(S3, OFFERING_SNAPSHOT);
+        String snapshotDigest = rosterDigest(OFFERING_SNAPSHOT);
+        long eTamper = enroll(S1, OFFERING_TAMPER);
+        String tamperDigest = rosterDigest(OFFERING_TAMPER);
+        snapshotSubmission(SUB_SNAPSHOT, OFFERING_SNAPSHOT, 1, null, "2026-09-10 15:00:00",
+                snapshotDigest, "80.00", "80.00", "80.00", 0, 3);
+        snapshotItem(SUB_SNAPSHOT, eSnapA, S1, "Gra Student 1", "80.00", "80.00", "80.00", "80.00",
+                "80.00", "3.0");
+        snapshotItem(SUB_SNAPSHOT, eSnapB, S2, "Gra Student 2", "80.00", "80.00", "80.00", "80.00",
+                "80.00", "3.0");
+        snapshotItem(SUB_SNAPSHOT, eSnapDropped, S3, "Gra Student 3", "80.00", "80.00", "80.00",
+                "80.00", "80.00", "3.0");
+        // The two students who moved after submission: one dropped, one enrolled afterwards.
+        execute("UPDATE enrollment SET status=3,drop_time='2026-09-10 15:30:00' WHERE enrollment_id="
+                + eSnapDropped);
+        enroll(S7, OFFERING_SNAPSHOT);
+        // M: a captured scheme whose stored total does not recompute (80% of the weights is 80.00,
+        // not 85.00); it also carries the batch it was resubmitted from.
+        snapshotSubmission(SUB_TAMPER, OFFERING_TAMPER, 2, SUB_SNAPSHOT, "2026-09-10 16:00:00",
+                tamperDigest, "85.00", "85.00", "85.00", 0, 1);
+        snapshotItem(SUB_TAMPER, eTamper, S1, "Gra Student 1", "80.00", "80.00", "80.00", "80.00",
+                "85.00", "3.5");
     }
 
     private static long enroll(String uid, long offeringId) throws SQLException {
@@ -869,6 +1022,56 @@ public final class GradeApprovalMySqlTest {
                 + number(midterm) + "," + number(experiment) + "," + number(finalterm) + ","
                 + number(score) + "," + (level == null ? "NULL" : level.toString()) + ","
                 + number(point) + ")");
+    }
+
+    /** A V007 batch header: captured scheme, roster digest, optional base and its batch kind. */
+    private static void snapshotSubmission(long submissionId, long offeringId, int version,
+                                           Long baseSubmissionId, String submittedAt,
+                                           String rosterDigest, String average, String max,
+                                           String min, int failedCount, int totalCount)
+            throws SQLException {
+        execute("INSERT INTO grade_submission(submission_id,offering_id,version,submitted_by,"
+                + "submitted_at,status,scheme_snapshot_json,roster_digest,base_submission_id,"
+                + "submission_kind,average_score,max_score,min_score,failed_count,total_count)"
+                + " VALUES(" + submissionId + "," + offeringId + "," + version + ",'" + TEACHER
+                + "','" + submittedAt + "','PENDING','" + SCHEME_SNAPSHOT + "','" + rosterDigest
+                + "'," + (baseSubmissionId == null ? "NULL" : baseSubmissionId.toString())
+                + ",'" + (baseSubmissionId == null ? "INITIAL" : "RESUBMISSION") + "',"
+                + number(average) + "," + number(max) + "," + number(min) + "," + failedCount + ","
+                + totalCount + ")");
+    }
+
+    /** A V007 item: no grade level is invented, and the submission-time identity is captured. */
+    private static void snapshotItem(long submissionId, long enrollmentId, String snapshotUid,
+                                     String snapshotName, String daily, String midterm,
+                                     String experiment, String finalterm, String score, String point)
+            throws SQLException {
+        execute("INSERT INTO grade_submission_item(submission_id,enrollment_id,"
+                + "student_uid_snapshot,student_name_snapshot,daily_score,midterm_score,"
+                + "experiment_score,finalterm_score,score,grade_point)"
+                + " VALUES(" + submissionId + "," + enrollmentId + ",'" + snapshotUid + "','"
+                + snapshotName + "'," + number(daily) + "," + number(midterm) + ","
+                + number(experiment) + "," + number(finalterm) + "," + number(score) + ","
+                + number(point) + ")");
+    }
+
+    /**
+     * The digest the teacher's submission would have captured: the sorted normal enrollment ids of
+     * the offering at this instant. Only fixture plumbing — the digest is not what this test
+     * verifies, so reusing the production canonical form here cannot hide a defect in it.
+     */
+    private static String rosterDigest(long offeringId) throws SQLException {
+        List<Long> ids = new ArrayList<>();
+        try (Connection connection = DBUtil.getConnection();
+             PreparedStatement statement = connection.prepareStatement(
+                     "SELECT enrollment_id FROM enrollment WHERE offering_id=? AND status=2"
+                             + " ORDER BY enrollment_id")) {
+            statement.setLong(1, offeringId);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) ids.add(rows.getLong(1));
+            }
+        }
+        return TeacherGradeBookDAO.rosterDigest(ids);
     }
 
     private static void cleanup() throws SQLException {

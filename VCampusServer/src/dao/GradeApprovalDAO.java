@@ -33,7 +33,8 @@ public class GradeApprovalDAO {
     private static final String SUBMISSION_COLUMNS =
             "s.submission_id,s.offering_id,c.course_name,o.offering_code,s.version,s.submitted_by,"
             + "u.name AS teacher_name,s.submitted_at,s.status,s.reviewed_by,s.reviewed_at,"
-            + "s.review_comment,s.average_score,s.max_score,s.min_score,s.failed_count,s.total_count";
+            + "s.review_comment,s.average_score,s.max_score,s.min_score,s.failed_count,s.total_count,"
+            + "s.scheme_snapshot_json,s.roster_digest,s.base_submission_id,s.submission_kind";
 
     private static final String SUBMISSION_JOINS =
             " FROM grade_submission s"
@@ -82,9 +83,16 @@ public class GradeApprovalDAO {
         }
     }
 
-    /** Items joined with their student identity and ordered by student UID, as the detail requires. */
+    /**
+     * Items joined with their student identity and ordered by student UID, as the detail requires.
+     * A new batch shows the identity captured at submission; a legacy item with no snapshot keeps
+     * the historical join, so no identity is invented for batches written before V007.
+     */
     public List<ItemRow> findItems(Connection connection, long submissionId) throws SQLException {
-        String sql = "SELECT i.item_id,i.submission_id,i.enrollment_id,e.uid,u.name,i.daily_score,"
+        String sql = "SELECT i.item_id,i.submission_id,i.enrollment_id,"
+                + "COALESCE(i.student_uid_snapshot,e.uid) AS student_uid,"
+                + "COALESCE(i.student_name_snapshot,u.name) AS student_name,"
+                + "i.student_uid_snapshot,i.daily_score,"
                 + "i.midterm_score,i.experiment_score,i.finalterm_score,i.score,i.grade_level,"
                 + "i.grade_point FROM grade_submission_item i"
                 + " JOIN enrollment e ON e.enrollment_id=i.enrollment_id"
@@ -112,6 +120,25 @@ public class GradeApprovalDAO {
             }
         }
         return enrollments;
+    }
+
+    /**
+     * One enrollment row regardless of its status: a batch keeps the students who dropped after
+     * submission, so membership is judged by the offering, not by {@code status = 2}. Missing
+     * rows return {@code null}; foreign keys make a deleted enrollment unreachable in practice.
+     */
+    public EnrollmentRow findEnrollment(Connection connection, long enrollmentId)
+            throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT offering_id,uid FROM enrollment WHERE enrollment_id=?")) {
+            statement.setLong(1, enrollmentId);
+            try (ResultSet rows = statement.executeQuery()) {
+                return rows.next()
+                        ? new EnrollmentRow(enrollmentId, rows.getLong("offering_id"),
+                                rows.getString("uid"))
+                        : null;
+            }
+        }
     }
 
     // ------------------------------------------------------------------- locks
@@ -208,6 +235,8 @@ public class GradeApprovalDAO {
     // ----------------------------------------------------------------- helpers
 
     private static SubmissionRow submissionRow(ResultSet rows) throws SQLException {
+        long baseSubmissionId = rows.getLong("base_submission_id");
+        Long base = rows.wasNull() ? null : baseSubmissionId;
         return new SubmissionRow(rows.getLong("submission_id"), rows.getLong("offering_id"),
                 rows.getString("course_name"), rows.getString("offering_code"),
                 rows.getInt("version"), rows.getString("submitted_by"),
@@ -216,14 +245,16 @@ public class GradeApprovalDAO {
                 rows.getTimestamp("reviewed_at"), rows.getString("review_comment"),
                 rows.getBigDecimal("average_score"), rows.getBigDecimal("max_score"),
                 rows.getBigDecimal("min_score"), rows.getInt("failed_count"),
-                rows.getInt("total_count"));
+                rows.getInt("total_count"), rows.getString("scheme_snapshot_json"),
+                rows.getString("roster_digest"), base, rows.getString("submission_kind"));
     }
 
     private static ItemRow itemRow(ResultSet rows) throws SQLException {
         int level = rows.getInt("grade_level");
         Integer gradeLevel = rows.wasNull() ? null : level;
         return new ItemRow(rows.getLong("item_id"), rows.getLong("submission_id"),
-                rows.getLong("enrollment_id"), rows.getString("uid"), rows.getString("name"),
+                rows.getLong("enrollment_id"), rows.getString("student_uid"),
+                rows.getString("student_name"), rows.getString("student_uid_snapshot"),
                 rows.getBigDecimal("daily_score"), rows.getBigDecimal("midterm_score"),
                 rows.getBigDecimal("experiment_score"), rows.getBigDecimal("finalterm_score"),
                 rows.getBigDecimal("score"), gradeLevel, rows.getBigDecimal("grade_point"));
@@ -260,12 +291,24 @@ public class GradeApprovalDAO {
                                 String teacherName, Timestamp submittedAt, ApprovalStatusDTO status,
                                 String reviewedBy, Timestamp reviewedAt, String reviewComment,
                                 BigDecimal averageScore, BigDecimal maxScore, BigDecimal minScore,
-                                int failedCount, int totalCount) {
+                                int failedCount, int totalCount, String schemeSnapshotJson,
+                                String rosterDigest, Long baseSubmissionId, String submissionKind) {
     }
 
+    /**
+     * One submitted item. {@code studentUid}/{@code studentName} are the display identity
+     * (captured snapshot when the batch has one, otherwise the historical enrollment join);
+     * {@code snapshotUid} is the raw captured value, {@code null} for pre-V007 batches, and is
+     * what approval checks against the enrollment.
+     */
     public record ItemRow(long itemId, long submissionId, long enrollmentId, String studentUid,
-                          String studentName, BigDecimal dailyScore, BigDecimal midtermScore,
-                          BigDecimal experimentScore, BigDecimal finaltermScore, BigDecimal score,
-                          Integer gradeLevel, BigDecimal gradePoint) {
+                          String studentName, String snapshotUid, BigDecimal dailyScore,
+                          BigDecimal midtermScore, BigDecimal experimentScore,
+                          BigDecimal finaltermScore, BigDecimal score, Integer gradeLevel,
+                          BigDecimal gradePoint) {
+    }
+
+    /** One enrollment row regardless of status; approval needs membership and current identity. */
+    public record EnrollmentRow(long enrollmentId, long offeringId, String uid) {
     }
 }
