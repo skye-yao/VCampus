@@ -111,6 +111,7 @@ public class StudentController {
     private boolean disposed,adminProfileFetchStarted;
     private void runOnPage(Runnable action){util.Fx.run(()->{if(!disposed)action.run();});}
     @FXML public void initialize() {
+        util.InformationTopNavigation.install(rootPane);
         ClientMain.setPageCleanup(()->{disposed=true;resetEditState();service.dispose();});
         service.onEditLeaseLost(()->{if(!disposed){resetEditState();if(overview!=null)render(overview);setStatus("编辑占用已失效，请重新进入编辑页面");}});
         setupTables();

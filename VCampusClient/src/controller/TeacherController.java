@@ -1,5 +1,6 @@
 package controller;
 import javafx.geometry.Pos;
+import javafx.scene.text.Text;
 import app.ClientMain; import com.google.gson.*; import com.google.gson.reflect.TypeToken; import entity.*; import enums.StudentChangeStatus; import javafx.application.Platform; import javafx.beans.property.SimpleStringProperty; import javafx.collections.*; import javafx.concurrent.Task; import javafx.fxml.FXML; import javafx.scene.control.*; import javafx.scene.image.Image; import javafx.scene.image.ImageView; import javafx.scene.shape.Circle; import javafx.scene.layout.*; import javafx.stage.FileChooser; import protocol.*; import service.TeacherClientService; import service.ITeacherClientService; import session.ClientSession; import util.AlertUtil; import util.pdf.TeacherPdfExport; import util.spreadsheet.TeacherExcelExport; import vo.*; import java.io.ByteArrayInputStream; import java.io.File; import java.lang.reflect.*; import java.sql.Date; import java.util.*; import java.util.Base64;
 public class TeacherController {
  @FXML private BorderPane rootPane;
@@ -16,10 +17,12 @@ public class TeacherController {
  private static final List<String> JOB=List.of("employed","employmentStatus","campus","college","department","title","position","education","employmentStartDate");
  private static final List<String> CONTACT=List.of("telephone","mobile","email","qq","wechat","officeAddress","emergencyContact","emergencyPhone");
  private static final Set<String> EDITABLE=Set.of("politicalStatus","nationality","gender","idType","idNumber","idIssueDate","birthDate","nativePlace","householdType","birthPlace","sourcePlace","registeredResidence","partyMember","partyJoinDate","healthStatus","campus","department","education","employmentStartDate","telephone","mobile","email","qq","wechat","officeAddress","emergencyContact","emergencyPhone");
+ private static final Set<String> REQUIRED=Set.of("politicalStatus","nationality","gender","idType","idNumber","idIssueDate","birthDate","nativePlace","householdType","birthPlace","sourcePlace","registeredResidence","partyMember","department","education","employmentStartDate","telephone","mobile","emergencyContact","emergencyPhone");
   @FXML public void initialize(){
  ClientMain.setPageCleanup(()->{disposed=true;editing=false;editAcquiring=false;service.dispose();});
  service.onEditLeaseLost(()->runOnPage(()->{editing=false;editAcquiring=false;editableControls.clear();if(overview!=null)render();statusLabel.setText("编辑占用已失效，请刷新后重新进入编辑");}));
  setupReviewSelection();
+ util.InformationTopNavigation.install(rootPane);
 setupTables();setupActionColumn();setupReviewActionColumn();util.InformationResponsiveLayout.install(rootPane);rootPane.widthProperty().addListener((observable,oldWidth,newWidth)->reflowTeacherGrids());ToggleGroup reviewGroup=new ToggleGroup();unfinishedTeacherReviewButton.setToggleGroup(reviewGroup);completedTeacherReviewButton.setToggleGroup(reviewGroup);reviewGroup.selectedToggleProperty().addListener((o,oldToggle,newToggle)->{if(newToggle==null)oldToggle.setSelected(true);else searchTeacherReviews();});boolean admin=isAdmin();reviewStatusPane.setVisible(!admin);reviewStatusPane.setManaged(!admin);reviewStatusPane.setOnCancel(this::cancelPendingRequest);teacherDetailSidebar.setVisible(!admin);teacherDetailSidebar.setManaged(!admin);teacherAdminDetailSidebar.setVisible(admin);teacherAdminDetailSidebar.setManaged(admin);initAvatar();if(admin){for(Button button:List.of(addExperienceButton,editExperienceButton,deleteExperienceButton,addFamilyButton,editFamilyButton,deleteFamilyButton)){button.setVisible(false);button.setManaged(false);}applyAdminMode();loadAdmin();}else{tabs.getTabs().removeAll(adminTab,reviewTab);service.overview(this::receiveOverview);}}
  @FXML private void back(){ClientMain.switchScene("/resources/fxml/MainView.fxml");} @FXML private void refresh(){if(isAdmin())setupAdminProfile();if(isAdmin()&&tabs.getSelectionModel().getSelectedItem()==reviewTab&&teacherReviewDetailPane.isVisible()){if(selectedReview!=null)showTeacherReviewDetail(selectedReview);else{backToTeacherReviews();loadAdmin();}return;}if(editing||editAcquiring)cancelEdit();if(isAdmin()&&tabs.getSelectionModel().getSelectedItem()==detailTab&&overview!=null&&overview.getTeacher()!=null)service.query(overview.getTeacher().getTeacherId(),this::receiveOverview);else if(isAdmin())loadAdmin();else service.overview(this::receiveOverview);} @FXML private void edit(){beginGlobalEdit();}
  @FXML private void viewDetails(){openTeacherDetail();}
@@ -314,7 +317,7 @@ setupTables();setupActionColumn();setupReviewActionColumn();util.InformationResp
                   : "全部信息已进入编辑状态，提交后等待审核"
   );
  }
- private void fillEditable(GridPane grid,List<String> fields){prepareSixColumns(grid);grid.getChildren().clear();Teacher teacher=overview.getTeacher();int pairs=responsivePairCount();for(int i=0;i<fields.size();i++){String field=fields.get(i);Label key=new Label(title(field)+(Set.of("department","education","employmentStartDate").contains(field)?" *":""));key.setUserData("key:"+field);key.getStyleClass().add("student-field-key");if(Set.of("department","education","employmentStartDate").contains(field))key.setStyle("-fx-text-fill: #b91c1c;");key.setAlignment(Pos.CENTER_LEFT);key.setMinWidth(90);key.setPrefWidth(118);key.setMaxWidth(Double.MAX_VALUE);Control value=createEditor(field,showInput(read(teacher,field)));value.setUserData(field);value.setMinWidth(0);value.setMaxWidth(Double.MAX_VALUE);boolean allowed=isAdmin()||EDITABLE.contains(field);value.setDisable(!allowed);if(allowed)editableControls.add(value);int row=i/pairs,pair=i%pairs;grid.add(key,pair*2,row);grid.add(value,pair*2+1,row);}}
+ private void fillEditable(GridPane grid,List<String> fields){prepareSixColumns(grid);grid.getChildren().clear();Teacher teacher=overview.getTeacher();int pairs=responsivePairCount();for(int i=0;i<fields.size();i++){String field=fields.get(i);boolean required=REQUIRED.contains(field)||("partyJoinDate".equals(field)&&teacher.isPartyMember());Label key=new Label(title(field));if(required){Text star=new Text(" *");star.setStyle("-fx-fill: #b91c1c; -fx-font-weight: bold;");key.setGraphic(star);key.setContentDisplay(ContentDisplay.RIGHT);key.setGraphicTextGap(0);}key.setUserData("key:"+field);key.getStyleClass().add("student-field-key");key.setAlignment(Pos.CENTER_LEFT);key.setMinWidth(90);key.setPrefWidth(118);key.setMaxWidth(Double.MAX_VALUE);Control value=createEditor(field,showInput(read(teacher,field)));value.setUserData(field);value.setMinWidth(0);value.setMaxWidth(Double.MAX_VALUE);boolean allowed=isAdmin()||EDITABLE.contains(field);value.setDisable(!allowed);if(allowed)editableControls.add(value);int row=i/pairs,pair=i%pairs;grid.add(key,pair*2,row);grid.add(value,pair*2+1,row);}}
  private Control createEditor(String field,String initial) {
 
   Control control;
@@ -447,10 +450,14 @@ setupTables();setupActionColumn();setupReviewActionColumn();util.InformationResp
  private String controlValue(Control control){if(control instanceof TextInputControl text)return text.getText().trim();if(control instanceof DatePicker date)return date.getValue()==null?"":date.getValue().toString();if(control instanceof ComboBox<?> combo)return combo.getValue()==null?"":String.valueOf(combo.getValue()).trim();return "";}
  private void cancelEdit(){++editEntryVersion;service.releaseEditLease();editAcquiring=false;editing=false;editableControls.clear();if(overview!=null)render();statusLabel.setText("已取消编辑");}
  private boolean validateRequiredInputs(){
+  Map<String,String> values=new HashMap<>();
+  for(Control control:editableControls)values.put(String.valueOf(control.getUserData()),controlValue(control));
+  Set<String> required=new HashSet<>(REQUIRED);
+  if(Set.of("是","true","1").contains(values.getOrDefault("partyMember","").trim()))required.add("partyJoinDate");
   Control first=null;
   for(Control control:editableControls){
    if(control instanceof DatePicker picker)try{util.control.InformationDatePicker.value(picker,title(String.valueOf(control.getUserData())));}catch(IllegalArgumentException exception){util.control.RequiredFieldValidation.mark(control,true);control.requestFocus();statusLabel.setText(exception.getMessage());return false;}
-   boolean missing=Set.of("department","education","employmentStartDate").contains(String.valueOf(control.getUserData()))&&controlValue(control).isBlank();
+   boolean missing=required.contains(String.valueOf(control.getUserData()))&&controlValue(control).isBlank();
    util.control.RequiredFieldValidation.mark(control,missing);
    if(missing&&first==null)first=control;
   }
