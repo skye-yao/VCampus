@@ -14,6 +14,13 @@ import java.net.URL;
  */
 public final class FXMLUtil {
 
+    /**
+     * 最后一次成功 {@link #load(String)} 用过的 loader。页面控制器要在加载之后接上生命周期钩子
+     * （例如 {@code PageLeaveGuard}），只返回根节点会让调用方拿不到 controller；这里保留 loader
+     * 而不是 controller 本身，是因为 controller 要等 {@code load()} 返回后才有值。
+     */
+    private static FXMLLoader lastLoader;
+
     private FXMLUtil() {
     }
 
@@ -25,7 +32,20 @@ public final class FXMLUtil {
         if (url == null) {
             throw new IOException("找不到 FXML 资源文件: " + fxmlPath);
         }
-        return FXMLLoader.load(url);
+        FXMLLoader loader = new FXMLLoader(url);
+        Parent root = loader.load();
+        lastLoader = loader;
+        return root;
+    }
+
+    /**
+     * 最后一次 {@link #load(String)} 加载到的 Controller；从未加载过、加载失败或该 FXML 没有
+     * {@code fx:controller} 时返回 null。调用方按“拿不到 controller 就不做任何事”的方式使用它，
+     * 因此没有 controller 的页面与引入本方法之前完全一致。
+     */
+    public static Object loadedController() {
+        FXMLLoader loader = lastLoader;
+        return loader == null ? null : loader.getController();
     }
 
     /**

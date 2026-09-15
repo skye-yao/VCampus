@@ -355,9 +355,10 @@ public final class TeacherOfferingDetailControllerTest {
     }
 
     /**
-     * 契约白名单：原有查询路径原样保留，T4 增加的调课工作流是唯一被允许的扩展——其中
-     * options/preview/get/list 仍是读，submit/withdraw 是教师的第一批写操作，权限、冲突与
-     * 人员派生一律由服务端在事务内重算。除白名单外不得出现任何其他方法。
+     * 契约白名单：原有查询路径原样保留，T4 的调课工作流与 T5 的成绩工作副本是被允许的扩展——
+     * 调课里 options/preview/get/list 是读，submit/withdraw 是写；成绩里 listGradeOfferings 与
+     * getGradeBook 是读，saveGradeDraft/submitGradeBook 是写。权限、版本、名单摘要、冲突与成绩
+     * 归属一律由服务端在事务内重算。除白名单外不得出现任何其他方法。
      */
     private static void theSharedServiceContractExposesOnlyTheDeclaredPaths() {
         Set<String> allowed = new LinkedHashSet<>(Set.of("listTerms", "listOfferings",
@@ -365,11 +366,26 @@ public final class TeacherOfferingDetailControllerTest {
                 "loadTeachingSchedule"));
         allowed.addAll(Set.of("getAdjustmentOptions", "previewAdjustment", "submitAdjustment",
                 "withdrawAdjustment", "getAdjustmentRequest", "listMyAdjustmentRequests"));
+        allowed.addAll(Set.of("listGradeOfferings", "getGradeBook", "saveGradeDraft",
+                "submitGradeBook"));
         for (Method method : TeacherCourseService.class.getDeclaredMethods()) {
             require(allowed.contains(method.getName()),
                     "the teacher course service must expose only the declared read paths and the"
-                            + " adjustment workflow, found " + method.getName());
+                            + " adjustment/grade workflows, found " + method.getName());
         }
+        for (String required : List.of("saveGradeDraft", "submitGradeBook")) {
+            require(hasDefaultImplementation(required),
+                    "the new grade writes must stay default methods so old test doubles keep"
+                            + " compiling: " + required);
+        }
+    }
+
+    /** 新增方法必须是 default（抛 UnsupportedOperationException），旧替身才不会编译中断。 */
+    private static boolean hasDefaultImplementation(String name) {
+        for (Method method : TeacherCourseService.class.getDeclaredMethods()) {
+            if (method.getName().equals(name)) return method.isDefault();
+        }
+        return false;
     }
 
     // ------------------------------------------------------------------ 视图契约

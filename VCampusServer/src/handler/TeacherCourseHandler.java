@@ -6,8 +6,10 @@ import dto.course.AdjustmentRequestStatusDTO;
 import dto.course.admin.approval.AdjustmentRequestDetailDTO;
 import dto.course.teacher.TeacherAdjustmentWriteDTO;
 import dto.course.teacher.TeacherCourseActions;
+import dto.course.teacher.TeacherGradeBookDTO;
 import dto.course.teacher.TeacherOperationResultDTO;
 import dto.course.teacher.WithdrawTeacherAdjustmentRequestDTO;
+import dto.course.teacher.WriteGradeBookRequestDTO;
 import exception.DatabaseException;
 import protocol.Message;
 import protocol.MessageCode;
@@ -15,6 +17,7 @@ import protocol.MessageType;
 import service.TeacherAccessPolicy;
 import service.TeacherAdjustmentApplicationService;
 import service.TeacherCourseQueryService;
+import service.TeacherGradeBookService;
 import session.SessionManager;
 import session.UserSession;
 
@@ -35,10 +38,14 @@ import java.util.Set;
  * items 由 {@link dto.course.teacher.TeacherPageDTO} 承载（含 totalCount/page/size），客户端用
  * TypeToken 解析泛型页。数据库异常只写服务端日志，响应里不出现 SQL、表名或堆栈。
  *
- * <p>调课写请求体位于 {@code data.request}；其中身份字段（uid/教师/助教）与 {@code force} 是
- * 协议外字段，出现即 BAD_REQUEST，绝不传入服务——教师没有强制权限，新安排的教师/助教由服务端按
- * 原课次快照派生。提交与撤销是写操作，Handler 不做“先查后写”的归属判断，权限一律由服务端在事务
- * 内重新计算。
+ * <p>调课与成绩写请求体都位于 {@code data.request}；其中身份字段（uid/教师/助教）与 {@code force}
+ * 是协议外字段，出现即 BAD_REQUEST，绝不传入服务——教师没有强制权限，新安排的教师/助教由服务端按
+ * 原课次快照派生。提交与撤销/保存与提交都是写操作，Handler 不做“先查后写”的归属判断，权限一律由
+ * 服务端在事务内重新计算。
+ *
+ * <p>成绩动作的响应键：{@code offerings}（成绩列表）、{@code gradeBook}（成绩表）、{@code result}
+ * （保存/提交的操作结果信封）。成绩冲突用 {@code gradeBook} 带回最新成绩表，与调课冲突的
+ * {@code conflicts}/{@code latest} 区分开，客户端不解析对方的类型。
  */
 public class TeacherCourseHandler {
     private static final String MODULE = "courseTeacher";
@@ -48,7 +55,7 @@ public class TeacherCourseHandler {
     /** 写请求体只做一次 JSON → 类型转换，转换失败统一按 BAD_REQUEST 返回。 */
     private static final Gson GSON = new Gson();
     /**
-     * 教师调课写请求体里绝不允许出现的字段：uid/教师/助教身份与强制标志。教师协议没有可替换人员
+     * 教师写请求体里绝不允许出现的字段：uid/教师/助教身份与强制标志。教师协议没有可替换人员
      * 的字段（服务端从原课次快照派生），也没有 force；出现任何一个是客户端伪造，直接拒绝。
      */
     private static final Set<String> FORGED_WRITE_FIELDS = Set.of(
@@ -57,23 +64,32 @@ public class TeacherCourseHandler {
 
     private final TeacherCourseQueryService queries;
     private final TeacherAdjustmentApplicationService adjustments;
+    private final TeacherGradeBookService grades;
 
     public TeacherCourseHandler() {
-        this(new TeacherCourseQueryService(), new TeacherAdjustmentApplicationService());
+        this(new TeacherCourseQueryService(), new TeacherAdjustmentApplicationService(),
+                new TeacherGradeBookService());
     }
 
     /**
-     * 只读查询的构造：调课动作在该形态下报告“尚未开放”，与
+     * 只读查询的构造：调课与成绩动作在该形态下报告“尚未开放”，与
      * {@link AdminCourseHandler} 对未接线服务的处理一致；生产入口使用无参构造。
      */
     public TeacherCourseHandler(TeacherCourseQueryService queries) {
-        this(queries, null);
+        this(queries, null, null);
     }
 
     public TeacherCourseHandler(TeacherCourseQueryService queries,
                                 TeacherAdjustmentApplicationService adjustments) {
+        this(queries, adjustments, null);
+    }
+
+    public TeacherCourseHandler(TeacherCourseQueryService queries,
+                                TeacherAdjustmentApplicationService adjustments,
+                                TeacherGradeBookService grades) {
         this.queries = queries == null ? new TeacherCourseQueryService() : queries;
         this.adjustments = adjustments;
+        this.grades = grades;
     }
 
     public Message handle(Message request) {
@@ -146,6 +162,21 @@ public class TeacherCourseHandler {
                     response.putData("applications", service.listMine(uid,
                             adjustmentStatus(request), paging.number(), paging.size()));
                 }
+                case TeacherCourseActions.LIST_GRADE_OFFERINGS -> {
+                    TeacherGradeBookService service = grades();
+                    Paging paging = paging(request);
+                    response.putData("offerings", service.listGradeOfferings(uid,
+                            integer(request, "academicYear"), integer(request, "semester"),
+                            paging.number(), paging.size()));
+                }
+                case TeacherCourseActions.GET_GRADE_BOOK -> response.putData("gradeBook",
+                        grades().getGradeBook(uid, decimalId(request, "offeringId")));
+                case TeacherCourseActions.SAVE_GRADE_DRAFT -> {
+                    return mutation(response, grades().saveDraft(uid, gradeWrite(request)));
+                }
+                case TeacherCourseActions.SUBMIT_GRADE_BOOK -> {
+                    return mutation(response, grades().submitGradeBook(uid, gradeWrite(request)));
+                }
                 default -> {
                     return failure(response, MessageCode.BAD_REQUEST, "不支持的教师课程操作");
                 }
@@ -164,6 +195,10 @@ public class TeacherCourseHandler {
             response.putData("conflicts", conflict.getConflicts());
             if (conflict.getEntity() != null) response.putData("latest", conflict.getEntity());
             return failure(response, MessageCode.CONFLICT, conflict.getMessage());
+        } catch (TeacherGradeBookService.ConflictException conflict) {
+            // 成绩冲突只有“最新成绩表”一种附带实体：版本过期或名单变化时客户端据此提示重新加载。
+            if (conflict.getEntity() != null) response.putData("gradeBook", conflict.getEntity());
+            return failure(response, MessageCode.CONFLICT, conflict.getMessage());
         } catch (DatabaseException failure) {
             logFailure(action, failure);
             return failure(response, MessageCode.ERROR, "教师课程服务暂不可用");
@@ -180,9 +215,15 @@ public class TeacherCourseHandler {
         return adjustments;
     }
 
+    private TeacherGradeBookService grades() {
+        if (grades == null) {
+            throw new IllegalArgumentException("该教师操作尚未开放");
+        }
+        return grades;
+    }
+
     /** 写操作响应：结果信封进 result，响应消息取自操作结果，与管理员课程写操作一致。 */
-    private static Message mutation(Message response,
-            TeacherOperationResultDTO<AdjustmentRequestDetailDTO> result) {
+    private static <T> Message mutation(Message response, TeacherOperationResultDTO<T> result) {
         response.putData("result", result);
         response.setCode(MessageCode.SUCCESS);
         response.setMessage(result.getMessage());
@@ -216,6 +257,44 @@ public class TeacherCourseHandler {
         return payload(request, TeacherAdjustmentWriteDTO.class);
     }
 
+    /**
+     * 解析成绩写请求体（保存草稿/提交）。
+     *
+     * <p>与调课写请求同一套防线，但字段不同：身份/人员/force 伪造字段同样出现即拒绝；BIGINT 标识
+     * （offeringId、每行的 enrollmentId）只接受十进制字符串，避免 Gson 经 double 静默改写；
+     * operationId/rosterDigest 必须是字符串，内容里的 rows 必须是对象数组。这些检查都在 Gson 之前，
+     * 因此“数字放进字符串字段”这类输入会在转换阶段就被拒绝，而不是变成一个看似合法的请求。
+     * 归属与版本的真实性由服务端在事务内重新校验，Handler 只保证形状。
+     */
+    private WriteGradeBookRequestDTO gradeWrite(Message request) {
+        Map<String, Object> values = gradeValues(request);
+        Object rawContent = values.get("content");
+        if (!(rawContent instanceof Map<?, ?> content)) {
+            throw new IllegalArgumentException("content 必须为 JSON 对象");
+        }
+        // 内容里同样不许出现身份/人员/强制字段：成绩写入没有这些字段，出现即说明客户端在
+        // 试图自己指定归属，直接拒绝而不是静默忽略。
+        rejectForgedFields(content, "成绩");
+        requireDecimalText(content.get("offeringId"), "offeringId");
+        Object rawRows = content.get("rows");
+        if (!(rawRows instanceof List<?> rows)) {
+            throw new IllegalArgumentException("content.rows 必须为数组");
+        }
+        for (Object raw : rows) {
+            if (!(raw instanceof Map<?, ?> row)) {
+                throw new IllegalArgumentException("content.rows 的元素必须为 JSON 对象");
+            }
+            requireDecimalText(row.get("enrollmentId"), "enrollmentId");
+            Object rawScores = row.get("scores");
+            if (rawScores != null && !(rawScores instanceof Map<?, ?>)) {
+                throw new IllegalArgumentException("scores 必须为 JSON 对象");
+            }
+        }
+        requireOptionalString(values, "operationId");
+        requireOptionalString(content, "rosterDigest");
+        return payload(request, WriteGradeBookRequestDTO.class);
+    }
+
     private WithdrawTeacherAdjustmentRequestDTO withdrawal(Message request) {
         Map<String, Object> values = requestValues(request);
         requireOptionalString(values, "operationId");
@@ -228,21 +307,35 @@ public class TeacherCourseHandler {
      * 出现即拒绝，避免客户端以为可以替换人员或强制通过。
      */
     private static Map<String, Object> requestValues(Message request) {
+        return writeValues(request, "调课");
+    }
+
+    /** 成绩写请求体：与调课同一套伪造字段防线，错误文案按动作命名，便于定位是哪一类请求。 */
+    private static Map<String, Object> gradeValues(Message request) {
+        return writeValues(request, "成绩");
+    }
+
+    private static Map<String, Object> writeValues(Message request, String subject) {
         Object value = request.getData() == null ? null : request.getData().get("request");
         if (!(value instanceof Map<?, ?> raw)) {
             throw new IllegalArgumentException("request 必须为 JSON 对象");
         }
-        for (String forged : FORGED_WRITE_FIELDS) {
-            if (raw.containsKey(forged)) {
-                throw new IllegalArgumentException(
-                        forged + " 不是教师调课字段，教师不能指定人员或强制通过");
-            }
-        }
+        rejectForgedFields(raw, subject);
         Map<String, Object> values = new HashMap<>();
         for (Map.Entry<?, ?> entry : raw.entrySet()) {
             if (entry.getKey() instanceof String key) values.put(key, entry.getValue());
         }
         return values;
+    }
+
+    /** 身份/人员/强制字段出现即拒绝；请求体与它的 content 走同一份名单，不会有一处漏检。 */
+    private static void rejectForgedFields(Map<?, ?> raw, String subject) {
+        for (String forged : FORGED_WRITE_FIELDS) {
+            if (raw.containsKey(forged)) {
+                throw new IllegalArgumentException(
+                        forged + " 不是教师" + subject + "字段，教师不能指定人员或强制通过");
+            }
+        }
     }
 
     /** JSON → 写 DTO；类型不匹配（数字放进字符串字段、小数放进整数等）统一按 BAD_REQUEST 表达。 */
@@ -269,7 +362,7 @@ public class TeacherCourseHandler {
         }
     }
 
-    private static void requireOptionalString(Map<String, Object> values, String key) {
+    private static void requireOptionalString(Map<?, ?> values, String key) {
         Object value = values.get(key);
         if (value != null && !(value instanceof String)) {
             throw new IllegalArgumentException(key + " 必须为字符串");

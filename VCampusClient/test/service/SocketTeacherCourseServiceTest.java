@@ -12,11 +12,20 @@ import dto.course.admin.schedule.ScheduleConflictDTO;
 import dto.course.admin.schedule.ScheduleConflictSeverityDTO;
 import dto.course.admin.schedule.ScheduleResourceDTO;
 import dto.course.admin.schedule.ScheduleSlotDTO;
+import dto.course.teacher.GradeBookContentDTO;
+import dto.course.teacher.GradeComponentCodeDTO;
+import dto.course.teacher.GradeComponentDTO;
+import dto.course.teacher.GradeRowInputDTO;
+import dto.course.teacher.GradeSchemeDTO;
+import dto.course.teacher.GradeScoresDTO;
 import dto.course.teacher.TeacherAdjustmentOptionsDTO;
 import dto.course.teacher.TeacherAdjustmentPreviewDTO;
 import dto.course.teacher.TeacherAdjustmentTargetInputDTO;
 import dto.course.teacher.TeacherAdjustmentWriteDTO;
 import dto.course.teacher.TeacherCalendarDateDTO;
+import dto.course.teacher.TeacherGradeBookDTO;
+import dto.course.teacher.TeacherGradeOfferingDTO;
+import dto.course.teacher.TeacherGradeRowDTO;
 import dto.course.teacher.TeacherOfferingDTO;
 import dto.course.teacher.TeacherOfferingDetailDTO;
 import dto.course.teacher.TeacherOperationResultDTO;
@@ -26,6 +35,7 @@ import dto.course.teacher.TeacherRosterRowDTO;
 import dto.course.teacher.TeacherScheduleEntryDTO;
 import dto.course.teacher.TeacherScheduleWeekDTO;
 import dto.course.teacher.WithdrawTeacherAdjustmentRequestDTO;
+import dto.course.teacher.WriteGradeBookRequestDTO;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
@@ -57,6 +67,8 @@ public final class SocketTeacherCourseServiceTest {
     private static final String OPERATION_ID = "30000000-0000-0000-0000-000000000001";
     private static final String CLASSROOM_ID = "8103";
     private static final String TARGET_DATE = "2026-11-04";
+    private static final String ROSTER_DIGEST =
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
     public static void main(String[] args) {
         ClientSession.getInstance().login("teacher-alpha", "教师", TOKEN, null);
@@ -80,6 +92,10 @@ public final class SocketTeacherCourseServiceTest {
             adjustmentDetailMapsFourStateStatusAndTargetDate();
             adjustmentApplicationsParseTheGenericPageAndOmitNullStatus();
             adjustmentConflictKeepsTypedConflictsAndLatestDetail();
+            gradeOfferingsParseTheGenericPage();
+            gradeBookMapsScoresSchemeAndNullableTotals();
+            gradeWritesUseTheirOwnActionAndMapTheResult();
+            gradeConflictKeepsTheLatestGradeBook();
             requestsNeverCarryClientSuppliedIdentity();
             nonSuccessBecomesStableException();
             nullResponseBecomesError();
@@ -633,6 +649,176 @@ public final class SocketTeacherCourseServiceTest {
             require(error.getConflicts().isEmpty() && error.getLatest() == null,
                     "a conflict without an entity must stay empty, never fabricated");
         }
+    }
+
+    /** 成绩列表：动作、分页、泛型页解析与嵌套教学班摘要都要映射，且不带别班筛选参数。 */
+    private static void gradeOfferingsParseTheGenericPage() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("offerings",
+                wireShaped(new TeacherPageDTO<>(List.of(gradeOfferingDto()), 5L, 2, 20))));
+        SocketTeacherCourseService service = new SocketTeacherCourseService(transport);
+
+        TeacherPageDTO<TeacherGradeOfferingDTO> page =
+                service.listGradeOfferings(2025, 3, 2, 20).join();
+        requireEnvelope(transport, "listGradeOfferings");
+        require(Integer.valueOf(2025).equals(transport.lastRequest.getData("academicYear"))
+                        && Integer.valueOf(3).equals(transport.lastRequest.getData("semester")),
+                "the term must travel as Integers");
+        require(Integer.valueOf(2).equals(transport.lastRequest.getData("page"))
+                        && Integer.valueOf(20).equals(transport.lastRequest.getData("size")),
+                "the paging must travel under page/size");
+        require(transport.lastRequest.getData("uid") == null,
+                "the grade list must never carry a client-supplied identity");
+        require(page.getTotalCount() == 5L && page.getItems().size() == 1,
+                "the grade list metadata and rows must survive the generic parse");
+        TeacherGradeOfferingDTO item = page.getItems().get(0);
+        require("DRAFT".equals(item.getState()) && item.getEnteredCount() == 20
+                        && item.getMissingCount() == 4,
+                "the grade state and progress counters must map");
+        require(item.getOffering() != null && OFFERING_ID.equals(
+                        item.getOffering().getOfferingId()),
+                "the nested offering summary must map with its exact id");
+    }
+
+    /** 成绩表：四个组成的权重、每行分数（BigDecimal/可空）、服务端总评与只读位逐字段映射。 */
+    private static void gradeBookMapsScoresSchemeAndNullableTotals() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("gradeBook", wireShaped(gradeBookDto())));
+        SocketTeacherCourseService service = new SocketTeacherCourseService(transport);
+
+        TeacherGradeBookDTO book = service.getGradeBook(OFFERING_ID).join();
+        requireEnvelope(transport, "getGradeBook");
+        require(OFFERING_ID.equals(transport.lastRequest.getData("offeringId")),
+                "the offeringId must travel as the exact decimal string");
+        require(OFFERING_ID.equals(book.getOfferingId()) && book.getRevision() == 4
+                        && book.isCanEdit(),
+                "the grade book header fields must map");
+        require("PENDING".equals(book.getState()) && book.getLastSubmissionId() == null,
+                "the batch state fields must map, null included");
+        require(book.getScheme() != null && book.getScheme().getComponents().size() == 4
+                        && book.getScheme().getComponents().get(0).getWeightBasisPoints() == 3000,
+                "every scheme component and weight must map as basis points");
+        require(book.getRows().size() == 1, "the grade rows must map");
+        TeacherGradeRowDTO row = book.getRows().get(0);
+        require(ENROLLMENT_ID.equals(row.getEnrollmentId()),
+                "the enrollment ID must stay the exact decimal string");
+        require(new java.math.BigDecimal("88.50").compareTo(row.getScores().getDailyScore()) == 0,
+                "an entered score must keep its decimal value");
+        require(row.getScores().getMidtermScore() == null,
+                "a missing score must stay null, never 0");
+        require(row.getTotalScore() == null && row.getGradePoint() == null && !row.isComplete(),
+                "a row that cannot be computed must keep null totals");
+        require(row.getErrors().isEmpty(), "a clean row must have no error text");
+        require(!book.isRosterChangedSinceSubmission(),
+                "the roster-change flag must map");
+    }
+
+    /** 保存与提交是两个动作常量：请求体走 request，结果是 result 键上的泛型信封。 */
+    private static void gradeWritesUseTheirOwnActionAndMapTheResult() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("result", wireShaped(
+                new TeacherOperationResultDTO<>(OPERATION_ID, "成绩草稿已保存", gradeBookDto(),
+                        false))));
+        SocketTeacherCourseService service = new SocketTeacherCourseService(transport);
+
+        WriteGradeBookRequestDTO write = writeGradeDto();
+        TeacherOperationResultDTO<TeacherGradeBookDTO> saved = service.saveGradeDraft(write).join();
+        requireEnvelope(transport, "saveGradeDraft");
+        require(transport.lastRequest.getData("request") == write,
+                "the typed write DTO must travel under request unchanged");
+        require(transport.lastRequest.getData("uid") == null,
+                "the draft save must not carry a client-supplied identity");
+        require(OPERATION_ID.equals(saved.getOperationId())
+                        && "成绩草稿已保存".equals(saved.getMessage()) && !saved.isReplayed(),
+                "the operation result envelope must map");
+        require(saved.getValue() != null && saved.getValue().getRevision() == 4,
+                "the write result must carry the refreshed grade book");
+
+        transport.respond(message -> message.putData("result", wireShaped(
+                new TeacherOperationResultDTO<>(OPERATION_ID, "成绩批次已提交", gradeBookDto(),
+                        true))));
+        TeacherOperationResultDTO<TeacherGradeBookDTO> submitted =
+                service.submitGradeBook(write).join();
+        requireEnvelope(transport, "submitGradeBook");
+        require(transport.lastRequest.getData("request") == write,
+                "the submit must travel as the typed write DTO under request");
+        require(submitted.isReplayed(),
+                "a replayed submit must be reported as a replay, not a second batch");
+    }
+
+    /** 成绩冲突：CONFLICT 里带的是最新成绩表，客户端不能把它解析成调课申请详情。 */
+    private static void gradeConflictKeepsTheLatestGradeBook() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> {
+            message.setCode(MessageCode.CONFLICT);
+            message.setMessage("成绩草稿版本已变化，请重新加载后重试");
+            message.putData("gradeBook", wireShaped(gradeBookDto()));
+        });
+        SocketTeacherCourseService service = new SocketTeacherCourseService(transport);
+
+        try {
+            service.saveGradeDraft(writeGradeDto()).join();
+            throw new AssertionError("a stale draft write must fail the future");
+        } catch (CompletionException failure) {
+            if (!(failure.getCause()
+                    instanceof SocketTeacherCourseService.TeacherCourseServiceException error)) {
+                throw new AssertionError("unexpected cause " + failure.getCause(),
+                        failure.getCause());
+            }
+            require(error.getCode() == MessageCode.CONFLICT,
+                    "a stale write must keep the CONFLICT code");
+            require(error.getLatestGradeBook() != null
+                            && error.getLatestGradeBook().getRevision() == 4,
+                    "the latest grade book must be available for the refresh hint");
+            require(error.getLatest() == null && error.getConflicts().isEmpty(),
+                    "a grade conflict must not fabricate adjustment conflicts or details");
+            require(error.getMessage().contains("重新加载"),
+                    "the server message must survive the mapping");
+        }
+
+        FakeTransport bare = new FakeTransport();
+        bare.respond(message -> {
+            message.setCode(MessageCode.CONFLICT);
+            message.setMessage("operationId 已用于不同的成绩写入请求");
+        });
+        try {
+            new SocketTeacherCourseService(bare).submitGradeBook(writeGradeDto()).join();
+            throw new AssertionError("a bare conflict must fail the future");
+        } catch (CompletionException failure) {
+            SocketTeacherCourseService.TeacherCourseServiceException error =
+                    (SocketTeacherCourseService.TeacherCourseServiceException) failure.getCause();
+            require(error.getLatestGradeBook() == null,
+                    "a conflict without a grade book must stay null, never fabricated");
+        }
+    }
+
+    private static WriteGradeBookRequestDTO writeGradeDto() {
+        return new WriteGradeBookRequestDTO(OPERATION_ID, new GradeBookContentDTO(OFFERING_ID, 4,
+                ROSTER_DIGEST, new GradeSchemeDTO(List.of(
+                        new GradeComponentDTO(GradeComponentCodeDTO.DAILY, true, 3000),
+                        new GradeComponentDTO(GradeComponentCodeDTO.MIDTERM, true, 2000),
+                        new GradeComponentDTO(GradeComponentCodeDTO.EXPERIMENT, true, 2000),
+                        new GradeComponentDTO(GradeComponentCodeDTO.FINALTERM, true, 3000))),
+                List.of(new GradeRowInputDTO(ENROLLMENT_ID,
+                        new GradeScoresDTO(new java.math.BigDecimal("88.5"), null, null, null)))));
+    }
+
+    private static TeacherGradeOfferingDTO gradeOfferingDto() {
+        return new TeacherGradeOfferingDTO(offeringDto(), "DRAFT", 20, 4, null);
+    }
+
+    private static TeacherGradeBookDTO gradeBookDto() {
+        return new TeacherGradeBookDTO(OFFERING_ID, 4, ROSTER_DIGEST, "PENDING",
+                new GradeSchemeDTO(List.of(
+                        new GradeComponentDTO(GradeComponentCodeDTO.DAILY, true, 3000),
+                        new GradeComponentDTO(GradeComponentCodeDTO.MIDTERM, true, 2000),
+                        new GradeComponentDTO(GradeComponentCodeDTO.EXPERIMENT, true, 2000),
+                        new GradeComponentDTO(GradeComponentCodeDTO.FINALTERM, true, 3000))),
+                List.of(new TeacherGradeRowDTO(ENROLLMENT_ID, "00005678", "张三",
+                        new GradeScoresDTO(new java.math.BigDecimal("88.50"), null,
+                                new java.math.BigDecimal("91"), new java.math.BigDecimal("77.5")),
+                        null, null, false, List.of())),
+                null, null, true, null, false);
     }
 
     private static TeacherAdjustmentWriteDTO writeDto() {

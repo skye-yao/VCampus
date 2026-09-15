@@ -21,6 +21,8 @@ import dto.course.teacher.TeacherAdjustmentOptionsDTO;
 import dto.course.teacher.TeacherAdjustmentPreviewDTO;
 import dto.course.teacher.TeacherAdjustmentWriteDTO;
 import dto.course.teacher.TeacherCourseActions;
+import dto.course.teacher.TeacherGradeBookDTO;
+import dto.course.teacher.TeacherGradeOfferingDTO;
 import dto.course.teacher.TeacherOfferingDTO;
 import dto.course.teacher.TeacherOfferingDetailDTO;
 import dto.course.teacher.TeacherOperationResultDTO;
@@ -28,6 +30,7 @@ import dto.course.teacher.TeacherPageDTO;
 import dto.course.teacher.TeacherRosterRowDTO;
 import dto.course.teacher.TeacherScheduleWeekDTO;
 import dto.course.teacher.WithdrawTeacherAdjustmentRequestDTO;
+import dto.course.teacher.WriteGradeBookRequestDTO;
 import protocol.Message;
 import protocol.MessageCode;
 import protocol.MessageType;
@@ -51,6 +54,10 @@ public final class SocketTeacherCourseService implements TeacherCourseService {
             TeacherPageDTO.class, AdjustmentRequestSummaryDTO.class).getType();
     private static final Type WRITE_RESULT_TYPE = TypeToken.getParameterized(
             TeacherOperationResultDTO.class, AdjustmentRequestDetailDTO.class).getType();
+    private static final Type GRADE_OFFERINGS_PAGE_TYPE = TypeToken.getParameterized(
+            TeacherPageDTO.class, TeacherGradeOfferingDTO.class).getType();
+    private static final Type GRADE_WRITE_RESULT_TYPE = TypeToken.getParameterized(
+            TeacherOperationResultDTO.class, TeacherGradeBookDTO.class).getType();
 
     private final TeacherCourseTransport transport;
     private final Gson gson = new Gson();
@@ -171,6 +178,49 @@ public final class SocketTeacherCourseService implements TeacherCourseService {
         return map(request, response -> read(response, "applications", APPLICATIONS_PAGE_TYPE));
     }
 
+    // ------------------------------------------------------------------ 成绩工作副本
+
+    @Override
+    public CompletableFuture<TeacherPageDTO<TeacherGradeOfferingDTO>> listGradeOfferings(
+            int academicYear, int semester, int page, int size) {
+        Message request = request(TeacherCourseActions.LIST_GRADE_OFFERINGS);
+        request.putData("academicYear", academicYear);
+        request.putData("semester", semester);
+        putPaging(request, page, size);
+        return map(request, response -> read(response, "offerings", GRADE_OFFERINGS_PAGE_TYPE));
+    }
+
+    @Override
+    public CompletableFuture<TeacherGradeBookDTO> getGradeBook(String offeringId) {
+        Message request = request(TeacherCourseActions.GET_GRADE_BOOK);
+        request.putData("offeringId", offeringId);
+        return map(request, response -> read(response, "gradeBook", TeacherGradeBookDTO.class));
+    }
+
+    @Override
+    public CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> saveGradeDraft(
+            WriteGradeBookRequestDTO write) {
+        return write(TeacherCourseActions.SAVE_GRADE_DRAFT, write);
+    }
+
+    @Override
+    public CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> submitGradeBook(
+            WriteGradeBookRequestDTO write) {
+        return write(TeacherCourseActions.SUBMIT_GRADE_BOOK, write);
+    }
+
+    /**
+     * 两个成绩写动作共用一条通路：请求体是 {@link WriteGradeBookRequestDTO}（operationId + 完整
+     * 编辑内容），响应是 {@code result} 键上的操作结果信封。动作名与 Handler 共用同一常量，
+     * 服务端的幂等摘要与操作日志因此建立在同一个字符串上。
+     */
+    private CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> write(String action,
+            WriteGradeBookRequestDTO write) {
+        Message request = request(action);
+        request.putData("request", write);
+        return map(request, response -> read(response, "result", GRADE_WRITE_RESULT_TYPE));
+    }
+
     /**
      * 课表映射在反序列化前显式拒绝未知 {@code displayKind}。
      *
@@ -235,8 +285,12 @@ public final class SocketTeacherCourseService implements TeacherCourseService {
     }
 
     /**
-     * 失败映射保留服务端 code/message；CONFLICT 额外带出类型化冲突与最新可见详情（可能没有），
-     * 让调课界面可以刷新并分类型展示，而不是只拿到一句文本。与管理员审批客户端的形状一致。
+     * 失败映射保留服务端 code/message；CONFLICT 额外带出最新可见实体（可能没有），让界面可以刷新
+     * 而不是只拿到一句文本，与管理员审批客户端的形状一致。
+     *
+     * <p>两类冲突各用各的响应键：调课冲突是 {@code conflicts}/{@code latest}（类型化冲突 +
+     * 最新申请详情），成绩冲突是 {@code gradeBook}（最新成绩表）。键不同是必须的——同一个
+     * {@code latest} 键里放进成绩表会让调课界面把成绩表当成申请详情解析。
      */
     private void requireSuccess(Message response) {
         if (response == null) {
@@ -253,7 +307,10 @@ public final class SocketTeacherCourseService implements TeacherCourseService {
                 : list(response, "conflicts", ScheduleConflictDTO.class);
         AdjustmentRequestDetailDTO latest = data.get("latest") == null ? null
                 : read(response, "latest", AdjustmentRequestDetailDTO.class);
-        throw new TeacherCourseServiceException(response.getCode(), message, conflicts, latest);
+        TeacherGradeBookDTO gradeBook = data.get("gradeBook") == null ? null
+                : read(response, "gradeBook", TeacherGradeBookDTO.class);
+        throw new TeacherCourseServiceException(response.getCode(), message, conflicts, latest,
+                gradeBook);
     }
 
     private <T> List<T> list(Message response, String key, Class<T> type) {
@@ -271,24 +328,33 @@ public final class SocketTeacherCourseService implements TeacherCourseService {
 
     /**
      * 教师课程请求的稳定失败契约：保留服务端 code 与 message，供界面区分无权限与参数错误。
-     * CONFLICT 时额外携带类型化冲突与最新可见详情（调课冲突对话框用）。
+     * CONFLICT 时额外携带最新的可见实体——调课冲突带回类型化冲突与申请详情，成绩冲突带回最新
+     * 成绩表（{@link #getLatestGradeBook()}），两者互不冒充对方的类型。
      */
     public static final class TeacherCourseServiceException extends RuntimeException {
         private static final long serialVersionUID = 1L;
         private final MessageCode code;
         private final List<ScheduleConflictDTO> conflicts;
         private final AdjustmentRequestDetailDTO latest;
+        private final TeacherGradeBookDTO latestGradeBook;
 
         public TeacherCourseServiceException(MessageCode code, String message) {
-            this(code, message, List.of(), null);
+            this(code, message, List.of(), null, null);
         }
 
         public TeacherCourseServiceException(MessageCode code, String message,
                 List<ScheduleConflictDTO> conflicts, AdjustmentRequestDetailDTO latest) {
+            this(code, message, conflicts, latest, null);
+        }
+
+        public TeacherCourseServiceException(MessageCode code, String message,
+                List<ScheduleConflictDTO> conflicts, AdjustmentRequestDetailDTO latest,
+                TeacherGradeBookDTO latestGradeBook) {
             super(message);
             this.code = code;
             this.conflicts = conflicts == null ? List.of() : List.copyOf(conflicts);
             this.latest = latest;
+            this.latestGradeBook = latestGradeBook;
         }
 
         public MessageCode getCode() {
@@ -301,6 +367,11 @@ public final class SocketTeacherCourseService implements TeacherCourseService {
 
         public AdjustmentRequestDetailDTO getLatest() {
             return latest;
+        }
+
+        /** 成绩写入冲突（版本过期/名单变化）时服务端带回的最新成绩表；没有时为 null。 */
+        public TeacherGradeBookDTO getLatestGradeBook() {
+            return latestGradeBook;
         }
     }
 }

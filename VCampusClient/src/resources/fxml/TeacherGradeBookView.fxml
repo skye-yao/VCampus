@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.CheckBox?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.TableColumn?>
+<?import javafx.scene.control.TableView?>
+<?import javafx.scene.control.TextField?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.layout.StackPane?>
+<?import javafx.scene.layout.VBox?>
+
+<!--
+  一个教学班的成绩编辑表（设计 §5.4）：四列成绩始终存在，列名上方的方案条给出每一列的启用开关与
+  百分比权重（宽度与表格列一一对应，因此横向滚动时两者一起移动）；只读状态下本页显示审核状态、
+  更正原因与名单变化提示，保存/提交按钮禁用。
+  本页由工作台通过 fx:include 装入；样式全部来自 teacher-course.css。
+-->
+<VBox spacing="8.0" styleClass="teacher-course-page" xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.TeacherGradeBookController">
+    <children>
+        <HBox alignment="CENTER_LEFT" spacing="10.0" styleClass="teacher-course-toolbar">
+            <children>
+                <Button fx:id="gradeBookBackButton" onAction="#handleBack" styleClass="teacher-course-back-button" text="返回成绩列表" />
+                <Label fx:id="gradeBookTitleLabel" styleClass="teacher-course-detail-title" text="成绩录入" />
+                <Region HBox.hgrow="ALWAYS" />
+                <Label fx:id="gradeBookStateLabel" styleClass="teacher-course-page-summary" text="" />
+            </children>
+        </HBox>
+        <HBox alignment="CENTER_LEFT" spacing="10.0" styleClass="teacher-course-toolbar">
+            <children>
+                <Label fx:id="gradeBookSchemeLabel" styleClass="teacher-course-page-summary" text="" />
+                <Region HBox.hgrow="ALWAYS" />
+                <Button fx:id="gradeBookReloadButton" onAction="#handleReload" styleClass="teacher-course-refresh-button" text="重新加载" />
+                <Button fx:id="gradeBookSaveButton" onAction="#handleSave" styleClass="teacher-course-save-button" text="保存草稿" />
+                <Button fx:id="gradeBookSubmitButton" onAction="#handleSubmit" styleClass="teacher-course-submit-button" text="提交成绩" />
+                <Button fx:id="gradeBookConfirmSubmitButton" managed="false" onAction="#handleConfirmSubmit" styleClass="teacher-course-submit-button" text="确认提交" visible="false" />
+                <Button fx:id="gradeBookCancelSubmitButton" managed="false" onAction="#handleCancelSubmit" styleClass="teacher-course-refresh-button" text="取消" visible="false" />
+            </children>
+        </HBox>
+        <!-- 方案条：与下面表格的前两列（学号/姓名）对齐后再排四个成绩列。 -->
+        <HBox alignment="CENTER_LEFT" spacing="0.0" styleClass="teacher-course-scheme-bar">
+            <children>
+                <Region minWidth="240.0" prefWidth="240.0" />
+                <VBox prefWidth="110.0" spacing="2.0" styleClass="teacher-course-scheme-group">
+                    <children>
+                        <Label styleClass="teacher-course-scheme-title" text="平时" />
+                        <HBox alignment="CENTER_LEFT" spacing="4.0">
+                            <children>
+                                <CheckBox fx:id="gradeBookDailyEnabled" styleClass="teacher-course-scheme-toggle" text="启用" />
+                                <TextField fx:id="gradeBookDailyWeight" prefWidth="52.0" styleClass="teacher-course-weight-field" />
+                                <Label styleClass="teacher-course-scheme-unit" text="\%" />
+                            </children>
+                        </HBox>
+                    </children>
+                </VBox>
+                <VBox prefWidth="110.0" spacing="2.0" styleClass="teacher-course-scheme-group">
+                    <children>
+                        <Label styleClass="teacher-course-scheme-title" text="期中" />
+                        <HBox alignment="CENTER_LEFT" spacing="4.0">
+                            <children>
+                                <CheckBox fx:id="gradeBookMidtermEnabled" styleClass="teacher-course-scheme-toggle" text="启用" />
+                                <TextField fx:id="gradeBookMidtermWeight" prefWidth="52.0" styleClass="teacher-course-weight-field" />
+                                <Label styleClass="teacher-course-scheme-unit" text="\%" />
+                            </children>
+                        </HBox>
+                    </children>
+                </VBox>
+                <VBox prefWidth="110.0" spacing="2.0" styleClass="teacher-course-scheme-group">
+                    <children>
+                        <Label styleClass="teacher-course-scheme-title" text="实验" />
+                        <HBox alignment="CENTER_LEFT" spacing="4.0">
+                            <children>
+                                <CheckBox fx:id="gradeBookExperimentEnabled" styleClass="teacher-course-scheme-toggle" text="启用" />
+                                <TextField fx:id="gradeBookExperimentWeight" prefWidth="52.0" styleClass="teacher-course-weight-field" />
+                                <Label styleClass="teacher-course-scheme-unit" text="\%" />
+                            </children>
+                        </HBox>
+                    </children>
+                </VBox>
+                <VBox prefWidth="110.0" spacing="2.0" styleClass="teacher-course-scheme-group">
+                    <children>
+                        <Label styleClass="teacher-course-scheme-title" text="期末" />
+                        <HBox alignment="CENTER_LEFT" spacing="4.0">
+                            <children>
+                                <CheckBox fx:id="gradeBookFinaltermEnabled" styleClass="teacher-course-scheme-toggle" text="启用" />
+                                <TextField fx:id="gradeBookFinaltermWeight" prefWidth="52.0" styleClass="teacher-course-weight-field" />
+                                <Label styleClass="teacher-course-scheme-unit" text="\%" />
+                            </children>
+                        </HBox>
+                    </children>
+                </VBox>
+            </children>
+        </HBox>
+        <Label fx:id="gradeBookNoticeLabel" managed="false" maxWidth="840.0" styleClass="teacher-course-notice-text" text="" visible="false" wrapText="true" />
+        <StackPane styleClass="teacher-course-list-area" VBox.vgrow="ALWAYS">
+            <children>
+                <TableView fx:id="gradeBookTable" editable="true" styleClass="teacher-course-table">
+                    <placeholder>
+                        <Label fx:id="gradeBookEmptyLabel" maxWidth="520.0" styleClass="teacher-course-empty-state" text="该教学班当前没有正常修读的学生" wrapText="true" />
+                    </placeholder>
+                    <columns>
+                        <TableColumn fx:id="gradeBookUidColumn" prefWidth="110.0" text="学号" />
+                        <TableColumn fx:id="gradeBookNameColumn" prefWidth="130.0" text="姓名" />
+                        <TableColumn fx:id="gradeBookDailyColumn" prefWidth="110.0" text="平时" />
+                        <TableColumn fx:id="gradeBookMidtermColumn" prefWidth="110.0" text="期中" />
+                        <TableColumn fx:id="gradeBookExperimentColumn" prefWidth="110.0" text="实验" />
+                        <TableColumn fx:id="gradeBookFinaltermColumn" prefWidth="110.0" text="期末" />
+                        <TableColumn fx:id="gradeBookTotalColumn" prefWidth="90.0" text="总评" />
+                        <TableColumn fx:id="gradeBookPointColumn" prefWidth="80.0" text="绩点" />
+                        <TableColumn fx:id="gradeBookErrorColumn" prefWidth="180.0" text="行错误" />
+                    </columns>
+                </TableView>
+                <VBox alignment="CENTER" maxHeight="-Infinity" spacing="10.0" styleClass="teacher-course-state-area" StackPane.alignment="TOP_CENTER">
+                    <children>
+                        <Label fx:id="gradeBookLoadingLabel" managed="false" styleClass="teacher-course-loading-text" text="正在加载成绩表..." visible="false" />
+                        <Label fx:id="gradeBookErrorLabel" managed="false" maxWidth="520.0" styleClass="teacher-course-error-text" text="" visible="false" />
+                    </children>
+                    <padding>
+                        <Insets top="28.0" />
+                    </padding>
+                </VBox>
+            </children>
+        </StackPane>
+        <Label fx:id="gradeBookFeedbackLabel" managed="false" maxWidth="840.0" styleClass="teacher-course-feedback-text" text="" visible="false" wrapText="true" />
+    </children>
+</VBox>

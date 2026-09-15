@@ -29,13 +29,17 @@ import service.TeacherCourseServices;
 /**
  * 教学班详情页（设计 §5.1）：基本信息、学生名单、上课安排、成绩情况四个 Tab。
  *
+ * <p>成绩情况 Tab 自 T5 起指向已交付的成绩录入页：本页只做只读摘要与入口，完整编辑在
+ * {@link TeacherGradeBookController} 里进行。
+ *
  * <p>四个 Tab 的数据都来自 DTO，按需加载：基本信息在打开教学班时加载，名单与安排只在对应 Tab
  * 首次被选中时各请求一次并缓存，隐藏的 Tab 不发起任何请求。名单支持姓名/学号筛选与正常/退课
  * 状态筛选，分页超过一页时可翻页；退课行只读保留为历史。
  *
- * <p>本阶段刻意保持只读：导出按钮保持禁用（伞形计划的 T5 接通），教师看不到任何添加/删除学生
- * 入口，成绩情况只显示只读状态（伞形计划的 T4 接通完整成绩表），登记成绩的入口只调用工作台的
- * {@code openGrades}，本页不发起任何写请求。开课学院缺值显示“未维护”，绝不用教师个人学院冒充。
+ * <p>本页刻意保持只读：导出按钮保持禁用（伞形计划的 T5 接通），教师看不到任何添加/删除学生
+ * 入口，成绩情况只显示只读摘要，登记成绩的入口只调用工作台的 {@code openGrades}（由工作台打开
+ * {@link TeacherGradeBookController}），本页不发起任何写请求。开课学院缺值显示“未维护”，
+ * 绝不用教师个人学院冒充。
  *
  * <p>打开另一个教学班或 {@link #release()} 之后，任何在途响应都被丢弃（generation + active 判定），
  * 页面也不会保留上一个教学班的数据。
@@ -508,7 +512,7 @@ public final class TeacherOfferingDetailController {
     }
 
     /**
-     * 成绩情况 Tab 只显示只读状态：成绩表由后续阶段接通，这里不编造人数、完整或缺失数量。
+     * 成绩情况 Tab 只显示只读状态：完整成绩表在成绩录入页打开，这里不编造人数、完整或缺失数量。
      */
     static List<String> gradeLines(TeacherOfferingDetailDTO detail) {
         TeacherOfferingDTO offering = detail.getOffering();
@@ -517,7 +521,7 @@ public final class TeacherOfferingDetailController {
                 "正常修读人数：" + offering.getEnrolledCount() + " 人",
                 "成绩录入权限：" + (offering.isCanEditGrades() ? "可录入" : "只读"),
                 "成绩编辑只包含当前正常修读的学生；退课记录只读保留，不参与成绩编辑。",
-                "完整成绩表将在后续阶段接入。");
+                "完整成绩表请从“成绩录入”进入（保存到草稿，提交后由管理员审核）。");
     }
 
     /** 名单一行，顺序与 FXML 的列顺序一一对应；未退课的退课时间显示为占位符。 */

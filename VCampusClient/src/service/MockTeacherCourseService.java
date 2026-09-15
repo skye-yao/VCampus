@@ -1,5 +1,9 @@
 package service;
 
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
@@ -15,6 +19,19 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+
+import course.grade.GradeCalculator;
+import course.grade.GradePointScale;
+import dto.course.teacher.GradeBookContentDTO;
+import dto.course.teacher.GradeComponentCodeDTO;
+import dto.course.teacher.GradeComponentDTO;
+import dto.course.teacher.GradeRowInputDTO;
+import dto.course.teacher.GradeSchemeDTO;
+import dto.course.teacher.GradeScoresDTO;
+import dto.course.teacher.TeacherGradeBookDTO;
+import dto.course.teacher.TeacherGradeOfferingDTO;
+import dto.course.teacher.TeacherGradeRowDTO;
+import dto.course.teacher.WriteGradeBookRequestDTO;
 
 import dto.course.AdjustmentRequestStatusDTO;
 import dto.course.CourseTermDTO;
@@ -32,6 +49,7 @@ import dto.course.teacher.TeacherAdjustmentPreviewDTO;
 import dto.course.teacher.TeacherAdjustmentTargetInputDTO;
 import dto.course.teacher.TeacherAdjustmentWriteDTO;
 import dto.course.teacher.TeacherCalendarDateDTO;
+import dto.course.teacher.TeacherCourseActions;
 import dto.course.teacher.TeacherOfferingDTO;
 import dto.course.teacher.TeacherOfferingDetailDTO;
 import dto.course.teacher.TeacherOperationResultDTO;
@@ -96,9 +114,10 @@ public final class MockTeacherCourseService implements TeacherCourseService {
     private static final DateTimeFormatter PERIOD_TIME =
             DateTimeFormatter.ofPattern("HH:mm:ss");
 
-    /** 课表 fixture 用到的教学班；与 {@code seedOfferings}/{@code seedEmptyOffering} 保持一致。 */
+    /** 课表与成绩 fixture 用到的教学班；与 {@code seedOfferings}/{@code seedEmptyOffering} 一致。 */
     private static final String INTERACTION_OFFERING = "9007199254740997";
     private static final String OPERATING_SYSTEM_OFFERING = "9007199254740995";
+    private static final String AUTUMN_OFFERING = "9007199254740999";
     private static final String CROSS_WEEK_ADJUSTMENT_ID = "9301";
     private static final String SAME_WEEK_ADJUSTMENT_ID = "9302";
     private static final String TEACHER_WITH_ASSISTANT = "陈老师, 王助教";
@@ -126,6 +145,19 @@ public final class MockTeacherCourseService implements TeacherCourseService {
     private static final String CLASSROOM_B_203 = "8103";
     private static final String CLASSROOM_C_301 = "8105";
 
+    // 成绩 mock 的确定性约定：三个状态夹具（草稿含缺分、待审核、已驳回含更正原因）与一份配齐的
+    // 权重方案；保存/提交会真实改变快照（revision 递增、状态迁移），因此界面在没有服务端时也能走完
+    // “编辑 → 保存 → 提交 → 只读”的完整路径。提交的分数完整性与权重规则复用 Common 的纯计算。
+    private static final String GRADE_STATE_DRAFT = "DRAFT";
+    private static final String GRADE_STATE_PENDING = "PENDING";
+    private static final String GRADE_STATE_REJECTED = "REJECTED";
+    private static final String GRADE_SAVED_MESSAGE = "成绩草稿已保存";
+    private static final String GRADE_SUBMITTED_MESSAGE = "成绩批次已提交";
+    private static final String GRADE_CORRECTION_REASON = "期末成绩录入有误，需更正后重新提交";
+    private static final String GRADE_SUBMISSION_ID = "9601";
+    /** 配齐的权重：30/20/20/30，合计 10000 万分比。 */
+    private static final int[] GRADE_WEIGHTS = {3000, 2000, 2000, 3000};
+
     private final List<CourseTermDTO> terms = List.of(
             new CourseTermDTO(2025, 3, "2025-2026 春学期"),
             new CourseTermDTO(2025, 2, "2025-2026 秋学期"));
@@ -136,6 +168,8 @@ public final class MockTeacherCourseService implements TeacherCourseService {
     private final Map<String, List<ScheduleArrangementDTO>> schedules = new LinkedHashMap<>();
     private final Map<String, AdjustmentRequestDetailDTO> adjustmentRequests = new LinkedHashMap<>();
     private final Map<String, RecordedAdjustmentOperation> adjustmentOperations = new LinkedHashMap<>();
+    private final Map<String, MockGradeBook> gradeBooks = new LinkedHashMap<>();
+    private final Map<String, RecordedGradeOperation> gradeOperations = new LinkedHashMap<>();
     private long nextAdjustmentRequestId = 9406;
 
     public MockTeacherCourseService() {
@@ -145,6 +179,7 @@ public final class MockTeacherCourseService implements TeacherCourseService {
         seedAutumnOffering();
         seedSchedules();
         seedAdjustmentRequests();
+        seedGradeBooks();
     }
 
     @Override
@@ -430,6 +465,485 @@ public final class MockTeacherCourseService implements TeacherCourseService {
         } catch (RuntimeException failure) {
             return failed(failure);
         }
+    }
+
+    // ------------------------------------------------------------------ 成绩工作副本
+
+    /** 本人任课教学班的成绩列表：只含 role=0 的教学班，未建草稿的班以虚拟草稿（revision=0）出现。 */
+    @Override
+    public CompletableFuture<TeacherPageDTO<TeacherGradeOfferingDTO>> listGradeOfferings(
+            int academicYear, int semester, int page, int size) {
+        try {
+            List<TeacherGradeOfferingDTO> matched = new ArrayList<>();
+            for (TeacherOfferingDTO offering : offerings.values()) {
+                if (offering.getAcademicYear() != academicYear
+                        || offering.getSemester() != semester) {
+                    continue;
+                }
+                MockGradeBook book = gradeBooks.get(offering.getOfferingId());
+                List<GradeScoresDTO> scores = book == null
+                        ? List.of() : book.scores(rosterOf(offering.getOfferingId()));
+                GradeSchemeDTO scheme = book == null ? defaultGradeScheme() : book.scheme();
+                int entered = 0;
+                int missing = 0;
+                for (GradeScoresDTO rowScores : scores) {
+                    if (!blankScores(rowScores)) entered++;
+                    if (missingEnabledScores(scheme, rowScores)) missing++;
+                }
+                matched.add(new TeacherGradeOfferingDTO(offering, stateOf(book), entered, missing,
+                        book == null ? null : book.lastSubmissionId()));
+            }
+            matched.sort(Comparator.comparing(item -> item.getOffering().getOfferingCode()));
+            return CompletableFuture.completedFuture(page(matched, page, size));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    @Override
+    public CompletableFuture<TeacherGradeBookDTO> getGradeBook(String offeringId) {
+        try {
+            String id = requireGradeOffering(offeringId);
+            return CompletableFuture.completedFuture(snapshotOf(id));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    @Override
+    public CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> saveGradeDraft(
+            WriteGradeBookRequestDTO write) {
+        return gradeWrite(TeacherCourseActions.SAVE_GRADE_DRAFT, write, false);
+    }
+
+    @Override
+    public CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> submitGradeBook(
+            WriteGradeBookRequestDTO write) {
+        return gradeWrite(TeacherCourseActions.SUBMIT_GRADE_BOOK, write, true);
+    }
+
+    /**
+     * 保存/提交共用一条写路径：校验 operationId → 幂等重放 → 版本与名单摘要 → 内容 → 落库到内存快照。
+     * 版本、名单摘要与内容校验的顺序与真实服务一致，客户端因此能在本地看到同一批冲突文案。
+     */
+    private CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> gradeWrite(String action,
+            WriteGradeBookRequestDTO write, boolean submit) {
+        try {
+            if (write == null || write.getContent() == null) {
+                throw badRequest("请求体不能为空");
+            }
+            String operationId = requireOperationId(write.getOperationId());
+            String digest = gradeDigest(action, write.getContent());
+            RecordedGradeOperation stored = gradeOperations.get(operationId);
+            if (stored != null) {
+                if (!stored.digest().equals(digest)) {
+                    throw gradeConflict("operationId 已用于不同的成绩写入请求", null);
+                }
+                TeacherOperationResultDTO<TeacherGradeBookDTO> first = stored.result();
+                return CompletableFuture.completedFuture(new TeacherOperationResultDTO<>(
+                        first.getOperationId(), first.getMessage(), first.getValue(), true));
+            }
+
+            GradeBookContentDTO content = write.getContent();
+            String offeringId = requireGradeOffering(content.getOfferingId());
+            MockGradeBook book = requireBookForWrite(offeringId);
+            if (!book.rosterDigest().equals(content.getRosterDigest())) {
+                throw gradeConflict("名单已变化，请重新加载成绩表并合并已输入的成绩",
+                        snapshotOf(offeringId));
+            }
+            int expectedRevision = content.getExpectedRevision();
+            if (book.revision() != expectedRevision) {
+                throw gradeConflict("成绩草稿版本已变化，请重新加载后重试", snapshotOf(offeringId));
+            }
+            GradeSchemeDTO scheme = content.getScheme() == null
+                    ? defaultGradeScheme() : content.getScheme();
+            try {
+                GradeCalculator.validateScheme(scheme, submit);
+            } catch (IllegalArgumentException invalid) {
+                throw badRequest(invalid.getMessage());
+            }
+            List<String> enrolled = normalEnrollmentIds(offeringId);
+            Map<String, GradeScoresDTO> previous = book.scoresByEnrollment();
+            Map<String, GradeScoresDTO> updated = new LinkedHashMap<>();
+            for (GradeRowInputDTO row : content.getRows()) {
+                String enrollmentId = requiredDecimal(row.getEnrollmentId(), "enrollmentId");
+                if (!enrolled.contains(enrollmentId)) {
+                    throw badRequest("学生不在本教学班当前名单中: " + enrollmentId);
+                }
+                GradeScoresDTO scores = row.getScores() == null
+                        ? blankScoresDto() : row.getScores();
+                try {
+                    GradeCalculator.validateScores(scores);
+                } catch (IllegalArgumentException invalid) {
+                    throw badRequest(invalid.getMessage());
+                }
+                // 禁用组成不是“清空”：请求里没有值时保留草稿里的旧值，重新启用即可恢复。
+                updated.put(enrollmentId, mergeDisabled(scores, previous.get(enrollmentId), scheme));
+            }
+            if (submit) {
+                for (String enrollmentId : enrolled) {
+                    GradeScoresDTO scores = updated.get(enrollmentId);
+                    if (missingEnabledScores(scheme, scores)) {
+                        throw badRequest("提交成绩前必须补齐所有启用组成的成绩，缺少学生: "
+                                + studentUidOf(offeringId, enrollmentId));
+                    }
+                }
+                book.submit(scheme, updated);
+            } else {
+                book.save(scheme, updated);
+            }
+
+            TeacherOperationResultDTO<TeacherGradeBookDTO> result =
+                    new TeacherOperationResultDTO<>(operationId,
+                            submit ? GRADE_SUBMITTED_MESSAGE : GRADE_SAVED_MESSAGE,
+                            snapshotOf(offeringId), false);
+            gradeOperations.put(operationId, new RecordedGradeOperation(digest, result));
+            return CompletableFuture.completedFuture(result);
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    /** 教学班必须属于 mock 的任课范围，且未建草稿时按 virtual 草稿处理。 */
+    private String requireGradeOffering(String offeringId) {
+        String id = requiredDecimal(offeringId, "offeringId");
+        if (!offerings.containsKey(id)) throw forbidden("没有该教学班的成绩录入权限");
+        return id;
+    }
+
+    /** 没有工作副本时按服务端的“虚拟草稿”语义现建一份：revision=0、不落库、名单摘要当场计算。 */
+    private MockGradeBook requireBookForWrite(String offeringId) {
+        MockGradeBook book = gradeBooks.get(offeringId);
+        if (book == null) {
+            book = new MockGradeBook(offeringId, defaultGradeScheme(), 0);
+            book.rosterDigest(digestOf(normalEnrollmentIds(offeringId)));
+            gradeBooks.put(offeringId, book);
+        }
+        return book;
+    }
+
+    /** 当前快照：名单摘要、行（含服务端重算的总评/绩点）与状态位，全部按当前内存状态生成。 */
+    private TeacherGradeBookDTO snapshotOf(String offeringId) {
+        MockGradeBook book = gradeBooks.get(offeringId);
+        GradeSchemeDTO scheme = book == null ? defaultGradeScheme() : book.scheme();
+        List<TeacherRosterRowDTO> roster = rosterOf(offeringId);
+        String rosterDigest = digestOf(enrollmentIdsOf(roster));
+        // 名单摘要随每次读取刷新：写请求比对的是“客户端看到的名单”，与真实服务一致。
+        if (book != null) book.rosterDigest(rosterDigest);
+        List<TeacherGradeRowDTO> rows = new ArrayList<>();
+        for (TeacherRosterRowDTO student : roster) {
+            GradeScoresDTO scores = book == null ? blankScoresDto()
+                    : book.scores().get(student.getEnrollmentId());
+            rows.add(gradeRow(student, scheme, scores == null ? blankScoresDto() : scores));
+        }
+        return new TeacherGradeBookDTO(offeringId, book == null ? 0 : book.revision(),
+                rosterDigest, stateOf(book), scheme, rows,
+                book == null ? null : book.lastSubmissionId(), null,
+                book == null || book.canEdit(),
+                book == null ? null : book.correctionReason(), false);
+    }
+
+    /** 总评与绩点用与服务端同一份纯计算；缺分或权重未配齐时保持 null，不编造总评。 */
+    private static TeacherGradeRowDTO gradeRow(TeacherRosterRowDTO student, GradeSchemeDTO scheme,
+            GradeScoresDTO scores) {
+        BigDecimal total = null;
+        List<String> errors = new ArrayList<>();
+        try {
+            total = GradeCalculator.total(scheme, scores);
+        } catch (IllegalArgumentException broken) {
+            errors.add(broken.getMessage());
+        }
+        BigDecimal point = total == null ? null : GradePointScale.gradePointFor(total);
+        return new TeacherGradeRowDTO(student.getEnrollmentId(), student.getStudentUid(),
+                student.getStudentName(), scores, total, point, total != null, errors);
+    }
+
+    private static String stateOf(MockGradeBook book) {
+        return book == null ? GRADE_STATE_DRAFT : book.state();
+    }
+
+    /** 正常修读名单：退课历史只读保留，不参与成绩编辑。 */
+    private List<TeacherRosterRowDTO> rosterOf(String offeringId) {
+        List<TeacherRosterRowDTO> enrolled = new ArrayList<>();
+        for (TeacherRosterRowDTO row : rosters.getOrDefault(offeringId, List.of())) {
+            if (ENROLLED.equals(row.getEnrollmentStatus())) enrolled.add(row);
+        }
+        return enrolled;
+    }
+
+    private List<String> normalEnrollmentIds(String offeringId) {
+        return enrollmentIdsOf(rosterOf(offeringId));
+    }
+
+    private static List<String> enrollmentIdsOf(List<TeacherRosterRowDTO> roster) {
+        List<String> ids = new ArrayList<>();
+        for (TeacherRosterRowDTO row : roster) ids.add(row.getEnrollmentId());
+        return ids;
+    }
+
+    private String studentUidOf(String offeringId, String enrollmentId) {
+        for (TeacherRosterRowDTO row : rosters.getOrDefault(offeringId, List.of())) {
+            if (enrollmentId.equals(row.getEnrollmentId())) return row.getStudentUid();
+        }
+        return enrollmentId;
+    }
+
+    private static GradeSchemeDTO defaultGradeScheme() {
+        List<GradeComponentDTO> components = new ArrayList<>();
+        for (GradeComponentCodeDTO code : GradeComponentCodeDTO.values()) {
+            components.add(new GradeComponentDTO(code, true, 0));
+        }
+        return new GradeSchemeDTO(components);
+    }
+
+    private static GradeSchemeDTO weightedScheme(int[] weights) {
+        List<GradeComponentDTO> components = new ArrayList<>();
+        GradeComponentCodeDTO[] codes = GradeComponentCodeDTO.values();
+        for (int index = 0; index < codes.length; index++) {
+            components.add(new GradeComponentDTO(codes[index], true, weights[index]));
+        }
+        return new GradeSchemeDTO(components);
+    }
+
+    /**
+     * 禁用项保持草稿里的旧值：请求里给 null 时沿用已存值，给新值时才覆盖。
+     * 与 {@code TeacherGradeBookService.mergeDisabled} 同一语义，草稿保存不会误清禁用列。
+     */
+    private static GradeScoresDTO mergeDisabled(GradeScoresDTO incoming, GradeScoresDTO stored,
+            GradeSchemeDTO scheme) {
+        if (stored == null) return incoming;
+        return new GradeScoresDTO(
+                keepScore(GradeComponentCodeDTO.DAILY, incoming.getDailyScore(),
+                        stored.getDailyScore(), scheme),
+                keepScore(GradeComponentCodeDTO.MIDTERM, incoming.getMidtermScore(),
+                        stored.getMidtermScore(), scheme),
+                keepScore(GradeComponentCodeDTO.EXPERIMENT, incoming.getExperimentScore(),
+                        stored.getExperimentScore(), scheme),
+                keepScore(GradeComponentCodeDTO.FINALTERM, incoming.getFinaltermScore(),
+                        stored.getFinaltermScore(), scheme));
+    }
+
+    private static BigDecimal keepScore(GradeComponentCodeDTO code, BigDecimal incoming,
+            BigDecimal stored, GradeSchemeDTO scheme) {
+        if (incoming != null) return incoming;
+        for (GradeComponentDTO component : scheme.getComponents()) {
+            if (component.getCode() == code && !component.isEnabled()) return stored;
+        }
+        return null;
+    }
+
+    private static boolean missingEnabledScores(GradeSchemeDTO scheme, GradeScoresDTO scores) {
+        if (scores == null) return false;
+        for (GradeComponentDTO component : scheme.getComponents()) {
+            if (!component.isEnabled()) continue;
+            BigDecimal score = switch (component.getCode()) {
+                case DAILY -> scores.getDailyScore();
+                case MIDTERM -> scores.getMidtermScore();
+                case EXPERIMENT -> scores.getExperimentScore();
+                case FINALTERM -> scores.getFinaltermScore();
+            };
+            if (score == null) return true;
+        }
+        return false;
+    }
+
+    private static boolean blankScores(GradeScoresDTO scores) {
+        return scores == null || (scores.getDailyScore() == null && scores.getMidtermScore() == null
+                && scores.getExperimentScore() == null && scores.getFinaltermScore() == null);
+    }
+
+    private static GradeScoresDTO blankScoresDto() {
+        return new GradeScoresDTO(null, null, null, null);
+    }
+
+    /** 名单摘要：与服务端同形的 64 位小写十六进制 SHA-256（排序后逗号拼接）。 */
+    private static String digestOf(List<String> enrollmentIds) {
+        List<String> sorted = new ArrayList<>(enrollmentIds);
+        sorted.sort(Comparator.naturalOrder());
+        try {
+            MessageDigest sha256 = MessageDigest.getInstance("SHA-256");
+            byte[] hash = sha256.digest(
+                    String.join(",", sorted).getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(hash.length * 2);
+            for (byte value : hash) {
+                hex.append(String.format("%02x", value));
+            }
+            return hex.toString();
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("运行环境缺少 SHA-256", impossible);
+        }
+    }
+
+    /** 写请求摘要：动作 + 规范化内容，用于“同一 operationId 换了内容”的冲突判定。 */
+    private static String gradeDigest(String action, GradeBookContentDTO content) {
+        List<String> rows = new ArrayList<>();
+        for (GradeRowInputDTO row : content.getRows()) {
+            rows.add(row.getEnrollmentId() + "@" + scoresText(row.getScores()));
+        }
+        rows.sort(Comparator.naturalOrder());
+        return action + "|" + content.getOfferingId() + "|" + content.getExpectedRevision() + "|"
+                + content.getRosterDigest() + "|" + schemeText(content.getScheme()) + "|" + rows;
+    }
+
+    private static String schemeText(GradeSchemeDTO scheme) {
+        if (scheme == null) return "default";
+        List<String> parts = new ArrayList<>();
+        for (GradeComponentDTO component : scheme.getComponents()) {
+            parts.add(component.getCode() + "=" + component.isEnabled() + ":"
+                    + component.getWeightBasisPoints());
+        }
+        return String.join(",", parts);
+    }
+
+    private static String scoresText(GradeScoresDTO scores) {
+        if (scores == null) return "blank";
+        return scores.getDailyScore() + "," + scores.getMidtermScore() + ","
+                + scores.getExperimentScore() + "," + scores.getFinaltermScore();
+    }
+
+    /** 成绩写操作的幂等记录：同 ID 同内容重放，同 ID 不同内容冲突。 */
+    private record RecordedGradeOperation(String digest,
+            TeacherOperationResultDTO<TeacherGradeBookDTO> result) {
+    }
+
+    /** 内存工作副本：方案、版本、状态与每个学生的当前分数。 */
+    private static final class MockGradeBook {
+        private final String offeringId;
+        private final Map<String, GradeScoresDTO> scores = new LinkedHashMap<>();
+        private GradeSchemeDTO scheme;
+        private int revision;
+        private String state = GRADE_STATE_DRAFT;
+        private boolean canEdit = true;
+        private String correctionReason;
+        private String lastSubmissionId;
+        private String rosterDigest = "";
+
+        private MockGradeBook(String offeringId, GradeSchemeDTO scheme, int revision) {
+            this.offeringId = offeringId;
+            this.scheme = scheme;
+            this.revision = revision;
+        }
+
+        private GradeSchemeDTO scheme() {
+            return scheme;
+        }
+
+        private int revision() {
+            return revision;
+        }
+
+        private String state() {
+            return state;
+        }
+
+        private boolean canEdit() {
+            return canEdit;
+        }
+
+        private String correctionReason() {
+            return correctionReason;
+        }
+
+        private String lastSubmissionId() {
+            return lastSubmissionId;
+        }
+
+        private String rosterDigest() {
+            return rosterDigest;
+        }
+
+        private Map<String, GradeScoresDTO> scores() {
+            return scores;
+        }
+
+        private Map<String, GradeScoresDTO> scoresByEnrollment() {
+            return new LinkedHashMap<>(scores);
+        }
+
+        /** 名单摘要由读取方在每次快照时刷新；写请求比对的是它。 */
+        private void rosterDigest(String digest) {
+            this.rosterDigest = digest;
+        }
+
+        private List<GradeScoresDTO> scores(List<TeacherRosterRowDTO> roster) {
+            List<GradeScoresDTO> values = new ArrayList<>();
+            for (TeacherRosterRowDTO student : roster) {
+                GradeScoresDTO stored = scores.get(student.getEnrollmentId());
+                values.add(stored == null ? blankScoresDto() : stored);
+            }
+            return values;
+        }
+
+        private void save(GradeSchemeDTO scheme, Map<String, GradeScoresDTO> updated) {
+            this.scheme = scheme;
+            this.scores.putAll(updated);
+            this.revision = revision + 1;
+            this.state = GRADE_STATE_DRAFT;
+            this.canEdit = true;
+        }
+
+        private void submit(GradeSchemeDTO scheme, Map<String, GradeScoresDTO> updated) {
+            this.scheme = scheme;
+            this.scores.putAll(updated);
+            this.revision = revision + 1;
+            this.state = GRADE_STATE_PENDING;
+            this.canEdit = false;
+            this.lastSubmissionId = GRADE_SUBMISSION_ID;
+        }
+    }
+
+    /**
+     * 成绩夹具：一个可编辑草稿（权重配齐但每五人缺一个实验分，总评因此显示占位符）、
+     * 一个已提交待审核（只读、分数完整）、一个被驳回（只读状态显示更正原因、可继续编辑），
+     * 操作系统教学班（空班）没有工作副本，走 revision=0 的虚拟草稿路径。
+     */
+    private void seedGradeBooks() {
+        List<TeacherRosterRowDTO> fullRoster = rosterOf(FULL_ROSTER_OFFERING);
+        Map<String, GradeScoresDTO> draftScores = new LinkedHashMap<>();
+        for (int index = 0; index < fullRoster.size(); index++) {
+            draftScores.put(fullRoster.get(index).getEnrollmentId(), new GradeScoresDTO(
+                    BigDecimal.valueOf(70 + index % 20),
+                    BigDecimal.valueOf(65 + index % 25),
+                    index % 5 == 3 ? null : BigDecimal.valueOf(75 + index % 15),
+                    BigDecimal.valueOf(80 - index % 10)));
+        }
+        MockGradeBook draft = new MockGradeBook(FULL_ROSTER_OFFERING, weightedScheme(GRADE_WEIGHTS),
+                3);
+        draft.rosterDigest(digestOf(normalEnrollmentIds(FULL_ROSTER_OFFERING)));
+        draft.save(weightedScheme(GRADE_WEIGHTS), draftScores);
+        gradeBooks.put(draft.offeringId, draft);
+
+        MockGradeBook submitted = new MockGradeBook(INTERACTION_OFFERING,
+                weightedScheme(GRADE_WEIGHTS), 3);
+        submitted.rosterDigest(digestOf(normalEnrollmentIds(INTERACTION_OFFERING)));
+        submitted.save(weightedScheme(GRADE_WEIGHTS),
+                completeScores(INTERACTION_OFFERING, 5));
+        submitted.submit(weightedScheme(GRADE_WEIGHTS), Map.of());
+        gradeBooks.put(submitted.offeringId, submitted);
+
+        MockGradeBook rejected = new MockGradeBook(AUTUMN_OFFERING,
+                weightedScheme(GRADE_WEIGHTS), 4);
+        rejected.rosterDigest(digestOf(normalEnrollmentIds(AUTUMN_OFFERING)));
+        rejected.save(weightedScheme(GRADE_WEIGHTS), completeScores(AUTUMN_OFFERING, 11));
+        rejected.state = GRADE_STATE_REJECTED;
+        rejected.canEdit = true;
+        rejected.correctionReason = GRADE_CORRECTION_REASON;
+        rejected.lastSubmissionId = GRADE_SUBMISSION_ID;
+        gradeBooks.put(rejected.offeringId, rejected);
+    }
+
+    /** 一份完整的确定性分数（四项都有），用于“已提交/被驳回”这类不该缺分的夹具。 */
+    private Map<String, GradeScoresDTO> completeScores(String offeringId, int offset) {
+        Map<String, GradeScoresDTO> scores = new LinkedHashMap<>();
+        List<TeacherRosterRowDTO> roster = rosterOf(offeringId);
+        for (int index = 0; index < roster.size(); index++) {
+            scores.put(roster.get(index).getEnrollmentId(), new GradeScoresDTO(
+                    BigDecimal.valueOf(70 + (index + offset) % 20),
+                    BigDecimal.valueOf(65 + (index + offset) % 25),
+                    BigDecimal.valueOf(75 + (index + offset) % 15),
+                    BigDecimal.valueOf(80 - (index + offset) % 10)));
+        }
+        return scores;
     }
 
     // ------------------------------------------------------------------ 调课夹具与校验
@@ -831,7 +1345,7 @@ public final class MockTeacherCourseService implements TeacherCourseService {
     }
 
     private void seedAutumnOffering() {
-        add(new TeacherOfferingDTO("9007199254740999", "CS204-01", "离散数学 CS204-01",
+        add(new TeacherOfferingDTO(AUTUMN_OFFERING, "CS204-01", "离散数学 CS204-01",
                 "2004", "CS204", "离散数学", 3.0, 2025, 2, 12, 60,
                 OFFERING_STATUS_STOPPED, true, true));
     }
@@ -912,6 +1426,13 @@ public final class MockTeacherCourseService implements TeacherCourseService {
     private static TeacherCourseServiceException conflict(String message,
             AdjustmentRequestDetailDTO latest, List<ScheduleConflictDTO> conflicts) {
         return new TeacherCourseServiceException(MessageCode.CONFLICT, message, conflicts, latest);
+    }
+
+    /** 成绩冲突：附带最新成绩表（版本过期/名单变化），界面据此提示重新加载并保留用户输入。 */
+    private static TeacherCourseServiceException gradeConflict(String message,
+            TeacherGradeBookDTO latest) {
+        return new TeacherCourseServiceException(MessageCode.CONFLICT, message, List.of(), null,
+                latest);
     }
 
     private static <T> CompletableFuture<T> failed(Throwable error) {

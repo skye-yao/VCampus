@@ -166,6 +166,8 @@ $suites = @(
     # 它此前不在任何套件里，登记它是为了让本计划“不破坏管理员成绩审批”的断言真的被执行。
     # T2 的两个纯计算测试（总评 BigDecimal 舍入与学校绩点连续区间）是服务端提交事务与客户端预览
     # 共用的同一份规则，不碰数据库和界面，但必须每次都跟着跑；它们也是 T4 重算总评前的唯一保护。
+    # T5 追加两个离屏客户端测试：编辑模型（原文/解析结果分离、非法文本与未配齐权重）与成绩页
+    # 控制器（保存失败保留编辑、提交二次确认与重复点击、离开守卫、FXML 结构）。
     # TeacherGradeMigrationTest 自带 `mysql` 开关，只有 -WithMySql 才跑真实库，未传时打印 SKIP
     # 且不算通过；Tcp/Gui 列表暂时留空，等后续任务补上对应的端到端与界面用例。
     [pscustomobject]@{ Name = 'GradeBook'
@@ -173,7 +175,10 @@ $suites = @(
             'dto.course.admin.GradeApprovalDtoJsonTest',
             'course.grade.GradeCalculatorTest',
             'course.grade.GradePointScaleTest')
-        Client = @()
+        Client = @('model.course.teacher.GradeBookEditorModelTest',
+            'controller.TeacherGradeBookControllerTest',
+            'service.SocketTeacherCourseServiceTest',
+            'controller.TeacherCourseManagementControllerTest')
         # T3 的 TeacherGradeDraftMySqlTest 与 T4 的 TeacherGradeSubmissionMySqlTest 自带 `mysql`
         # 开关，只有 -WithMySql 才跑真实库，未传时打印 SKIP 且不算通过；AdminEnrollmentMySqlTest
         # 是管理员学生维护的既有回归（V007 给 enrollment 加了唯一键与复合外键），它不解析 `mysql`，
@@ -181,9 +186,15 @@ $suites = @(
         # 这条验收证据真的被执行。T4 同时登记 GradeApprovalMySqlTest：它是管理员成绩审批的既有回归，
         # 此前不在任何套件里，而 T4 改了审批路径的方案快照核验，不登记就等于没有回归保护；
         # 它同样不解析 `mysql`，只要配置指向受保护测试库就真跑。
+        # T5 登记 TeacherGradeHandlerTest（DB-free 的教师成绩入口回归）与 TeacherCourseHandlerTest：
+        # 后者覆盖 T5 改动的构造函数与共享解析路径（调课写请求与成绩写请求共用同一套伪造字段防线）。
+        # SocketTeacherCourseServiceTest 与 TeacherCourseManagementControllerTest 在 T5 被扩展
+        # （成绩动作映射、成绩入口不再是占位），它们也出现在 Foundation/Timetable 套件里，
+        # 跨套件重复有先例。
         Server = @('database.TeacherGradeMigrationTest', 'service.TeacherGradeDraftMySqlTest',
             'service.TeacherGradeSubmissionMySqlTest', 'service.GradeApprovalMySqlTest',
-            'service.AdminEnrollmentMySqlTest')
+            'service.AdminEnrollmentMySqlTest', 'handler.TeacherGradeHandlerTest',
+            'handler.TeacherCourseHandlerTest')
         Tcp = @()
         Gui = @() }
     [pscustomobject]@{ Name = 'ImportExport'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }

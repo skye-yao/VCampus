@@ -8,6 +8,7 @@ import javafx.scene.Node;
 import javafx.scene.control.Label;
 import service.TeacherCourseService;
 import service.TeacherCourseServices;
+import util.PageLeaveGuard;
 
 /**
  * 教师工作台外壳：左上“返回首页”，右上四入口（教学课程表、教学班、成绩录入、我的申请）。
@@ -22,15 +23,14 @@ import service.TeacherCourseServices;
  * 子页时它会被 {@code unload}/{@code release}，在途请求的响应随即失效，详情页也不保留上一个教学班的
  * 数据，因此不存在长期驻留的过期子页控制器。
  *
- * <p>分阶段边界：教学班、教学课程表与我的申请已接入；只剩成绩录入属于后续阶段，入口保持禁用并把
- * {@link #STAGING_NOTICE} 显示在首页。详情页的“成绩录入”按钮只把教学班交回工作台的
- * {@link #openGrades(String)}，本阶段不打开任何成绩页、也不发起任何写请求。
+ * <p>成绩录入（设计 §5.4）：右上入口打开成绩教学班列表，列表行或教学班详情的“成绩录入”打开某个
+ * 教学班的成绩编辑表。编辑表有未保存内容时，本工作台的每个导航入口（返回首页、切换子页、切换
+ * 教学班）都先问一次当前活动的 {@link PageLeaveGuard}，被拒绝就停在原页；离开成功后由子页自己的
+ * {@code unload}/{@code release} 取消在途请求，因此不存在还在写界面的过期子页控制器。
  */
 public final class TeacherCourseManagementController {
-    /** 供未交付入口使用的阶段性提示文案。 */
-    static final String STAGING_NOTICE = "该功能将在后续阶段接入";
-    /** 首页默认文案：说明已接入与待接入的功能。 */
-    static final String HOME_NOTICE = "教学班、教学课程表、我的申请已接入；成绩录入将在后续阶段接入。";
+    /** 首页文案：四个入口全部已接入。 */
+    static final String HOME_NOTICE = "教学班、教学课程表、成绩录入、我的申请已接入。";
     /** “返回首页”的目标视图。 */
     static final String HOME_VIEW = "/resources/fxml/MainView.fxml";
     /** 当前显示的子页。 */
@@ -39,6 +39,8 @@ public final class TeacherCourseManagementController {
     static final String PAGE_DETAIL = "detail";
     static final String PAGE_SCHEDULE = "schedule";
     static final String PAGE_APPLICATIONS = "applications";
+    static final String PAGE_GRADES = "grades";
+    static final String PAGE_GRADE_BOOK = "gradeBook";
 
     private final TeacherCourseService service;
     private Runnable backAction = () -> ClientMain.switchScene(HOME_VIEW);
@@ -54,6 +56,10 @@ public final class TeacherCourseManagementController {
     @FXML private TeacherScheduleController schedulePageController;
     @FXML private Node applicationsPage;
     @FXML private TeacherApplicationsController applicationsPageController;
+    @FXML private Node gradesPage;
+    @FXML private TeacherGradeController gradesPageController;
+    @FXML private Node gradeBookPage;
+    @FXML private TeacherGradeBookController gradeBookPageController;
     @FXML private Label statusLabel;
 
     public TeacherCourseManagementController() {
@@ -68,6 +74,7 @@ public final class TeacherCourseManagementController {
     public void initialize() {
         wire(homePanel, offeringsPage, offeringsPageController, detailPage, detailPageController,
                 schedulePage, schedulePageController, applicationsPage, applicationsPageController);
+        wireGrades(gradesPage, gradesPageController, gradeBookPage, gradeBookPageController);
     }
 
     /**
@@ -103,8 +110,28 @@ public final class TeacherCourseManagementController {
         showHome();
     }
 
+    /**
+     * 装配两个成绩子页：成绩列表把“录入成绩”交给工作台，成绩编辑表的“返回成绩列表”也回到列表页。
+     * 与其它子页一样只接线、不加载；成绩页的守卫由页面自己在成为当前页时注册。
+     */
+    void wireGrades(Node gradesPage, TeacherGradeController gradesPageController,
+            Node gradeBookPage, TeacherGradeBookController gradeBookPageController) {
+        this.gradesPage = gradesPage;
+        this.gradesPageController = gradesPageController;
+        this.gradeBookPage = gradeBookPage;
+        this.gradeBookPageController = gradeBookPageController;
+        if (gradesPageController != null) {
+            gradesPageController.setOnOpenGradeBook(this::openGradeBook);
+        }
+        if (gradeBookPageController != null) {
+            gradeBookPageController.setOnBack(this::openGradeList);
+        }
+    }
+
     @FXML
     void handleBack() {
+        if (!leaveCurrentPage()) return;
+        releaseCurrentPage();
         backAction.run();
     }
 
@@ -141,12 +168,8 @@ public final class TeacherCourseManagementController {
 
     /** 打开教学班列表；离开详情页与课表页时卸下它们，列表页保留自己的学期、搜索与页码。 */
     void openOfferings() {
-        if (detailPageController != null) {
-            detailPageController.release();
-        }
-        if (schedulePageController != null) {
-            schedulePageController.unload();
-        }
+        if (!leaveCurrentPage()) return;
+        unloadAllSubPages();
         if (offeringsPageController != null) {
             offeringsPageController.activate();
         }
@@ -160,12 +183,8 @@ public final class TeacherCourseManagementController {
      */
     void showOffering(String offeringId) {
         if (offeringId == null || offeringId.isBlank()) return;
-        if (offeringsPageController != null) {
-            offeringsPageController.unload();
-        }
-        if (schedulePageController != null) {
-            schedulePageController.unload();
-        }
+        if (!leaveCurrentPage()) return;
+        unloadAllSubPages();
         if (detailPageController != null) {
             detailPageController.showOffering(offeringId);
         }
@@ -180,15 +199,8 @@ public final class TeacherCourseManagementController {
 
     /** 打开教学课程表：卸下其它子页并激活课表页，首页文案保持不变。 */
     void openTimetable() {
-        if (offeringsPageController != null) {
-            offeringsPageController.unload();
-        }
-        if (detailPageController != null) {
-            detailPageController.release();
-        }
-        if (applicationsPageController != null) {
-            applicationsPageController.unload();
-        }
+        if (!leaveCurrentPage()) return;
+        unloadAllSubPages();
         if (schedulePageController != null) {
             schedulePageController.activate();
         }
@@ -197,24 +209,39 @@ public final class TeacherCourseManagementController {
     }
 
     /**
-     * 成绩入口：完整成绩表属于后续阶段，本阶段只回到首页并提示，不打开页面、不写库。
+     * 成绩入口：{@code offeringId} 为空时打开成绩教学班列表（右上入口），否则直接打开该班的成绩
+     * 编辑表（教学班详情的“成绩录入”、成绩列表的行内按钮）。离开当前页前先问过离开守卫，
+     * 有未保存成绩时保持原页不动。
      */
     void openGrades(String offeringId) {
-        showHome();
-        showStagingNotice();
+        if (!leaveCurrentPage()) return;
+        unloadAllSubPages();
+        if (offeringId == null || offeringId.isBlank()) {
+            if (gradeBookPageController != null) gradeBookPageController.release();
+            if (gradesPageController != null) gradesPageController.activate();
+            currentPage = PAGE_GRADES;
+        } else {
+            if (gradesPageController != null) gradesPageController.unload();
+            if (gradeBookPageController != null) gradeBookPageController.showOffering(offeringId);
+            currentPage = PAGE_GRADE_BOOK;
+        }
+        render();
+    }
+
+    /** 成绩列表行打开一个教学班的成绩表；离开检查与 {@link #openGrades(String)} 同一条路径。 */
+    void openGradeBook(String offeringId) {
+        openGrades(offeringId);
+    }
+
+    /** 成绩编辑表的“返回成绩列表”。 */
+    void openGradeList() {
+        openGrades(null);
     }
 
     /** 打开我的申请：卸下其它子页并激活申请页，进入即重新查询（写操作后的状态才最新）。 */
     void openApplications() {
-        if (offeringsPageController != null) {
-            offeringsPageController.unload();
-        }
-        if (detailPageController != null) {
-            detailPageController.release();
-        }
-        if (schedulePageController != null) {
-            schedulePageController.unload();
-        }
+        if (!leaveCurrentPage()) return;
+        unloadAllSubPages();
         if (applicationsPageController != null) {
             applicationsPageController.activate();
         }
@@ -222,27 +249,48 @@ public final class TeacherCourseManagementController {
         render();
     }
 
-    /** 回到工作台首页，同时卸下四个子页。 */
+    /** 回到工作台首页，同时卸下全部子页。 */
     void showHome() {
-        if (offeringsPageController != null) {
-            offeringsPageController.unload();
-        }
-        if (detailPageController != null) {
-            detailPageController.release();
-        }
-        if (schedulePageController != null) {
-            schedulePageController.unload();
-        }
-        if (applicationsPageController != null) {
-            applicationsPageController.unload();
-        }
+        if (!leaveCurrentPage()) return;
+        unloadAllSubPages();
         currentPage = PAGE_HOME;
         render();
     }
 
-    private void showStagingNotice() {
-        noticeText = STAGING_NOTICE;
-        render();
+    /**
+     * 离开当前页面前的统一检查：有页面注册了离开守卫且它拒绝时就停在这里。
+     * 没有守卫（首页、只读页）时返回 true，与引入守卫之前的行为一致。
+     */
+    private static boolean leaveCurrentPage() {
+        PageLeaveGuard guard = PageLeaveGuard.active();
+        return guard == null || guard.requestLeave();
+    }
+
+    /** 卸下全部子页：在途响应随即失效，成绩编辑表的离开守卫也在 release 里注销。 */
+    private void unloadAllSubPages() {
+        if (offeringsPageController != null) offeringsPageController.unload();
+        if (detailPageController != null) detailPageController.release();
+        if (schedulePageController != null) schedulePageController.unload();
+        if (applicationsPageController != null) applicationsPageController.unload();
+        if (gradesPageController != null) gradesPageController.unload();
+        if (gradeBookPageController != null) gradeBookPageController.release();
+    }
+
+    /** “返回首页”会整体替换场景，因此先让当前子页自己收尾（取消在途请求、注销守卫）。 */
+    private void releaseCurrentPage() {
+        if (PAGE_OFFERINGS.equals(currentPage)) {
+            if (offeringsPageController != null) offeringsPageController.unload();
+        } else if (PAGE_DETAIL.equals(currentPage)) {
+            if (detailPageController != null) detailPageController.release();
+        } else if (PAGE_SCHEDULE.equals(currentPage)) {
+            if (schedulePageController != null) schedulePageController.unload();
+        } else if (PAGE_APPLICATIONS.equals(currentPage)) {
+            if (applicationsPageController != null) applicationsPageController.unload();
+        } else if (PAGE_GRADES.equals(currentPage)) {
+            if (gradesPageController != null) gradesPageController.unload();
+        } else if (PAGE_GRADE_BOOK.equals(currentPage)) {
+            if (gradeBookPageController != null) gradeBookPageController.release();
+        }
     }
 
     private void render() {
@@ -251,6 +299,8 @@ public final class TeacherCourseManagementController {
         setPageState(detailPage, PAGE_DETAIL.equals(currentPage));
         setPageState(schedulePage, PAGE_SCHEDULE.equals(currentPage));
         setPageState(applicationsPage, PAGE_APPLICATIONS.equals(currentPage));
+        setPageState(gradesPage, PAGE_GRADES.equals(currentPage));
+        setPageState(gradeBookPage, PAGE_GRADE_BOOK.equals(currentPage));
         if (statusLabel != null) {
             statusLabel.setText(noticeText);
         }

@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.ComboBox?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.TableColumn?>
+<?import javafx.scene.control.TableView?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.layout.StackPane?>
+<?import javafx.scene.layout.VBox?>
+
+<!--
+  成绩录入的教学班列表页（设计 §5.4）：按学期列出教学班、成绩状态与录入进度，行内“录入成绩”
+  打开该班的成绩编辑表。本页由工作台通过 fx:include 装入；样式全部来自 teacher-course.css。
+-->
+<VBox spacing="10.0" styleClass="teacher-course-page" xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.TeacherGradeController">
+    <children>
+        <HBox alignment="CENTER_LEFT" spacing="10.0" styleClass="teacher-course-toolbar">
+            <children>
+                <ComboBox fx:id="gradeTermFilter" prefWidth="200.0" promptText="学期" styleClass="teacher-course-term-filter" />
+                <Region HBox.hgrow="ALWAYS" />
+                <Button fx:id="gradeRefreshButton" onAction="#refresh" styleClass="teacher-course-refresh-button" text="刷新" />
+            </children>
+        </HBox>
+        <Label fx:id="gradeSummaryLabel" styleClass="teacher-course-page-summary" text="" />
+        <StackPane styleClass="teacher-course-list-area" VBox.vgrow="ALWAYS">
+            <children>
+                <TableView fx:id="gradeOfferingTable" styleClass="teacher-course-table">
+                    <placeholder>
+                        <Label fx:id="gradeEmptyLabel" maxWidth="520.0" styleClass="teacher-course-empty-state" text="没有符合条件的教学班" wrapText="true" />
+                    </placeholder>
+                    <columns>
+                        <TableColumn fx:id="gradeOfferingColumn" prefWidth="260.0" text="教学班" />
+                        <TableColumn fx:id="gradeCourseCodeColumn" prefWidth="100.0" text="课程代码" />
+                        <TableColumn fx:id="gradeCountColumn" prefWidth="80.0" text="人数" />
+                        <TableColumn fx:id="gradeStateColumn" prefWidth="130.0" text="成绩状态" />
+                        <TableColumn fx:id="gradeEnteredColumn" prefWidth="90.0" text="已录入" />
+                        <TableColumn fx:id="gradeMissingColumn" prefWidth="90.0" text="缺失" />
+                        <TableColumn fx:id="gradeActionColumn" prefWidth="110.0" text="操作" />
+                    </columns>
+                </TableView>
+                <VBox alignment="CENTER" maxHeight="-Infinity" spacing="10.0" styleClass="teacher-course-state-area" StackPane.alignment="TOP_CENTER">
+                    <children>
+                        <Label fx:id="gradeLoadingLabel" managed="false" styleClass="teacher-course-loading-text" text="正在加载成绩列表..." visible="false" />
+                        <Label fx:id="gradeErrorLabel" managed="false" maxWidth="520.0" styleClass="teacher-course-error-text" text="" visible="false" />
+                        <Button fx:id="gradeErrorRetryButton" managed="false" onAction="#refresh" styleClass="teacher-course-retry-button" text="重试" visible="false" />
+                    </children>
+                    <padding>
+                        <Insets top="28.0" />
+                    </padding>
+                </VBox>
+            </children>
+        </StackPane>
+        <HBox alignment="CENTER_LEFT" spacing="10.0" styleClass="teacher-course-pager">
+            <children>
+                <Label fx:id="gradePageLabel" styleClass="teacher-course-page-label" text="" />
+                <Region HBox.hgrow="ALWAYS" />
+                <Button fx:id="gradePreviousPageButton" onAction="#handlePreviousPage" styleClass="teacher-course-page-button" text="上一页" />
+                <Button fx:id="gradeNextPageButton" onAction="#handleNextPage" styleClass="teacher-course-page-button" text="下一页" />
+            </children>
+        </HBox>
+    </children>
+</VBox>

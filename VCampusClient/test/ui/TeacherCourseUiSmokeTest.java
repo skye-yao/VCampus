@@ -152,9 +152,10 @@ public final class TeacherCourseUiSmokeTest {
                         "教学课程表入口在 T4 接通后必须可用");
                 require(!entryButton("我的申请").isDisabled(),
                         "我的申请入口在 T5 接通后必须可用");
-                for (String staging : List.of("成绩录入")) {
-                    require(entryButton(staging).isDisabled(),
-                            staging + "仍属于后续阶段，入口必须保持禁用");
+                // 成绩录入在 T5 接通：工作台不再有分阶段占位，四个入口全部可用。
+                for (String entry : List.of("成绩录入")) {
+                    require(!entryButton(entry).isDisabled(),
+                            entry + "入口在 T5 接通后必须可用");
                 }
             });
 

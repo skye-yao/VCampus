@@ -113,6 +113,8 @@
 .teacher-course-back-button,
 .teacher-course-export-button,
 .teacher-course-grade-button,
+.teacher-course-save-button,
+.teacher-course-submit-button,
 .teacher-course-row-detail-button {
     -fx-background-color: #587558;
     -fx-background-radius: 4px;
@@ -129,8 +131,25 @@
 .teacher-course-back-button:hover,
 .teacher-course-export-button:hover,
 .teacher-course-grade-button:hover,
+.teacher-course-save-button:hover,
+.teacher-course-submit-button:hover,
 .teacher-course-row-detail-button:hover {
     -fx-background-color: #456045;
+}
+
+/* 提交是写操作里最重的一步：与“保存草稿”用不同颜色区分，避免误点。 */
+.teacher-course-submit-button {
+    -fx-background-color: #fdd000;
+    -fx-text-fill: #231815;
+}
+
+.teacher-course-submit-button:hover {
+    -fx-background-color: #f6ab00;
+}
+
+.teacher-course-save-button:disabled,
+.teacher-course-submit-button:disabled {
+    -fx-opacity: 0.5;
 }
 
 .teacher-course-back-button {
@@ -473,5 +492,65 @@
 .teacher-course-feedback-text {
     -fx-font-size: 12px;
     -fx-text-fill: #456045;
+}
+
+/* 成绩编辑表的方案条：与表格的四个成绩列同宽，开关与权重输入就落在列名上方。 */
+.teacher-course-scheme-bar {
+    -fx-background-color: #eaf0ea;
+    -fx-background-radius: 6px;
+    -fx-padding: 6px 0px 6px 0px;
+}
+
+.teacher-course-scheme-group {
+    -fx-alignment: center-left;
+}
+
+.teacher-course-scheme-title {
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #3f553f;
+}
+
+.teacher-course-scheme-toggle {
+    -fx-font-size: 12px;
+    -fx-text-fill: #3f553f;
+}
+
+.teacher-course-scheme-unit {
+    -fx-font-size: 12px;
+    -fx-text-fill: #657067;
+}
+
+.teacher-course-weight-field {
+    -fx-background-color: #ffffff;
+    -fx-background-radius: 4px;
+    -fx-border-color: #cfd8cf;
+    -fx-border-radius: 4px;
+    -fx-font-size: 12px;
+    -fx-padding: 2px 4px 2px 4px;
+}
+
+/* 只读提示：待审核/已通过/已驳回与更正原因统一走这一条，不用多处零散文案。 */
+.teacher-course-notice-text {
+    -fx-font-size: 12px;
+    -fx-text-fill: #8a6d00;
+    -fx-background-color: #fff8e1;
+    -fx-background-radius: 4px;
+    -fx-border-color: #f0e0a8;
+    -fx-border-radius: 4px;
+    -fx-padding: 6px 8px 6px 8px;
+}
+
+/* 禁用组成：整格灰显，表示不参与总评也不接受输入。 */
+.teacher-course-grade-cell-disabled {
+    -fx-background-color: #f2f4f2;
+    -fx-text-fill: #9aa39a;
+}
+
+/* 非法输入：保留用户原文并标红，保存/提交在本地就被挡住。 */
+.teacher-course-grade-cell-error {
+    -fx-background-color: #fdecea;
+    -fx-text-fill: #b3261e;
+    -fx-border-color: #b3261e;
 }
 

@@ -22,6 +22,13 @@ import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
 import dto.course.admin.schedule.ScheduleArrangementDTO;
 import dto.course.admin.schedule.ScheduleResourceDTO;
 import dto.course.admin.schedule.ScheduleSlotDTO;
+import dto.course.teacher.GradeComponentCodeDTO;
+import dto.course.teacher.GradeComponentDTO;
+import dto.course.teacher.GradeSchemeDTO;
+import dto.course.teacher.GradeScoresDTO;
+import dto.course.teacher.TeacherGradeBookDTO;
+import dto.course.teacher.TeacherGradeOfferingDTO;
+import dto.course.teacher.TeacherGradeRowDTO;
 import dto.course.teacher.TeacherOfferingDTO;
 import dto.course.teacher.TeacherOfferingDetailDTO;
 import dto.course.teacher.TeacherPageDTO;
@@ -31,6 +38,7 @@ import javafx.event.Event;
 import service.MockTeacherCourseService;
 import service.TeacherCourseService;
 import service.TeacherCourseServices;
+import util.PageLeaveGuard;
 
 /**
  * 无 JavaFX 工具包依赖的教师工作台外壳测试。
@@ -41,21 +49,20 @@ import service.TeacherCourseServices;
  * {@code disable} 这类属性存在。静态检查仍无法证明任意属性名是可写属性，那只有真正的
  * {@code FXMLLoader} 加载能证明，属于 T6 的 {@code ui.*} 冒烟范围。
  *
- * <p>导航部分用真实的 {@link TeacherOfferingController}、{@link TeacherOfferingDetailController} 与
- * {@link TeacherScheduleController} 装配到外壳：工作台必须把列表页保存的学期/搜索/页码在往返详情后
- * 保持不变，在离开子页时释放它，并在“教学课程表”入口上激活课表子页而不改写首页文案。
+ * <p>导航部分用真实的子页控制器装配到外壳：工作台必须把列表页保存的学期/搜索/页码在往返详情后
+ * 保持不变，在离开子页时释放它，并在四个入口上分别激活对应子页。成绩编辑表自 T5 起是真实子页，
+ * 因此“有未保存内容时导航要被离开守卫拦下”也在这里钉住。
  */
 public final class TeacherCourseManagementControllerTest {
     private static final String VIEW = "/resources/fxml/TeacherCourseManagementView.fxml";
     private static final String CSS = "/resources/css/teacher-course.css";
-    private static final String STAGING_NOTICE = "该功能将在后续阶段接入";
-    private static final String HOME_NOTICE = "教学班、教学课程表、我的申请已接入；成绩录入将在后续阶段接入。";
+    private static final String HOME_NOTICE = "教学班、教学课程表、成绩录入、我的申请已接入。";
     private static final String HOME_VIEW = "/resources/fxml/MainView.fxml";
     private static final String OFFERING = "9007199254740993";
     private static final String APP_STYLESHEET = "@../css/style.css";
     private static final String VIEW_STYLESHEET = "@../css/teacher-course.css";
-    /** 仅剩成绩录入仍是分阶段占位；我的申请自 T5 起真正打开子页。 */
-    private static final List<String> STAGED_ENTRIES = List.of("成绩录入");
+    private static final String DIGEST =
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
     private TeacherCourseManagementControllerTest() {
     }
@@ -73,10 +80,12 @@ public final class TeacherCourseManagementControllerTest {
         openingADetailReleasesTheListAndReturnsToIt();
         openingTheTimetableEntryActivatesTheSchedulePage();
         openingTheApplicationsEntryActivatesTheApplicationsPage();
-        stagedEntriesOnlyShowTheStagingNotice();
+        openingTheGradesEntryActivatesTheGradeList();
+        openingAGradeBookActivatesTheEditor();
+        refusedLeaveKeepsTheCurrentPage();
 
         viewIsTheTeacherWorkspaceShell(view);
-        entriesAreWiredAndOnlyTheGradeEntryStaysStaged(view);
+        everyEntryIsWiredAndNoneStaysDisabled(view);
         noElementUsesTheReadOnlyDisabledAttribute(view);
         everyFxIdAndOnActionResolvesOnTheController(view);
         everyStyleClassExistsInTheStylesheet(view, readResource(CSS));
@@ -237,34 +246,81 @@ public final class TeacherCourseManagementControllerTest {
                         + controller.noticeText());
     }
 
-    private static void stagedEntriesOnlyShowTheStagingNotice() {
+    /** 成绩录入入口（不指定教学班）打开成绩教学班列表，并卸下其它子页。 */
+    private static void openingTheGradesEntryActivatesTheGradeList() {
         FakeService service = new FakeService();
         TeacherOfferingController offerings = offerings(service);
-        TeacherOfferingDetailController detail = detail(service);
-        TeacherScheduleController schedule = schedule(service);
-        TeacherApplicationsController applications = applications(service);
+        TeacherGradeController grades = grades(service);
+        TeacherGradeBookController gradeBook = gradeBook(service);
         TeacherCourseManagementController controller = controller(service);
-        controller.wire(null, null, offerings, null, detail, null, schedule, null, applications);
+        wireAll(controller, service, offerings, null, null, null, grades, gradeBook);
         controller.openOfferings();
 
-        controller.openGrades(OFFERING);
-        requireStaging(controller, "成绩录入");
-        require(!offerings.active() && !detail.active() && !schedule.active()
-                        && !applications.active(),
-                "a staged entry must leave no hidden page active");
-        require(service.detailCalls.isEmpty() && service.rosterCalls.isEmpty()
-                        && service.scheduleCalls == 0 && service.applicationCalls == 0,
-                "the staged grade route must not start any read or write request, saw details "
-                        + service.detailCalls + " rosters " + service.rosterCalls + " schedules "
-                        + service.scheduleCalls + " applications " + service.applicationCalls);
+        controller.openGrades(null);
+
+        require(TeacherCourseManagementController.PAGE_GRADES.equals(controller.currentPage()),
+                "the grade entry must show the grade list, saw " + controller.currentPage());
+        require(grades.active() && !offerings.active() && !gradeBook.active(),
+                "only the grade list may be active after opening 成绩录入");
+        require(service.gradeListCalls == 1,
+                "the grade list must load its own page, saw " + service.gradeListCalls + " calls");
+        require(controller.noticeText().equals(HOME_NOTICE),
+                "opening the grade list must not change the home notice, saw "
+                        + controller.noticeText());
     }
 
-    private static void requireStaging(TeacherCourseManagementController controller,
-            String entry) {
-        require(TeacherCourseManagementController.PAGE_HOME.equals(controller.currentPage()),
-                entry + " must fall back to the workspace home, saw " + controller.currentPage());
-        require(STAGING_NOTICE.equals(controller.noticeText()),
-                entry + " must report the staging notice, saw " + controller.noticeText());
+    /** 教学班详情的“成绩录入”与列表行都直接打开某个班的成绩编辑表。 */
+    private static void openingAGradeBookActivatesTheEditor() {
+        FakeService service = new FakeService();
+        TeacherGradeController grades = grades(service);
+        TeacherGradeBookController gradeBook = gradeBook(service);
+        TeacherCourseManagementController controller = controller(service);
+        wireAll(controller, service, null, null, null, null, grades, gradeBook);
+
+        controller.openGrades(OFFERING);
+
+        require(TeacherCourseManagementController.PAGE_GRADE_BOOK
+                        .equals(controller.currentPage()),
+                "a row or detail entry must show the grade editor, saw "
+                        + controller.currentPage());
+        require(gradeBook.active() && !grades.active(),
+                "only the grade editor may be active after opening one offering");
+        require(service.bookCalls.equals(List.of(OFFERING)),
+                "the editor must load exactly the opened offering, saw " + service.bookCalls);
+        PageLeaveGuard.clear();
+    }
+
+    /** 成绩编辑表有未保存内容且用户取消离开时，工作台的每个导航入口都必须停在原页。 */
+    private static void refusedLeaveKeepsTheCurrentPage() {
+        FakeService service = new FakeService();
+        TeacherOfferingController offerings = offerings(service);
+        TeacherGradeBookController gradeBook = new TeacherGradeBookController(service,
+                Runnable::run, message -> false);
+        TeacherCourseManagementController controller = controller(service);
+        wireAll(controller, service, offerings, null, null, null, null, gradeBook);
+        try {
+            controller.openGrades(OFFERING);
+            gradeBook.model().setScore(gradeBook.rows().get(0).enrollmentId(),
+                    dto.course.teacher.GradeComponentCodeDTO.DAILY, "91");
+            require(PageLeaveGuard.active() == gradeBook,
+                    "the editor must be the active leave guard while it is on screen");
+
+            controller.openOfferings();
+            require(TeacherCourseManagementController.PAGE_GRADE_BOOK
+                            .equals(controller.currentPage()),
+                    "a refused leave must keep the grade editor on screen, saw "
+                            + controller.currentPage());
+            require(gradeBook.active() && !offerings.active(),
+                    "a refused leave must not activate the list page");
+
+            controller.handleBack();
+            require(TeacherCourseManagementController.PAGE_GRADE_BOOK
+                            .equals(controller.currentPage()),
+                    "返回首页 must be blocked by the same guard, saw "
+                            + controller.currentPage());
+        } finally {
+            PageLeaveGuard.clear();
+        }
     }
 
     // ------------------------------------------------------------------ 视图契约
@@ -309,50 +365,26 @@ public final class TeacherCourseManagementControllerTest {
     }
 
     /**
-     * 教学班、教学课程表与我的申请入口必须可用且接到各自的处理函数；只剩成绩录入仍是带
-     * {@code disable="true"} 的占位。按 {@code text} 定位元素，因此注释或被注释掉的元素块都无法
-     * 满足断言。
+     * 四个入口（教学班、教学课程表、成绩录入、我的申请）全部可用并接到各自的处理函数：
+     * T5 接通成绩录入之后工作台不再有分阶段占位。按 {@code text} 定位元素，因此注释或被注释掉的
+     * 元素块都无法满足断言。
      */
-    private static void entriesAreWiredAndOnlyTheGradeEntryStaysStaged(Document view) {
-        Element offerings = buttonWithText(view, "教学班");
-        require(offerings != null, "the top-right entries must include 教学班");
-        require(!offerings.hasAttribute("disable") || "false".equals(
-                        offerings.getAttribute("disable")),
-                "教学班 must be enabled now that the page exists, saw disable=\""
-                        + offerings.getAttribute("disable") + "\"");
-        require("#handleOpenOfferings".equals(offerings.getAttribute("onAction")),
-                "教学班 must be wired to #handleOpenOfferings, saw "
-                        + offerings.getAttribute("onAction"));
+    private static void everyEntryIsWiredAndNoneStaysDisabled(Document view) {
+        requireEntry(view, "教学班", "#handleOpenOfferings");
+        requireEntry(view, "教学课程表", "#handleOpenTimetable");
+        requireEntry(view, "成绩录入", "#handleOpenGrades");
+        requireEntry(view, "我的申请", "#handleOpenApplications");
+    }
 
-        Element timetable = buttonWithText(view, "教学课程表");
-        require(timetable != null, "the top-right entries must include 教学课程表");
-        require(!timetable.hasAttribute("disable") || "false".equals(
-                        timetable.getAttribute("disable")),
-                "教学课程表 must be enabled now that the page exists, saw disable=\""
-                        + timetable.getAttribute("disable") + "\"");
-        require("#handleOpenTimetable".equals(timetable.getAttribute("onAction")),
-                "教学课程表 must be wired to #handleOpenTimetable, saw "
-                        + timetable.getAttribute("onAction"));
-
-        Element applications = buttonWithText(view, "我的申请");
-        require(applications != null, "the top-right entries must include 我的申请");
-        require(!applications.hasAttribute("disable") || "false".equals(
-                        applications.getAttribute("disable")),
-                "我的申请 must be enabled now that the page exists, saw disable=\""
-                        + applications.getAttribute("disable") + "\"");
-        require("#handleOpenApplications".equals(applications.getAttribute("onAction")),
-                "我的申请 must be wired to #handleOpenApplications, saw "
-                        + applications.getAttribute("onAction"));
-
-        for (String entry : STAGED_ENTRIES) {
-            Element button = buttonWithText(view, entry);
-            require(button != null, "the top-right entries must include " + entry);
-            require("true".equals(button.getAttribute("disable")),
-                    "entry " + entry + " must stay staged with disable=\"true\", saw \""
-                            + button.getAttribute("disable") + "\"");
-            require(!button.getAttribute("onAction").isEmpty(),
-                    "entry " + entry + " must still be wired to its handler");
-        }
+    private static void requireEntry(Document view, String text, String handler) {
+        Element button = buttonWithText(view, text);
+        require(button != null, "the top-right entries must include " + text);
+        require(!button.hasAttribute("disable") || "false".equals(
+                        button.getAttribute("disable")),
+                text + " must be enabled now that its page exists, saw disable=\""
+                        + button.getAttribute("disable") + "\"");
+        require(handler.equals(button.getAttribute("onAction")),
+                text + " must be wired to " + handler + ", saw " + button.getAttribute("onAction"));
     }
 
     /**
@@ -444,6 +476,24 @@ public final class TeacherCourseManagementControllerTest {
         return new TeacherApplicationsController(service, Runnable::run);
     }
 
+    private static TeacherGradeController grades(TeacherCourseService service) {
+        return new TeacherGradeController(service, Runnable::run);
+    }
+
+    private static TeacherGradeBookController gradeBook(TeacherCourseService service) {
+        return new TeacherGradeBookController(service, Runnable::run, message -> true);
+    }
+
+    /** 用给定的子页装配外壳；成绩子页与其它子页一样只接线、不加载。 */
+    private static void wireAll(TeacherCourseManagementController controller,
+            TeacherCourseService service, TeacherOfferingController offerings,
+            TeacherOfferingDetailController detail, TeacherScheduleController schedule,
+            TeacherApplicationsController applications, TeacherGradeController grades,
+            TeacherGradeBookController gradeBook) {
+        controller.wire(null, null, offerings, null, detail, null, schedule, null, applications);
+        controller.wireGrades(null, grades, null, gradeBook);
+    }
+
     private static Document parseView() throws Exception {
         DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
         factory.setNamespaceAware(false);
@@ -523,8 +573,10 @@ public final class TeacherCourseManagementControllerTest {
         private final List<String> offeringCalls = new ArrayList<>();
         private final List<String> detailCalls = new ArrayList<>();
         private final List<String> rosterCalls = new ArrayList<>();
+        private final List<String> bookCalls = new ArrayList<>();
         private int scheduleCalls;
         private int applicationCalls;
+        private int gradeListCalls;
 
         @Override
         public CompletableFuture<List<CourseTermDTO>> listTerms() {
@@ -590,6 +642,35 @@ public final class TeacherCourseManagementControllerTest {
             applicationCalls++;
             return CompletableFuture.completedFuture(
                     new TeacherPageDTO<>(List.of(), 0, page, size));
+        }
+
+        @Override
+        public CompletableFuture<TeacherPageDTO<TeacherGradeOfferingDTO>> listGradeOfferings(
+                int academicYear, int semester, int page, int size) {
+            gradeListCalls++;
+            return CompletableFuture.completedFuture(new TeacherPageDTO<>(
+                    List.of(new TeacherGradeOfferingDTO(new TeacherOfferingDTO(OFFERING, "CS203-01",
+                            "数据结构 CS203-01", "2001", "CS203", "数据结构与算法基础", 4.0,
+                            academicYear, semester, 24, 30, "OPEN", true, true),
+                            "DRAFT", 20, 4, null)), 1L, page, size));
+        }
+
+        @Override
+        public CompletableFuture<TeacherGradeBookDTO> getGradeBook(String offeringId) {
+            bookCalls.add(offeringId);
+            return CompletableFuture.completedFuture(new TeacherGradeBookDTO(offeringId, 3, DIGEST,
+                    "DRAFT", scheme(), List.of(new TeacherGradeRowDTO("50031", "00005678", "张三",
+                            new GradeScoresDTO(null, null, null, null), null, null, false,
+                            List.of())),
+                    null, null, true, null, false));
+        }
+
+        private static GradeSchemeDTO scheme() {
+            return new GradeSchemeDTO(List.of(
+                    new GradeComponentDTO(GradeComponentCodeDTO.DAILY, true, 3000),
+                    new GradeComponentDTO(GradeComponentCodeDTO.MIDTERM, true, 2000),
+                    new GradeComponentDTO(GradeComponentCodeDTO.EXPERIMENT, true, 2000),
+                    new GradeComponentDTO(GradeComponentCodeDTO.FINALTERM, true, 3000)));
         }
     }
 }
