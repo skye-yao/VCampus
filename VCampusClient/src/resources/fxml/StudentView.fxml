@@ -366,6 +366,10 @@
                     <ToggleButton fx:id="unfinishedReviewButton" onAction="#handleShowUnfinishedReviews" selected="true" styleClass="review-bucket-tab" text="未完成"/>
                     <ToggleButton fx:id="completedReviewButton" onAction="#handleShowCompletedReviews" styleClass="review-bucket-tab" text="已完成"/>
                   </HBox>
+                  <HBox alignment="CENTER_LEFT" spacing="10" styleClass="student-export-toolbar">
+                    <Button fx:id="batchReviewButton" disable="true" onAction="#handleBatchReview" styleClass="btn-primary" text="批量审核"/>
+                    <Label fx:id="selectedReviewCountLabel" styleClass="hint-text" text="已选择 0 条"/>
+                  </HBox>
                   <HBox alignment="CENTER_LEFT" spacing="8" styleClass="student-search-bar">
                     <Label text="姓名"/>
                     <TextField fx:id="reviewSearchIdField" onAction="#handleSearchReviews" prefWidth="145" promptText="支持姓名片段"/>
@@ -382,6 +386,7 @@
                   </HBox>
                   <TableView fx:id="reviewTable" VBox.vgrow="ALWAYS">
                     <columns>
+                      <TableColumn fx:id="reviewSelectCol" prefWidth="54" sortable="false"/>
                       <TableColumn fx:id="reviewNameCol" prefWidth="160" text="姓名"/>
                       <TableColumn fx:id="reviewStudentCol" prefWidth="180" text="学号"/>
                       <TableColumn fx:id="reviewTimeCol" prefWidth="260" text="提交时间"/>

@@ -53,9 +53,10 @@ public class StudentController {
     @FXML private VBox adminRecordMaintenancePane;
     @FXML private TextArea reviewRemarkArea;
     @FXML private TextField searchIdField,searchNameField,searchCollegeField,pageNumberField,reviewSearchIdField,reviewSearchStudentField,reviewSearchStatusField,reviewPageNumberField;
-    @FXML private Label pageSummaryLabel,reviewPageSummaryLabel,adminWorkspaceTitle,selectedStudentCountLabel;
+    @FXML private Label pageSummaryLabel,reviewPageSummaryLabel,adminWorkspaceTitle,selectedStudentCountLabel,selectedReviewCountLabel;
     @FXML private TilePane awardTile,aidTile,adminAwardTile,adminAidTile;
     @FXML private TableView<StudentChangeRequest> reviewTable;
+    @FXML private TableColumn<StudentChangeRequest,Void> reviewSelectCol;
     @FXML private TableColumn<StudentChangeRequest,String> reviewNameCol,reviewStudentCol,reviewTimeCol,reviewProcessedTimeCol,reviewStatusCol;
     @FXML private TableColumn<StudentChangeRequest,Void> reviewActionCol;
     @FXML private TableView<Student> studentTable;
@@ -66,7 +67,7 @@ public class StudentController {
     @FXML private TableColumn<StudentAward,String> maintenanceAwardIdCol,maintenanceAwardStudentCol,maintenanceAwardNameCol,maintenanceAwardTypeCol,maintenanceAwardLevelCol,maintenanceAwardDateCol,maintenanceAwardOrganizationCol,maintenanceAwardDescriptionCol;
     @FXML private TableView<StudentAid> maintenanceAidTable;
     @FXML private TableColumn<StudentAid,String> maintenanceAidIdCol,maintenanceAidStudentCol,maintenanceAidNameCol,maintenanceAidTypeCol,maintenanceAidAmountCol,maintenanceAidDateCol,maintenanceAidProviderCol,maintenanceAidStatusCol,maintenanceAidDescriptionCol;
-    @FXML private Button approveButton,rejectButton;
+    @FXML private Button approveButton,rejectButton,batchReviewButton;
     @FXML private ToggleButton unfinishedReviewButton,completedReviewButton;
     private static final int PAGE_SIZE=20;
     //创建StudentClientService，把单例Scoket客户端传入，让它能够发送请求。
@@ -96,6 +97,8 @@ public class StudentController {
     private CheckBox selectCurrentPageCheckBox;
     private int currentPage=1;//学生列表初始显示第1页
     private List<StudentChangeRequest> reviewRequests=new ArrayList<>(),filteredReviewRequests=new ArrayList<>();
+    private final Set<Long> selectedReviewIds=new LinkedHashSet<>();
+    private CheckBox selectVisibleReviews;
     private int reviewCurrentPage=1;//审核列表初始显示第1页
     private boolean showCompletedReviews;
     private boolean adminMaintenanceMode;
@@ -105,7 +108,7 @@ public class StudentController {
     private StudentExperience selectedExperience;
     private StudentFamilyMember selectedFamilyMember;
     private Pane selectedExperienceCard,selectedFamilyCard;
-    private boolean disposed;
+    private boolean disposed,adminProfileFetchStarted;
     private void runOnPage(Runnable action){util.Fx.run(()->{if(!disposed)action.run();});}
     @FXML public void initialize() {
         ClientMain.setPageCleanup(()->{disposed=true;resetEditState();service.dispose();});
@@ -652,6 +655,14 @@ public class StudentController {
             }
         }
         );
+        selectVisibleReviews=new CheckBox();
+        selectVisibleReviews.setOnAction(event->{for(StudentChangeRequest request:reviewTable.getItems())if(request.getStatus()==StudentChangeStatus.PENDING){if(selectVisibleReviews.isSelected())selectedReviewIds.add(request.getRequestId());else selectedReviewIds.remove(request.getRequestId());}reviewTable.refresh();updateReviewSelectionState();});
+        reviewSelectCol.setGraphic(selectVisibleReviews);
+        reviewSelectCol.setCellFactory(column->new TableCell<>(){
+            private final CheckBox check=new CheckBox();
+            {check.setOnAction(event->{int index=getIndex();if(index<0||index>=getTableView().getItems().size())return;StudentChangeRequest request=getTableView().getItems().get(index);if(check.isSelected())selectedReviewIds.add(request.getRequestId());else selectedReviewIds.remove(request.getRequestId());updateReviewSelectionState();});setAlignment(Pos.CENTER);}
+            @Override protected void updateItem(Void item,boolean empty){super.updateItem(item,empty);if(empty||getIndex()<0||getIndex()>=getTableView().getItems().size()){setGraphic(null);return;}StudentChangeRequest request=getTableView().getItems().get(getIndex());check.setDisable(request.getStatus()!=StudentChangeStatus.PENDING);check.setSelected(selectedReviewIds.contains(request.getRequestId()));setGraphic(check);}
+        });
         reviewNameCol.setCellValueFactory(c->text(studentName(c.getValue().getStudentId())));
         reviewStudentCol.setCellValueFactory(c->text(c.getValue().getStudentId()));
         reviewTimeCol.setCellValueFactory(c->text(c.getValue().getSubmitTime()));
@@ -751,7 +762,7 @@ public class StudentController {
     private void applyReviewBucket(){
         unfinishedReviewButton.setSelected(!showCompletedReviews);completedReviewButton.setSelected(showCompletedReviews);
         reviewProcessedTimeCol.setVisible(showCompletedReviews);
-        filteredReviewRequests=new ArrayList<>(reviewRequests.stream().filter(this::matchesReviewBucket).toList());applyCurrentReviewSort();reviewCurrentPage=1;refreshReviewPage();
+        filteredReviewRequests=new ArrayList<>(reviewRequests.stream().filter(this::matchesReviewBucket).toList());selectedReviewIds.retainAll(reviewRequests.stream().filter(r->r.getStatus()==StudentChangeStatus.PENDING).map(StudentChangeRequest::getRequestId).collect(java.util.stream.Collectors.toSet()));applyCurrentReviewSort();reviewCurrentPage=1;refreshReviewPage();
     }
     private void applyCurrentReviewSort(){
         Comparator<StudentChangeRequest> comparator=reviewTable.getComparator();
@@ -765,7 +776,11 @@ public class StudentController {
         reviewTable.setItems(FXCollections.observableArrayList(filteredReviewRequests.subList(from,to)));
         reviewPageSummaryLabel.setText("共"+filteredReviewRequests.size()+"条  共"+reviewPageCount()+"页");
         reviewPageNumberField.setText(String.valueOf(reviewCurrentPage));
+        updateReviewSelectionState();
     }
+    private void updateReviewSelectionState(){if(selectedReviewCountLabel!=null)selectedReviewCountLabel.setText("已选择 "+selectedReviewIds.size()+" 条");if(batchReviewButton!=null)batchReviewButton.setDisable(selectedReviewIds.isEmpty());if(selectVisibleReviews!=null){long pending=reviewTable.getItems().stream().filter(r->r.getStatus()==StudentChangeStatus.PENDING).count(),selectedCount=reviewTable.getItems().stream().filter(r->selectedReviewIds.contains(r.getRequestId())).count();selectVisibleReviews.setIndeterminate(selectedCount>0&&selectedCount<pending);selectVisibleReviews.setSelected(pending>0&&selectedCount==pending);}}
+    @FXML private void handleBatchReview(){List<StudentChangeRequest> targets=reviewRequests.stream().filter(r->selectedReviewIds.contains(r.getRequestId())&&r.getStatus()==StudentChangeStatus.PENDING).toList();if(targets.isEmpty()){setStatus("请选择待审核申请");return;}util.control.BatchReviewDialog.show(reviewTable.getScene().getWindow(),targets.size()).ifPresent(decision->{batchReviewButton.setDisable(true);setStatus("正在批量审核...");reviewStudentBatch(targets,0,decision,0,new ArrayList<>());});}
+    private void reviewStudentBatch(List<StudentChangeRequest> targets,int index,util.control.BatchReviewDialog.Decision decision,int success,List<String> errors){if(index>=targets.size()){selectedReviewIds.clear();setStatus(errors.isEmpty()?"已完成 "+success+" 条批量审核":"已完成 "+success+" 条，失败 "+errors.size()+" 条");if(!errors.isEmpty())AlertUtil.showWarning("部分审核失败",String.join("\n",errors));loadAdmin();return;}StudentChangeRequest request=targets.get(index);StudentReviewVO value=new StudentReviewVO();value.setRequestId(request.getRequestId());value.setReviewResult(decision.result());value.setReviewRemark(decision.remark());service.reviewChangeRequest(value,response->runOnPage(()->{if(ok(response))reviewStudentBatch(targets,index+1,decision,success+1,errors);else{errors.add(request.getStudentId()+"："+message(response,"审核失败"));reviewStudentBatch(targets,index+1,decision,success,errors);}}));}
     @FXML private void handleReviewFirstPage(){reviewCurrentPage=1;refreshReviewPage();}
     @FXML private void handleReviewPreviousPage(){if(reviewCurrentPage>1)reviewCurrentPage--;refreshReviewPage();}
     @FXML private void handleReviewNextPage(){if(reviewCurrentPage<reviewPageCount())reviewCurrentPage++;refreshReviewPage();}
@@ -1256,7 +1271,8 @@ public class StudentController {
         applyAdminAvatar(avatar);
 
         String uid = u != null && u.getUID() != null && !u.getUID().isBlank() ? u.getUID() : session.getUsername();
-        if ((avatar == null || avatar.isBlank()) && uid != null && !uid.isBlank()) {
+        if ((avatar == null || avatar.isBlank()) && uid != null && !uid.isBlank() && !adminProfileFetchStarted) {
+            adminProfileFetchStarted=true;
             fetchAdminUserInfo(uid);
         }
     }
