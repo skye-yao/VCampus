@@ -10,6 +10,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -32,6 +33,9 @@ public final class CourseFileServer implements AutoCloseable {
 
     /** 覆盖文件端口的系统属性名。 */
     public static final String PORT_PROPERTY = "vcampus.courseFilePort";
+
+    /** 停服时等待连接线程退出的上限（秒）：临时目录必须在它们收工之后才删。 */
+    private static final long WORKER_JOIN_SECONDS = 2;
 
     private final TeacherFileTicketService tickets;
     private final ServerSocket serverSocket;
@@ -117,6 +121,16 @@ public final class CourseFileServer implements AutoCloseable {
         }
         liveSockets.clear();
         connections.shutdownNow();
+        // 等连接线程真正退出再删临时文件：还在写 .part 的线程持有该文件的句柄，Windows 上会让
+        // 目录删除失败，于是清理被静默吞掉、临时目录活过停服。等待有上限，某个无视中断的线程
+        // 最多拖慢停服 WORKER_JOIN_SECONDS 秒，绝不会让 stop() 挂死。
+        try {
+            if (!connections.awaitTermination(WORKER_JOIN_SECONDS, TimeUnit.SECONDS)) {
+                System.err.println("文件连接线程未在 " + WORKER_JOIN_SECONDS + " 秒内退出，继续停止。");
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+        }
         // 票据服务持有临时目录；文件服务停止即代表不再有文件传输，未消费的票据与临时文件一并回收。
         tickets.close();
         System.out.println("VCampus 文件服务已停止。");
