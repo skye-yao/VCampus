@@ -8,17 +8,55 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 public class CourseScheduleDAO {
+    /** Stable display order: teaching day, first period, exact offering id, then the half. */
+    private static final Comparator<ScheduleEntryDTO> ENTRY_ORDER =
+            Comparator.comparingInt(ScheduleEntryDTO::getDayOfWeek)
+                    .thenComparingInt(ScheduleEntryDTO::getStartPeriod)
+                    .thenComparing(entry -> parseOfferingId(entry.getOfferingId()))
+                    .thenComparingInt(entry -> displayKindRank(entry.getDisplayKind()));
+
+    /**
+     * The student week view covers both date ranges the design requires: the published meetings of
+     * the week (an ACTIVE adjustment keeps its original as a display-only marker) and the ACTIVE
+     * adjustments whose effective target instant falls inside this week, which is what makes a
+     * cross-week move appear in its target week. The published query alone can never describe the
+     * new position, so it only ever contributes NORMAL or ADJUSTED_ORIGINAL entries.
+     */
     public List<ScheduleEntryDTO> loadSchedule(Connection connection, String studentUid,
                                                int academicYear, int semester, int week)
             throws SQLException {
         long planId = publishedPlanId(connection, academicYear, semester);
-        // The ACTIVE adjustment of the week's occurrence, if any, rides along so the mapping can
-        // emit the published arrangement and the temporary replacement as one pair. The proposal
-        // lives on the request: the adjustment row itself only stores the resolved UTC window.
+        String term = CourseQueryDAO.term(academicYear, semester).getDisplayName();
+        List<ScheduleEntryDTO> entries = new ArrayList<>(publishedEntries(connection, studentUid,
+                academicYear, semester, week, planId, term));
+        // The paired target half of a published week is rebuilt from the adjustment instant below;
+        // dropping it here is exactly what keeps a cross-week target out of its origin week.
+        entries.removeIf(entry -> ScheduleDisplayKindDTO.ADJUSTED_TARGET == entry.getDisplayKind());
+        entries.addAll(adjustedTargets(connection, studentUid, academicYear, semester, week, planId,
+                term));
+        entries.sort(ENTRY_ORDER);
+        return List.copyOf(entries);
+    }
+
+    /**
+     * Published meetings of the week; the ACTIVE adjustment of the week's occurrence, if any, rides
+     * along so the mapping can emit the published arrangement and the temporary replacement as one
+     * pair. The proposal lives on the request: the adjustment row itself only stores the resolved
+     * UTC window. The pair's target half is discarded by the caller.
+     */
+    private static List<ScheduleEntryDTO> publishedEntries(Connection connection, String studentUid,
+            int academicYear, int semester, int week, long planId, String term) throws SQLException {
         String sql = "SELECT o.offering_id, c.course_code, c.course_name,"
                 + " GROUP_CONCAT(DISTINCT teacher.name ORDER BY teacher.name SEPARATOR ', ') AS teacher,"
                 + " GROUP_CONCAT(DISTINCT room.name ORDER BY room.name SEPARATOR ', ') AS location,"
@@ -64,12 +102,115 @@ public class CourseScheduleDAO {
             statement.setInt(5, academicYear);
             statement.setInt(6, semester);
             try (ResultSet rows = statement.executeQuery()) {
-                return mapScheduleRows(rows,
-                        CourseQueryDAO.term(academicYear, semester).getDisplayName());
+                return mapScheduleRows(rows, term);
             }
         }
     }
 
+    /**
+     * ACTIVE adjustments whose target instant falls inside this week's local date range and whose
+     * offering the student is still enrolled in ({@code status=2}, checked on this side exactly as
+     * the published side checks it). The week of the target comes from the adjustment's resolved
+     * UTC window mapped through the teaching calendar, never from the original occurrence, so a
+     * cross-week move appears only in its real target week even when no rule publishes that week.
+     */
+    private static List<ScheduleEntryDTO> adjustedTargets(Connection connection, String studentUid,
+            int academicYear, int semester, int week, long planId, String term) throws SQLException {
+        Window window = weekWindow(connection, planId, week);
+        if (window == null) return List.of();
+        String sql = "SELECT o.offering_id, c.course_code, c.course_name,"
+                + " CONCAT_WS(', ', adj_teacher.name, adj_assistant.name) AS adjusted_teacher,"
+                + " adj_room.name AS adjusted_location,"
+                + " q.new_weekday, q.new_start_period, q.new_end_period, q.reason,"
+                + " r.weekday AS day_of_week, r.start_period, r.end_period,"
+                + " GROUP_CONCAT(DISTINCT room.name ORDER BY room.name SEPARATOR ', ') AS location,"
+                + " j.adjustment_id"
+                + " FROM course_schedule_adjustment j"
+                + " JOIN course_schedule_adjustment_request q ON q.request_id = j.request_id"
+                + " JOIN course_occurrence occ ON occ.id = j.original_occurrence_id"
+                + " JOIN course_schedule_rule r ON r.id = occ.rule_id"
+                + " JOIN course_offering o ON o.offering_id = r.course_offering_id"
+                + " JOIN course c ON c.course_id = o.course_id"
+                + " JOIN enrollment e ON e.offering_id = o.offering_id AND e.uid = ? AND e.status = 2"
+                + " LEFT JOIN tbl_user adj_teacher ON adj_teacher.UID = j.teacher_uid"
+                + " LEFT JOIN tbl_user adj_assistant ON adj_assistant.UID = j.assistant_uid"
+                + " LEFT JOIN classroom adj_room ON adj_room.id = j.classroom_id"
+                + " LEFT JOIN resource_booking rb ON rb.occurrence_id = occ.id"
+                + "     AND rb.resource_role = 'CLASSROOM'"
+                + " LEFT JOIN schedule_resource sr ON sr.id = rb.resource_id"
+                + "     AND sr.resource_type = 'classroom'"
+                + " LEFT JOIN classroom room ON CAST(room.id AS CHAR) = sr.business_id"
+                + " WHERE j.status = 'ACTIVE' AND r.plan_id = ? AND r.status = 'ACTIVE'"
+                + " AND o.academic_year = ? AND o.semester = ?"
+                + " AND j.start_at_utc >= ? AND j.start_at_utc < ?"
+                + " GROUP BY j.adjustment_id, o.offering_id, c.course_code, c.course_name,"
+                + " adj_teacher.name, adj_assistant.name, adj_room.name, q.new_weekday,"
+                + " q.new_start_period, q.new_end_period, q.reason, r.weekday, r.start_period,"
+                + " r.end_period"
+                + " ORDER BY q.new_weekday, q.new_start_period, o.offering_id";
+        List<ScheduleEntryDTO> entries = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, studentUid);
+            statement.setLong(2, planId);
+            statement.setInt(3, academicYear);
+            statement.setInt(4, semester);
+            statement.setTimestamp(5, utcTimestamp(window.start()));
+            statement.setTimestamp(6, utcTimestamp(window.end()));
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    int newStart = rows.getInt("new_start_period");
+                    int newEnd = rows.getInt("new_end_period");
+                    String adjustedLocation = rows.getString("adjusted_location");
+                    entries.add(new ScheduleEntryDTO(rows.getString("offering_id"), term,
+                            rows.getString("course_code"), rows.getString("course_name"),
+                            rows.getString("adjusted_teacher"), adjustedLocation,
+                            rows.getInt("new_weekday"), newStart, newEnd - newStart + 1, week, week,
+                            ScheduleDisplayKindDTO.ADJUSTED_TARGET, rows.getString("adjustment_id"),
+                            scheduleText(rows.getInt("day_of_week"), rows.getInt("start_period"),
+                                    rows.getInt("end_period"), rows.getString("location")),
+                            scheduleText(rows.getInt("new_weekday"), newStart, newEnd,
+                                    adjustedLocation),
+                            rows.getString("reason")));
+                }
+            }
+        }
+        return entries;
+    }
+
+    /**
+     * The queried week's whole local date range as a UTC instant window, or {@code null} when the
+     * published plan's calendar has no date for that week. The stored UTC wall clock is compared
+     * through the teaching calendar's time zone, so the target instant is judged on the local
+     * teaching day, not on the JVM zone.
+     */
+    private static Window weekWindow(Connection connection, long planId, int week)
+            throws SQLException {
+        String sql = "SELECT cal.timezone, MIN(cd.local_date) AS first_date,"
+                + " MAX(cd.local_date) AS last_date"
+                + " FROM schedule_plan sp"
+                + " JOIN teaching_calendar cal ON cal.id = sp.calendar_id"
+                + " JOIN calendar_date cd ON cd.calendar_id = cal.id AND cd.week_no = ?"
+                + " WHERE sp.id = ? GROUP BY cal.timezone";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setInt(1, week);
+            statement.setLong(2, planId);
+            try (ResultSet rows = statement.executeQuery()) {
+                if (!rows.next()) return null;
+                ZoneId zone = ZoneId.of(rows.getString("timezone"));
+                LocalDate first = rows.getDate("first_date").toLocalDate();
+                LocalDate last = rows.getDate("last_date").toLocalDate();
+                return new Window(first.atStartOfDay(zone).toInstant(),
+                        last.plusDays(1).atStartOfDay(zone).toInstant());
+            }
+        }
+    }
+
+    /**
+     * The published notice surface keeps the plain week filter, but a notice linked to an
+     * adjustment request is scoped to that request's original and target weeks and returned once
+     * (the EXISTS de-duplicates multiple targets): the summary must not sit in every week of the
+     * term, and a same-week move must not produce two notices.
+     */
     public List<CourseNoticeDTO> loadNotices(Connection connection, String studentUid,
                                              int academicYear, int semester, int week)
             throws SQLException {
@@ -79,16 +220,23 @@ public class CourseScheduleDAO {
                 + " JOIN enrollment e ON e.offering_id = o.offering_id"
                 + "     AND e.uid = ? AND e.status = 2"
                 + " WHERE o.academic_year = ? AND o.semester = ?"
-                + " AND n.status = 'PUBLISHED' AND (n.week_no IS NULL OR n.week_no = ?)"
+                + " AND n.status = 'PUBLISHED'"
+                + " AND ((n.adjustment_request_id IS NULL AND (n.week_no IS NULL OR n.week_no = ?))"
+                + " OR EXISTS (SELECT 1 FROM course_schedule_adjustment_target t"
+                + "     LEFT JOIN calendar_date cd ON cd.id = t.target_calendar_date_id"
+                + "     WHERE t.request_id = n.adjustment_request_id"
+                + "     AND (t.original_week_no = ? OR cd.week_no = ?)))"
                 + " ORDER BY n.published_at DESC, n.notice_id DESC";
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, studentUid);
             statement.setInt(2, academicYear);
             statement.setInt(3, semester);
             statement.setInt(4, week);
+            statement.setInt(5, week);
+            statement.setInt(6, week);
             try (ResultSet rows = statement.executeQuery()) {
-                return mapNoticeRows(rows,
-                        CourseQueryDAO.term(academicYear, semester).getDisplayName());
+                return mapNoticeRows(rows, CourseQueryDAO.term(academicYear, semester)
+                        .getDisplayName());
             }
         }
     }
@@ -98,6 +246,10 @@ public class CourseScheduleDAO {
      * becomes a pair: the original is display-only and no longer occupies its slot, while the target
      * states where the lesson actually happens. Either half carries both texts, so a detail view can
      * render from whichever block the student picked.
+     *
+     * <p>The student week assembly keeps only the original half of this pair and rebuilds the target
+     * from the adjustment instant ({@link #adjustedTargets}), because the published week can never
+     * describe a position outside it; the teacher timetable reads the original half directly.
      */
     static List<ScheduleEntryDTO> mapScheduleRows(ResultSet rows, String term)
             throws SQLException {
@@ -167,6 +319,31 @@ public class CourseScheduleDAO {
                     rows.getString("content")));
         }
         return List.copyOf(notices);
+    }
+
+    private static long parseOfferingId(String offeringId) {
+        try {
+            return Long.parseLong(offeringId);
+        } catch (NumberFormatException notAnId) {
+            return Long.MAX_VALUE;
+        }
+    }
+
+    /** NORMAL first, then the display-only original, then the effective target. */
+    private static int displayKindRank(ScheduleDisplayKindDTO kind) {
+        return switch (kind) {
+            case NORMAL -> 0;
+            case ADJUSTED_ORIGINAL -> 1;
+            case ADJUSTED_TARGET -> 2;
+        };
+    }
+
+    /** The DATETIME columns store a UTC wall clock, so the instant is re-anchored at UTC. */
+    private static Timestamp utcTimestamp(Instant instant) {
+        return Timestamp.valueOf(LocalDateTime.ofInstant(instant, ZoneOffset.UTC));
+    }
+
+    private record Window(Instant start, Instant end) {
     }
 
     private static long publishedPlanId(Connection connection, int academicYear, int semester)

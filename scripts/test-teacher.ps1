@@ -133,6 +133,10 @@ $suites = @(
         # 受保护测试库就会真跑，登记它即代表每次运行都真正执行。
         # TeacherAdjustmentHandlerTest（T4 新增）是 DB-free 的教师调课入口回归；AdminCourseHandlerTest
         # 一直没进任何套件，T4 在它里面钉住“调课四态可筛 / 成绩筛选仍拒绝 WITHDRAWN”，必须登记。
+        # CourseQueryMySqlTest（T6 扩展为跨周与通知周次查询）一直是学生课表查询的唯一真实库覆盖，
+        # 但此前不在任何套件里：不登记等于 T6 改过的学生查询没有任何回归保护。它与
+        # CourseConflictMySqlTest 同形——不解析 `mysql`，只要 db.properties 指向受保护测试库就
+        # 真跑，并自带 `DATABASE()=virtual_campus_course_test` 守卫，绝不把 SKIP 当 PASS。
         Server = @('database.TeacherAdjustmentMigrationTest',
             'handler.ScheduleAdjustmentApprovalHandlerTest',
             'handler.TeacherAdjustmentHandlerTest',
@@ -140,11 +144,15 @@ $suites = @(
             'service.TeacherAdjustmentConflictMySqlTest',
             'service.ScheduleAdjustmentApprovalMySqlTest',
             'service.TeacherAdjustmentApplicationMySqlTest',
-            'service.CourseConflictMySqlTest')
+            'service.CourseConflictMySqlTest',
+            'service.CourseQueryMySqlTest')
+        # T6 的真实 TCP 闭环（教师第 8 周申请 → 管理员审批 → 教师/学生查两周）。它同样会重建
+        # 受保护的测试架构，所以必须串行单独运行；-WithTcp 才跑，未传时不会被当作已通过。
+        Tcp = @('integration.TeacherAdjustmentSocketEndToEndTest')
         # GUI 冒烟：真实 JavaFX 工具包装入教师外壳，走调课表单与“我的申请”并产出四张主题截图
         # （跨周 / 冲突 / 撤销 / 长原因）。同一个冒烟类也登记在 Foundation.Gui 与 Timetable.Gui，
         # 跨套件重复有先例（各套件跑各自的入口，冒烟内部覆盖全部教师页面）。
-        Tcp = @(); Gui = @('ui.TeacherCourseUiSmokeTest') }
+        Gui = @('ui.TeacherCourseUiSmokeTest') }
     [pscustomobject]@{ Name = 'GradeBook'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }
     [pscustomobject]@{ Name = 'ImportExport'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }
     [pscustomobject]@{ Name = 'Applications'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }

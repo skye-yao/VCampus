@@ -1,5 +1,6 @@
 package service;
 
+import dto.course.CourseNoticeDTO;
 import dto.course.CourseOfferingDTO;
 import dto.course.CoursePlanSnapshotDTO;
 import dto.course.GradeSummaryDTO;
@@ -16,6 +17,12 @@ import java.util.List;
 
 public final class CourseQueryMySqlTest {
     private static final String STUDENT = "query-adjust-student";
+    /** 第 1 教学周周一；每个日历日期都由 (week, weekday) 从它推导。 */
+    private static final String WEEK_ONE_START = "2027-09-06";
+    private static final long DAY_TEMPLATE = 972451L;
+    /** 第 1 周周五 2027-09-10 与第 4 周周五 2027-10-01 的日历日期行。 */
+    private static final long SAME_WEEK_TARGET_DATE = 972425L;
+    private static final long CROSS_WEEK_TARGET_DATE = 972446L;
 
     private CourseQueryMySqlTest() {
     }
@@ -93,10 +100,14 @@ public final class CourseQueryMySqlTest {
     }
 
     /**
-     * A fully isolated term: two weekly meetings, one of which carries an ACTIVE adjustment in week
-     * 1 only. Week 1 must show that meeting as an original/target pair beside the untouched plain
-     * entry, and week 3 must show it as a single NORMAL entry. No seed row takes part, so stray
-     * adjustments in the guarded schema cannot influence the result.
+     * A fully isolated term: two weekly meetings, one of which carries an ACTIVE same-week
+     * adjustment in week 1. No seed row takes part, so stray adjustments in the guarded schema
+     * cannot influence the result.
+     *
+     * <p>T6 extends the same fixture with a cross-week adjustment（第 3 周调到第 4 周）与三条通知：
+     * 查询必须覆盖原周和目标周两个日期范围——原周只返回原标记、目标周只返回目标标记、中间的周次
+     * 什么都不返回；关联调课申请的通知只在原周与目标周各出现一次（去重），普通通知仍只按自己的
+     * week_no 出现。
      */
     private static void verifyAdjustedWeekOverlaysTheEffectiveSchedule(CourseQueryService service)
             throws Exception {
@@ -158,25 +169,86 @@ public final class CourseQueryMySqlTest {
                             && "Query Room A".equals(untouched.getLocation()),
                     "the unadjusted meeting must stay one NORMAL entry");
 
-            List<ScheduleEntryDTO> neighbouring = service.loadSchedule(STUDENT, 2027, 3, 3);
-            require(neighbouring.size() == 1
-                            && ScheduleDisplayKindDTO.NORMAL == neighbouring.get(0).getDisplayKind()
-                            && neighbouring.get(0).getAdjustmentId() == null
-                            && neighbouring.get(0).getDayOfWeek() == 2,
-                    "an unadjusted week must return the single plain entry");
-            require(service.loadSchedule(STUDENT, 2027, 3, 1).size() == 3,
+            // 跨周（972972）：原周 3 只留原标记，目标周 4 只返回目标标记，中间的周 2 什么都没有。
+            List<ScheduleEntryDTO> originWeek = service.loadSchedule(STUDENT, 2027, 3, 3);
+            require(originWeek.size() == 1
+                            && ScheduleDisplayKindDTO.ADJUSTED_ORIGINAL
+                            == originWeek.get(0).getDisplayKind()
+                            && "972972".equals(originWeek.get(0).getAdjustmentId())
+                            && originWeek.get(0).getDayOfWeek() == 2
+                            && originWeek.get(0).getStartPeriod() == 1
+                            && "Query Room A".equals(originWeek.get(0).getLocation()),
+                    "the origin week of a cross-week move must keep only the original marker, observed "
+                            + describe(originWeek));
+            List<ScheduleEntryDTO> targetWeek = service.loadSchedule(STUDENT, 2027, 3, 4);
+            require(targetWeek.size() == 1
+                            && ScheduleDisplayKindDTO.ADJUSTED_TARGET == targetWeek.get(0)
+                            .getDisplayKind()
+                            && "972972".equals(targetWeek.get(0).getAdjustmentId())
+                            && targetWeek.get(0).getDayOfWeek() == 5
+                            && targetWeek.get(0).getStartPeriod() == 3
+                            && "Query Room A".equals(targetWeek.get(0).getLocation())
+                            && "Query Teacher A".equals(targetWeek.get(0).getTeacher())
+                            && "周二 第1-2节 Query Room A".equals(
+                            targetWeek.get(0).getOriginalScheduleText())
+                            && "周五 第3-4节 Query Room A".equals(
+                            targetWeek.get(0).getAdjustedScheduleText()),
+                    "the target week of a cross-week move must hold only the target marker, observed "
+                            + describe(targetWeek));
+            require(service.loadSchedule(STUDENT, 2027, 3, 2).isEmpty(),
+                    "the week between origin and target must stay empty, observed "
+                            + describe(service.loadSchedule(STUDENT, 2027, 3, 2)));
+
+            // 通知：普通通知只按 week_no；调课通知按关联申请的原周/目标周去重后每周至多一条。
+            require(noticeIds(service, 1).equals(List.of("972031", "972032")),
+                    "week 1 must hold the plain week-1 notice and the same-week notice once, observed "
+                            + noticeIds(service, 1));
+            require(service.loadNotices(STUDENT, 2027, 3, 2).isEmpty(),
+                    "week 2 must hold no notice, observed " + noticeIds(service, 2));
+            require(noticeIds(service, 3).equals(List.of("972033"))
+                            && noticeIds(service, 4).equals(List.of("972033")),
+                    "the cross-week notice must appear once in its origin and target weeks, observed "
+                            + noticeIds(service, 3) + " / " + noticeIds(service, 4));
+
+            require(service.loadSchedule(STUDENT, 2027, 3, 1).size() == 3
+                            && service.loadSchedule(STUDENT, 2027, 3, 4).size() == 1,
                     "the overlay must be stable across repeated reads");
         } finally {
             cleanAdjustmentFixtures();
         }
-        require(count("SELECT COUNT(*) FROM course_schedule_adjustment WHERE adjustment_id=972971") == 0
+        require(count("SELECT COUNT(*) FROM course_schedule_adjustment WHERE adjustment_id"
+                        + " BETWEEN 972971 AND 972972") == 0
                         && count("SELECT COUNT(*) FROM course_schedule_adjustment_request"
-                        + " WHERE request_id=972951") == 0
+                        + " WHERE request_id BETWEEN 972951 AND 972952") == 0
+                        && count("SELECT COUNT(*) FROM course_schedule_adjustment_target"
+                        + " WHERE target_id BETWEEN 972961 AND 972962") == 0
+                        && count("SELECT COUNT(*) FROM course_notice WHERE notice_id BETWEEN 972031"
+                        + " AND 972033") == 0
                         && count("SELECT COUNT(*) FROM course_occurrence WHERE plan_id=972301") == 0
+                        && count("SELECT COUNT(*) FROM calendar_date WHERE calendar_id=972401") == 0
+                        && count("SELECT COUNT(*) FROM day_template WHERE id=972451") == 0
                         && count("SELECT COUNT(*) FROM schedule_plan WHERE id=972301") == 0
                         && count("SELECT COUNT(*) FROM enrollment WHERE enrollment_id=972901") == 0
                         && count("SELECT COUNT(*) FROM tbl_user WHERE UID LIKE 'query-adjust-%'") == 0,
                 "cleanup must leave no fixture row behind");
+    }
+
+    private static List<String> noticeIds(CourseQueryService service, int week) {
+        List<String> ids = new ArrayList<>();
+        for (CourseNoticeDTO notice : service.loadNotices(STUDENT, 2027, 3, week)) {
+            ids.add(notice.getNoticeId());
+        }
+        ids.sort(null);
+        return List.copyOf(ids);
+    }
+
+    private static String describe(List<ScheduleEntryDTO> entries) {
+        List<String> described = new ArrayList<>();
+        for (ScheduleEntryDTO entry : entries) {
+            described.add(entry.getAdjustmentId() + ":" + entry.getDisplayKind() + "@"
+                    + entry.getDayOfWeek() + "/" + entry.getStartPeriod());
+        }
+        return described.toString();
     }
 
     /** The published coordinates of every meeting, whether plain or represented by its original. */
@@ -208,6 +280,8 @@ public final class CourseQueryMySqlTest {
         execute("INSERT INTO teaching_calendar(id,name,academic_year,semester,week1_start_date,"
                 + "timezone,version,status) VALUES(972401,'Query adjustment calendar',2027,3,"
                 + "'2027-09-06','Asia/Shanghai',1,'PUBLISHED')");
+        execute("INSERT INTO day_template(id,name,version) VALUES(972451,'Query adjustment day',1)");
+        insertCalendarDates();
         execute("INSERT INTO schedule_plan(id,name,calendar_id,revision,status,created_at,"
                 + "updated_at) VALUES(972301,'Query adjustment plan',972401,1,'PUBLISHED',"
                 + "'2027-08-01 00:00:00','2027-08-01 00:00:00')");
@@ -239,24 +313,61 @@ public final class CourseQueryMySqlTest {
         execute("INSERT INTO course_schedule_adjustment_request(request_id,offering_id,"
                 + "requested_by,reason,version,status,new_weekday,new_start_period,new_end_period,"
                 + "new_teacher_uid,new_assistant_uid,new_classroom_id,submitted_at,reviewed_by,"
-                + "reviewed_at,review_comment) VALUES(972951,972201,'query-adjust-teacher-a',"
-                + "'教师出差',2,'APPROVED',5,3,4,'query-adjust-teacher-b',NULL,972502,"
-                + "'2027-09-01 01:00:00','admin-alpha','2027-09-01 02:00:00','同意')");
+                + "reviewed_at,review_comment) VALUES"
+                + "(972951,972201,'query-adjust-teacher-a','教师出差',2,'APPROVED',5,3,4,"
+                + "'query-adjust-teacher-b',NULL,972502,'2027-09-01 01:00:00','admin-alpha',"
+                + "'2027-09-01 02:00:00','同意'),"
+                + "(972952,972201,'query-adjust-teacher-a','教师出差',2,'APPROVED',5,3,4,"
+                + "NULL,NULL,NULL,'2027-09-01 01:00:00','admin-alpha','2027-09-01 02:00:00','同意')");
         execute("INSERT INTO course_schedule_adjustment_target(target_id,request_id,"
                 + "original_occurrence_id,original_week_no,original_start_at,original_end_at,"
-                + "original_teacher_uid,original_assistant_uid,original_classroom_id) VALUES"
+                + "original_teacher_uid,original_assistant_uid,original_classroom_id,"
+                + "target_calendar_date_id) VALUES"
                 + "(972961,972951,972801,1,'2027-09-07 00:00:00','2027-09-07 01:35:00',"
-                + "'query-adjust-teacher-a',NULL,972501)");
+                + "'query-adjust-teacher-a',NULL,972501," + SAME_WEEK_TARGET_DATE + "),"
+                + "(972962,972952,972803,3,'2027-09-21 00:00:00','2027-09-21 01:35:00',"
+                + "'query-adjust-teacher-a',NULL,972501," + CROSS_WEEK_TARGET_DATE + ")");
         execute("INSERT INTO course_schedule_adjustment(adjustment_id,request_id,"
                 + "original_occurrence_id,start_at_utc,end_at_utc,teacher_uid,assistant_uid,"
-                + "classroom_id,status) VALUES(972971,972951,972801,'2027-09-10 02:00:00',"
-                + "'2027-09-10 03:35:00','query-adjust-teacher-b',NULL,972502,'ACTIVE')");
+                + "classroom_id,status) VALUES"
+                + "(972971,972951,972801,'2027-09-10 02:00:00','2027-09-10 03:35:00',"
+                + "'query-adjust-teacher-b',NULL,972502,'ACTIVE'),"
+                + "(972972,972952,972803,'2027-10-01 02:00:00','2027-10-01 03:35:00',"
+                + "'query-adjust-teacher-a',NULL,972501,'ACTIVE')");
+        execute("INSERT INTO course_notice(notice_id,offering_id,title,content,notice_type,week_no,"
+                + "status,created_by,published_at,adjustment_request_id) VALUES"
+                + "(972031,972201,'第 1 周通知','只按 week_no 出现的普通通知。','GENERAL',1,"
+                + "'PUBLISHED','query-adjust-teacher-a','2027-09-01 00:00:00',NULL),"
+                + "(972032,972201,'同周调课已生效','同周调课通知。','RESCHEDULED',NULL,'PUBLISHED',"
+                + "'admin-alpha','2027-09-01 03:00:00',972951),"
+                + "(972033,972201,'跨周调课已生效','跨周调课通知。','RESCHEDULED',NULL,'PUBLISHED',"
+                + "'admin-alpha','2027-09-01 03:00:00',972952)");
+    }
+
+    /** 第 1..4 教学周、每周 7 天的日历日期；周日不是教学日。 */
+    private static void insertCalendarDates() throws Exception {
+        StringBuilder rows = new StringBuilder();
+        for (int week = 1; week <= 4; week++) {
+            for (int weekday = 1; weekday <= 7; weekday++) {
+                long id = 972420L + (week - 1) * 7L + weekday;
+                String date = java.time.LocalDate.parse(WEEK_ONE_START)
+                        .plusDays((week - 1) * 7L + weekday - 1L).toString();
+                rows.append(rows.isEmpty() ? "" : ",").append('(').append(id).append(",972401,'")
+                        .append(date).append("',").append(week).append(',').append(weekday)
+                        .append(",972451,").append(weekday == 7 ? 0 : 1).append(')');
+            }
+        }
+        execute("INSERT INTO calendar_date(id,calendar_id,local_date,week_no,teaching_weekday,"
+                + "day_template_id,is_teaching_day) VALUES" + rows);
     }
 
     private static void cleanAdjustmentFixtures() throws Exception {
-        execute("DELETE FROM course_schedule_adjustment WHERE adjustment_id=972971");
-        execute("DELETE FROM course_schedule_adjustment_target WHERE target_id=972961");
-        execute("DELETE FROM course_schedule_adjustment_request WHERE request_id=972951");
+        execute("DELETE FROM course_schedule_adjustment WHERE adjustment_id BETWEEN 972971 AND 972972");
+        execute("DELETE FROM course_schedule_adjustment_target WHERE target_id BETWEEN 972961"
+                + " AND 972962");
+        execute("DELETE FROM course_schedule_adjustment_request WHERE request_id BETWEEN 972951"
+                + " AND 972952");
+        execute("DELETE FROM course_notice WHERE notice_id BETWEEN 972031 AND 972033");
         execute("DELETE FROM resource_booking WHERE plan_id=972301");
         execute("DELETE FROM enrollment WHERE enrollment_id=972901");
         execute("DELETE FROM course_occurrence WHERE plan_id=972301");
@@ -270,6 +381,8 @@ public final class CourseQueryMySqlTest {
         execute("DELETE FROM course_offering WHERE offering_id=972201");
         execute("DELETE FROM course WHERE course_id=972101");
         execute("DELETE FROM classroom WHERE id BETWEEN 972501 AND 972502");
+        execute("DELETE FROM calendar_date WHERE calendar_id=972401");
+        execute("DELETE FROM day_template WHERE id=972451");
         execute("DELETE FROM teaching_calendar WHERE id=972401");
         execute("DELETE FROM tbl_user WHERE UID LIKE 'query-adjust-%'");
     }

@@ -241,19 +241,43 @@ public final class ScheduleAdjustmentSocketEndToEndTest {
                         ScheduleDisplayKindDTO.NORMAL == entry.getDisplayKind()),
                 "the second requested week must also pair, saw " + weekThree.size());
 
+        // T6 起通知按关联申请的原周/目标周查询并去重：两次同周调课分别只落在第 1 周与第 3 周，
+        // 第 2 周（两侧都不是）必须为空，且每周至多一条。
+        List<CourseNoticeDTO> weekOneNotices = notices(student, token, 1);
+        List<CourseNoticeDTO> weekTwoNotices = notices(student, token, 2);
+        List<CourseNoticeDTO> weekThreeNotices = notices(student, token, 3);
+        require(weekOneNotices.size() == 1 && "RESCHEDULED".equals(weekOneNotices.get(0)
+                        .getNoticeType())
+                        && weekOneNotices.get(0).getWeek() == 0
+                        && weekOneNotices.get(0).getContent().contains("第1周"),
+                "the summary notice of the week-1 move must reach the enrolled student once, saw "
+                        + describeNotices(weekOneNotices));
+        require(weekThreeNotices.size() == 1 && "RESCHEDULED".equals(weekThreeNotices.get(0)
+                        .getNoticeType())
+                        && weekThreeNotices.get(0).getContent().contains("第3周"),
+                "the summary notice of the week-3 move must reach the enrolled student once, saw "
+                        + describeNotices(weekThreeNotices));
+        require(weekTwoNotices.isEmpty(),
+                "a week that is neither the origin nor the target of a move must stay free of the"
+                        + " linked notice, saw " + describeNotices(weekTwoNotices));
+    }
+
+    private static List<CourseNoticeDTO> notices(JsonLineClient student, String token, int week)
+            throws IOException {
         Message noticed = student.request("course", CourseActions.LOAD_NOTICES, token,
-                Map.of("academicYear", YEAR, "semester", SEMESTER, "week", 2));
-        requireCode(noticed, MessageCode.SUCCESS, "read notices for the neighbouring week");
-        List<CourseNoticeDTO> notices = GSON.fromJson(
-                GSON.toJsonTree(noticed.getData("notices")),
+                Map.of("academicYear", YEAR, "semester", SEMESTER, "week", week));
+        requireCode(noticed, MessageCode.SUCCESS, "read notices for week " + week);
+        return GSON.fromJson(GSON.toJsonTree(noticed.getData("notices")),
                 new TypeToken<List<CourseNoticeDTO>>() { }.getType());
-        require(notices.size() == 1 && "RESCHEDULED".equals(notices.get(0).getNoticeType())
-                        && notices.get(0).getWeek() == 0
-                        && notices.get(0).getContent().contains("第1周")
-                        && notices.get(0).getContent().contains("第3周"),
-                "the summary notice must reach the enrolled student, saw "
-                        + (notices.isEmpty() ? "none" : notices.get(0).getNoticeType() + "/"
-                                + notices.get(0).getWeek() + "/" + notices.get(0).getContent()));
+    }
+
+    private static String describeNotices(List<CourseNoticeDTO> notices) {
+        List<String> described = new ArrayList<>();
+        for (CourseNoticeDTO notice : notices) {
+            described.add(notice.getNoticeId() + "/" + notice.getNoticeType() + "/"
+                    + notice.getWeek());
+        }
+        return described.toString();
     }
 
     private static void verifyReplay(JsonLineClient admin, String token, String operationId)
