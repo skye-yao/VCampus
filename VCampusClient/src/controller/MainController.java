@@ -514,6 +514,10 @@ public class MainController {
 
     @FXML
     public void openLibrary(ActionEvent event) {
+        if (isAdminUser() && !ClientSession.getInstance().hasLibraryPermission()) {
+            warningReporter.accept("权限不足", "您没有该模块的管理权限");
+            return;
+        }
         loadCenterView("/resources/fxml/LibraryView.fxml");
     }
 

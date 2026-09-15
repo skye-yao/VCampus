@@ -213,3 +213,4 @@ INSERT INTO `course_event_outbox`
 VALUES
     (9001, 'student-beta', 'WAITLIST_OFFERED', 2026, 2, 2002,
      JSON_OBJECT('offeringId', '2002'), '2026-09-01 00:00:00.100003', 0);
+SHOW DATABASES;
