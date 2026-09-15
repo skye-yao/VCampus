@@ -174,7 +174,12 @@ $suites = @(
             'course.grade.GradeCalculatorTest',
             'course.grade.GradePointScaleTest')
         Client = @()
-        Server = @('database.TeacherGradeMigrationTest')
+        # T3 的 TeacherGradeDraftMySqlTest 自带 `mysql` 开关，只有 -WithMySql 才跑真实库，未传时打印
+        # SKIP 且不算通过；AdminEnrollmentMySqlTest 是管理员学生维护的既有回归（V007 给 enrollment
+        # 加了唯一键与复合外键），它不解析 `mysql`，只要 db.properties 指向受保护测试库就真跑，
+        # 登记它是为了让“草稿写入没有破坏管理员学生维护”这条验收证据真的被执行。
+        Server = @('database.TeacherGradeMigrationTest', 'service.TeacherGradeDraftMySqlTest',
+            'service.AdminEnrollmentMySqlTest')
         Tcp = @()
         Gui = @() }
     [pscustomobject]@{ Name = 'ImportExport'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }

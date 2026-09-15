@@ -47,16 +47,33 @@ public final class TeacherAccessPolicy {
         if (!isTeacher(connection, uid) || offeringId <= 0) {
             throw new AccessDeniedException("没有编辑该教学班成绩的权限");
         }
+        if (isOfferingTeacher(connection, uid, offeringId)) return;
+        throw new AccessDeniedException("只有任课教师可以编辑成绩");
+    }
+
+    /**
+     * 成绩编辑能力位：系统角色为教师、且是该教学班 {@code course_offering_teacher.role=0} 的任课教师。
+     *
+     * <p>只用于界面显隐（例如助教可以读成绩表但不能编辑）；写操作仍然调用
+     * {@link #requireEditGrades}，能力位不参与授权判定。
+     */
+    public boolean canEditGrades(Connection connection, String uid, long offeringId)
+            throws SQLException {
+        if (!isTeacher(connection, uid) || offeringId <= 0) return false;
+        return isOfferingTeacher(connection, uid, offeringId);
+    }
+
+    private static boolean isOfferingTeacher(Connection connection, String uid, long offeringId)
+            throws SQLException {
         String sql = "SELECT 1 FROM course_offering_teacher"
                 + " WHERE offering_id=? AND uid=? AND role=0";
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setLong(1, offeringId);
             statement.setString(2, uid);
             try (ResultSet rows = statement.executeQuery()) {
-                if (rows.next()) return;
+                return rows.next();
             }
         }
-        throw new AccessDeniedException("只有任课教师可以编辑成绩");
     }
 
     private static boolean isTeacher(Connection connection, String uid) throws SQLException {

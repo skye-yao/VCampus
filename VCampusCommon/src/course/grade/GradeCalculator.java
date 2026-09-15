@@ -75,7 +75,7 @@ public final class GradeCalculator {
         if (scores == null) {
             return null;
         }
-        requireLegalScores(components, scores);
+        validateScores(scores);
 
         BigDecimal weighted = BigDecimal.ZERO;
         for (GradeComponentDTO component : components) {
@@ -93,6 +93,25 @@ public final class GradeCalculator {
         }
         // 10000 是 10 的幂，这个除法永远精确；四舍五入只发生在这一处。
         return weighted.divide(BASIS_POINTS).setScale(SCORE_SCALE, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * 只校验一行分数的合法性：非空分数必须在 0..100 且最多两位小数，null（未录入）允许。
+     *
+     * <p>{@link #total} 在权重未配齐时提前返回 NULL、不产出总评，也就不会校验分数；保存草稿
+     * 需要在不显示总评的前提下仍然拒绝会被数据库静默取整的分数，所以分数规则有这一个独立入口。
+     * 规则实现只有 {@link #requireLegalScore} 一处，提交与草稿不会漂移。
+     *
+     * @throws IllegalArgumentException 任一非空分数越界或超过两位小数
+     */
+    public static void validateScores(GradeScoresDTO scores) {
+        if (scores == null) return;
+        for (GradeComponentCodeDTO code : GradeComponentCodeDTO.values()) {
+            BigDecimal score = scoreOf(code, scores);
+            if (score != null) {
+                requireLegalScore(score, code);
+            }
+        }
     }
 
     /**
@@ -161,16 +180,6 @@ public final class GradeCalculator {
             return "启用项权重合计必须为 10000（万分比），收到 " + enabledWeight;
         }
         return null;
-    }
-
-    /** 非空分数统一过规则：越界或超过两位小数都拒绝；null（未录入）留给调用方区分缺失。 */
-    private static void requireLegalScores(List<GradeComponentDTO> components, GradeScoresDTO scores) {
-        for (GradeComponentDTO component : components) {
-            BigDecimal score = scoreOf(component.getCode(), scores);
-            if (score != null) {
-                requireLegalScore(score, component.getCode());
-            }
-        }
     }
 
     private static void requireLegalScore(BigDecimal score, GradeComponentCodeDTO code) {
