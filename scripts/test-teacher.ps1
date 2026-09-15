@@ -220,15 +220,17 @@ $suites = @(
         # ui.TeacherCourseUiPreview / ui.AdminCourseUiPreview 是人工预览工具（只有收到 --smoke 才自动
         # 关闭，而套件运行传的是 --config），登记它们会让一次无人值守运行停在打开的窗口上永不退出。
         Gui = @('ui.TeacherCourseUiSmokeTest', 'ui.AdminApprovalUiSmokeTest') }
-    # 成绩导入导出套件：T1 先建立文件票据与短连接传输。两个测试都是 DB-free 的：
-    # CourseFileServerTest 在端口 0 上起真实文件监听器并用原始 Socket 逐条验证票据矩阵（无效/过期/
-    # 他人 token、错误方向、超限、截断、SHA 不符、重复领取、停服），SocketTeacherFileTransportTest
-    # 自带一个端口 0 的对端 ServerSocket（客户端 classpath 里没有服务端类，也不该有）。
-    # 两者都不需要 -WithTcp/-WithGui，也不重建数据库。
+    # 成绩导入导出套件：T1 先建立文件票据与短连接传输，T2 再加上服务端的表格读写。
+    # 两个 T1 测试都是 DB-free 的：CourseFileServerTest 在端口 0 上起真实文件监听器并用原始 Socket
+    # 逐条验证票据矩阵（无效/过期/他人 token、错误方向、超限、截断、SHA 不符、重复领取、停服），
+    # SocketTeacherFileTransportTest 自带一个端口 0 的对端 ServerSocket（客户端 classpath 里没有
+    # 服务端类，也不该有）。T2 的 TeacherSpreadsheetServiceTest 同样 DB-free：它用 POI 写真实临时
+    # .xlsx 再读回来，并核对生成的模板/导出文件，因此依赖 VCampusServer/lib 下的 POI 闭包
+    # （见该目录的 teacher-excel-dependencies.md）。三者都不需要 -WithTcp/-WithGui，也不重建数据库。
     [pscustomobject]@{ Name = 'ImportExport'
         Common = @()
         Client = @('service.SocketTeacherFileTransportTest')
-        Server = @('network.CourseFileServerTest')
+        Server = @('service.TeacherSpreadsheetServiceTest', 'network.CourseFileServerTest')
         Tcp = @(); Gui = @() }
     [pscustomobject]@{ Name = 'Applications'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }
 )

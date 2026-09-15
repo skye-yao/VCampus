@@ -9,6 +9,7 @@ import dto.course.teacher.TeacherCourseActions;
 import dto.course.teacher.TeacherFileUploadRequestDTO;
 import dto.course.teacher.TeacherGradeBookDTO;
 import dto.course.teacher.TeacherOperationResultDTO;
+import dto.course.teacher.TeacherRosterRowDTO;
 import dto.course.teacher.WithdrawTeacherAdjustmentRequestDTO;
 import dto.course.teacher.WriteGradeBookRequestDTO;
 import exception.DatabaseException;
@@ -20,13 +21,16 @@ import service.TeacherAdjustmentApplicationService;
 import service.TeacherCourseQueryService;
 import service.TeacherFileTicketService;
 import service.TeacherGradeBookService;
+import service.TeacherSpreadsheetService;
 import session.SessionManager;
 import session.UserSession;
 
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 
 /**
  * 教师端课程查询与调课（module {@code courseTeacher}）的 TCP 入口。
@@ -45,8 +49,10 @@ import java.util.Set;
  * 原课次快照派生。提交与撤销/保存与提交都是写操作，Handler 不做“先查后写”的归属判断，权限一律由
  * 服务端在事务内重新计算。
  *
- * <p>文件动作的响应键：{@code ticket}（上传票据）。Excel 文件本身绝不进业务 JSON，业务请求只带回
- * 一张绑定当前 Session、教师、教学班、用途与长度的短时票据，字节走独立文件端口。
+ * <p>文件动作的响应键：{@code ticket}（上传票据、以及成绩模板/名单导出两张下载票据）。Excel 文件
+ * 本身绝不进业务 JSON，业务请求只带回一张绑定当前 Session、教师、教学班、用途与长度的短时票据，
+ * 字节走独立文件端口。下载票据的生成顺序固定为「校验归属 → 生成文件 → 签发票据」：文件是从某个
+ * 教学班的名单生成的，先发票据就等于先把别人的名单借出去。
  *
  * <p>成绩动作的响应键：{@code offerings}（成绩列表）、{@code gradeBook}（成绩表）、{@code result}
  * （保存/提交的操作结果信封）。成绩冲突用 {@code gradeBook} 带回最新成绩表，与调课冲突的
@@ -71,6 +77,11 @@ public class TeacherCourseHandler {
     private final TeacherAdjustmentApplicationService adjustments;
     private final TeacherGradeBookService grades;
     private final TeacherFileTicketService files;
+    /**
+     * 表格读写本身不碰数据库也不碰票据，因此固定实例化，没有第五个构造参数：调用方只需保证
+     * 「先校验归属、再生成文件、最后签发票据」的顺序（下载票据一旦签发，文件就已经是别人的名单了）。
+     */
+    private final TeacherSpreadsheetService spreadsheets = new TeacherSpreadsheetService();
 
     public TeacherCourseHandler() {
         this(new TeacherCourseQueryService(), new TeacherAdjustmentApplicationService(),
@@ -199,6 +210,26 @@ public class TeacherCourseHandler {
                             upload.getOfferingId(), upload.getExpectedRevision(),
                             upload.getFileName(), upload.getByteLength(), upload.getSha256()));
                 }
+                case TeacherCourseActions.REQUEST_GRADE_TEMPLATE -> {
+                    // 下载方向：先按归属校验入口取成绩表，再生成文件——模板里是学生名单，
+                    // 顺序反了就等于把别人的班级名单发出去。
+                    TeacherFileTicketService fileService = files();
+                    String offeringId = decimalId(request, "offeringId");
+                    TeacherGradeBookDTO gradeBook = grades().getGradeBook(uid, offeringId);
+                    Path target = generateDownloadFile(fileService, "成绩模板.xlsx",
+                            path -> spreadsheets.writeGradeTemplate(path, gradeBook));
+                    response.putData("ticket", fileService.issueDownload(session, offeringId, target));
+                }
+                case TeacherCourseActions.REQUEST_ROSTER_EXPORT -> {
+                    // 与名单列表同一个归属校验入口；过滤条件相同，区别只是取全部结果而不是当前页。
+                    TeacherFileTicketService fileService = files();
+                    String offeringId = decimalId(request, "offeringId");
+                    List<TeacherRosterRowDTO> roster = queries.listAllOfferingStudents(uid, offeringId,
+                            optionalText(request, "query"), enrollmentStatus(request));
+                    Path target = generateDownloadFile(fileService, "学生名单.xlsx",
+                            path -> spreadsheets.writeRoster(path, roster));
+                    response.putData("ticket", fileService.issueDownload(session, offeringId, target));
+                }
                 default -> {
                     return failure(response, MessageCode.BAD_REQUEST, "不支持的教师课程操作");
                 }
@@ -249,6 +280,25 @@ public class TeacherCourseHandler {
             throw new IllegalArgumentException("该教师操作尚未开放");
         }
         return files;
+    }
+
+    /**
+     * 在文件服务的临时目录里生成一个下载用的表格，返回它的路径（随后交给
+     * {@link TeacherFileTicketService#issueDownload}）。
+     *
+     * <p>文件名由服务端生成，客户端只贡献扩展名；生成中途失败时删掉半截文件再抛，避免一个永远
+     * 不会被领取的残件留在临时目录里。
+     */
+    private Path generateDownloadFile(TeacherFileTicketService fileService, String clientFileName,
+            Consumer<Path> writer) {
+        Path target = fileService.newTempFile(clientFileName);
+        try {
+            writer.accept(target);
+        } catch (RuntimeException failure) {
+            TeacherFileTicketService.deleteQuietly(target);
+            throw failure;
+        }
+        return target;
     }
 
     /** 写操作响应：结果信封进 result，响应消息取自操作结果，与管理员课程写操作一致。 */

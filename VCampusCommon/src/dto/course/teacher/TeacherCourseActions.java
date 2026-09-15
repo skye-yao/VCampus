@@ -25,6 +25,10 @@ public final class TeacherCourseActions {
     public static final String SUBMIT_GRADE_BOOK = "submitGradeBook";
     /** 申请一张上传票据：Excel 文件本身走独立文件端口，业务 JSON 只带回票据。 */
     public static final String BEGIN_GRADE_UPLOAD = "beginGradeUpload";
+    /** 申请一张空白成绩模板的下载票据（与名单导出同形，方向为 DOWNLOAD）。 */
+    public static final String REQUEST_GRADE_TEMPLATE = "requestGradeTemplate";
+    /** 申请一张完整名单导出的下载票据：按与列表相同的过滤取全部结果，不是当前页。 */
+    public static final String REQUEST_ROSTER_EXPORT = "requestRosterExport";
 
     private TeacherCourseActions() {
     }
