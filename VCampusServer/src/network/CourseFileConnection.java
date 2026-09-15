@@ -44,8 +44,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 方向不符是把下载票当上传用，长度不符是伪造声明，摘要不符是内容被替换。
  *
  * <p>上传先写 {@code .part} 临时文件，长度与 SHA-256 都核对通过后才原子改名到票据落点；提前
- * EOF、摘要不符、写盘失败都会删除半截文件，服务端不会留下半个工作簿。所有外部可见的错误文案
- * 都是固定中文短语，异常堆栈只进服务端日志。
+ * EOF、摘要不符、写盘失败都会删除半截文件，服务端不会留下半个工作簿。落盘成功之后才向票据服务
+ * 交接「已落地」状态，业务侧随后的导入预览据此拿到同一个文件；失败的上传不会交接。所有外部可见
+ * 的错误文案都是固定中文短语，异常堆栈只进服务端日志。
  */
 public final class CourseFileConnection implements AutoCloseable {
 
@@ -85,9 +86,13 @@ public final class CourseFileConnection implements AutoCloseable {
             out = new DataOutputStream(
                     new BufferedOutputStream(socket.getOutputStream(), BUFFER_BYTES));
 
-            Ticket ticket = claim(readMetadata(in));
+            Metadata metadata = readMetadata(in);
+            Ticket ticket = claim(metadata);
             if (TeacherFileTicketDTO.DIRECTION_UPLOAD.equals(ticket.direction())) {
                 receive(ticket, in);
+                // 只有长度与 SHA-256 都核对通过、.part 已经改名之后才交接：业务侧随后的预览
+                // 兑换到的必须是真正落盘的那个文件，中途失败的上传不许留下一张“已落地”的票。
+                tickets.markUploaded(metadata.ticket());
             } else {
                 send(ticket, out);
             }

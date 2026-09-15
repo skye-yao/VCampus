@@ -29,6 +29,20 @@ public final class TeacherCourseActions {
     public static final String REQUEST_GRADE_TEMPLATE = "requestGradeTemplate";
     /** 申请一张完整名单导出的下载票据：按与列表相同的过滤取全部结果，不是当前页。 */
     public static final String REQUEST_ROSTER_EXPORT = "requestRosterExport";
+    /** 用上传成功的文件生成一份可编辑的导入预览（不写库）；响应键 {@code preview}。 */
+    public static final String PREVIEW_GRADE_IMPORT = "previewGradeImport";
+    /** 修订预览：修正异常行或明确排除它们；响应键同为 {@code preview}。 */
+    public static final String REVISE_GRADE_IMPORT = "reviseGradeImport";
+    /**
+     * 确认导入：在一个事务里把候选写成成绩草稿，响应键 {@code result}。
+     *
+     * <p>这个字面量同时是写库时的动作名：它会随 {@code writeDraft} 落进每条单元格变更审计，
+     * 因此「导入改写整班成绩」与「教师手工改一格」在 {@code teacher_grade_change_log.action} 里
+     * 可以区分，事后追责不必靠猜。
+     */
+    public static final String CONFIRM_GRADE_IMPORT = "confirmGradeImport";
+    /** 取消导入：丢弃预览令牌，客户端恢复导入前的编辑副本。 */
+    public static final String CANCEL_GRADE_IMPORT = "cancelGradeImport";
 
     private TeacherCourseActions() {
     }

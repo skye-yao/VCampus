@@ -226,6 +226,29 @@ public class TeacherGradeBookService {
     }
 
     /**
+     * 在**调用方持有**的连接与事务里执行一次草稿写入：不打开连接、不提交、不回滚、不恢复
+     * autoCommit，连接的生命周期完全由调用方负责。
+     *
+     * <p>导入确认要用它：候选草稿、教师操作日志与（若重试）已提交结果的重放必须在同一个事务里
+     * 完成，而 {@link #saveDraft} 自带一个独立事务，从另一个事务里调用它就会把「这一笔到底提交了
+     * 没有」拆成两段。这里复用同一套 {@code validate → normalize → digest → saveTransaction} 流程，
+     * 所以确认导入写的草稿与教师手工保存出来的草稿完全是同一种状态，唯一的差别是动作名：
+     * {@code action} 会写进单元格变更审计，导入改写整班与手工改一格必须能分辨。
+     *
+     * @param action 触发本次写入的动作名（导入确认用
+     *         {@link TeacherCourseActions#CONFIRM_GRADE_IMPORT}），参与请求摘要
+     */
+    TeacherOperationResultDTO<TeacherGradeBookDTO> saveDraftInTransaction(Connection connection,
+            String uid, WriteGradeBookRequestDTO raw, String action) throws SQLException {
+        String teacher = requireUid(uid);
+        AdminOperationTransaction.validate(teacher, raw == null ? null : raw.getOperationId());
+        String operationId = UUID.fromString(raw.getOperationId().trim()).toString();
+        Normalized request = normalize(teacher, raw, operationId, false);
+        String digest = operations.digest(action, request.canonical());
+        return saveTransaction(connection, request, action, digest);
+    }
+
+    /**
      * 正式提交：请求就是当前完整编辑内容，事务内先按草稿规则保存工作副本，再把它整份捕获成一个
      * 不可变批次（方案/名单摘要/身份/统计/明细），关闭草稿并记录 last_submission_id。
      *

@@ -4,6 +4,9 @@ import com.google.gson.Gson;
 import com.google.gson.JsonParseException;
 import dto.course.AdjustmentRequestStatusDTO;
 import dto.course.admin.approval.AdjustmentRequestDetailDTO;
+import dto.course.teacher.ConfirmGradeImportRequestDTO;
+import dto.course.teacher.PreviewGradeImportRequestDTO;
+import dto.course.teacher.ReviseGradeImportRequestDTO;
 import dto.course.teacher.TeacherAdjustmentWriteDTO;
 import dto.course.teacher.TeacherCourseActions;
 import dto.course.teacher.TeacherFileUploadRequestDTO;
@@ -21,6 +24,7 @@ import service.TeacherAdjustmentApplicationService;
 import service.TeacherCourseQueryService;
 import service.TeacherFileTicketService;
 import service.TeacherGradeBookService;
+import service.TeacherGradeImportService;
 import service.TeacherSpreadsheetService;
 import session.SessionManager;
 import session.UserSession;
@@ -55,8 +59,14 @@ import java.util.function.Consumer;
  * 教学班的名单生成的，先发票据就等于先把别人的名单借出去。
  *
  * <p>成绩动作的响应键：{@code offerings}（成绩列表）、{@code gradeBook}（成绩表）、{@code result}
- * （保存/提交的操作结果信封）。成绩冲突用 {@code gradeBook} 带回最新成绩表，与调课冲突的
- * {@code conflicts}/{@code latest} 区分开，客户端不解析对方的类型。
+ * （保存/提交/确认导入的操作结果信封）、{@code preview}（导入预览与修订）。成绩冲突用
+ * {@code gradeBook} 带回最新成绩表，与调课冲突的 {@code conflicts}/{@code latest} 区分开，
+ * 客户端不解析对方的类型。
+ *
+ * <p>导入动作（previewGradeImport/reviseGradeImport/confirmGradeImport/cancelGradeImport）走同一套
+ * 防线：身份只来自会话，写请求体不许带身份/人员/强制字段，预览的编辑副本与保存草稿的内容共用同一份
+ * 形状校验。预览请求里的 {@code baseDraft} 直接沿用成绩写入的字段约定（offeringId 与每行
+ * enrollmentId 只接受十进制字符串），因此导入不是绕过写请求校验的第二条入口。
  */
 public class TeacherCourseHandler {
     private static final String MODULE = "courseTeacher";
@@ -77,8 +87,9 @@ public class TeacherCourseHandler {
     private final TeacherAdjustmentApplicationService adjustments;
     private final TeacherGradeBookService grades;
     private final TeacherFileTicketService files;
+    private final TeacherGradeImportService imports;
     /**
-     * 表格读写本身不碰数据库也不碰票据，因此固定实例化，没有第五个构造参数：调用方只需保证
+     * 表格读写本身不碰数据库也不碰票据，因此固定实例化，没有构造参数：调用方只需保证
      * 「先校验归属、再生成文件、最后签发票据」的顺序（下载票据一旦签发，文件就已经是别人的名单了）。
      */
     private final TeacherSpreadsheetService spreadsheets = new TeacherSpreadsheetService();
@@ -111,10 +122,23 @@ public class TeacherCourseHandler {
                                 TeacherAdjustmentApplicationService adjustments,
                                 TeacherGradeBookService grades,
                                 TeacherFileTicketService files) {
+        this(queries, adjustments, grades, files, null);
+    }
+
+    /**
+     * 生产装配：导入预览/修订/确认需要一个同时认识文件票据、成绩表与预览仓的服务。
+     * 未接线时导入动作报「尚未开放」，与其它可选服务的处理一致。
+     */
+    public TeacherCourseHandler(TeacherCourseQueryService queries,
+                                TeacherAdjustmentApplicationService adjustments,
+                                TeacherGradeBookService grades,
+                                TeacherFileTicketService files,
+                                TeacherGradeImportService imports) {
         this.queries = queries == null ? new TeacherCourseQueryService() : queries;
         this.adjustments = adjustments;
         this.grades = grades;
         this.files = files;
+        this.imports = imports;
     }
 
     public Message handle(Message request) {
@@ -230,6 +254,21 @@ public class TeacherCourseHandler {
                             path -> spreadsheets.writeRoster(path, roster));
                     response.putData("ticket", fileService.issueDownload(session, offeringId, target));
                 }
+                case TeacherCourseActions.PREVIEW_GRADE_IMPORT -> {
+                    // 预览不写库：兑换上传票据、解析、把候选与问题一起回给界面。
+                    response.putData("preview",
+                            imports().preview(uid, session, previewImport(request)));
+                }
+                case TeacherCourseActions.REVISE_GRADE_IMPORT -> {
+                    response.putData("preview", imports().revise(uid, reviseImport(request)));
+                }
+                case TeacherCourseActions.CONFIRM_GRADE_IMPORT -> {
+                    return mutation(response, imports().confirm(uid, confirmImport(request)));
+                }
+                case TeacherCourseActions.CANCEL_GRADE_IMPORT -> {
+                    // 取消只是丢弃令牌；客户端恢复自己的编辑副本，服务端本来就没写过任何东西。
+                    imports().cancel(uid, importToken(request));
+                }
                 default -> {
                     return failure(response, MessageCode.BAD_REQUEST, "不支持的教师课程操作");
                 }
@@ -248,6 +287,9 @@ public class TeacherCourseHandler {
             response.putData("conflicts", conflict.getConflicts());
             if (conflict.getEntity() != null) response.putData("latest", conflict.getEntity());
             return failure(response, MessageCode.CONFLICT, conflict.getMessage());
+        } catch (TeacherGradeImportService.NotFoundException expired) {
+            // 导入预览已过期或不属于本人：客户端据此回到「重新上传」这一步。
+            return failure(response, MessageCode.NOT_FOUND, expired.getMessage());
         } catch (TeacherGradeBookService.ConflictException conflict) {
             // 成绩冲突只有“最新成绩表”一种附带实体：版本过期或名单变化时客户端据此提示重新加载。
             if (conflict.getEntity() != null) response.putData("gradeBook", conflict.getEntity());
@@ -280,6 +322,13 @@ public class TeacherCourseHandler {
             throw new IllegalArgumentException("该教师操作尚未开放");
         }
         return files;
+    }
+
+    private TeacherGradeImportService imports() {
+        if (imports == null) {
+            throw new IllegalArgumentException("该教师操作尚未开放");
+        }
+        return imports;
     }
 
     /**
@@ -351,17 +400,29 @@ public class TeacherCourseHandler {
         if (!(rawContent instanceof Map<?, ?> content)) {
             throw new IllegalArgumentException("content 必须为 JSON 对象");
         }
-        // 内容里同样不许出现身份/人员/强制字段：成绩写入没有这些字段，出现即说明客户端在
-        // 试图自己指定归属，直接拒绝而不是静默忽略。
+        requireGradeContent(content, "content");
+        requireOptionalString(values, "operationId");
+        return payload(request, WriteGradeBookRequestDTO.class);
+    }
+
+    /**
+     * 成绩内容（保存/提交的 {@code content} 与导入预览的 {@code baseDraft}）的形状校验：
+     * 同一份规则只写一次，两个入口不会各有一套取整与伪造字段口径。
+     *
+     * <p>内容里不许出现身份/人员/强制字段（出现即说明客户端在试图自己指定归属）；BIGINT 标识只接受
+     * 十进制字符串，避免 Gson 经 double 静默改写；内容里的 rows 必须是对象数组。归属与版本的真实性
+     * 由服务端在事务内重新校验，Handler 只保证形状。
+     */
+    private static void requireGradeContent(Map<?, ?> content, String label) {
         rejectForgedFields(content, "成绩");
         requireDecimalText(content.get("offeringId"), "offeringId");
         Object rawRows = content.get("rows");
         if (!(rawRows instanceof List<?> rows)) {
-            throw new IllegalArgumentException("content.rows 必须为数组");
+            throw new IllegalArgumentException(label + ".rows 必须为数组");
         }
         for (Object raw : rows) {
             if (!(raw instanceof Map<?, ?> row)) {
-                throw new IllegalArgumentException("content.rows 的元素必须为 JSON 对象");
+                throw new IllegalArgumentException(label + ".rows 的元素必须为 JSON 对象");
             }
             requireDecimalText(row.get("enrollmentId"), "enrollmentId");
             Object rawScores = row.get("scores");
@@ -369,9 +430,83 @@ public class TeacherCourseHandler {
                 throw new IllegalArgumentException("scores 必须为 JSON 对象");
             }
         }
-        requireOptionalString(values, "operationId");
         requireOptionalString(content, "rosterDigest");
-        return payload(request, WriteGradeBookRequestDTO.class);
+    }
+
+    /**
+     * 导入预览请求体：一张已经上传成功的票据 + 教师当前的编辑副本。副本走与成绩写入完全相同的内容
+     * 校验（含伪造字段防线），因此预览收到的 baseDraft 形状与保存草稿时一致。
+     */
+    private PreviewGradeImportRequestDTO previewImport(Message request) {
+        Map<String, Object> values = gradeValues(request);
+        requireOptionalString(values, "uploadTicket");
+        Object rawDraft = values.get("baseDraft");
+        if (!(rawDraft instanceof Map<?, ?> draft)) {
+            throw new IllegalArgumentException("baseDraft 必须为 JSON 对象");
+        }
+        requireGradeContent(draft, "baseDraft");
+        return payload(request, PreviewGradeImportRequestDTO.class);
+    }
+
+    /** 修订请求体：令牌、期望的预览版本、修正与排除行；行号只接受整数，不合法就直接拒绝。 */
+    private ReviseGradeImportRequestDTO reviseImport(Message request) {
+        Map<String, Object> values = gradeValues(request);
+        requireOptionalString(values, "importToken");
+        integerValue(values.get("expectedPreviewRevision"), "expectedPreviewRevision");
+        Object rawCorrections = values.get("corrections");
+        if (!(rawCorrections instanceof List<?> corrections)) {
+            throw new IllegalArgumentException("corrections 必须为数组");
+        }
+        for (Object raw : corrections) {
+            if (!(raw instanceof Map<?, ?> correction)) {
+                throw new IllegalArgumentException("corrections 的元素必须为 JSON 对象");
+            }
+            integerValue(correction.get("rowNumber"), "rowNumber");
+            Object rawCells = correction.get("correctedCells");
+            if (!(rawCells instanceof Map<?, ?> cells)) {
+                throw new IllegalArgumentException("correctedCells 必须为 JSON 对象");
+            }
+            for (Map.Entry<?, ?> entry : cells.entrySet()) {
+                if (!(entry.getKey() instanceof String)
+                        || !(entry.getValue() instanceof String)) {
+                    throw new IllegalArgumentException(
+                            "correctedCells 必须是「字段名 → 文本」的字符串映射");
+                }
+            }
+        }
+        Object rawExcluded = values.get("excludedRows");
+        if (rawExcluded != null) {
+            if (!(rawExcluded instanceof List<?> excluded)) {
+                throw new IllegalArgumentException("excludedRows 必须为数组");
+            }
+            for (Object raw : excluded) {
+                integerValue(raw, "excludedRows 的元素");
+            }
+        }
+        return payload(request, ReviseGradeImportRequestDTO.class);
+    }
+
+    /**
+     * 确认导入请求体：确认请求刻意不带成绩内容，因此这里只需要形状检查——候选只存在于服务端。
+     */
+    private ConfirmGradeImportRequestDTO confirmImport(Message request) {
+        Map<String, Object> values = gradeValues(request);
+        requireOptionalString(values, "operationId");
+        requireOptionalString(values, "importToken");
+        integerValue(values.get("expectedPreviewRevision"), "expectedPreviewRevision");
+        integerValue(values.get("expectedRevision"), "expectedRevision");
+        return payload(request, ConfirmGradeImportRequestDTO.class);
+    }
+
+    /** 取消导入请求体：只有一个令牌，与其它写请求共用伪造字段防线。 */
+    private static String importToken(Message request) {
+        Map<String, Object> values = gradeValues(request);
+        requireOptionalString(values, "importToken");
+        Object token = values.get("importToken");
+        if (!(token instanceof String text) || text.isBlank()) {
+            throw new IllegalArgumentException("importToken 不能为空");
+        }
+        return text.trim();
     }
 
     /**

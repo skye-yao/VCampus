@@ -31,7 +31,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *
  * <p>所有临时文件由本服务在自建临时目录下自行命名，绝不使用客户端提供的路径——客户端文件名只
  * 参与扩展名的白名单化。临时目录在 {@link #close()} 时整体删除，过期票据的临时文件由后台清理器
- * 定期回收，因此停服后不会留下半截上传或生成的表格。
+ * 定期回收，因此停服后不会留下半截上传或生成的表格；**上传成功却始终没有预览**的落点文件也由
+ * 同一个清理器按过期时间回收（票据仍持有落点路径），一次被放弃的上传不会长期占着临时磁盘。
+ *
+ * <p>上传票据的兑换分两段，各自单次：传输阶段由文件连接消费并写盘（{@link #claim}），成功之后
+ * 交接成「已落地」（{@link #markUploaded}）；预览则通过 {@link #claimUploaded} 领取落点路径并消费
+ * 票据。业务请求原样带回的是签发时那张票号，所以预览认的正是本次上传实际落盘的那个文件，
+ * 两次兑换之间没有任何客户端可以插手的位置（文件名始终由服务端生成）。
  *
  * <p>时钟可注入：过期用例必须能在不等待真实两分钟的情况下推进时间。
  */
@@ -140,10 +146,15 @@ public final class TeacherFileTicketService implements AutoCloseable {
     }
 
     /**
-     * 兑换票据：校验归属会话、有效期、用途与长度后单次消费。
+     * 兑换票据（传输阶段）：校验归属会话、有效期、用途与长度后单次消费。
      *
-     * <p>校验全部通过才摘除票据，因此并发或重复兑换只有一次成功，而无关的伪造输入不会烧掉别人
+     * <p>校验全部通过才消费票据，因此并发或重复兑换只有一次成功，而无关的伪造输入不会烧掉别人
      * 手里那张票。任何失败都抛出 {@link IllegalArgumentException}，消息可直接回给客户端。
+     *
+     * <p>上传票据的传输阶段与预览阶段是**两次各自单次**的交接：这里只消费传输，成功后由
+     * {@link #markUploaded} 把它登记成「已落地待预览」，再由 {@link #claimUploaded} 消费预览。
+     * 因此同一张票第二次上传仍然失败（票据不再处于已签发状态），而预览拿到的必然是本次上传
+     * 实际落盘的那个文件。下载票据走完传输就没有下一步，直接摘除。
      */
     public Ticket claim(String ticket, UserSession session, String direction) {
         requireOpen();
@@ -151,7 +162,7 @@ public final class TeacherFileTicketService implements AutoCloseable {
             throw new IllegalArgumentException("文件票据无效");
         }
         Entry entry = tickets.get(ticket);
-        if (entry == null) {
+        if (entry == null || entry.phase != Phase.ISSUED) {
             throw new IllegalArgumentException("文件票据无效或已被使用");
         }
         if (entry.expiresAtMillis <= clock.millis()) {
@@ -166,6 +177,63 @@ public final class TeacherFileTicketService implements AutoCloseable {
         }
         if (!entry.ticket.direction().equals(direction)) {
             throw new IllegalArgumentException("文件票据用途不匹配");
+        }
+        if (TeacherFileTicketDTO.DIRECTION_UPLOAD.equals(direction)) {
+            // 上传只有一个阶段可以消费传输：第二次上传必定拿不到这张票。
+            if (!tickets.replace(ticket, entry, entry.transferred())) {
+                throw new IllegalArgumentException("文件票据无效或已被使用");
+            }
+        } else if (!tickets.remove(ticket, entry)) {
+            throw new IllegalArgumentException("文件票据无效或已被使用");
+        }
+        return entry.ticket;
+    }
+
+    /**
+     * 上传成功后的交接：文件已经完整落地（长度与 SHA-256 都核对通过、{@code .part} 已改名），
+     * 把票据登记成「待预览」。
+     *
+     * <p>只能由文件连接在**成功**之后调用：写盘失败、摘要不符、提前 EOF 都不许调用，否则一张
+     * 没落盘的票会让预览拿到不存在的路径。目录被停服清掉（{@link #closed}）时这里不再登记，
+     * 落点文件也已经随目录一起删除，不留下悬空票据。
+     */
+    public void markUploaded(String ticket) {
+        if (ticket == null || ticket.isBlank() || closed.get()) {
+            return;
+        }
+        Entry entry = tickets.get(ticket);
+        if (entry == null || entry.phase != Phase.TRANSFERRED) {
+            // 并发停服或重复回执：票据不在手上就没有可交接的东西，静默结束而不是抛错给客户端。
+            return;
+        }
+        tickets.replace(ticket, entry, entry.uploaded());
+    }
+
+    /**
+     * 领取已落地的上传文件（预览阶段）：校验归属会话与有效期后单次消费，返回落点路径。
+     *
+     * <p>与 {@link #claim} 一样，校验全部通过才摘除票据：别人的会话、伪造的令牌、错误的用途都
+     * 不会烧掉票据持有者手里那张票。一个上传只能换来一次预览，第二次预览拿到的错误与第二次
+     * 传输完全相同。文件是否还存在由调用方读取时判定——服务端自建的文件名从不来自客户端。
+     */
+    public Ticket claimUploaded(String ticket, UserSession session) {
+        requireOpen();
+        if (ticket == null || ticket.isBlank()) {
+            throw new IllegalArgumentException("文件票据无效");
+        }
+        Entry entry = tickets.get(ticket);
+        if (entry == null || entry.phase != Phase.UPLOADED) {
+            throw new IllegalArgumentException("文件票据无效或已被使用");
+        }
+        if (entry.expiresAtMillis <= clock.millis()) {
+            throw new IllegalArgumentException("文件票据已过期，请重新申请");
+        }
+        if (session == null) {
+            throw new IllegalArgumentException("登录会话已失效，请重新登录");
+        }
+        if (!entry.ticket.teacherUid().equals(session.getUsername())
+                || !entry.sessionToken.equals(session.getToken())) {
+            throw new IllegalArgumentException("文件票据不属于当前登录会话");
         }
         if (!tickets.remove(ticket, entry)) {
             throw new IllegalArgumentException("文件票据无效或已被使用");
@@ -220,7 +288,7 @@ public final class TeacherFileTicketService implements AutoCloseable {
         long expiresAtMillis = clock.millis() + TICKET_TTL_MILLIS;
         Ticket claimed = new Ticket(direction, session.getUsername(), offeringId, expectedRevision,
                 byteLength, sha256, file);
-        tickets.put(id, new Entry(session.getToken(), expiresAtMillis, claimed));
+        tickets.put(id, new Entry(session.getToken(), expiresAtMillis, claimed, Phase.ISSUED));
         return new TeacherFileTicketDTO(id, direction, port, byteLength, MAX_FILE_BYTES, sha256,
                 Instant.ofEpochMilli(expiresAtMillis).toString());
     }
@@ -310,6 +378,32 @@ public final class TeacherFileTicketService implements AutoCloseable {
             long expectedRevision, long byteLength, String sha256, Path path) {
     }
 
-    private record Entry(String sessionToken, long expiresAtMillis, Ticket ticket) {
+    private record Entry(String sessionToken, long expiresAtMillis, Ticket ticket, Phase phase) {
+
+        /** 传输已消费、文件尚未落地（正在传输或传输失败）。 */
+        Entry transferred() {
+            return new Entry(sessionToken, expiresAtMillis, ticket, Phase.TRANSFERRED);
+        }
+
+        /** 文件已落地，只剩一次预览领取。 */
+        Entry uploaded() {
+            return new Entry(sessionToken, expiresAtMillis, ticket, Phase.UPLOADED);
+        }
+    }
+
+    /**
+     * 票据的生命周期阶段：上传票据要依次经过「已签发 → 传输已消费 → 文件已落地」三段，
+     * 每一段都只能被消费一次；下载票据只走「已签发 → 传输已消费」。
+     *
+     * <p>过期与开票时一样按签发时间算：上传与随之而来的预览是同一个动作的两步，2 分钟足够，
+     * 而预览之后的修订由 10 分钟有效的 importToken 负责，不靠延长文件票据的寿命。
+     */
+    private enum Phase {
+        /** 已签发、尚未兑换。 */
+        ISSUED,
+        /** 传输阶段已消费（上传正在/已经传输，或传输失败）。 */
+        TRANSFERRED,
+        /** 上传成功且落盘，等待唯一一次预览领取。 */
+        UPLOADED
     }
 }
