@@ -5,6 +5,7 @@
 <?import javafx.scene.control.ComboBox?>
 <?import javafx.scene.control.Label?>
 <?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.control.Spinner?>
 <?import javafx.scene.layout.GridPane?>
 <?import javafx.scene.layout.HBox?>
 <?import javafx.scene.layout.Region?>
@@ -22,10 +23,9 @@
             <children>
                 <ComboBox fx:id="termFilter" prefWidth="200.0" promptText="学期" styleClass="teacher-course-term-filter" />
                 <Region HBox.hgrow="ALWAYS" />
+                <Label text="周次" />
+                <Spinner fx:id="weekSpinner" editable="true" prefWidth="92.0" />
                 <Button fx:id="currentWeekButton" onAction="#handleBackToCurrentWeek" styleClass="teacher-course-page-button" text="回到本周" />
-                <Button fx:id="previousWeekButton" onAction="#handlePreviousWeek" styleClass="teacher-course-page-button" text="上一周" />
-                <Label fx:id="weekLabel" styleClass="teacher-schedule-week-label" text="" />
-                <Button fx:id="nextWeekButton" onAction="#handleNextWeek" styleClass="teacher-course-page-button" text="下一周" />
                 <Button fx:id="refreshButton" onAction="#refresh" styleClass="teacher-course-refresh-button" text="刷新" />
             </children>
         </HBox>

@@ -298,13 +298,6 @@
 
 /* ================= 8. 教学课程表与课次详情 ================= */
 
-.teacher-schedule-week-label {
-    -fx-font-size: 14px;
-    -fx-font-weight: bold;
-    -fx-text-fill: #151E49;
-    -fx-padding: 0 6px 0 6px;
-}
-
 .teacher-schedule-scroll {
     -fx-background-color: transparent;
     -fx-background-insets: 0;

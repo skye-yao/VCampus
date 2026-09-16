@@ -14,15 +14,12 @@ import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.Spinner;
-import javafx.scene.control.SpinnerValueFactory;
-import javafx.scene.control.TextFormatter;
 import javafx.scene.layout.ColumnConstraints;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.RowConstraints;
 import javafx.scene.layout.VBox;
-import javafx.util.StringConverter;
 import model.course.CourseNoticeView;
 import model.course.CourseTermView;
 import model.course.ScheduleEntryView;
@@ -79,75 +76,13 @@ public final class ScheduleController {
     }
 
     /**
-     * 周次输入框：允许点进输入框直接敲周次。输入阶段只放行数字，提交阶段统一收敛到 value factory 的 1..20，
-     * 提交后回写文本，保证输入框里不会留下一个模型没有接受的值。
+     * 周次输入框：允许点进输入框直接敲周次。范围 1..20（学生端没有服务端的教学周范围）、只放行数字、
+     * 提交后夹取并回写文本——这三条规则与教师端的周次控件共用 {@link WeekSpinner}，两端同构；唯一的
+     * 非默认之处是上下箭头的方向反过来（向上 = 往前一周），同样由它统一提供。
      */
     private void configureWeekSpinner() {
-        SpinnerValueFactory.IntegerSpinnerValueFactory weekFactory =
-                new SpinnerValueFactory.IntegerSpinnerValueFactory(1, 20, 3);
-        // 失焦时 Spinner 会自己拿这个转换器提交（JavaFX 内建行为），所以 fromString 既不能抛异常、
-        // 也不能给出越界值：JavaFX 默认的 IntegerStringConverter 遇到字母会抛 NumberFormatException，
-        // 遇到空文本会返回 null，值一旦变成 null，上下箭头取值时就会 NPE。
-        weekFactory.setConverter(new StringConverter<Integer>() {
-            @Override
-            public Integer fromString(String text) {
-                return commitWeek(text, weekFactory.getValue(), weekFactory.getMin(),
-                        weekFactory.getMax());
-            }
-
-            @Override
-            public String toString(Integer value) {
-                return value == null ? "" : value.toString();
-            }
-        });
-        weekSpinner.setValueFactory(weekFactory);
-        // 非数字按键与粘贴在这层就被丢弃，于是转换器只需要面对“数字或空”
-        weekSpinner.getEditor().setTextFormatter(new TextFormatter<Object>(change ->
-                change.getControlNewText().chars().allMatch(Character::isDigit) ? change : null));
-        // 回车换成自己的提交：Spinner 自带的提交不回写文本，输入 99 会显示 99 而周次其实是 20
-        weekSpinner.getEditor().setOnAction(event -> commitTypedWeek());
-        // 失焦提交是 Spinner 的内建行为，这里刻意沿用它（敲完直接点别处也该生效），只是补一次提交与回写
-        weekSpinner.focusedProperty().addListener((observable, wasFocused, isFocused) -> {
-            if (!isFocused) {
-                commitTypedWeek();
-            }
-        });
-    }
-
-    /** 提交输入框内容并回写文本；周次没变就不写回 value factory，免得重敲同一个数字也发一次请求。 */
-    private void commitTypedWeek() {
-        SpinnerValueFactory<Integer> factory = weekSpinner.getValueFactory();
-        Integer currentWeek = weekSpinner.getValue();
-        if (factory instanceof SpinnerValueFactory.IntegerSpinnerValueFactory weekFactory) {
-            int committedWeek = commitWeek(weekSpinner.getEditor().getText(),
-                    currentWeek == null ? weekFactory.getMin() : currentWeek,
-                    weekFactory.getMin(), weekFactory.getMax());
-            if (currentWeek == null || currentWeek != committedWeek) {
-                factory.setValue(committedWeek);
-            }
-        }
-        // 越界数字被夹取、空文本被忽略之后，输入框不能继续显示用户敲进去的原样
-        weekSpinner.cancelEdit();
-    }
-
-    /**
-     * 输入框文本 → 周次：空白或非数字视为“不改动”，越界数字夹取到 [minWeek, maxWeek]。
-     * 夹取放在写进 value factory 之前，而不是留给工厂自带的越界回调：那条回调会先把越界值写进属性、
-     * 再改回边界值，一次输入会放走两次刷新请求（其中一次还是请求一个不存在的周次）。
-     */
-    static int commitWeek(String text, int currentWeek, int minWeek, int maxWeek) {
-        if (text == null) {
-            return currentWeek;
-        }
-        String digits = text.trim();
-        if (digits.isEmpty() || !digits.chars().allMatch(Character::isDigit)) {
-            return currentWeek;
-        }
-        try {
-            return Math.max(minWeek, Math.min(maxWeek, Integer.parseInt(digits)));
-        } catch (NumberFormatException failure) {
-            return maxWeek; // 位数多到 int 装不下，等同于超过上界
-        }
+        weekSpinner.setValueFactory(WeekSpinner.valueFactory(1, 20, 3));
+        WeekSpinner.installEditor(weekSpinner);
     }
 
     @FXML

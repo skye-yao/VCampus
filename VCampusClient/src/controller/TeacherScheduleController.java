@@ -26,6 +26,8 @@ import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.Spinner;
+import javafx.scene.control.SpinnerValueFactory;
 import javafx.scene.layout.ColumnConstraints;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.Priority;
@@ -50,9 +52,10 @@ import util.FXMLUtil;
  * 既不是固定的 1..10，也不是固定的 5 天），卡片文案直接取用 DTO 里的课程名与地点，不重新推导。
  * 网格整体放进 {@code ScrollPane}，页面自身不声明比 860×580 外壳更大的 pref 尺寸。
  *
- * <p>周导航只保留一个可变状态 {@link #requestedWeek}（null 表示“由服务端决定本周”）：上一周/下一周
- * 以已加载周为基准加减 1，边界来自响应里的 {@code minWeek}/{@code maxWeek}；“回到本周”只在响应
- * 给出 {@code currentWeek} 时可用。切换学期会把 {@link #requestedWeek} 重置为 null。
+ * <p>周导航只保留一个可变状态 {@link #requestedWeek}（null 表示“由服务端决定本周”）：周次控件是
+ * 学生端同款的 {@link Spinner}（上下箭头方向同样反过来，见 {@link WeekSpinner}），范围与值在每次
+ * 加载后由响应里的 {@code minWeek}/{@code maxWeek} 同步，没有范围时禁用；“回到本周”只在响应给出
+ * {@code currentWeek} 时可用。切换学期会把 {@link #requestedWeek} 重置为 null。
  *
  * <p>冲突布局交给教师端的 {@link TeacherScheduleLayout}：{@code ADJUSTED_ORIGINAL} 只是画在旧位置
  * 上的提示层，不占额外列，因此成对的“原安排/调课后”不会被拆成并排的两列。
@@ -98,12 +101,12 @@ public final class TeacherScheduleController {
     private boolean syncingFilters;
     private String errorText;
     private long generation;
+    /** 程序化同步周次控件（写范围与值）期间为真：那段时间里的值变化不是用户的选择。 */
+    private boolean syncingWeekSpinner;
 
     @FXML private ComboBox<String> termFilter;
+    @FXML private Spinner<Integer> weekSpinner;
     @FXML private Button currentWeekButton;
-    @FXML private Button previousWeekButton;
-    @FXML private Label weekLabel;
-    @FXML private Button nextWeekButton;
     @FXML private Button refreshButton;
     @FXML private ScrollPane scheduleScroll;
     @FXML private GridPane scheduleGrid;
@@ -127,6 +130,12 @@ public final class TeacherScheduleController {
             termFilter.getSelectionModel().selectedIndexProperty().addListener(
                     (observable, previous, next) ->
                             selectTerm(next == null ? -1 : next.intValue()));
+        }
+        if (weekSpinner != null) {
+            WeekSpinner.installEditor(weekSpinner);
+            weekSpinner.valueProperty().addListener((observable, previous, next) -> {
+                if (next != null) selectWeek(next);
+            });
         }
         render();
     }
@@ -162,22 +171,21 @@ public final class TeacherScheduleController {
 
     // ---------------------------------------------------------------- 周导航
 
-    @FXML
-    void handlePreviousWeek(Event event) {
-        if (loadedWeek == null) return;
-        loadWeek(loadedWeek - 1);
-    }
-
-    @FXML
-    void handleNextWeek(Event event) {
-        if (loadedWeek == null) return;
-        loadWeek(loadedWeek + 1);
-    }
-
     /** 回到本周：以 {@code week=null} 请求，让服务端按教学日历与系统时钟决定。 */
     @FXML
     void handleBackToCurrentWeek(Event event) {
         loadWeek(null);
+    }
+
+    /**
+     * 周次控件选定了一周（箭头、键盘或输入框提交）：请求那一周。
+     *
+     * <p>{@link #syncingWeekSpinner} 为真时直接返回：每次加载后写控件（范围与值）本身会触发值变化
+     * 监听，那一次不是用户的选择，不能再发起一次加载。范围不存在时控件是禁用的，用户也点不到。
+     */
+    void selectWeek(int week) {
+        if (syncingWeekSpinner) return;
+        loadWeek(week);
     }
 
     /** 刷新当前学期与周次；页面未激活（已卸下）时什么都不做，免得在途状态又去写控件。 */
@@ -205,14 +213,6 @@ public final class TeacherScheduleController {
     void openDetail(TeacherScheduleEntryDTO entry) {
         if (entry == null) return;
         detailOpener.accept(entry);
-    }
-
-    boolean canGoPrevious() {
-        return !loading && week != null && loadedWeek != null && loadedWeek > week.getMinWeek();
-    }
-
-    boolean canGoNext() {
-        return !loading && week != null && loadedWeek != null && loadedWeek < week.getMaxWeek();
     }
 
     boolean canGoCurrent() {
@@ -299,10 +299,8 @@ public final class TeacherScheduleController {
 
     private void render() {
         renderGrid();
-        if (previousWeekButton != null) previousWeekButton.setDisable(!canGoPrevious());
-        if (nextWeekButton != null) nextWeekButton.setDisable(!canGoNext());
+        renderWeekSpinner();
         if (currentWeekButton != null) currentWeekButton.setDisable(!canGoCurrent());
-        if (weekLabel != null) weekLabel.setText(weekLabel(week));
         setActive(loadingLabel, loading);
         setActive(emptyLabel, !loading && errorText == null && week != null
                 && cardEntries.isEmpty());
@@ -320,6 +318,34 @@ public final class TeacherScheduleController {
     private void renderGrid() {
         rebuildGrid();
         resetViewport();
+    }
+
+    /**
+     * 把周次控件同步到当前这一周：范围取响应里的 {@code minWeek}/{@code maxWeek}，值为正在显示的周。
+     *
+     * <p>写控件本身会触发值变化监听（首次 {@code setValueFactory} 的绑定、以及每一次 {@code setValue}），
+     * 因此整段都用 {@link #syncingWeekSpinner} 圈起来，加载不会因为同步控件而再发起一次。
+     * 还没有范围（未加载、无数据、加载中）时控件禁用，而不是显示一个错误的周号。
+     */
+    private void renderWeekSpinner() {
+        if (weekSpinner == null) return;
+        Integer value = weekSpinnerValue(week, loadedWeek);
+        weekSpinner.setDisable(value == null || loading);
+        if (value == null) return;
+        SpinnerValueFactory<Integer> factory = weekSpinner.getValueFactory();
+        syncingWeekSpinner = true;
+        try {
+            if (factory instanceof SpinnerValueFactory.IntegerSpinnerValueFactory range) {
+                range.setMin(week.getMinWeek());
+                range.setMax(week.getMaxWeek());
+                range.setValue(value);
+            } else {
+                weekSpinner.setValueFactory(WeekSpinner.valueFactory(
+                        week.getMinWeek(), week.getMaxWeek(), value));
+            }
+        } finally {
+            syncingWeekSpinner = false;
+        }
     }
 
     private void rebuildGrid() {
@@ -545,11 +571,22 @@ public final class TeacherScheduleController {
 
     // ---------------------------------------------------------------- 纯文本
 
-    /** 周标签：数字全部来自响应 DTO，例如 {@code 第 8 周（1-16）}。 */
-    static String weekLabel(TeacherScheduleWeekDTO value) {
-        if (value == null) return "";
-        return "第 " + value.getWeek() + " 周（" + value.getMinWeek() + "-"
-                + value.getMaxWeek() + "）";
+    /**
+     * 周次控件该显示的周：数字全部来自响应 DTO，客户端不自己推周号。
+     *
+     * <p>范围是响应里的 {@code minWeek}/{@code maxWeek}；值优先取已加载（正在显示）的周——用户翻到
+     * 别的周之后控件必须继续显示那一周，而不是弹回本周；没有已加载的周时退回 {@code currentWeek}，
+     * 再退回 {@code minWeek}。范围不存在（未加载、无数据）时返回 {@code null}，控件随之禁用，
+     * 而不是显示一个错误的周号。
+     */
+    static Integer weekSpinnerValue(TeacherScheduleWeekDTO week, Integer loadedWeek) {
+        if (week == null) return null;
+        int min = week.getMinWeek();
+        int max = week.getMaxWeek();
+        if (min > max) return null;
+        Integer value = loadedWeek != null ? loadedWeek : week.getCurrentWeek();
+        if (value == null) value = min;
+        return Math.max(min, Math.min(max, value));
     }
 
     /** 日期列头：星期名 + 该日期的 MM-dd；非教学日照样成列。 */

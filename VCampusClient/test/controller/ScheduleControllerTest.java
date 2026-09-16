@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import javafx.scene.control.SpinnerValueFactory;
 import model.course.CourseMutationResultView;
 import model.course.CourseNoticeView;
 import model.course.CourseOfferingView;
@@ -37,6 +38,7 @@ public final class ScheduleControllerTest {
         scheduleFailureIsDeliveredThroughFxExecutor();
         adjustmentBlocksCarryTheirOwnStyleBadgeAndDetail();
         weekSpinnerAcceptsTypedWeekNumbers();
+        weekSpinnerArrowsRunBackwards();
         typedWeekTextIsClampedToTheSpinnerBounds();
         System.out.println("ScheduleControllerTest: PASS");
     }
@@ -53,23 +55,54 @@ public final class ScheduleControllerTest {
                 "the week spinner must accept typed input: " + spinnerTag);
     }
 
+    /**
+     * 箭头方向与学生端旧控件相反（R4）：向上箭头（{@code increment}，也是键盘 ↑）退一周，
+     * 向下箭头（{@code decrement}，也是键盘 ↓）进一周；到边也一样，不绕回另一头。
+     *
+     * <p>箭头按钮与键盘 ↑/↓ 最后都调用 value factory 的 {@code increment}/{@code decrement}
+     * （{@code SpinnerBehavior} 与箭头按钮都走 {@code Spinner.increment/decrement}），因此这里直接
+     * 断言那条共用路径；手输数字的语义不变（{@link #typedWeekTextIsClampedToTheSpinnerBounds}）。
+     */
+    private static void weekSpinnerArrowsRunBackwards() {
+        SpinnerValueFactory.IntegerSpinnerValueFactory factory = WeekSpinner.valueFactory(1, 20, 8);
+
+        factory.increment(1);
+        require(factory.getValue() == 7,
+                "the up arrow must step one week back, saw " + factory.getValue());
+        factory.decrement(1);
+        require(factory.getValue() == 8,
+                "the down arrow must step one week forward, saw " + factory.getValue());
+        factory.decrement(2);
+        require(factory.getValue() == 10,
+                "the down arrow must step by the number of steps, saw " + factory.getValue());
+
+        factory.setValue(20);
+        factory.decrement(1);
+        require(factory.getValue() == 20,
+                "the last week must not walk past maxWeek, saw " + factory.getValue());
+        factory.setValue(1);
+        factory.increment(1);
+        require(factory.getValue() == 1,
+                "the first week must not walk before minWeek, saw " + factory.getValue());
+    }
+
     /** 输入框文本 → 周次：空/非数字不改动，越界夹取到 1..20（边界与 Spinner 同一个来源）。 */
     private static void typedWeekTextIsClampedToTheSpinnerBounds() {
-        require(ScheduleController.commitWeek("7", 3, 1, 20) == 7,
+        require(WeekSpinner.commitWeek("7", 3, 1, 20) == 7,
                 "a typed week must be committed");
-        require(ScheduleController.commitWeek(" 7 ", 3, 1, 20) == 7,
+        require(WeekSpinner.commitWeek(" 7 ", 3, 1, 20) == 7,
                 "surrounding blanks must be tolerated");
-        require(ScheduleController.commitWeek("3", 3, 1, 20) == 3,
+        require(WeekSpinner.commitWeek("3", 3, 1, 20) == 3,
                 "an identical week must stay untouched so no reload is triggered");
-        require(ScheduleController.commitWeek("", 3, 1, 20) == 3
-                        && ScheduleController.commitWeek(null, 3, 1, 20) == 3,
+        require(WeekSpinner.commitWeek("", 3, 1, 20) == 3
+                        && WeekSpinner.commitWeek(null, 3, 1, 20) == 3,
                 "an emptied editor must leave the week untouched");
-        require(ScheduleController.commitWeek("abc", 3, 1, 20) == 3,
+        require(WeekSpinner.commitWeek("abc", 3, 1, 20) == 3,
                 "non-numeric text must leave the week untouched");
-        require(ScheduleController.commitWeek("0", 3, 1, 20) == 1
-                        && ScheduleController.commitWeek("99", 3, 1, 20) == 20,
+        require(WeekSpinner.commitWeek("0", 3, 1, 20) == 1
+                        && WeekSpinner.commitWeek("99", 3, 1, 20) == 20,
                 "out-of-range input must be clamped to the spinner bounds");
-        require(ScheduleController.commitWeek("99999999999999", 3, 1, 20) == 20,
+        require(WeekSpinner.commitWeek("99999999999999", 3, 1, 20) == 20,
                 "a number too large for int must clamp instead of throwing");
     }
 

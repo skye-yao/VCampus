@@ -26,6 +26,8 @@ import javafx.scene.control.ComboBox;
 import javafx.scene.control.DialogPane;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.Spinner;
+import javafx.scene.control.SpinnerValueFactory;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
 import javafx.scene.control.TableCell;
@@ -90,9 +92,10 @@ public final class TeacherCourseUiSmokeTest {
     /** 待撤销的 PENDING 夹具（MockTeacherCourseService 的 9405）。 */
     private static final String PENDING_REQUEST_ID = "9405";
     private static final String WITHDRAWN_REQUEST_ID = "9404";
-    private static final String WEEK_EIGHT_LABEL = "第 8 周（1-16）";
-    private static final String WEEK_NINE_LABEL = "第 9 周（1-16）";
-    private static final String WEEK_FIVE_LABEL = "第 5 周（1-16）";
+    /** Mock 教学日历的周次范围与本周：周次控件（Spinner）的范围与值都来自这三个字段。 */
+    private static final int MIN_WEEK = 1;
+    private static final int MAX_WEEK = 16;
+    private static final int CURRENT_WEEK = 8;
     private static final String EMPTY_WEEK_TEXT = "本周没有课程";
     private static final int WEEK_EIGHT_CARDS = 4;
     private static final int WEEK_NINE_CARDS = 1;
@@ -271,17 +274,19 @@ public final class TeacherCourseUiSmokeTest {
                             "节次行头必须是 第 N 节 HH:mm:ss-HH:mm:ss，实际 " + text);
                 }
 
-                require(labelText("#weekLabel").equals(WEEK_EIGHT_LABEL),
-                        "周标签应为 " + WEEK_EIGHT_LABEL + "，实际 " + labelText("#weekLabel"));
+                require(shownWeek() == CURRENT_WEEK,
+                        "周次控件应停在第 " + CURRENT_WEEK + " 周，实际 " + shownWeek());
                 require(cards().size() == WEEK_EIGHT_CARDS,
                         "第 8 周应有 " + WEEK_EIGHT_CARDS + " 张卡片，实际 " + cards().size());
                 List<String> badges = nodeTexts(".teacher-schedule-badge");
                 require(badges.contains("原安排") && badges.contains("调课后"),
                         "第 8 周必须同时出现 原安排 与 调课后 角标，实际 " + badges);
-                require(!button("#previousWeekButton", "上一周按钮").isDisabled(),
-                        "第 8 周不是最小周，上一周必须可用");
-                require(!button("#nextWeekButton", "下一周按钮").isDisabled(),
-                        "第 8 周不是最大周，下一周必须可用");
+                // 范围来自响应里的 minWeek/maxWeek，控件因此可用（没有范围时它是禁用的）。
+                require(!weekSpinner().isDisabled(),
+                        "第 8 周已加载，周次控件必须可用");
+                require(weekRange().getMin() == MIN_WEEK && weekRange().getMax() == MAX_WEEK,
+                        "周次范围必须是服务端的 minWeek..maxWeek，实际 "
+                                + weekRange().getMin() + ".." + weekRange().getMax());
                 requireViewportReset("渲染第 8 周");
                 snapshot("schedule-week8.png");
             });
@@ -323,41 +328,42 @@ public final class TeacherCourseUiSmokeTest {
                                 + labelText("#detailTitleLabel"));
             });
 
-            // 回到课表：周导航（跨周调入的第 9 周与无课的第 5 周）。
+            // 回到课表：周导航（跨周调入的第 9 周与无课的第 5 周）。方向按 R4 反着来：
+            // 向下箭头（这里就是往下点）= 往后一周，向上箭头 = 往前一周。
             steps.add(() -> entryButton("教学课程表").fire());
             steps.add(() -> {
-                require(labelText("#weekLabel").equals(WEEK_EIGHT_LABEL),
-                        "回到课表应恢复第 8 周，实际 " + labelText("#weekLabel"));
+                require(shownWeek() == CURRENT_WEEK,
+                        "回到课表应恢复第 8 周，实际 " + shownWeek());
                 requireViewportReset("从教学班详情返回课表");
             });
-            steps.add(() -> button("#nextWeekButton", "下一周按钮").fire());
+            steps.add(this::pressWeekDown);
             steps.add(() -> {
-                require(labelText("#weekLabel").equals(WEEK_NINE_LABEL),
-                        "下一周应为 " + WEEK_NINE_LABEL + "，实际 " + labelText("#weekLabel"));
+                require(shownWeek() == CURRENT_WEEK + 1,
+                        "向下箭头应到第 9 周（向下 = 往后一周），实际 " + shownWeek());
                 require(cards().size() == WEEK_NINE_CARDS,
                         "第 9 周只应剩跨周调入的 " + WEEK_NINE_CARDS + " 张卡片，实际 "
                                 + cards().size());
                 requireViewportReset("切到第 9 周");
                 snapshot("schedule-week9.png");
             });
-            steps.add(() -> button("#previousWeekButton", "上一周按钮").fire());
+            steps.add(this::pressWeekUp);
             steps.add(() -> {
-                require(labelText("#weekLabel").equals(WEEK_EIGHT_LABEL),
-                        "上一周应回到第 8 周，实际 " + labelText("#weekLabel"));
+                require(shownWeek() == CURRENT_WEEK,
+                        "向上箭头应回到第 8 周（向上 = 往前一周），实际 " + shownWeek());
                 require(cards().size() == WEEK_EIGHT_CARDS,
                         "第 8 周应恢复 " + WEEK_EIGHT_CARDS + " 张卡片，实际 " + cards().size());
             });
 
-            // 同一周再滚到底一次，接着连点三次“上一周”去无课周。
+            // 同一周再滚到底一次，接着连按三次向上箭头去无课周。
             steps.add(() -> scrollGridToBottom("第 8 周再滚到底"));
 
             // 无课周：卡片为 0，但 7 列日期、13 行节次与空态文案仍在。
-            steps.add(() -> button("#previousWeekButton", "上一周按钮").fire());
-            steps.add(() -> button("#previousWeekButton", "上一周按钮").fire());
-            steps.add(() -> button("#previousWeekButton", "上一周按钮").fire());
+            steps.add(this::pressWeekUp);
+            steps.add(this::pressWeekUp);
+            steps.add(this::pressWeekUp);
             steps.add(() -> {
-                require(labelText("#weekLabel").equals(WEEK_FIVE_LABEL),
-                        "三次上一周后应为 " + WEEK_FIVE_LABEL + "，实际 " + labelText("#weekLabel"));
+                require(shownWeek() == CURRENT_WEEK - 3,
+                        "三次向上箭头后应为第 5 周，实际 " + shownWeek());
                 require(cards().isEmpty(), "Mock 第 5 周没有课程，实际 " + cards().size() + " 张卡片");
                 require(nodeTexts(".teacher-schedule-header").size() == 8,
                         "无课周仍必须画出节次列 + 7 个日期列");
@@ -372,8 +378,8 @@ public final class TeacherCourseUiSmokeTest {
 
             // 回到本周：Mock 的 currentWeek 是第 8 周。
             steps.add(() -> button("#currentWeekButton", "回到本周按钮").fire());
-            steps.add(() -> require(labelText("#weekLabel").equals(WEEK_EIGHT_LABEL),
-                    "回到本周应恢复 " + WEEK_EIGHT_LABEL + "，实际 " + labelText("#weekLabel")));
+            steps.add(() -> require(shownWeek() == CURRENT_WEEK,
+                    "回到本周应恢复第 " + CURRENT_WEEK + " 周，实际 " + shownWeek()));
 
             // 教学班列表：沿用既有的四 Tab 详情流程。
             steps.add(() -> entryButton("教学班").fire());
@@ -459,9 +465,8 @@ public final class TeacherCourseUiSmokeTest {
             // 同周冲突，最后真的提交一次，验证表单与课次详情弹窗的内联提示。
             steps.add(() -> entryButton("教学课程表").fire());
             steps.add(() -> {
-                require(labelText("#weekLabel").equals(WEEK_EIGHT_LABEL),
-                        "回到课表后应恢复 " + WEEK_EIGHT_LABEL + "，实际 "
-                                + labelText("#weekLabel"));
+                require(shownWeek() == CURRENT_WEEK,
+                        "回到课表后应恢复第 " + CURRENT_WEEK + " 周，实际 " + shownWeek());
             });
             steps.add(() -> cardForCourse(ADJUSTABLE_COURSE_NAME).fire());
             steps.add(() -> {
@@ -1571,6 +1576,46 @@ public final class TeacherCourseUiSmokeTest {
 
         private Button button(String selector, String description) {
             return requireNode(selector, Button.class, description);
+        }
+
+        // ---------------------------------------------------------------- 周次控件
+
+        @SuppressWarnings("unchecked")
+        private Spinner<Integer> weekSpinner() {
+            return (Spinner<Integer>) requireNode("#weekSpinner", Spinner.class, "周次控件");
+        }
+
+        private SpinnerValueFactory.IntegerSpinnerValueFactory weekRange() {
+            SpinnerValueFactory<Integer> factory = weekSpinner().getValueFactory();
+            if (!(factory instanceof SpinnerValueFactory.IntegerSpinnerValueFactory range)) {
+                throw new IllegalStateException(
+                        "周次控件必须有一个整数范围的值工厂，实际 " + factory);
+            }
+            return range;
+        }
+
+        /** 周次控件当前显示的周：控件值与输入框文本必须一致，用户看到的就是它。 */
+        private int shownWeek() {
+            Spinner<Integer> spinner = weekSpinner();
+            Integer value = spinner.getValue();
+            if (value == null) {
+                throw new IllegalStateException(
+                        "周次控件没有值：范围应来自服务端的 minWeek/maxWeek");
+            }
+            require(String.valueOf(value).equals(spinner.getEditor().getText()),
+                    "周次输入框必须显示当前这一周，实际输入框 "
+                            + spinner.getEditor().getText() + " / 值 " + value);
+            return value;
+        }
+
+        /** 按一次向下箭头（键盘 ↓ 走同一条 value factory 路径）：R4 之后它是往后一周。 */
+        private void pressWeekDown() {
+            weekSpinner().decrement(1);
+        }
+
+        /** 按一次向上箭头（键盘 ↑ 走同一条 value factory 路径）：R4 之后它是往前一周。 */
+        private void pressWeekUp() {
+            weekSpinner().increment(1);
         }
 
         private String labelText(String selector) {

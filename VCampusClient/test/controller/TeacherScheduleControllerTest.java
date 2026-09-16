@@ -78,12 +78,12 @@ public final class TeacherScheduleControllerTest {
 
     public static void main(String[] args) throws Exception {
         controllerIsSafeWithoutNodes();
-        weekNavigationFollowsTheLoadedBoundaries();
+        weekSelectionFollowsTheLoadedBoundaries();
         backToCurrentWeekFollowsTheNullableCurrentWeek();
         loadFailuresRenderTheServerMessageOnlyWhenItIsBusinessFacing();
         onlyTheNewestWeekResponseIsRendered();
         detailOpensTheClickedCardAndUnloadDropsLateResponses();
-        weekLabelAndGridTextComeFromTheDto();
+        weekSpinnerValueAndGridTextComeFromTheDto();
         cardBadgesAndStyleClassesFollowTheDisplayKind();
         dialogShowsTheEntrySnapshotAndDropsResponsesAfterClosing();
         dialogTextsAreTheTaskFiveContract();
@@ -98,8 +98,7 @@ public final class TeacherScheduleControllerTest {
         TeacherScheduleController controller = controller(new ControlledService());
         controller.initialize();
         controller.activate();
-        controller.handleNextWeek(new ActionEvent());
-        controller.handlePreviousWeek(new ActionEvent());
+        controller.selectWeek(MIN_WEEK + 1);
         controller.handleBackToCurrentWeek(new ActionEvent());
         controller.refresh();
         controller.openDetail(null);
@@ -109,7 +108,12 @@ public final class TeacherScheduleControllerTest {
         require(!controller.active(), "unloading must stop the page from accepting responses");
     }
 
-    private static void weekNavigationFollowsTheLoadedBoundaries() {
+    /**
+     * 周次控件选定一周就请求那一周：控件自己的加减由 value factory 的 [min, max] 夹住
+     * （范围断言见 {@link #weekSpinnerValueAndGridTextComeFromTheDto()}，箭头方向见
+     * {@code ScheduleControllerTest#weekSpinnerArrowsRunBackwards}），这里钉的是选周这条路径。
+     */
+    private static void weekSelectionFollowsTheLoadedBoundaries() {
         ControlledService service = new ControlledService();
         service.terms = List.of(term(ACADEMIC_YEAR, SPRING));
         TeacherScheduleController controller = controller(service);
@@ -121,24 +125,21 @@ public final class TeacherScheduleControllerTest {
                         && controller.requestedWeek() == null,
                 "the first load must let the server pick the week, saw "
                         + controller.requestedWeek());
-        require(!controller.canGoPrevious() && controller.canGoNext(),
-                "the first week must not walk before minWeek but must walk forward");
 
         service.week = week(MIN_WEEK + 1, MIN_WEEK, MAX_WEEK, CURRENT_WEEK, List.of());
-        controller.handleNextWeek(new ActionEvent());
-        require(controller.requestedWeek() != null && controller.requestedWeek() == MIN_WEEK + 1,
-                "下一周 must request loadedWeek + 1, saw " + controller.requestedWeek());
-        require(controller.canGoPrevious() && controller.canGoNext(),
-                "a week inside the bounds must allow both directions");
+        controller.selectWeek(MIN_WEEK + 1);
+        require(controller.requestedWeek() != null && controller.requestedWeek() == MIN_WEEK + 1
+                        && controller.loadedWeek() == MIN_WEEK + 1,
+                "selecting a week must request exactly that week, saw "
+                        + controller.requestedWeek() + " / " + controller.loadedWeek());
 
         service.week = week(MAX_WEEK, MIN_WEEK, MAX_WEEK, CURRENT_WEEK, List.of());
-        controller.handleNextWeek(new ActionEvent());
-        require(controller.loadedWeek() == MAX_WEEK && !controller.canGoNext()
-                        && controller.canGoPrevious(),
-                "the last week must not walk past maxWeek, saw " + controller.loadedWeek());
+        controller.selectWeek(MAX_WEEK);
+        require(controller.loadedWeek() == MAX_WEEK && controller.requestedWeek() == MAX_WEEK,
+                "the last week must be requestable, saw " + controller.loadedWeek());
 
-        require(service.scheduleCalls.equals(List.of("2025|3|null", "2025|3|2", "2025|3|3")),
-                "every navigation must request exactly one week, saw " + service.scheduleCalls);
+        require(service.scheduleCalls.equals(List.of("2025|3|null", "2025|3|2", "2025|3|16")),
+                "every selection must request exactly one week, saw " + service.scheduleCalls);
     }
 
     private static void backToCurrentWeekFollowsTheNullableCurrentWeek() {
@@ -158,7 +159,7 @@ public final class TeacherScheduleControllerTest {
                 "回到本周 must be enabled once the server reports a current week");
 
         service.week = week(CURRENT_WEEK + 1, MIN_WEEK, MAX_WEEK, CURRENT_WEEK, List.of());
-        controller.handleNextWeek(new ActionEvent());
+        controller.selectWeek(CURRENT_WEEK + 1);
         require(controller.loadedWeek() == CURRENT_WEEK + 1,
                 "the page must follow the loaded week, saw " + controller.loadedWeek());
 
@@ -183,8 +184,8 @@ public final class TeacherScheduleControllerTest {
         service.weekFutures.add(older);
         service.weekFutures.add(newer);
 
-        controller.handleNextWeek(new ActionEvent());
-        controller.handlePreviousWeek(new ActionEvent());
+        controller.selectWeek(CURRENT_WEEK + 1);
+        controller.selectWeek(CURRENT_WEEK - 1);
 
         newer.complete(week(CURRENT_WEEK - 1, MIN_WEEK, MAX_WEEK, CURRENT_WEEK,
                 List.of(normalEntry("9301", PLAIN_OFFERING, CURRENT_WEEK - 1, 3, 1, 2))));
@@ -233,7 +234,7 @@ public final class TeacherScheduleControllerTest {
 
         CompletableFuture<TeacherScheduleWeekDTO> late = new CompletableFuture<>();
         service.weekFutures.add(late);
-        controller.handleNextWeek(new ActionEvent());
+        controller.selectWeek(CURRENT_WEEK + 1);
         controller.unload();
         require(!controller.active(), "an unloaded page must stop accepting responses");
 
@@ -249,15 +250,34 @@ public final class TeacherScheduleControllerTest {
                         + service.scheduleCalls);
     }
 
-    private static void weekLabelAndGridTextComeFromTheDto() {
-        require(TeacherScheduleController.weekLabel(
-                        week(CURRENT_WEEK, MIN_WEEK, MAX_WEEK, CURRENT_WEEK, List.of()))
-                        .equals("第 8 周（1-16）"),
-                "the week label must read 第 N 周（min-max） for the loaded week, saw "
-                        + TeacherScheduleController.weekLabel(
-                                week(CURRENT_WEEK, MIN_WEEK, MAX_WEEK, CURRENT_WEEK, List.of())));
-        require(TeacherScheduleController.weekLabel(null).isEmpty(),
-                "no loaded week must render an empty week label");
+    private static void weekSpinnerValueAndGridTextComeFromTheDto() {
+        TeacherScheduleWeekDTO weekEight =
+                week(CURRENT_WEEK, MIN_WEEK, MAX_WEEK, CURRENT_WEEK, List.of());
+        require(Integer.valueOf(CURRENT_WEEK)
+                        .equals(TeacherScheduleController.weekSpinnerValue(weekEight, CURRENT_WEEK)),
+                "the spinner must show the loaded week, saw "
+                        + TeacherScheduleController.weekSpinnerValue(weekEight, CURRENT_WEEK));
+        require(Integer.valueOf(CURRENT_WEEK)
+                        .equals(TeacherScheduleController.weekSpinnerValue(weekEight, null)),
+                "without a loaded week the spinner must fall back to the server's currentWeek, saw "
+                        + TeacherScheduleController.weekSpinnerValue(weekEight, null));
+
+        TeacherScheduleWeekDTO beyondToday =
+                week(CURRENT_WEEK, MIN_WEEK, MAX_WEEK, null, List.of());
+        require(TeacherScheduleController.weekSpinnerValue(beyondToday, null) == MIN_WEEK,
+                "a term without a current week must fall back to minWeek, saw "
+                        + TeacherScheduleController.weekSpinnerValue(beyondToday, null));
+        require(TeacherScheduleController.weekSpinnerValue(null, CURRENT_WEEK) == null,
+                "no loaded week response must disable the week spinner instead of showing a number");
+
+        TeacherScheduleWeekDTO shortCalendar =
+                week(CURRENT_WEEK, MIN_WEEK, MIN_WEEK + 2, null, List.of());
+        require(TeacherScheduleController.weekSpinnerValue(shortCalendar, MAX_WEEK) == MIN_WEEK + 2,
+                "a week above the response's range must be clamped down to maxWeek, saw "
+                        + TeacherScheduleController.weekSpinnerValue(shortCalendar, MAX_WEEK));
+        require(TeacherScheduleController.weekSpinnerValue(shortCalendar, 0) == MIN_WEEK,
+                "a week below the response's range must be clamped up to minWeek, saw "
+                        + TeacherScheduleController.weekSpinnerValue(shortCalendar, 0));
 
         require(TeacherScheduleController.weekdayText(1).equals("周一")
                         && TeacherScheduleController.weekdayText(6).equals("周六")
@@ -441,12 +461,22 @@ public final class TeacherScheduleControllerTest {
 
         require(elementWithId(view, "scheduleGrid") != null,
                 "the page must expose the timetable grid");
-        require(elementWithId(view, "weekLabel") != null,
-                "the page must expose the week label");
-        require(elementWithId(view, "previousWeekButton") != null
-                        && elementWithId(view, "nextWeekButton") != null
-                        && elementWithId(view, "currentWeekButton") != null,
-                "the page must expose all three week navigation buttons");
+
+        // 周次控件与学生端同构（R2）：同一个 Spinner，同样可编辑；旧的“上一周/下一周”按钮与
+        // “第 N 周（min-max）”文案都不再存在于视图里。
+        Element spinner = elementWithId(view, "weekSpinner");
+        require(spinner != null && "Spinner".equals(spinner.getTagName()),
+                "the week control must be a Spinner like the student timetable, saw "
+                        + (spinner == null ? "no #weekSpinner" : spinner.getTagName()));
+        require("true".equals(spinner.getAttribute("editable")),
+                "the teacher week spinner must accept typed input like the student one, saw "
+                        + spinner.getAttribute("editable"));
+        require(elementWithId(view, "weekLabel") == null,
+                "the 第 N 周（min-max） label must be gone: the spinner replaces it");
+        require(!hasElementWithText(view, "上一周") && !hasElementWithText(view, "下一周"),
+                "the 上一周/下一周 buttons must be gone: the spinner replaces them");
+        require(elementWithId(view, "currentWeekButton") != null,
+                "回到本周 must stay next to the week spinner");
         require(elementWithId(view, "termFilter") != null,
                 "the page must expose the term filter shared with the offering list");
 
@@ -701,6 +731,14 @@ public final class TeacherScheduleControllerTest {
             if (stream == null) throw new IOException("Missing resource: " + path);
             return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
         }
+    }
+
+    private static boolean hasElementWithText(Document view, String text) {
+        NodeList elements = view.getElementsByTagName("*");
+        for (int index = 0; index < elements.getLength(); index++) {
+            if (text.equals(((Element) elements.item(index)).getAttribute("text"))) return true;
+        }
+        return false;
     }
 
     private static Element elementWithId(Document view, String id) {
