@@ -460,10 +460,11 @@ public class MainController {
     }
 
     /**
-     * 教务入口卡片标题：管理员进入教务管理，其余角色保持选课。
+     * 教务入口标题：所有角色统一为“教务管理”，返回值不再随角色变化。
+     * 形参 {@code role} 保留以保持调用点签名不变，方法体不再读取它。
      */
     static String courseCardTitleText(String role) {
-        return "管理员".equals(role) ? "教务管理" : "选课";
+        return "教务管理";
     }
 
     void setSceneSwitcher(SceneSwitcher switcher) {
