@@ -123,6 +123,24 @@ public class BankController {
                 setText(counterparty == null || counterparty.isBlank() ? "—" : counterparty);
             }
         });
+        // 备注可能很长，表格里只显示一行：悬停看全文，双击看完整详情。
+        txRemarkColumn.setCellFactory(column -> new TableCell<>() {
+            @Override protected void updateItem(String remark, boolean empty) {
+                super.updateItem(remark, empty);
+                if (empty) { setText(null); setTooltip(null); return; }
+                boolean blank = remark == null || remark.isBlank();
+                setText(blank ? "—" : remark);
+                setTooltip(blank ? null : new Tooltip(remark));
+            }
+        });
+        transactionTable.setRowFactory(table -> {
+            TableRow<BankTransaction> row = new TableRow<>();
+            row.setOnMouseClicked(event -> {
+                if (event.getClickCount() == 2 && !row.isEmpty()) showTransactionDetail(row.getItem());
+            });
+            return row;
+        });
+        transactionTable.setTooltip(new Tooltip("双击任意一行查看交易详情"));
         billUserColumn.setCellValueFactory(new javafx.scene.control.cell.PropertyValueFactory<>("userId"));
         billUserNameColumn.setCellValueFactory(new javafx.scene.control.cell.PropertyValueFactory<>("userName"));
         billTitleColumn.setCellValueFactory(new javafx.scene.control.cell.PropertyValueFactory<>("title"));
@@ -436,6 +454,54 @@ public class BankController {
             suppressBillFilterRefresh = false;
         }
         refreshBills();
+    }
+
+    /** 双击一行时弹出交易详情：表格里装不下的内容在这里完整显示。 */
+    private void showTransactionDetail(BankTransaction tx) {
+        if (tx == null) return;
+        Dialog<Void> dialog = new Dialog<>();
+        dialog.setTitle("交易详情");
+        dialog.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
+        java.net.URL stylesheet = getClass().getResource("/resources/css/style.css");
+        if (stylesheet != null) dialog.getDialogPane().getStylesheets().add(stylesheet.toExternalForm());
+
+        GridPane grid = new GridPane();
+        grid.setHgap(14);
+        grid.setVgap(10);
+        grid.setPadding(new Insets(16));
+        int row = 0;
+        row = addDetailRow(grid, row, "交易流水号", tx.getTransactionNo());
+        row = addDetailRow(grid, row, "交易类型",
+                tx.getTransactionType() == null ? "—" : tx.getTransactionType().getDescription());
+        row = addDetailRow(grid, row, "发生金额", tx.getAmount() == null ? "—"
+                : (tx.getAmount().signum() > 0 ? "+¥" : "-¥") + tx.getAmount().abs().toPlainString());
+        row = addDetailRow(grid, row, "交易后余额",
+                tx.getBalanceAfter() == null ? "—" : "¥" + tx.getBalanceAfter().toPlainString());
+        row = addDetailRow(grid, row, "对方用户编号",
+                tx.getCounterpartyUserId() == null || tx.getCounterpartyUserId().isBlank()
+                        ? "—" : tx.getCounterpartyUserId());
+        if (tx.getRelatedOrderId() != null) {
+            row = addDetailRow(grid, row, "关联订单编号", String.valueOf(tx.getRelatedOrderId()));
+        }
+        row = addDetailRow(grid, row, "交易时间", tx.getCreatedAt() == null ? "—" : tx.getCreatedAt());
+        addDetailRow(grid, row, "交易详情说明",
+                tx.getRemark() == null || tx.getRemark().isBlank() ? "—" : tx.getRemark());
+
+        dialog.getDialogPane().setContent(grid);
+        dialog.getDialogPane().setPrefWidth(540);
+        dialog.showAndWait();
+    }
+
+    /** 详情弹窗里的一行：左边字段名，右边内容，长文本自动换行。 */
+    private static int addDetailRow(GridPane grid, int row, String label, String value) {
+        Label name = new Label(label);
+        name.getStyleClass().add("form-label");
+        Label content = new Label(value);
+        content.setWrapText(true);
+        content.setMaxWidth(380);
+        grid.add(name, 0, row);
+        grid.add(content, 1, row);
+        return row + 1;
     }
 
     @FXML

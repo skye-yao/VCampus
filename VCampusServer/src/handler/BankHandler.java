@@ -31,16 +31,25 @@ public class BankHandler {
         try {
             String action = request.getAction() == null ? "" : request.getAction().toUpperCase();
             boolean admin = "管理员".equals(session.getRole());
+            String actorId = session.getUsername();
+            // 管理员共用校园财务账户：余额、流水与支付密码都取同一个账户，操作人仍是登录的管理员。
+            String bankUserId = admin ? BankService.financeAccountUserId() : actorId;
             switch (action) {
-                case "BANK_ACCOUNT_QUERY" -> response.putData("account", bankService.getAccount(session.getUsername()));
-                case "BANK_PASSWORD_STATUS_QUERY" -> response.putData("account", bankService.getAccount(session.getUsername()));
-                case "BANK_PASSWORD_SET" -> bankService.setPaymentPassword(session.getUsername(), string(request, "newPassword"));
-                case "BANK_PASSWORD_CHANGE" -> bankService.changePaymentPassword(session.getUsername(),
+                case "BANK_ACCOUNT_QUERY" -> response.putData("account", bankService.getAccount(bankUserId));
+                case "BANK_PASSWORD_STATUS_QUERY" -> response.putData("account", bankService.getAccount(bankUserId));
+                case "BANK_PASSWORD_SET" -> {
+                    requireFinancePasswordOwner(admin, actorId);
+                    bankService.setPaymentPassword(bankUserId, string(request, "newPassword"));
+                }
+                case "BANK_PASSWORD_CHANGE" -> {
+                    requireFinancePasswordOwner(admin, actorId);
+                    bankService.changePaymentPassword(bankUserId,
                         string(request, "oldPassword"), string(request, "newPassword"));
+                }
                 case "BANK_PASSWORD_RESET" -> bankService.resetPaymentPassword(admin,
                         string(request, "targetUserId"));
                 case "BANK_TRANSACTION_LIST" -> response.putData("transactions",
-                        bankService.listTransactions(session.getUsername(), integer(request, "limit", 100)));
+                        bankService.listTransactions(bankUserId, integer(request, "limit", 100)));
                 case "BANK_TRANSFER" -> response.putData("transactionNo", bankService.transfer(
                         session.getUsername(), string(request, "targetUserId"),
                         new BigDecimal(string(request, "amount")), string(request, "paymentPassword"),
@@ -90,6 +99,13 @@ public class BankHandler {
             response.setMessage("服务端内部错误：" + e.getMessage());
         }
         return response;
+    }
+
+    /** 共享的校园财务账户密码只能由主管理员修改，避免管理员之间互相锁死。 */
+    private void requireFinancePasswordOwner(boolean admin, String actorId) {
+        if (admin && !BankService.financeAccountUserId().equals(actorId)) {
+            throw new BusinessException("仅主管理员可以修改校园财务账户的支付密码");
+        }
     }
 
     private String string(Message request, String key) {

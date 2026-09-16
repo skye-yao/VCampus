@@ -527,6 +527,10 @@ VALUES
 (12,'USB桌面小风扇','宿舍桌面静音三档小风扇','生活用品',49.00,32,'ON_SALE')
 ON DUPLICATE KEY UPDATE `product_name`=VALUES(`product_name`);
 
+-- 商品图片不在本文件里：图片以二进制存在 tbl_product_image，体积较大，
+-- 单独放在 seed/seed-product-images.sql（按商品名匹配，可重复执行）。
+-- 商店演示订单与对应银行流水见 seed/seed-shop-demo-orders.sql。
+
 -- 食品分类的三件商品：同名商品已存在时跳过，不指定主键，不会覆盖已有商品。
 INSERT INTO `tbl_product` (`product_name`,`description`,`category`,`price`,`stock`,`status`)
 SELECT '全脂纯牛奶（250ml×12盒）', '250ml×12盒装。配料为生牛乳，蛋白质≥3.2g/100ml，口感醇厚，适合早餐饮用。保质期6个月，生产日期见包装喷码，未开封常温避光保存，开封后需冷藏并尽快喝完。', '食品', 45.00, 60, 'ON_SALE'

@@ -41,6 +41,11 @@ public class BankService implements IBankPaymentService {
     private final BankTransactionDAO transactionDAO = new BankTransactionDAO();
     private final CampusFinanceDAO financeDAO = new CampusFinanceDAO();
 
+    /** 校园财务账户的一卡通号；管理员共用这一个账户。 */
+    public static String financeAccountUserId() {
+        return FINANCE_ACCOUNT_USER_ID;
+    }
+
     public BankAccount getAccount(String userId) {
         try (Connection conn = LocalTimeConnection.getConnection()) {
             BankAccount account = accountDAO.findByUserId(conn, userId, false);
@@ -152,12 +157,12 @@ public class BankService implements IBankPaymentService {
         } finally { resetAndClose(conn); }
     }
 
-    public Map<String, Object> batchTransfer(String userId, boolean admin, List<String> targetUserIds,
+    public Map<String, Object> batchTransfer(String actorId, boolean admin, List<String> targetUserIds,
                                               BigDecimal amountPerUser, String paymentPassword,
                                               String requestId, String remark) {
-        if (!admin || !FINANCE_ACCOUNT_USER_ID.equals(userId)) {
-            throw new BusinessException("仅校园财务管理员可以批量转账");
-        }
+        if (!admin) throw new BusinessException("仅管理员可以批量转账");
+        // 管理员共用校园财务账户：资金统一从财务账户出，操作人记在流水备注里。
+        String financeUserId = FINANCE_ACCOUNT_USER_ID;
         requireRequestId(requestId);
         if (requestId.length() > 55) throw new BusinessException("批量转账请求编号过长");
         amountPerUser = normalizeAmount(amountPerUser);
@@ -167,19 +172,21 @@ public class BankService implements IBankPaymentService {
         LinkedHashSet<String> uniqueIds = new LinkedHashSet<>();
         if (targetUserIds != null) {
             for (String id : targetUserIds) {
-                if (id != null && !id.isBlank() && !userId.equals(id.trim())) uniqueIds.add(id.trim());
+                if (id != null && !id.isBlank() && !financeUserId.equals(id.trim())) uniqueIds.add(id.trim());
             }
         }
         if (uniqueIds.isEmpty()) throw new BusinessException("请至少选择一名收款人");
         if (uniqueIds.size() > 1000) throw new BusinessException("一次最多向1000人批量转账");
         String cleanRemark = remark == null || remark.isBlank() ? "管理员批量转账" : remark.trim();
         if (cleanRemark.length() > 120) throw new BusinessException("转账说明不能超过120个字符");
+        // 共享账户下从流水看不出是谁操作的，这里把操作人写进备注。
+        String traceRemark = cleanRemark + "（操作人 " + actorId + "）";
         BigDecimal totalAmount = amountPerUser.multiply(BigDecimal.valueOf(uniqueIds.size()));
 
         Connection conn = null;
         try {
             conn = LocalTimeConnection.getConnection(); conn.setAutoCommit(false);
-            BankAccount sourcePreview = requireAccount(conn, userId, false);
+            BankAccount sourcePreview = requireAccount(conn, financeUserId, false);
             BankTransaction duplicate = transactionDAO.findByRequestId(conn, requestId + "-0");
             if (duplicate != null) {
                 validateDuplicate(duplicate, sourcePreview.getAccountId(), BankTransactionType.TRANSFER_OUT,
@@ -209,7 +216,7 @@ public class BankService implements IBankPaymentService {
                 requireActive(locked);
                 lockedAccounts.put(locked.getUserId(), locked);
             }
-            BankAccount source = lockedAccounts.get(userId);
+            BankAccount source = lockedAccounts.get(financeUserId);
             verifyPaymentPassword(conn, source, paymentPassword);
             if (source.getBalance().compareTo(totalAmount) < 0) {
                 throw new BusinessException("校园财务账户余额不足，本次共需" + totalAmount + "元");
@@ -232,11 +239,11 @@ public class BankService implements IBankPaymentService {
                 insertTransaction(conn, sourceTransactionNo, source, targetId,
                         BankTransactionType.TRANSFER_OUT, amountPerUser.negate(),
                         runningSourceBalance, null, requestId + "-" + recipientIndex,
-                        cleanRemark + "；转给 " + targetId);
+                        traceRemark + "；转给 " + targetId);
                 insertTransaction(conn, newTransactionNo(), target, source.getUserId(),
                         BankTransactionType.TRANSFER_IN, amountPerUser,
                         target.getBalance().add(amountPerUser), null, null,
-                        cleanRemark + "（批次" + batchTransactionNo + "）");
+                        traceRemark + "（批次" + batchTransactionNo + "）");
                 recipientIndex++;
             }
             conn.commit();
@@ -416,15 +423,17 @@ public class BankService implements IBankPaymentService {
                 if (reviewerId.equals(item.getApplicantId())) {
                     throw new BusinessException("校园财务管理员不能审核自己的报销申请");
                 }
-                BankAccount financePreview = requireAccount(conn, reviewerId, false);
+                // 资金从校园财务账户出，操作人仍记录为当前管理员。
+                String financeUserId = FINANCE_ACCOUNT_USER_ID;
+                BankAccount financePreview = requireAccount(conn, financeUserId, false);
                 BankAccount applicantPreview = requireAccount(conn, item.getApplicantId(), false);
                 String firstUser = financePreview.getAccountId() < applicantPreview.getAccountId()
-                        ? reviewerId : item.getApplicantId();
-                String secondUser = firstUser.equals(reviewerId) ? item.getApplicantId() : reviewerId;
+                        ? financeUserId : item.getApplicantId();
+                String secondUser = firstUser.equals(financeUserId) ? item.getApplicantId() : financeUserId;
                 BankAccount firstLocked = requireAccount(conn, firstUser, true);
                 BankAccount secondLocked = requireAccount(conn, secondUser, true);
-                BankAccount financeAccount = firstUser.equals(reviewerId) ? firstLocked : secondLocked;
-                BankAccount applicantAccount = firstUser.equals(reviewerId) ? secondLocked : firstLocked;
+                BankAccount financeAccount = firstUser.equals(financeUserId) ? firstLocked : secondLocked;
+                BankAccount applicantAccount = firstUser.equals(financeUserId) ? secondLocked : firstLocked;
                 requireActive(financeAccount); requireActive(applicantAccount);
                 verifyPaymentPassword(conn, financeAccount, paymentPassword);
                 if (financeAccount.getBalance().compareTo(item.getAmount()) < 0) {
