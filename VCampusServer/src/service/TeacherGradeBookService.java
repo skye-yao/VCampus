@@ -93,6 +93,13 @@ public class TeacherGradeBookService {
     private static final String DRAFT_KIND_RESUBMISSION = "RESUBMISSION";
     private static final String DRAFT_KIND_CORRECTION = "CORRECTION";
     private static final int SCORE_SCALE = 2;
+    /**
+     * 更正原因的字符上限，与 {@code teacher_grade_book.correction_reason}、
+     * {@code grade_submission.correction_reason} 与 {@code teacher_grade_change_log.reason} 的
+     * {@code VARCHAR(500)} 一致，也与同模块的调课原因同一个口径。超长必须在服务端按坏请求拒绝：
+     * 交给 MySQL 严格模式就会变成 1406 / 服务不可用，非严格模式则把原因静默截断在审计里。
+     */
+    private static final int MAX_REASON = 500;
     /** 不及格线：总评严格小于 60 计入批次头的 failed_count。 */
     private static final BigDecimal FAIL_SCORE = new BigDecimal("60");
     private static final String SAVE_FAILURE = "保存成绩草稿事务执行失败";
@@ -501,6 +508,9 @@ public class TeacherGradeBookService {
         if (goal.correction() && reason == null) {
             throw new IllegalArgumentException("更正原因不能为空");
         }
+        if (reason != null && reason.length() > MAX_REASON) {
+            throw new IllegalArgumentException("更正原因不能超过 " + MAX_REASON + " 字符");
+        }
         return new Revision(uid, operationId, offeringId, sourceSubmissionId, expectedRevision,
                 reason, canonicalRevision(operationId, offeringId, sourceSubmissionId,
                 expectedRevision, reason));
@@ -589,7 +599,7 @@ public class TeacherGradeBookService {
             dao.upsertItem(connection, request.offeringId(), row.enrollmentId(), row.scores());
         }
         auditChanges(connection, request, action, book == null ? null : book.scheme(), previous,
-                storedRows, prepared.revision(), book == null ? null : book.correctionReason());
+                storedRows, prepared.revision(), prepared.correctionReason());
         return prepared;
     }
 
@@ -605,7 +615,7 @@ public class TeacherGradeBookService {
         if (book == null) {
             dao.insertBook(connection, request.offeringId(), schemeJson, request.uid(),
                     clock.instant());
-            return new PreparedBook(1, DRAFT_KIND_INITIAL, null);
+            return new PreparedBook(1, DRAFT_KIND_INITIAL, null, null);
         }
         boolean reopened = !book.draftOpen();
         if (reopened) reopenDraft(connection, request, book);
@@ -618,10 +628,12 @@ public class TeacherGradeBookService {
             throw new ConflictException("成绩草稿版本已变化，请重新加载后重试",
                     readBook(connection, request.offeringId(), true));
         }
-        // 重开的草稿类型固定是 RESUBMISSION，基础批次就是被驳回的那一批（DAO 在重开时写入）。
+        // 重开的草稿类型固定是 RESUBMISSION，基础批次就是被驳回的那一批，更正原因被清空
+        // （两者都由 DAO 在重开时写入；这里同步反映到内存里的那份状态）。
         return new PreparedBook(book.revision() + 1,
                 reopened ? DRAFT_KIND_RESUBMISSION : book.draftKind(),
-                reopened ? book.lastSubmissionId() : book.baseSubmissionId());
+                reopened ? book.lastSubmissionId() : book.baseSubmissionId(),
+                reopened ? null : book.correctionReason());
     }
 
     /**
@@ -734,9 +746,8 @@ public class TeacherGradeBookService {
         long submissionId = dao.insertSubmission(connection, new TeacherGradeBookDAO.SubmissionInsert(
                 request.offeringId(), dao.nextSubmissionVersion(connection, request.offeringId()),
                 request.uid(), now, TeacherGradeBookDAO.schemeJson(request.scheme()),
-                request.rosterDigest(), prepared.baseSubmissionId(), book == null ? null
-                        : book.correctionReason(), prepared.draftKind(), totalCount, failed,
-                average, max, min));
+                request.rosterDigest(), prepared.baseSubmissionId(), prepared.correctionReason(),
+                prepared.draftKind(), totalCount, failed, average, max, min));
         for (TeacherGradeBookDAO.SubmissionItemRow item : items) {
             dao.insertSubmissionItem(connection, submissionId, item);
         }
@@ -1203,8 +1214,14 @@ public class TeacherGradeBookService {
     /**
      * 保存/提交写入后的工作副本状态：{@code revision} 是本次写入后的版本，类型与基础批次供提交
      * 记录批次来源（重开的草稿固定是 RESUBMISSION，基础批次是被驳回的那一批）。
+     *
+     * <p>{@code correctionReason} 是本次写入后工作副本上的更正原因：重开一律为 null（重提不是更正，
+     * 被驳回的批次本身就是一次更正时也不能把上一轮的原因带进新批次与变更审计），其余情况沿用工作
+     * 副本原来的值。它必须从这里取而不是从写事务开头读到的那一行取——惰性重开已经把原因清掉了，
+     * 而那个 {@code GradeBookRow} 还是清之前的样子。
      */
-    private record PreparedBook(int revision, String draftKind, Long baseSubmissionId) {
+    private record PreparedBook(int revision, String draftKind, Long baseSubmissionId,
+                                String correctionReason) {
     }
 
     private record Normalized(String uid, String operationId, long offeringId, int expectedRevision,

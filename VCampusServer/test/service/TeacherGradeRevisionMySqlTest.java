@@ -51,19 +51,21 @@ import java.util.concurrent.atomic.AtomicReference;
  *
  * <p>What the suite pins: a source that is not the offering's latest batch, a source in the wrong
  * state, an expected revision that has moved, a PENDING batch, an already-open draft, a teacher who
- * is not the offering's {@code role=0} teacher and a blank correction reason are all refusals that
- * write nothing; a replayed start returns the stored result without resetting the draft the teacher
- * has already edited; two teachers racing for one offering leave exactly one start; an injected
- * failure inside the transaction rolls the copied draft, the working copy, the audit and the
- * operation log back together; the editable copy comes from the <em>frozen batch</em>, so a student
- * enrolled after submission has four NULL scores (never 0) and a student who dropped has no row at
- * all; a scheme-only change logs every student whose recomputed total or grade point actually
- * moved; the lazy reopen (a plain save against a closed REJECTED draft) and the explicit button
- * leave the same draft kind, the same base batch and the same student-level audit row, and the whole
- * version chain is walked end to end with the student-visible value read from the published
- * {@code grade} projection: v1 APPROVED → students read v1 → correction draft → still v1 → v2
- * PENDING → still v1 → v2 REJECTED → still v1 → resubmission → v3 APPROVED → students read v3 while
- * the v1/v2 snapshots stay queryable.
+ * is not the offering's {@code role=0} teacher and a blank or over-long correction reason are all
+ * refusals that write nothing; a replayed start returns the stored result without resetting the draft
+ * the teacher has already edited; two co-teachers racing for one offering leave exactly one start; an
+ * injected failure inside the transaction rolls the copied draft, the working copy, the audit and the
+ * operation log back together (with a second seam that fires <em>after</em> the audit row was really
+ * inserted, so that claim is not vacuous); the editable copy comes from the <em>frozen batch</em>, so
+ * a student enrolled after submission has four NULL scores (never 0) and a student who dropped has no
+ * row at all; a scheme-only change logs every student whose recomputed total or grade point actually
+ * moved; the lazy reopen (a plain save against a closed REJECTED draft) and the explicit button leave
+ * the same draft kind, the same base batch and the same <em>cleared</em> correction reason — the
+ * fixture's rejected batch is itself a correction, so a door that forgot to clear the reason would
+ * carry it into a RESUBMISSION batch; and the whole version chain is walked end to end with the
+ * student-visible value read from the published {@code grade} projection: v1 APPROVED → students read
+ * v1 → correction draft → still v1 → v2 PENDING → still v1 → v2 REJECTED → still v1 → resubmission →
+ * v3 APPROVED → students read v3 while the v1/v2 snapshots stay queryable.
  *
  * <p>Fixtures live in the 949000-949999 band with the {@code tgr949-} prefix (947000-947999 is
  * {@code TeacherGradeDraftMySqlTest}, 948000-948999 is {@code TeacherGradeSubmissionMySqlTest}), and
@@ -84,12 +86,20 @@ public final class TeacherGradeRevisionMySqlTest {
     private static final String CLOCK_TEXT = "2026-09-16 03:00:00";
 
     private static final String TEACHER = PREFIX + "teacher";
+    /**
+     * The second {@code role=0} teacher of {@code OFF_RACE}: co-teachers are legal
+     * ({@code TeacherAccessPolicy} matches any {@code role=0} row), so the 两个教师竞争 case races
+     * two distinct uids instead of one uid in two threads.
+     */
+    private static final String CO_TEACHER = PREFIX + "teacher-b";
     /** A teacher role user, but not a {@code role=0} teacher of any offering in this fixture. */
     private static final String OUTSIDER = PREFIX + "outsider";
     private static final String ADMIN = PREFIX + "admin";
 
     private static final String CORRECTION_REASON = "期末成绩登分错误，需要更正";
     private static final String WEIGHT_REASON = "调整权重";
+    /** 每个原因列的宽度（VARCHAR(500)）；服务端的更正原因上限必须与它一致。 */
+    private static final int MAX_REASON = 500;
 
     /** sha256 of "949401\n949402\n". */
     private static final String DIGEST_CHAIN =
@@ -446,17 +456,21 @@ public final class TeacherGradeRevisionMySqlTest {
         int auditBefore = count("SELECT COUNT(*) FROM teacher_grade_change_log WHERE offering_id="
                 + OFF_REASON);
 
-        String[] blanks = {null, "", "   "};
-        String[] operations = {op(17), op(18), op(19)};
+        // Blank and over-long are both bad requests, not "let MySQL decide": the reason columns are
+        // VARCHAR(500), so 501 characters would surface as 1406 / 服务不可用 under strict mode.
+        String tooLong = "正".repeat(MAX_REASON + 1);
+        String longest = "正".repeat(MAX_REASON);
+        String[] blanks = {null, "", "   ", tooLong};
+        String[] operations = {op(17), op(18), op(19), op(49)};
         for (int position = 0; position < blanks.length; position++) {
             String blank = blanks[position];
             String operation = operations[position];
             IllegalArgumentException refused = expect(IllegalArgumentException.class,
                     () -> service.beginGradeCorrection(TEACHER,
                             revision(operation, OFF_REASON, v1, 1, blank)),
-                    "a blank correction reason is refused");
+                    "a blank or over-long correction reason is refused");
             require(refused.getMessage() != null && refused.getMessage().contains("更正原因"),
-                    "the refusal names the missing reason (observed " + refused.getMessage() + ")");
+                    "the refusal names the reason (observed " + refused.getMessage() + ")");
         }
         require(count("SELECT COUNT(*) FROM teacher_grade_change_log WHERE offering_id=" + OFF_REASON)
                         == auditBefore
@@ -465,13 +479,20 @@ public final class TeacherGradeRevisionMySqlTest {
                         + " AND correction_reason IS NULL") == 1
                         && count(operationLog(operations[0], OFF_REASON, "beginGradeCorrection")) == 0
                         && count(operationLog(operations[1], OFF_REASON, "beginGradeCorrection")) == 0
-                        && count(operationLog(operations[2], OFF_REASON, "beginGradeCorrection")) == 0,
+                        && count(operationLog(operations[2], OFF_REASON, "beginGradeCorrection")) == 0
+                        && count(operationLog(operations[3], OFF_REASON, "beginGradeCorrection")) == 0,
                 "a refused reason writes neither a draft nor an audit nor a log row");
 
+        // Exactly the column width is still a legal reason — the bound is "more than 500", one rule.
         TeacherGradeBookDTO opened = service.beginGradeCorrection(TEACHER,
-                revision(op(20), OFF_REASON, v1, 1, "更正期中成绩")).getValue();
-        require("DRAFT".equals(opened.getState()) && opened.isCanEdit(),
+                revision(op(20), OFF_REASON, v1, 1, longest)).getValue();
+        require("DRAFT".equals(opened.getState()) && opened.isCanEdit()
+                        && opened.getCorrectionReason() != null
+                        && opened.getCorrectionReason().length() == MAX_REASON,
                 "a correction with a reason opens the draft (observed " + opened.getState() + ")");
+        require(count("SELECT COUNT(*) FROM teacher_grade_book WHERE offering_id=" + OFF_REASON
+                        + " AND correction_reason='" + longest + "'") == 1,
+                "a reason of the column's own width is stored whole, not truncated");
 
         // The half-finished draft is the "已打开未处理草稿" guard: a second press is a conflict,
         // not a silent reset back to the frozen batch.
@@ -629,6 +650,9 @@ public final class TeacherGradeRevisionMySqlTest {
                         row(I2, "60.00", "50.00", "40.00", "30.00")));
         long v1 = Long.parseLong(book.getLastSubmissionId());
         approve(v1, 1, null);
+        require(count("SELECT COUNT(*) FROM course_offering_teacher WHERE offering_id=" + OFF_RACE
+                        + " AND role=0 AND uid IN ('" + TEACHER + "','" + CO_TEACHER + "')") == 2,
+                "the race really is two co-teachers of the same offering, not one uid twice");
 
         CyclicBarrier barrier = new CyclicBarrier(2);
         AtomicReference<TeacherOperationResultDTO<TeacherGradeBookDTO>> winner =
@@ -636,10 +660,10 @@ public final class TeacherGradeRevisionMySqlTest {
         AtomicReference<TeacherGradeBookService.ConflictException> loser = new AtomicReference<>();
         List<Throwable> unexpected = new ArrayList<>();
 
-        Thread first = new Thread(attempt(service, op(30), OFF_RACE, v1, 1, barrier, winner, loser,
-                unexpected), "revision-starter-a");
-        Thread second = new Thread(attempt(service, op(31), OFF_RACE, v1, 1, barrier, winner, loser,
-                unexpected), "revision-starter-b");
+        Thread first = new Thread(attempt(service, TEACHER, op(30), OFF_RACE, v1, 1, barrier,
+                winner, loser, unexpected), "revision-starter-a");
+        Thread second = new Thread(attempt(service, CO_TEACHER, op(31), OFF_RACE, v1, 1, barrier,
+                winner, loser, unexpected), "revision-starter-b");
         first.start();
         second.start();
         first.join();
@@ -653,18 +677,18 @@ public final class TeacherGradeRevisionMySqlTest {
         require(loser.get() != null && loser.get().getEntity() != null
                         && "DRAFT".equals(loser.get().getEntity().getState()),
                 "the loser gets a conflict carrying the draft the winner opened");
+        // One log row for the offering, whichever of the two co-teachers won it.
         require(count("SELECT COUNT(*) FROM teacher_grade_change_log WHERE offering_id=" + OFF_RACE
                         + " AND action='beginGradeCorrection'") == 1
                         && count("SELECT COUNT(*) FROM teacher_course_operation_log WHERE"
-                        + " teacher_uid='" + TEACHER + "' AND action='beginGradeCorrection'"
-                        + " AND target_id='" + OFF_RACE + "'") == 1
+                        + " action='beginGradeCorrection' AND target_id='" + OFF_RACE + "'") == 1
                         && count("SELECT COUNT(*) FROM teacher_grade_book WHERE offering_id="
                         + OFF_RACE + " AND draft_open=1 AND draft_kind='CORRECTION'"
                         + " AND base_submission_id=" + v1 + " AND revision=1") == 1,
                 "the race leaves exactly one start, one audit row and one open correction draft");
     }
 
-    private static Runnable attempt(TeacherGradeBookService service, String operationId,
+    private static Runnable attempt(TeacherGradeBookService service, String uid, String operationId,
                                     long offeringId, long sourceSubmissionId, long expectedRevision,
                                     CyclicBarrier barrier,
                                     AtomicReference<TeacherOperationResultDTO<TeacherGradeBookDTO>> winner,
@@ -673,7 +697,7 @@ public final class TeacherGradeRevisionMySqlTest {
         return () -> {
             try {
                 barrier.await();
-                winner.set(service.beginGradeCorrection(TEACHER, revision(operationId, offeringId,
+                winner.set(service.beginGradeCorrection(uid, revision(operationId, offeringId,
                         sourceSubmissionId, expectedRevision, "并发开始更正")));
             } catch (TeacherGradeBookService.ConflictException conflict) {
                 loser.set(conflict);
@@ -733,6 +757,39 @@ public final class TeacherGradeRevisionMySqlTest {
                         + " AND action='beginGradeCorrection'") == 0
                         && count(operationLog(op(33), OFF_FAIL, "beginGradeCorrection")) == 0,
                 "the failed start writes neither an audit nor a log row");
+
+        // The first seam fires before the book update, so its audit/log assertion is trivially true.
+        // The second one fires later — inside the operation-log insert, i.e. after the book update and
+        // after the class-level start row has actually been inserted — which is what turns case 9's
+        // four-part claim (book, draft items, audit, log) into a real assertion. The offering is
+        // reused on purpose: the first failure must have rolled back completely for this attempt to
+        // even reach the same guards.
+        FailingOperationDao operations = new FailingOperationDao();
+        TeacherGradeBookService lateFailing = service(new TeacherGradeBookDAO(), operations);
+        DatabaseException late = expect(DatabaseException.class,
+                () -> lateFailing.beginGradeCorrection(TEACHER,
+                        revision(op(34), OFF_FAIL, v1, 1, "更正实验成绩")),
+                "a failure in the operation log rolls the whole start back");
+        require(late.getMessage() != null && late.getMessage().contains("版本变更"),
+                "the late failure names the version-change transaction (observed "
+                        + late.getMessage() + ")");
+        require(operations.reached(),
+                "the operation-log insert was reached, so the book update and the class-level start"
+                        + " row were written before the rollback");
+        require(count("SELECT COUNT(*) FROM teacher_grade_change_log WHERE offering_id=" + OFF_FAIL
+                        + " AND action='beginGradeCorrection'") == 0
+                        && count(operationLog(op(34), OFF_FAIL, "beginGradeCorrection")) == 0,
+                "the late failure rolls the inserted start row and the log back together");
+        require(count("SELECT COUNT(*) FROM teacher_grade_draft_item WHERE offering_id=" + OFF_FAIL
+                        + " AND enrollment_id=" + J_STRAY + " AND daily_score=88.00") == 1
+                        && count("SELECT COUNT(*) FROM teacher_grade_draft_item WHERE offering_id="
+                        + OFF_FAIL + " AND enrollment_id=" + J1 + " AND experiment_score=77.00") == 1
+                        && count("SELECT COUNT(*) FROM teacher_grade_draft_item WHERE offering_id="
+                        + OFF_FAIL + " AND enrollment_id=" + J2 + " AND experiment_score=66.00") == 1
+                        && count("SELECT COUNT(*) FROM teacher_grade_book WHERE offering_id="
+                        + OFF_FAIL + " AND draft_open=0 AND draft_kind='INITIAL' AND revision=1"
+                        + " AND base_submission_id IS NULL AND correction_reason IS NULL") == 1,
+                "the late failure also restores the draft copy and the working copy it had opened");
     }
 
     /** Overridable write seam: failing the book update proves the draft copy rolls back with it. */
@@ -746,88 +803,143 @@ public final class TeacherGradeRevisionMySqlTest {
         }
     }
 
+    /**
+     * The later seam: {@code operations.insert} is the last write of the transaction, so this failure
+     * happens after the working copy was reopened and after the class-level start row was inserted.
+     * {@link #reached()} records that the insert was actually reached, so the "nothing was written"
+     * assertions cannot pass vacuously.
+     */
+    private static final class FailingOperationDao extends TeacherCourseOperationDAO {
+        private boolean reached;
+
+        @Override
+        public void insert(Connection connection, String teacherUid, String operationId, String action,
+                           String targetType, String targetId, String requestDigest,
+                           String requestJson, String responseJson, String resultCode)
+                throws SQLException {
+            reached = true;
+            throw new SQLException("injected operation log failure");
+        }
+
+        boolean reached() {
+            return reached;
+        }
+    }
+
     // ------------------------------------------- lazy reopen versus explicit reopen
 
     /**
-     * Ruling 1: the explicit button and the lazy next-save are two doors into the same room. Both
-     * leave the same draft kind, the same base batch and the same student-level audit row at the
-     * same revision; the only difference is that the explicit door records the act of starting,
-     * while the lazy door's trace is the save that triggered it.
+     * Ruling 1: the explicit button and the lazy next-save are two doors into the same room.
+     *
+     * <p>The fixture makes that non-trivial: the rejected batch is itself a CORRECTION carrying a
+     * reason, so a door that only flips `draft_open`/`draft_kind` would carry a stale 更正原因 into a
+     * {@code submission_kind='RESUBMISSION'} batch (and into every audit row of the save). Both doors
+     * must clear it. They leave the same draft kind, the same base batch, the same empty reason and
+     * the same student-level audit row at the same revision; the only difference is that the explicit
+     * door records the act of starting, while the lazy door's trace is the save that triggered it.
      */
     private static void verifyLazyAndExplicitReopenAgree(TeacherGradeBookService service)
             throws Exception {
-        long explicitSource = rejectedBatch(service, op(34), OFF_EXPLICIT, L1, L2);
-        long lazySource = rejectedBatch(service, op(35), OFF_LAZY, K1, K2);
+        long explicitSource = rejectedCorrection(service, op(35), op(36), op(37), OFF_EXPLICIT,
+                L1, L2);
+        long lazySource = rejectedCorrection(service, op(41), op(42), op(43), OFF_LAZY, K1, K2);
 
         service.reopenRejectedGradeBook(TEACHER,
-                revision(op(36), OFF_EXPLICIT, explicitSource, 1, null));
+                revision(op(38), OFF_EXPLICIT, explicitSource, 2, null));
         require(count("SELECT COUNT(*) FROM teacher_grade_book WHERE offering_id=" + OFF_EXPLICIT
-                        + " AND draft_open=1 AND revision=1") == 1,
-                "the explicit reopen leaves the revision for the save that follows");
+                        + " AND draft_open=1 AND revision=2 AND correction_reason IS NULL") == 1,
+                "the explicit reopen leaves the revision for the save that follows and clears the"
+                        + " previous correction reason");
 
         TeacherGradeBookDTO explicitSaved = service.saveDraft(TEACHER,
-                request(op(37), OFF_EXPLICIT, 1, currentDigest(OFF_EXPLICIT), completeScheme(),
+                request(op(39), OFF_EXPLICIT, 2, currentDigest(OFF_EXPLICIT), completeScheme(),
                         List.of(row(L1, "30.00", "80.00", "70.00", "60.00"),
                                 row(L2, "50.00", "40.00", "30.00", "20.00")))).getValue();
         TeacherGradeBookDTO lazySaved = service.saveDraft(TEACHER,
-                request(op(38), OFF_LAZY, 1, currentDigest(OFF_LAZY), completeScheme(),
+                request(op(44), OFF_LAZY, 2, currentDigest(OFF_LAZY), completeScheme(),
                         List.of(row(K1, "30.00", "80.00", "70.00", "60.00"),
                                 row(K2, "50.00", "40.00", "30.00", "20.00")))).getValue();
-        require(explicitSaved.getRevision() == 2 && lazySaved.getRevision() == 2,
+        require(explicitSaved.getRevision() == 3 && lazySaved.getRevision() == 3
+                        && explicitSaved.getCorrectionReason() == null
+                        && lazySaved.getCorrectionReason() == null,
                 "the save after an explicit reopen and the save that performs the lazy reopen reach"
-                        + " the same revision (observed " + explicitSaved.getRevision() + "/"
-                        + lazySaved.getRevision() + ")");
+                        + " the same revision and the same empty reason (observed "
+                        + explicitSaved.getRevision() + "/" + lazySaved.getRevision() + ")");
 
         String explicitShape = bookShape(OFF_EXPLICIT);
         String lazyShape = bookShape(OFF_LAZY);
-        require(("2/RESUBMISSION/" + explicitSource).equals(explicitShape)
-                        && ("2/RESUBMISSION/" + lazySource).equals(lazyShape),
-                "both doors leave a RESUBMISSION draft based on the batch that was rejected"
-                        + " (observed " + explicitShape + " / " + lazyShape + ")");
+        require(("3/RESUBMISSION/" + explicitSource + "/").equals(explicitShape)
+                        && ("3/RESUBMISSION/" + lazySource + "/").equals(lazyShape),
+                "both doors leave a RESUBMISSION draft based on the rejected batch and with no"
+                        + " inherited correction reason (observed " + explicitShape + " / "
+                        + lazyShape + ")");
         require(bookKind(OFF_EXPLICIT).equals(bookKind(OFF_LAZY))
                         && "RESUBMISSION".equals(bookKind(OFF_LAZY)),
                 "the two paths cannot diverge in the draft kind they leave behind");
 
         require(count("SELECT COUNT(*) FROM teacher_grade_change_log WHERE offering_id="
                         + OFF_EXPLICIT + " AND action='saveGradeDraft' AND enrollment_id=" + L1
-                        + " AND book_revision=2") == 1
+                        + " AND book_revision=3 AND reason IS NULL") == 1
                         && count("SELECT COUNT(*) FROM teacher_grade_change_log WHERE offering_id="
                         + OFF_LAZY + " AND action='saveGradeDraft' AND enrollment_id=" + K1
-                        + " AND book_revision=2") == 1,
-                "both paths log the same student-level change at the same revision");
+                        + " AND book_revision=3 AND reason IS NULL") == 1,
+                "both paths log the same student-level change at the same revision, with no inherited"
+                        + " correction reason");
         require(count("SELECT COUNT(*) FROM teacher_grade_change_log WHERE offering_id="
                         + OFF_EXPLICIT + " AND action='reopenRejectedGradeBook'"
-                        + " AND enrollment_id IS NULL AND reason IS NULL AND book_revision=1"
+                        + " AND enrollment_id IS NULL AND reason IS NULL AND book_revision=2"
                         + " AND before_json IS NOT NULL AND after_json IS NOT NULL") == 1
                         && count("SELECT COUNT(*) FROM teacher_grade_change_log WHERE offering_id="
                         + OFF_LAZY + " AND action='reopenRejectedGradeBook'") == 0,
                 "the explicit start is its own auditable act while the lazy reopen is traced by the"
                         + " save that triggered it");
 
-        TeacherGradeBookDTO explicitBatch = submit(service, op(39), OFF_EXPLICIT, 2, completeScheme(),
+        TeacherGradeBookDTO explicitBatch = submit(service, op(40), OFF_EXPLICIT, 3, completeScheme(),
                 List.of(row(L1, "30.00", "80.00", "70.00", "60.00"),
                         row(L2, "50.00", "40.00", "30.00", "20.00")));
-        TeacherGradeBookDTO lazyBatch = submit(service, op(40), OFF_LAZY, 2, completeScheme(),
+        TeacherGradeBookDTO lazyBatch = submit(service, op(45), OFF_LAZY, 3, completeScheme(),
                 List.of(row(K1, "30.00", "80.00", "70.00", "60.00"),
                         row(K2, "50.00", "40.00", "30.00", "20.00")));
-        require(("2/RESUBMISSION/" + explicitSource).equals(
+        require(("3/RESUBMISSION/" + explicitSource + "/").equals(
                         batchShape(explicitBatch.getLastSubmissionId()))
-                        && ("2/RESUBMISSION/" + lazySource).equals(
+                        && ("3/RESUBMISSION/" + lazySource + "/").equals(
                         batchShape(lazyBatch.getLastSubmissionId())),
-                "the batch that follows each path is the same RESUBMISSION of the rejected batch"
-                        + " (observed " + batchShape(explicitBatch.getLastSubmissionId()) + " / "
+                "the batch that follows each path is the same RESUBMISSION of the rejected batch,"
+                        + " with a NULL correction reason (observed "
+                        + batchShape(explicitBatch.getLastSubmissionId()) + " / "
                         + batchShape(lazyBatch.getLastSubmissionId()) + ")");
     }
 
-    /** A batch that is submitted and then rejected, so the entry points have a legal source. */
-    private static long rejectedBatch(TeacherGradeBookService service, String operationId,
-                                      long offeringId, long first, long second) throws Exception {
-        TeacherGradeBookDTO book = submit(service, operationId, offeringId, 0, completeScheme(),
+    /**
+     * A batch that is submitted, corrected, submitted again and finally rejected — so the doors have a
+     * legal source whose rejected batch is itself a CORRECTION, i.e. one that carries a reason the
+     * doors must not inherit.
+     */
+    private static long rejectedCorrection(TeacherGradeBookService service, String firstSubmit,
+                                           String begin, String secondSubmit, long offeringId,
+                                           long first, long second) throws Exception {
+        TeacherGradeBookDTO firstBook = submit(service, firstSubmit, offeringId, 0, completeScheme(),
                 List.of(row(first, "90.00", "80.00", "70.00", "60.00"),
                         row(second, "50.00", "40.00", "30.00", "20.00")));
-        long submission = Long.parseLong(book.getLastSubmissionId());
-        reject(submission, 1, "请复核");
-        return submission;
+        long v1 = Long.parseLong(firstBook.getLastSubmissionId());
+        approve(v1, 1, null);
+        service.beginGradeCorrection(TEACHER,
+                revision(begin, offeringId, v1, 1, "上一轮更正原因"));
+        TeacherGradeBookDTO secondBook = submit(service, secondSubmit, offeringId, 1, completeScheme(),
+                List.of(row(first, "90.00", "80.00", "70.00", "90.00"),
+                        row(second, "50.00", "40.00", "30.00", "20.00")));
+        long v2 = Long.parseLong(secondBook.getLastSubmissionId());
+        require(count("SELECT COUNT(*) FROM grade_submission WHERE submission_id=" + v2
+                        + " AND version=2 AND submission_kind='CORRECTION' AND base_submission_id=" + v1
+                        + " AND correction_reason='上一轮更正原因'") == 1,
+                "the fixture's rejected batch is itself a correction carrying a reason");
+        reject(v2, 2, "请复核");
+        require(count("SELECT COUNT(*) FROM teacher_grade_book WHERE offering_id=" + offeringId
+                        + " AND draft_open=0 AND draft_kind='CORRECTION' AND base_submission_id=" + v1
+                        + " AND last_submission_id=" + v2
+                        + " AND correction_reason='上一轮更正原因'") == 1,
+                "the closed book still carries the correction reason the doors have to clear");
+        return v2;
     }
 
     // ------------------------------------------------------ a scheme-only correction
@@ -840,7 +952,7 @@ public final class TeacherGradeRevisionMySqlTest {
      */
     private static void verifySchemeOnlyChangeLogsEveryMovedStudent(TeacherGradeBookService service)
             throws Exception {
-        TeacherGradeBookDTO book = submit(service, op(41), OFF_WEIGHT, 0, scheme(4000, 3000, 1000, 2000),
+        TeacherGradeBookDTO book = submit(service, op(46), OFF_WEIGHT, 0, scheme(4000, 3000, 1000, 2000),
                 List.of(row(M1, "90.00", "70.00", "60.00", "50.00"),
                         row(M2, "60.00", "80.00", "70.00", "90.00"),
                         row(M_FLAT, "80.00", "80.00", "80.00", "80.00")));
@@ -848,9 +960,9 @@ public final class TeacherGradeRevisionMySqlTest {
         approve(v1, 1, null);
 
         service.beginGradeCorrection(TEACHER,
-                revision(op(42), OFF_WEIGHT, v1, 1, WEIGHT_REASON));
+                revision(op(47), OFF_WEIGHT, v1, 1, WEIGHT_REASON));
         TeacherGradeBookDTO saved = service.saveDraft(TEACHER,
-                request(op(43), OFF_WEIGHT, 1, currentDigest(OFF_WEIGHT), completeScheme(),
+                request(op(48), OFF_WEIGHT, 1, currentDigest(OFF_WEIGHT), completeScheme(),
                         List.of(row(M1, "90.00", "70.00", "60.00", "50.00"),
                                 row(M2, "60.00", "80.00", "70.00", "90.00"),
                                 row(M_FLAT, "80.00", "80.00", "80.00", "80.00")))).getValue();
@@ -889,6 +1001,7 @@ public final class TeacherGradeRevisionMySqlTest {
         StringBuilder users = new StringBuilder(
                 "INSERT INTO tbl_user(UID,name,password,salt,role,college,major) VALUES");
         users.append("('").append(TEACHER).append("','Tgr949 Teacher','x','x',1,'Engineering','Professor'),")
+                .append("('").append(CO_TEACHER).append("','Tgr949 Co Teacher','x','x',1,'Engineering','Professor'),")
                 .append("('").append(OUTSIDER).append("','Tgr949 Outsider','x','x',1,'Engineering','Professor'),")
                 .append("('").append(ADMIN).append("','Tgr949 Admin','x','x',0,'Administration','Registrar')");
         for (int index = 1; index <= STUDENTS; index++) {
@@ -917,6 +1030,8 @@ public final class TeacherGradeRevisionMySqlTest {
         }
         execute(courses.toString());
         execute(offerings.toString());
+        // OFF_RACE has two role=0 teachers: co-teaching is legal, and the race case needs two uids.
+        assignments.append(",(").append(OFF_RACE).append(",'").append(CO_TEACHER).append("',0)");
         execute(assignments.toString());
 
         // Explicit enrollment ids pin the roster digests; each offering owns its own students.
@@ -994,8 +1109,14 @@ public final class TeacherGradeRevisionMySqlTest {
     // ------------------------------------------------------------- helpers
 
     private static TeacherGradeBookService service(TeacherGradeBookDAO dao) {
-        return new TeacherGradeBookService(dao, new TeacherGradeAuditDAO(),
-                new TeacherCourseOperationDAO(), new TeacherAccessPolicy(), CLOCK);
+        return service(dao, new TeacherCourseOperationDAO());
+    }
+
+    /** 幂等操作日志与工作副本 DAO 都可以换成会失败或会记账的实现，用来证明整笔回滚。 */
+    private static TeacherGradeBookService service(TeacherGradeBookDAO dao,
+                                                   TeacherCourseOperationDAO operations) {
+        return new TeacherGradeBookService(dao, new TeacherGradeAuditDAO(), operations,
+                new TeacherAccessPolicy(), CLOCK);
     }
 
     /** 正式提交的完整方案：3000/2000/2000/3000。 */
@@ -1090,10 +1211,14 @@ public final class TeacherGradeRevisionMySqlTest {
                 "the roster digest canonical form must match the externally computed SHA-256");
     }
 
-    /** 工作副本留下的形状：{@code revision/draft_kind/base_submission_id}。 */
+    /**
+     * 工作副本留下的形状：{@code revision/draft_kind/base_submission_id/correction_reason}。
+     * 原因必须在形状里：重提不是更正，两个入口都不能把上一轮的更正原因带过去。
+     */
     private static String bookShape(long offeringId) throws SQLException {
-        return nullableText("SELECT CONCAT(revision,'/',draft_kind,'/',COALESCE(base_submission_id,0))"
-                + " FROM teacher_grade_book WHERE offering_id=" + offeringId);
+        return nullableText("SELECT CONCAT(revision,'/',draft_kind,'/',COALESCE(base_submission_id,0),"
+                + "'/',COALESCE(correction_reason,'')) FROM teacher_grade_book WHERE offering_id="
+                + offeringId);
     }
 
     private static String bookKind(long offeringId) throws SQLException {
@@ -1101,11 +1226,14 @@ public final class TeacherGradeRevisionMySqlTest {
                 + offeringId);
     }
 
-    /** 批次头的形状（不含批次 ID 本身）：{@code version/submission_kind/base_submission_id}。 */
+    /**
+     * 批次头的形状（不含批次 ID 本身）：
+     * {@code version/submission_kind/base_submission_id/correction_reason}。
+     */
     private static String batchShape(String submissionId) throws SQLException {
         return nullableText("SELECT CONCAT(version,'/',submission_kind,'/',"
-                + "COALESCE(base_submission_id,0)) FROM grade_submission WHERE submission_id="
-                + submissionId);
+                + "COALESCE(base_submission_id,0),'/',COALESCE(correction_reason,''))"
+                + " FROM grade_submission WHERE submission_id=" + submissionId);
     }
 
     /** 学生可见的成绩：已发布投影里的总评；没有投影行说明学生还没有读到任何成绩。 */

@@ -354,13 +354,18 @@ public class TeacherGradeBookDAO {
      * 驳回后的惰性重开：只翻转草稿状态，不动 revision（随后那次方案更新才递增版本）。
      * {@code revision} 与 {@code last_submission_id} 都参与条件，过期请求不会重开草稿。
      *
+     * <p>它同时把 {@code correction_reason} 清空，这一点与 {@link #reopenFromSubmission} 完全一致：
+     * 重提不是更正，草稿、随后的批次与每一条变更审计都不该带着上一轮更正的原因。被驳回的批次本身
+     * 就是一次更正时尤其要紧——否则「直接保存重开」与「按下重开按钮」会留下两种形状的成绩版本，
+     * 而 {@code submission_kind='RESUBMISSION'} 的批次上挂着一条更正原因就是一条假的来源记录。
+     *
      * @return 受影响行数，调用方必须要求恰好 1
      */
     public int reopenForResubmission(Connection connection, long offeringId, int revision,
                                      long rejectedSubmissionId) throws SQLException {
         String sql = "UPDATE teacher_grade_book SET draft_open=1,draft_kind='RESUBMISSION',"
-                + "base_submission_id=? WHERE offering_id=? AND revision=? AND draft_open=0"
-                + " AND last_submission_id=?";
+                + "base_submission_id=?,correction_reason=NULL"
+                + " WHERE offering_id=? AND revision=? AND draft_open=0 AND last_submission_id=?";
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setLong(1, rejectedSubmissionId);
             statement.setLong(2, offeringId);
