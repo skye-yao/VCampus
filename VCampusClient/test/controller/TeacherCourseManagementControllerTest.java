@@ -84,6 +84,7 @@ public final class TeacherCourseManagementControllerTest {
 
         openingTheOfferingsEntryActivatesTheListPage();
         openingADetailReleasesTheListAndReturnsToIt();
+        enteringTheWorkspaceOpensTheTimetableDirectly();
         openingTheTimetableEntryActivatesTheSchedulePage();
         openingTheApplicationsEntryActivatesTheApplicationsPage();
         openingTheGradesEntryActivatesTheGradeList();
@@ -206,7 +207,37 @@ public final class TeacherCourseManagementControllerTest {
                 "the detail page must not retain the released class data");
     }
 
-    /** 教学课程表入口现在真的打开课表子页，并且不改变首页文案（不再显示 staging notice）。 */
+    /**
+     * 装配工作台（= 教师从侧边栏进来）之后直接停的是教学课程表，不再是那个只写着“已接入”的
+     * 占位首页；课表页只被激活一次（不是装配一次、进入又一次），因此只加载一次。
+     */
+    private static void enteringTheWorkspaceOpensTheTimetableDirectly() {
+        FakeService service = new FakeService();
+        TeacherOfferingController offerings = offerings(service);
+        TeacherOfferingDetailController detail = detail(service);
+        TeacherScheduleController schedule = schedule(service);
+        TeacherCourseManagementController controller = controller(service);
+
+        controller.wire(null, null, offerings, null, detail, null, schedule, null, null);
+
+        require(TeacherCourseManagementController.PAGE_SCHEDULE.equals(controller.currentPage()),
+                "the workspace must land on the timetable, saw " + controller.currentPage());
+        require(schedule.active() && !offerings.active() && !detail.active(),
+                "only the schedule page may be active on entering the workspace");
+        require(schedule.term() != null && service.scheduleCalls == 1,
+                "landing on the timetable must load exactly one week, saw "
+                        + service.scheduleCalls + " calls");
+        require(HOME_NOTICE.equals(controller.noticeText()),
+                "landing on the timetable must not change the home notice, saw "
+                        + controller.noticeText());
+        require(service.detailCalls.isEmpty(),
+                "landing on the timetable must not load an offering, saw " + service.detailCalls);
+    }
+
+    /**
+     * 教学课程表入口仍然可用：从别的子页回到课表会重新激活它（重新加载当前周），并且只有它处于
+     * 激活态；再次进入是工作台的常规导航，不是首屏那次装配。
+     */
     private static void openingTheTimetableEntryActivatesTheSchedulePage() {
         FakeService service = new FakeService();
         TeacherOfferingController offerings = offerings(service);
@@ -214,7 +245,11 @@ public final class TeacherCourseManagementControllerTest {
         TeacherScheduleController schedule = schedule(service);
         TeacherCourseManagementController controller = controller(service);
         controller.wire(null, null, offerings, null, detail, null, schedule, null, null);
+
         controller.openOfferings();
+        require(TeacherCourseManagementController.PAGE_OFFERINGS.equals(controller.currentPage())
+                        && !schedule.active(),
+                "opening 教学班 must leave the schedule page, saw " + controller.currentPage());
 
         controller.openTimetable();
 
@@ -222,8 +257,10 @@ public final class TeacherCourseManagementControllerTest {
                 "the timetable entry must show the schedule page, saw " + controller.currentPage());
         require(schedule.active() && !offerings.active() && !detail.active(),
                 "only the schedule page may be active after opening 教学课程表");
-        require(schedule.term() != null && service.scheduleCalls == 1,
-                "the schedule page must load its own week, saw " + service.scheduleCalls + " calls");
+        require(service.scheduleCalls == 2,
+                "re-entering the timetable must reload its week exactly once (one load on"
+                        + " entering the workspace, one here), saw " + service.scheduleCalls
+                        + " calls");
         require(controller.noticeText().equals(HOME_NOTICE),
                 "opening the timetable must not change the home notice, saw "
                         + controller.noticeText());

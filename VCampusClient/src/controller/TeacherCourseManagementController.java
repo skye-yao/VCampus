@@ -24,6 +24,10 @@ import util.PageLeaveGuard;
  * 子页时它会被 {@code unload}/{@code release}，在途请求的响应随即失效，详情页也不保留上一个教学班的
  * 数据，因此不存在长期驻留的过期子页控制器。
  *
+ * <p>首屏是教学课程表：装配完成时直接走 {@link #openTimetable()}，教师从侧边栏进来看到的就是本周
+ * 课表，不再先停一层只写着“已接入”的占位页；占位页仍留在 {@code homePanel} 里，只由 {@link
+ * #showHome()} 显式切回。
+ *
  * <p>成绩录入（设计 §5.4）：右上入口打开成绩教学班列表，列表行或教学班详情的“成绩录入”打开某个
  * 教学班的成绩编辑表。编辑表有未保存内容时，本工作台的每个导航入口（返回首页、切换子页、切换
  * 教学班）都先问一次当前活动的 {@link PageLeaveGuard}，被拒绝就停在原页；离开成功后由子页自己的
@@ -95,7 +99,13 @@ public final class TeacherCourseManagementController {
     }
 
     /**
-     * 装配已加载的子页：把打开详情、返回列表、成绩入口与课表的“查看教学班”导航接上，然后回到首页。
+     * 装配已加载的子页：把打开详情、返回列表、成绩入口与课表的“查看教学班”导航接上，
+     * 然后直接停在工作台首屏——**教学课程表**（Task 3）。
+     *
+     * <p>首屏不再是一个只写着“已接入”的占位页：教师从侧边栏进来要看的正是本周课表，占位页只是
+     * 一层白页。走的是 {@link #openTimetable()} 这条既有语义（{@code activate()} +
+     * {@code currentPage} + {@code render()}），不新增并行的加载路径；它在这里只被调用一次，
+     * 课表页因此只加载一次（不是装配一次、进入又一次）。
      *
      * <p>节点可以为 {@code null}（控制器测试不加载 FXML）；子页控制器为 {@code null} 时导航只切换
      * 当前页，不做任何加载。子页控制器由 {@code FXMLLoader} 用无参构造创建，与外壳一样取用
@@ -124,7 +134,7 @@ public final class TeacherCourseManagementController {
         if (schedulePageController != null) {
             schedulePageController.setOpenOffering(this::showOffering);
         }
-        showHome();
+        openTimetable();
     }
 
     /**
@@ -214,7 +224,7 @@ public final class TeacherCourseManagementController {
         openOfferings();
     }
 
-    /** 打开教学课程表：卸下其它子页并激活课表页，首页文案保持不变。 */
+    /** 打开教学课程表：卸下其它子页并激活课表页，首页文案保持不变。工作台首屏走的也是这里。 */
     void openTimetable() {
         if (!leaveCurrentPage()) return;
         unloadAllSubPages();

@@ -138,8 +138,8 @@ public final class TeacherCourseUiSmokeTest {
     private static final String[] FILES = {
             "offering-list.png", "detail-basic-info.png", "detail-roster-page1.png",
             "roster-page2.png", "detail-schedule.png", "detail-grades.png", "roster-empty.png",
-            "schedule-week8.png", "schedule-card-detail.png", "schedule-week9.png",
-            "schedule-empty-week.png",
+            "schedule-entry.png", "schedule-week8.png", "schedule-card-detail.png",
+            "schedule-week9.png", "schedule-empty-week.png",
             // T5 的四张主题截图（跨周 / 冲突 / 撤销 / 长原因）。
             "adjustment-dialog-cross-week.png", "adjustment-dialog-conflict.png",
             "adjustment-dialog-long-reason.png", "adjustment-applications-withdrawn.png",
@@ -203,6 +203,21 @@ public final class TeacherCourseUiSmokeTest {
          * 因此每个断言看到的都是加载完成后的界面。
          */
         private void planSteps() {
+            // Task 3：装配完成就直接停“教学课程表”，不再先停那个只写着“已接入”的占位首页。
+            // 这一步不打任何点击，读的就是工作台装配之后的界面。
+            steps.add(() -> {
+                require(effectivelyVisible(requireNode("#schedulePage", Parent.class, "课表子页")),
+                        "进入工作台必须直接显示教学课程表");
+                require(!requireNode("#homePanel", VBox.class, "首页提示区").isVisible(),
+                        "进入工作台不得先停占位首页");
+                require(entryButton("教学课程表").getStyleClass()
+                                .contains("teacher-course-entry-active"),
+                        "首屏的高亮必须落在教学课程表入口上，实际 "
+                                + entryButton("教学课程表").getStyleClass());
+                require(shownWeek() == CURRENT_WEEK,
+                        "首屏应已经画出本周（第 " + CURRENT_WEEK + " 周），实际 " + shownWeek());
+                snapshot("schedule-entry.png");
+            });
             steps.add(() -> {
                 require(!entryButton("教学班").isDisabled(),
                         "教学班入口在 T5 接通后必须可用");
