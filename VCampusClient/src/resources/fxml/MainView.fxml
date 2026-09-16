@@ -4,6 +4,7 @@
 <?import javafx.scene.control.Button?>
 <?import javafx.scene.control.Hyperlink?>
 <?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ProgressBar?>
 <?import javafx.scene.control.ScrollPane?>
 <?import javafx.scene.image.ImageView?>
 <?import javafx.scene.layout.BorderPane?>
@@ -15,7 +16,7 @@
 <?import javafx.scene.layout.StackPane?>
 <?import javafx.scene.layout.VBox?>
 
-<BorderPane fx:id="rootMain" prefHeight="700.0" prefWidth="1060.0" styleClass="dash-content-pane" stylesheets="@../css/style.css" xmlns="http://javafx.com/javafx/25.0.4" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.MainController">
+<BorderPane fx:id="rootMain" prefHeight="700.0" prefWidth="1060.0" styleClass="dash-content-pane" stylesheets="@../css/style.css, @../css/teacher-course.css" xmlns="http://javafx.com/javafx/25.0.4" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.MainController">
 
     <!-- 左侧导航栏 -->
     <left>
@@ -33,10 +34,11 @@
                                 <ImageView fx:id="sidebarAvatarView" fitHeight="54.0" fitWidth="54.0" pickOnBounds="true" preserveRatio="true" />
                             </children>
                         </StackPane>
-                        <VBox alignment="CENTER_LEFT" spacing="4.0">
+                        <VBox alignment="CENTER_LEFT" spacing="2.0">
                             <children>
                                 <Label fx:id="sidebarNameLabel" styleClass="sidebar-name" text="张三" />
-                                <Label fx:id="sidebarRoleLabel" styleClass="sidebar-role" text="计院 · 学生" />
+                                <Label fx:id="sidebarCollegeLabel" styleClass="sidebar-college" text="计算机科学与工程学院" />
+                                <Label fx:id="sidebarMajorLabel" styleClass="sidebar-major" text="计算机科学与技术" />
                             </children>
                         </VBox>
                     </children>
@@ -325,93 +327,89 @@
                             </children>
                         </GridPane>
 
-                        <!-- ④ 课表卡片 (下方全宽) -->
+                        <!-- ④ 课表与学业概况卡片 (下方全宽一体化容器) -->
                         <VBox fx:id="scheduleCard" spacing="12.0" styleClass="dashboard-card">
                             <children>
                                 <HBox alignment="CENTER_LEFT" spacing="10.0">
                                     <children>
                                         <Label styleClass="dashboard-card-title" text="📅  我的课表" />
-                                        <Label styleClass="dashboard-card-subtitle" text="2026-2027学年 秋季学期" />
-                                    </children>
-                                </HBox>
-
-                                <!-- 课表预留表格 (周一至周五，5个大节) -->
-                                <GridPane styleClass="schedule-table">
-                                    <columnConstraints>
-                                        <ColumnConstraints percentWidth="15.0" />
-                                        <ColumnConstraints percentWidth="17.0" />
-                                        <ColumnConstraints percentWidth="17.0" />
-                                        <ColumnConstraints percentWidth="17.0" />
-                                        <ColumnConstraints percentWidth="17.0" />
-                                        <ColumnConstraints percentWidth="17.0" />
-                                    </columnConstraints>
-                                    <rowConstraints>
-                                        <RowConstraints minHeight="30.0" />
-                                        <RowConstraints minHeight="32.0" />
-                                        <RowConstraints minHeight="32.0" />
-                                        <RowConstraints minHeight="32.0" />
-                                        <RowConstraints minHeight="32.0" />
-                                        <RowConstraints minHeight="32.0" />
-                                    </rowConstraints>
-                                    <children>
-                                        <!-- 表头 -->
-                                        <Label styleClass="schedule-th" text="节次 / 时间" GridPane.columnIndex="0" GridPane.rowIndex="0" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-                                        <Label styleClass="schedule-th" text="星期一" GridPane.columnIndex="1" GridPane.rowIndex="0" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-                                        <Label styleClass="schedule-th" text="星期二" GridPane.columnIndex="2" GridPane.rowIndex="0" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-                                        <Label styleClass="schedule-th" text="星期三" GridPane.columnIndex="3" GridPane.rowIndex="0" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-                                        <Label styleClass="schedule-th" text="星期四" GridPane.columnIndex="4" GridPane.rowIndex="0" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-                                        <Label styleClass="schedule-th" text="星期五" GridPane.columnIndex="5" GridPane.rowIndex="0" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-
-                                        <!-- 第1-2节 -->
-                                        <Label styleClass="schedule-period" text="第1-2节 (08:00-09:35)" GridPane.columnIndex="0" GridPane.rowIndex="1" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="1" GridPane.rowIndex="1" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="2" GridPane.rowIndex="1" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="3" GridPane.rowIndex="1" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="4" GridPane.rowIndex="1" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="5" GridPane.rowIndex="1" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-
-                                        <!-- 第3-4节 -->
-                                        <Label styleClass="schedule-period" text="第3-4节 (09:55-11:30)" GridPane.columnIndex="0" GridPane.rowIndex="2" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="1" GridPane.rowIndex="2" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="2" GridPane.rowIndex="2" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="3" GridPane.rowIndex="2" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="4" GridPane.rowIndex="2" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="5" GridPane.rowIndex="2" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-
-                                        <!-- 第5-6节 -->
-                                        <Label styleClass="schedule-period" text="第5-6节 (14:00-15:35)" GridPane.columnIndex="0" GridPane.rowIndex="3" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="1" GridPane.rowIndex="3" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="2" GridPane.rowIndex="3" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="3" GridPane.rowIndex="3" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="4" GridPane.rowIndex="3" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="5" GridPane.rowIndex="3" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-
-                                        <!-- 第7-8节 -->
-                                        <Label styleClass="schedule-period" text="第7-8节 (15:55-17:30)" GridPane.columnIndex="0" GridPane.rowIndex="4" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="1" GridPane.rowIndex="4" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="2" GridPane.rowIndex="4" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="3" GridPane.rowIndex="4" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="4" GridPane.rowIndex="4" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="5" GridPane.rowIndex="4" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-
-                                        <!-- 第9-10节 -->
-                                        <Label styleClass="schedule-period" text="第9-10节 (18:30-20:05)" GridPane.columnIndex="0" GridPane.rowIndex="5" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="1" GridPane.rowIndex="5" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="2" GridPane.rowIndex="5" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="3" GridPane.rowIndex="5" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="4" GridPane.rowIndex="5" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-                                        <Label styleClass="schedule-td" text="—" GridPane.columnIndex="5" GridPane.rowIndex="5" maxWidth="1.7976931348623157E308" maxHeight="1.7976931348623157E308" />
-                                    </children>
-                                </GridPane>
-
-                                <!-- 底部提示与跳转链接 -->
-                                <HBox alignment="CENTER_LEFT">
-                                    <children>
-                                        <Label styleClass="dashboard-card-subtitle" text="提示：课表模块建设中，选课系统排课完成后将在此自动同步" HBox.hgrow="ALWAYS" />
+                                        <Label fx:id="scheduleTermSubtitle" styleClass="dashboard-card-subtitle" text="2026-2027学年 秋季学期" />
                                         <Region HBox.hgrow="ALWAYS" />
-                                        <Hyperlink onAction="#openCourseSelection" styleClass="dash-card-link" text="转子界面 &gt;" />
+                                        <Hyperlink onAction="#openCourseSelection" styleClass="dash-card-link" text="进入教务课表系统 &gt;" />
                                     </children>
                                 </HBox>
+
+                                <!-- 学生的学业与成绩概况区 (与课表整合在同一容器内，仅学生可见) -->
+                                <VBox fx:id="studentAcademicSummaryCard" spacing="8.0" style="-fx-background-color: #f8fafc; -fx-background-radius: 10px; -fx-padding: 12px 14px; -fx-border-color: #e2e8f0; -fx-border-radius: 10px;" visible="false" managed="false">
+                                    <children>
+                                        <HBox alignment="CENTER_LEFT" spacing="8.0">
+                                            <children>
+                                                <Label style="-fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: #151E49;" text="📊  学业与成绩概况" />
+                                            </children>
+                                        </HBox>
+
+                                        <GridPane hgap="12.0" vgap="8.0" alignment="CENTER_LEFT">
+                                            <columnConstraints>
+                                                <ColumnConstraints percentWidth="58.0" />
+                                                <ColumnConstraints percentWidth="42.0" />
+                                            </columnConstraints>
+                                            <children>
+                                                <!-- 4项成绩指标横向均分排列 -->
+                                                <HBox spacing="8.0" alignment="CENTER_LEFT" GridPane.columnIndex="0">
+                                                    <children>
+                                                        <VBox alignment="CENTER" spacing="2.0" HBox.hgrow="ALWAYS" style="-fx-background-color: #ffffff; -fx-background-radius: 6px; -fx-padding: 6px 8px; -fx-border-color: #e2e8f0; -fx-border-radius: 6px;">
+                                                            <children>
+                                                                <Label styleClass="dash-info-key" text="本学期绩点" style="-fx-font-size: 11px;" />
+                                                                <Label fx:id="termGpaLabel" text="--" style="-fx-font-size: 16px; -fx-font-weight: bold; -fx-text-fill: #151E49;" />
+                                                            </children>
+                                                        </VBox>
+                                                        <VBox alignment="CENTER" spacing="2.0" HBox.hgrow="ALWAYS" style="-fx-background-color: #ffffff; -fx-background-radius: 6px; -fx-padding: 6px 8px; -fx-border-color: #e2e8f0; -fx-border-radius: 6px;">
+                                                            <children>
+                                                                <Label styleClass="dash-info-key" text="本学期均分" style="-fx-font-size: 11px;" />
+                                                                <Label fx:id="termAvgLabel" text="--" style="-fx-font-size: 16px; -fx-font-weight: bold; -fx-text-fill: #151E49;" />
+                                                            </children>
+                                                        </VBox>
+                                                        <VBox alignment="CENTER" spacing="2.0" HBox.hgrow="ALWAYS" style="-fx-background-color: #ffffff; -fx-background-radius: 6px; -fx-padding: 6px 8px; -fx-border-color: #e2e8f0; -fx-border-radius: 6px;">
+                                                            <children>
+                                                                <Label styleClass="dash-info-key" text="累计绩点" style="-fx-font-size: 11px;" />
+                                                                <Label fx:id="cumulativeGpaLabel" text="--" style="-fx-font-size: 16px; -fx-font-weight: bold; -fx-text-fill: #166534;" />
+                                                            </children>
+                                                        </VBox>
+                                                        <VBox alignment="CENTER" spacing="2.0" HBox.hgrow="ALWAYS" style="-fx-background-color: #ffffff; -fx-background-radius: 6px; -fx-padding: 6px 8px; -fx-border-color: #e2e8f0; -fx-border-radius: 6px;">
+                                                            <children>
+                                                                <Label styleClass="dash-info-key" text="累计均分" style="-fx-font-size: 11px;" />
+                                                                <Label fx:id="cumulativeAvgLabel" text="--" style="-fx-font-size: 16px; -fx-font-weight: bold; -fx-text-fill: #166534;" />
+                                                            </children>
+                                                        </VBox>
+                                                    </children>
+                                                </HBox>
+
+                                                <!-- 学分完成进度 -->
+                                                <VBox spacing="6.0" alignment="CENTER_LEFT" GridPane.columnIndex="1" style="-fx-background-color: #ffffff; -fx-background-radius: 6px; -fx-padding: 6px 12px; -fx-border-color: #e2e8f0; -fx-border-radius: 6px;">
+                                                    <children>
+                                                        <HBox alignment="CENTER_LEFT" spacing="6.0">
+                                                            <children>
+                                                                <Label styleClass="dash-info-key" text="培养方案学分进度" style="-fx-font-size: 11px;" />
+                                                                <Region HBox.hgrow="ALWAYS" />
+                                                                <Label fx:id="earnedCreditsLabel" style="-fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: #151E49;" text="--" />
+                                                                <Label text="/" style="-fx-text-fill: #94a3b8; -fx-font-size: 12px;" />
+                                                                <Label fx:id="requiredCreditsLabel" style="-fx-font-size: 12px; -fx-text-fill: #64748b;" text="--" />
+                                                                <Label text="学分" styleClass="dash-info-key" style="-fx-font-size: 11px;" />
+                                                                <Label fx:id="creditPercentLabel" style="-fx-font-size: 11.5px; -fx-font-weight: bold; -fx-text-fill: #587558;" text="(--%)" />
+                                                            </children>
+                                                        </HBox>
+                                                        <ProgressBar fx:id="creditProgressBar" maxWidth="1.7976931348623157E308" prefHeight="8.0" progress="0.0" styleClass="course-progress-bar" />
+                                                    </children>
+                                                </VBox>
+                                            </children>
+                                        </GridPane>
+                                    </children>
+                                </VBox>
+
+                                <!-- 课表嵌入容器：动态加载对应角色的课表视图 -->
+                                <StackPane fx:id="scheduleContainer" minHeight="520.0" VBox.vgrow="ALWAYS" />
+
+                                <Label fx:id="courseCardTitle" visible="false" managed="false" />
                             </children>
                         </VBox>
                     </children>

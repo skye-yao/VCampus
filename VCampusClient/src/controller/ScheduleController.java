@@ -28,6 +28,7 @@ import model.course.CourseTermView;
 import model.course.ScheduleEntryView;
 import service.CourseService;
 import service.CourseServices;
+import session.ClientSession;
 import util.AlertUtil;
 
 public final class ScheduleController {
@@ -156,6 +157,10 @@ public final class ScheduleController {
     }
 
     private void loadTerms() {
+        String role = ClientSession.getInstance().getRole();
+        if (role != null && !"学生".equals(role) && !"STUDENT".equalsIgnoreCase(role)) {
+            return;
+        }
         requestTerms(terms -> {
             termFilter.getItems().setAll(terms);
             if (terms.isEmpty()) {
@@ -170,7 +175,10 @@ public final class ScheduleController {
             termFilter.getItems().clear();
             renderSchedule(Collections.emptyList());
             renderNotices(Collections.emptyList(), "加载失败，请刷新重试");
-            errorReporter.accept("加载失败", errorMessage(error));
+            String msg = errorMessage(error);
+            if (msg == null || !msg.contains("仅学生可以访问")) {
+                errorReporter.accept("加载失败", msg);
+            }
         });
     }
 
@@ -208,6 +216,10 @@ public final class ScheduleController {
     }
 
     private void loadSchedule() {
+        String role = ClientSession.getInstance().getRole();
+        if (role != null && !"学生".equals(role) && !"STUDENT".equalsIgnoreCase(role)) {
+            return;
+        }
         CourseTermView term = selectedTerm != null ? selectedTerm : termFilter.getValue();
         Integer selectedWeek = weekSpinner.getValue();
         if (term == null || selectedWeek == null) {
