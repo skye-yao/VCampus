@@ -38,15 +38,14 @@
             <Label text="类别"/><ComboBox fx:id="categoryCombo" maxWidth="Infinity"/>
             <Label text="出版社"/><TextField fx:id="publisherField"/>
             <Label text="图书价格（元）"/><TextField fx:id="priceField" promptText="借出前必须录入，用于遗失赔偿"/>
-            <Label text="状态"/><ComboBox fx:id="statusCombo" maxWidth="Infinity"/>
-            <Label text="借还状态自动更新；遗失找回请在挂失公告中办理。" wrapText="true"/>
+            <Label text="上架数量（册）*"/><TextField fx:id="quantityField" text="1" promptText="请输入1至1000之间的整数"/>
+            <Label text="数量仅用于新增上架；保存修改只更新书目信息。" wrapText="true"/>
             <Region VBox.vgrow="ALWAYS"/>
             <GridPane hgap="8.0" vgap="8.0">
                 <columnConstraints><ColumnConstraints percentWidth="50.0"/><ColumnConstraints percentWidth="50.0"/></columnConstraints>
                 <Button maxWidth="Infinity" onAction="#handleAddBook" styleClass="btn-primary" text="新增上架" GridPane.columnIndex="0" GridPane.rowIndex="0"/>
                 <Button maxWidth="Infinity" onAction="#handleUpdateBook" styleClass="btn-secondary" text="保存修改" GridPane.columnIndex="1" GridPane.rowIndex="0"/>
-                <Button maxWidth="Infinity" onAction="#handleQueryStatus" styleClass="btn-secondary" text="查询状态" GridPane.columnIndex="0" GridPane.rowIndex="1"/>
-                <Button maxWidth="Infinity" onAction="#handleRemoveBook" styleClass="btn-danger-soft" text="下架图书" GridPane.columnIndex="1" GridPane.rowIndex="1"/>
+                <Button maxWidth="Infinity" onAction="#handleRemoveBook" styleClass="btn-danger-soft" text="下架图书" GridPane.columnIndex="0" GridPane.columnSpan="2" GridPane.rowIndex="1"/>
             </GridPane>
             <Button maxWidth="Infinity" onAction="#handleClearForm" text="清空表单"/>
         </VBox>

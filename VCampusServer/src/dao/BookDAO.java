@@ -314,6 +314,7 @@ public class BookDAO {
      * @return 是否新增成功
      */
     public boolean insert(Book book) throws SQLException {
+        Book.validateInitialCopies(book.getTotalCopies());
 
         String sql =
                 "INSERT INTO tblBook " +
@@ -350,7 +351,7 @@ public class BookDAO {
                 if (rs.next()) {
                     book.setId(rs.getInt(1));
                 }
-                LibrarySchema.initializeCopies(conn, book.getId());
+                LibrarySchema.initializeCopies(conn, book.getId(), book.getTotalCopies());
                 conn.commit();
                 return true;
             }

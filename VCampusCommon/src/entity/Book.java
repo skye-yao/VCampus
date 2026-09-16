@@ -12,6 +12,11 @@ public class Book implements Serializable {
     private int id;
     private int titleId;
     private int totalCopies = 1;
+    public static final int MAX_INITIAL_COPIES = 1000;
+    public static void validateInitialCopies(int count) {
+        if (count < 1 || count > MAX_INITIAL_COPIES)
+            throw new IllegalArgumentException("上架数量须为1至" + MAX_INITIAL_COPIES + "之间的整数");
+    }
     private int availableCopies;
     private java.util.List<Integer> copyIds = new java.util.ArrayList<>();
     public int getTitleId() { return titleId == 0 ? id : titleId; }

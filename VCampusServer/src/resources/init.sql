@@ -1795,3 +1795,10 @@ VALUES ('admin', 0, 0, 0, 0, 0, 0)
 ON DUPLICATE KEY UPDATE `academic_perm`=0, `library_perm`=0, `course_perm`=0, `shop_perm`=0, `bank_perm`=0, `user_perm`=0;
 
 
+
+USE virtual_campus;
+
+ALTER TABLE tbl_product
+    DROP CHECK chk_product_category,
+    ADD CONSTRAINT chk_product_category
+        CHECK (category IN ('文具', '教材资料', '校园纪念品', '生活用品', '食品'));

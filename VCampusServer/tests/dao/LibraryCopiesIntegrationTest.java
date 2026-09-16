@@ -67,8 +67,19 @@ public class LibraryCopiesIntegrationTest {
             equal(c,"SELECT COUNT(*) FROM tblBook WHERE name='Updated title'","10");
             Book added = new Book(0,"new-isbn","New title","Author","Publisher",0);
             added.setPrice(new java.math.BigDecimal("30"));
-            check(books.insert(added),"new titles have ten copies");
-            equal(c,"SELECT COUNT(*) FROM tblBook WHERE isbn='new-isbn'","10");
+            added.setTotalCopies(3);
+            check(books.insert(added),"new title uses requested quantity");
+            LibrarySchema.initializeCopies(c,added.getId());
+            equal(c,"SELECT COUNT(*) FROM tblBook WHERE isbn='new-isbn'","3");
+            Book single = new Book(0,"single-isbn","Single title","Author","Publisher",0);
+            check(books.insert(single),"default is one copy");
+            LibrarySchema.initializeCopies(c,single.getId());
+            equal(c,"SELECT COUNT(*) FROM tblBook WHERE isbn='single-isbn'","1");
+            for (int invalid : new int[]{0,-1,1001}) {
+                single.setTotalCopies(invalid);
+                try { books.insert(single); throw new AssertionError("accepted invalid quantity"); }
+                catch (IllegalArgumentException expected) { }
+            }
             System.out.println("PASS: ten copies, idempotent initialization, allocation, exhaustion, duplicate reservation, lending, loss, return, cancellation, expiration, catalog editing and new titles");
         }
     }

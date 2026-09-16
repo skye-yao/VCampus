@@ -85,7 +85,7 @@ public class LibraryAdminController {
     @FXML private TextField authorField;
     @FXML private TextField publisherField;
     @FXML private TextField priceField;
-    @FXML private ComboBox<BookStatus> statusCombo;
+    @FXML private TextField quantityField;
 
     @FXML public void initialize() {
         categoryFilter = util.LibraryCatalogTable.configure(adminBookTable,adminCategoryColumn,adminStatusColumn);
@@ -99,23 +99,9 @@ public class LibraryAdminController {
         adminNameColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(c.getValue().getName()));
         adminAuthorColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(c.getValue().getAuthor()));
         adminIsbnColumn.setCellValueFactory(c -> new ReadOnlyObjectWrapper<>(c.getValue().getIsbn()));
-        statusCombo.setDisable(true);
-        statusCombo.setTooltip(new Tooltip("状态由每册借还自动计算；遗失找回请在挂失公告中办理"));
-        statusCombo.getItems().setAll(BookStatus.values());
-        statusCombo.setCellFactory(v -> statusCell());
-        statusCombo.setButtonCell(statusCell());
-        statusCombo.getSelectionModel().select(BookStatus.AVAILABLE);
+        quantityField.setText("1");
         adminBookTable.getSelectionModel().selectedItemProperty().addListener((o, oldValue, book) -> fillForm(book));
         handleAdminSearch();
-    }
-
-    private ListCell<BookStatus> statusCell() {
-        return new ListCell<>() {
-            @Override protected void updateItem(BookStatus item, boolean empty) {
-                super.updateItem(item, empty);
-                setText(empty || item == null ? null : item.getDescription());
-            }
-        };
     }
 
     @FXML private void handleAdminSearch() {
@@ -135,22 +121,11 @@ public class LibraryAdminController {
 
     @FXML private void handleAddBook() {
         Book book = readForm(false);
-        if (book != null && book.getStatus() != BookStatus.AVAILABLE.getCode()) {
-            AlertUtil.showWarning("不合法的图书状态", "新上架图书只能设为可借。");
-            return;
-        }
-        if (book != null) run(service.addBook(book), "图书上架成功，已入库10册");
+        if (book != null) run(service.addBook(book), "图书上架成功，已入库" + book.getTotalCopies() + "册");
     }
 
     @FXML private void handleUpdateBook() {
         Book book = readForm(true);
-        Book selected = adminBookTable.getSelectionModel().getSelectedItem();
-        if (book != null && selected != null && book.getId() == selected.getId()
-                && book.getStatus() != selected.getStatus()
-                && !(selected.getStatus() == BookStatus.LOST.getCode() && book.getStatus() == BookStatus.AVAILABLE.getCode())) {
-            AlertUtil.showWarning("不合法的状态转换", "管理员只能将遗失图书改为可借（找回入库）。借阅、预约和挂失请通过对应业务操作。");
-            return;
-        }
         if (book != null) run(service.updateBook(book), "图书信息修改成功");
     }
 
@@ -158,15 +133,6 @@ public class LibraryAdminController {
         Book book = adminBookTable.getSelectionModel().getSelectedItem();
         if (book == null) { AlertUtil.showWarning("提示", "请选择要下架的图书"); return; }
         run(service.removeBook(book.getId()), "图书下架成功");
-    }
-
-    @FXML private void handleQueryStatus() {
-        Book book = adminBookTable.getSelectionModel().getSelectedItem();
-        if (book == null) { AlertUtil.showWarning("提示", "请选择一本图书"); return; }
-        service.getBookStatus(book.getId()).whenComplete((status, error) -> Platform.runLater(() -> {
-            if (error != null) showError(error);
-            else AlertUtil.showInfo("图书状态", "《" + book.getName() + "》当前状态：" + BookStatus.fromCode(status).getDescription());
-        }));
     }
 
     @FXML private void handleClearForm() {
@@ -180,9 +146,13 @@ public class LibraryAdminController {
             if (isbnField.getText().isBlank() || nameField.getText().isBlank() || authorField.getText().isBlank()) {
                 AlertUtil.showWarning("提示", "ISBN、书名和作者不能为空"); return null;
             }
-            BookStatus status = statusCombo.getValue() == null ? BookStatus.AVAILABLE : statusCombo.getValue();
             Book book = new Book(id, isbnField.getText().trim(), nameField.getText().trim(), authorField.getText().trim(),
-                    publisherField.getText().trim(), status.getCode());
+                    publisherField.getText().trim(), BookStatus.AVAILABLE.getCode());
+            if (!requireId) {
+                int count = Integer.parseInt(quantityField.getText().trim());
+                Book.validateInitialCopies(count);
+                book.setTotalCopies(count);
+            }
             book.setCategory(categoryCombo.getValue());
             if (!priceField.getText().isBlank()) {
                 java.math.BigDecimal price=new java.math.BigDecimal(priceField.getText().trim());
@@ -193,7 +163,9 @@ public class LibraryAdminController {
             }
             return book;
         } catch (NumberFormatException e) {
-            AlertUtil.showWarning("提示", "图书编号或书价格式不正确"); return null;
+            AlertUtil.showWarning("提示", "图书编号、书价或上架数量格式不正确，数量须为1至1000之间的整数"); return null;
+        } catch (IllegalArgumentException e) {
+            AlertUtil.showWarning("提示", e.getMessage()); return null;
         }
     }
 
@@ -205,7 +177,7 @@ public class LibraryAdminController {
         publisherField.setText(book == null ? "" : book.getPublisher());
         categoryCombo.setValue(book == null ? "其他" : book.getCategory());
         priceField.setText(book==null||book.getPrice()==null?"":book.getPrice().toPlainString());
-        statusCombo.getSelectionModel().select(book == null ? BookStatus.AVAILABLE : BookStatus.fromCode(book.getStatus()));
+        quantityField.setText("1");
     }
 
     private void run(java.util.concurrent.CompletableFuture<Void> future, String success) {

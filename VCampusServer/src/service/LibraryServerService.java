@@ -381,6 +381,7 @@ public class LibraryServerService {
      */
     public boolean addBook(Book book)
             throws SQLException {
+        if (book != null) Book.validateInitialCopies(book.getTotalCopies());
         validatePrice(book);
         validateCategory(book);
 

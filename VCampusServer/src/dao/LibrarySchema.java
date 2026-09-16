@@ -111,6 +111,11 @@ public final class LibrarySchema {
     }
 
     static void initializeCopies(Connection conn, int titleId) throws SQLException {
+        initializeCopies(conn, titleId, 10);
+    }
+
+    static void initializeCopies(Connection conn, int titleId, int count) throws SQLException {
+        entity.Book.validateInitialCopies(count);
         String isbn, name, author, publisher, category;
         java.math.BigDecimal price;
         try (PreparedStatement lock = conn.prepareStatement("SELECT * FROM tblBook WHERE id=? FOR UPDATE")) {
@@ -122,7 +127,7 @@ public final class LibrarySchema {
                 category=rows.getString("category");
             }
         }
-        for (int number = 2; number <= 10; number++) {
+        for (int number = 2; number <= count; number++) {
             try (PreparedStatement insert = conn.prepareStatement(
                     "INSERT INTO tblBook(isbn,name,author,publisher,price,status,titleId,copyNumber,copiesInitialized,category,categoryInitialized) " +
                     "VALUES(?,?,?,?,?,0,?,?,TRUE,?,TRUE)")) {
