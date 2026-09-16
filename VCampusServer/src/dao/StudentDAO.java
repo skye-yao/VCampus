@@ -4,6 +4,7 @@ import util.DBUtil;
 import java.lang.reflect.*;
 import java.sql.*;
 import java.util.*;
+import util.LocalTimeConnection;
 @SuppressWarnings({"SqlNoDataSourceInspection", "SqlResolve", "SqlSourceToSinkFlow"})
 public class StudentDAO {
     private static final List<String> COLUMNS = List.of(
@@ -18,7 +19,7 @@ public class StudentDAO {
             "wechat", "campusAddress", "emergencyContact", "emergencyPhone"
     );
     public Student findByUID(String v)throws SQLException {
-        try(Connection c=DBUtil.getConnection();PreparedStatement p=c.prepareStatement("SELECT * FROM tblStudent WHERE UID=?")) {
+        try(Connection c=LocalTimeConnection.getConnection();PreparedStatement p=c.prepareStatement("SELECT * FROM tblStudent WHERE UID=?")) {
             p.setString(1,v);
             try(ResultSet r=p.executeQuery()) {
                 return r.next()?map(r):null;
@@ -26,7 +27,7 @@ public class StudentDAO {
         }
     }
     public Student findByStudentId(String v)throws SQLException {
-        try(Connection c=DBUtil.getConnection();PreparedStatement p=c.prepareStatement("SELECT * FROM tblStudent WHERE studentId=?")) {
+        try(Connection c=LocalTimeConnection.getConnection();PreparedStatement p=c.prepareStatement("SELECT * FROM tblStudent WHERE studentId=?")) {
             p.setString(1,v);
             try(ResultSet r=p.executeQuery()) {
                 return r.next()?map(r):null;
@@ -58,14 +59,14 @@ public class StudentDAO {
                      "       OR u.UID COLLATE utf8mb4_unicode_ci = s.studentId COLLATE utf8mb4_unicode_ci) " +
                      "      AND (u.status IN ('ACTIVE', 'FROZEN') OR u.status IS NULL)" +
                      ") ORDER BY s.studentId";
-        try(Connection c=DBUtil.getConnection();PreparedStatement p=c.prepareStatement(sql);ResultSet r=p.executeQuery()) {
+        try(Connection c=LocalTimeConnection.getConnection();PreparedStatement p=c.prepareStatement(sql);ResultSet r=p.executeQuery()) {
             while(r.next())o.add(map(r));
         }
         return o;
     }
     /** Compare the client's original snapshot while holding the database row lock. */
     public boolean updateIfUnchanged(Student updated,Student original)throws SQLException {
-        try(Connection c=DBUtil.getConnection()) {
+        try(Connection c=LocalTimeConnection.getConnection()) {
             c.setAutoCommit(false);
             try {
                 Student current=lockByStudentId(c,updated.getStudentId());

@@ -4,11 +4,12 @@ import enums.StudentAidStatus;
 import util.DBUtil;
 import java.sql.*;
 import java.util.*;
+import util.LocalTimeConnection;
 @SuppressWarnings({"SqlNoDataSourceInspection", "SqlResolve"})
 public class StudentAidDAO {
     public List<StudentAid> findByStudentId(String id)throws SQLException {
         List<StudentAid>o=new ArrayList<>();
-        try(Connection c=DBUtil.getConnection();PreparedStatement p=c.prepareStatement("SELECT * FROM tblStudentAid WHERE studentId=? ORDER BY aidDate DESC")) {
+        try(Connection c=LocalTimeConnection.getConnection();PreparedStatement p=c.prepareStatement("SELECT * FROM tblStudentAid WHERE studentId=? ORDER BY aidDate DESC")) {
             p.setString(1,id);
             try(ResultSet r=p.executeQuery()) {
                 while(r.next()) {
@@ -35,7 +36,7 @@ public class StudentAidDAO {
         return change("UPDATE tblStudentAid SET studentId=?,aidName=?,aidType=?,amount=?,aidDate=?,provider=?,status=?,description=? WHERE aidId=?",a,true);
     }
     private boolean change(String q,StudentAid a,boolean id)throws SQLException {
-        try(Connection c=DBUtil.getConnection();PreparedStatement p=c.prepareStatement(q)) {
+        try(Connection c=LocalTimeConnection.getConnection();PreparedStatement p=c.prepareStatement(q)) {
             p.setString(1,a.getStudentId());
             p.setString(2,a.getAidName());
             p.setString(3,a.getAidType());
@@ -49,7 +50,7 @@ public class StudentAidDAO {
         }
     }
     public boolean delete(long id)throws SQLException {
-        try(Connection c=DBUtil.getConnection();PreparedStatement p=c.prepareStatement("DELETE FROM tblStudentAid WHERE aidId=?")) {
+        try(Connection c=LocalTimeConnection.getConnection();PreparedStatement p=c.prepareStatement("DELETE FROM tblStudentAid WHERE aidId=?")) {
             p.setLong(1,id);
             return p.executeUpdate()==1;
         }

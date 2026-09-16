@@ -10,11 +10,12 @@ import java.math.BigDecimal;
 import java.sql.*;
 import java.time.LocalDateTime;
 import java.util.*;
+import util.LocalTimeConnection;
 
 /** 图书行 -> 借阅行 -> 罚款行 -> 银行账户，所有写操作使用相同加锁顺序。 */
 public class LibraryCirculationDAO {
     private final BookDAO.ConnectionFactory connections;
-    public LibraryCirculationDAO() { this(DBUtil::getConnection); }
+    public LibraryCirculationDAO() { this(LocalTimeConnection::getConnection); }
     LibraryCirculationDAO(BookDAO.ConnectionFactory connections) { this.connections = connections; }
     private interface Work<T> { T run(Connection conn) throws SQLException; }
     private <T> T transaction(Work<T> work) throws SQLException {

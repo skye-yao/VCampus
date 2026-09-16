@@ -1,12 +1,13 @@
 package dao;
 
 import java.sql.*;
+import util.LocalTimeConnection;
 
 /** 仅升级现有图书馆表，不创建数据库或覆盖业务数据。 */
 public final class LibrarySchema {
     private static volatile boolean ready;
     public static void ensure() throws SQLException {
-        if (!ready) try (Connection conn = util.DBUtil.getConnection()) { ensure(conn); }
+        if (!ready) try (Connection conn = util.LocalTimeConnection.getConnection()) { ensure(conn); }
     }
     public static synchronized void ensure(Connection conn) throws SQLException {
         if (ready) return;
