@@ -361,7 +361,7 @@ CREATE TABLE IF NOT EXISTS `tbl_product` (
     INDEX `idx_product_category_status` (`category`, `status`),
     CONSTRAINT `chk_product_price` CHECK (`price` > 0),
     CONSTRAINT `chk_product_stock` CHECK (`stock` >= 0),
-    CONSTRAINT `chk_product_category` CHECK (`category` IN ('文具','教材资料','校园纪念品','生活用品')),
+    CONSTRAINT `chk_product_category` CHECK (`category` IN ('文具','教材资料','校园纪念品','生活用品','食品')),
     CONSTRAINT `chk_product_status` CHECK (`status` IN ('ON_SALE','OFF_SALE'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='商店商品表';
 
@@ -375,6 +375,22 @@ CREATE TABLE IF NOT EXISTS `tbl_product_image` (
     CONSTRAINT `fk_product_image_product` FOREIGN KEY (`product_id`)
         REFERENCES `tbl_product` (`product_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='商店商品图片表';
+
+-- 商品评价：一名用户对一件商品最多一条，且需购买过。
+CREATE TABLE IF NOT EXISTS `tbl_product_review` (
+    `review_id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '评价主键',
+    `product_id` BIGINT NOT NULL COMMENT '商品编号',
+    `user_id` VARCHAR(32) NOT NULL COMMENT '评价用户一卡通号',
+    `rating` TINYINT NOT NULL COMMENT '评分 1-5',
+    `content` VARCHAR(500) NOT NULL COMMENT '评价内容',
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '发表时间',
+    PRIMARY KEY (`review_id`),
+    UNIQUE KEY `uk_product_review_user` (`product_id`,`user_id`),
+    INDEX `idx_product_review_product` (`product_id`,`created_at`),
+    CONSTRAINT `fk_product_review_product` FOREIGN KEY (`product_id`) REFERENCES `tbl_product` (`product_id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_product_review_user` FOREIGN KEY (`user_id`) REFERENCES `tbl_user` (`UID`) ON DELETE CASCADE,
+    CONSTRAINT `chk_product_review_rating` CHECK (`rating` BETWEEN 1 AND 5)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='商品评价表';
 
 CREATE TABLE IF NOT EXISTS `tbl_cart_item` (
     `cart_item_id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '购物车项目主键',

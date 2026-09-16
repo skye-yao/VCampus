@@ -194,7 +194,30 @@ public class LibraryServerService {
     public List<BookReview> getBookReviews(Integer bookId)
             throws SQLException {
 
-        return bookReviewDAO.findByBookId(bookId);
+        return getBookReviews(bookId, null, false);
+    }
+
+    /**
+     * 查询图书评价，并按查看者身份做展示脱敏。
+     *
+     * <p>管理员看完整账号，作者看“我”，其他人只看脱敏昵称且不下发原始账号。
+     */
+    public List<BookReview> getBookReviews(Integer bookId, String viewerId, boolean admin)
+            throws SQLException {
+
+        List<BookReview> reviews = bookReviewDAO.findByBookId(bookId);
+        for (BookReview review : reviews) {
+            String ownerId = review.getUserId();
+            if (admin) {
+                review.setDisplayName(ownerId == null ? "" : ownerId);
+            } else if (viewerId != null && viewerId.equals(ownerId)) {
+                review.setDisplayName("我");
+            } else {
+                review.setDisplayName(util.UserDisplay.masked(ownerId));
+                review.setUserId(null);
+            }
+        }
+        return reviews;
     }
 
 

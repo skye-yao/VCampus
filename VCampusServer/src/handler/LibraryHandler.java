@@ -174,7 +174,7 @@ public class LibraryHandler {
                 // 图书评价
                 // =========================
                 case "getbookreviews":
-                    return handleGetBookReviews(request, response);
+                    return handleGetBookReviews(request, response, userId, isAdmin(role));
 
                 case "addbookreview":
                     return handleAddBookReview(request, response, userId);
@@ -384,7 +384,9 @@ public class LibraryHandler {
      */
     private Message handleGetBookReviews(
             Message request,
-            Message response
+            Message response,
+            String userId,
+            boolean admin
     ) throws Exception {
 
         Integer bookId = getIntegerData(request, "bookId");
@@ -396,7 +398,7 @@ public class LibraryHandler {
         }
 
         List<BookReview> reviews =
-                libraryService.getBookReviews(bookId);
+                libraryService.getBookReviews(bookId, userId, admin);
 
         response.setCode(MessageCode.SUCCESS);
         response.setMessage("查询成功");

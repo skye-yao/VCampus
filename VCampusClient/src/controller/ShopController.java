@@ -5,6 +5,7 @@ import com.google.gson.Gson;
 import entity.CartItem;
 import entity.OrderItem;
 import entity.Product;
+import entity.ProductReview;
 import entity.ShopOrder;
 import entity.ShopRefund;
 import entity.ShopOperationLog;
@@ -165,7 +166,7 @@ public class ShopController {
     public void initialize() {
         configureTables();
         categoryCombo.setItems(FXCollections.observableArrayList(
-                "全部分类", "文具", "教材资料", "校园纪念品", "生活用品"));
+                "全部分类", "文具", "教材资料", "校园纪念品", "生活用品", "食品"));
         categoryCombo.getSelectionModel().selectFirst();
         // 分类是“选中即筛选”的控件：切换分类立即刷新，不必再点查询。
         categoryCombo.getSelectionModel().selectedItemProperty().addListener(
@@ -174,7 +175,7 @@ public class ShopController {
                     refreshProducts();
                 });
         adminCategoryField.setItems(FXCollections.observableArrayList(
-                "文具", "教材资料", "校园纪念品", "生活用品"));
+                "文具", "教材资料", "校园纪念品", "生活用品", "食品"));
         productQuantitySpinner.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(1, 99, 1));
 
         boolean admin = isAdmin();
@@ -354,7 +355,10 @@ public class ShopController {
         requestProductDetail(product.getProductId(), this::showProductDetail);
     }
 
-    private void requestProductDetail(long productId, BiConsumer<Product, String> onLoaded) {
+    /** 详情接口的返回值：商品、图片、销量。 */
+    private record ProductDetail(Product product, String imageBase64, int salesCount) { }
+
+    private void requestProductDetail(long productId, Consumer<ProductDetail> onLoaded) {
         Message request = request(MessageType.SHOP_PRODUCT_DETAIL);
         request.putData("productId", productId);
         send(request, response -> {
@@ -365,7 +369,10 @@ public class ShopController {
             }
             Product product = gson.fromJson(gson.toJson(rawProduct), Product.class);
             Object rawImage = response.getData("imageBase64");
-            onLoaded.accept(product, rawImage instanceof String value ? value : null);
+            String imageBase64 = rawImage instanceof String value ? value : null;
+            Object rawSales = response.getData("salesCount");
+            int sales = rawSales instanceof Number number ? number.intValue() : 0;
+            onLoaded.accept(new ProductDetail(product, imageBase64, sales));
         });
     }
 
@@ -379,7 +386,9 @@ public class ShopController {
         }
     }
 
-    private void showProductDetail(Product product, String imageBase64) {
+    private void showProductDetail(ProductDetail detail) {
+        Product product = detail.product();
+        String imageBase64 = detail.imageBase64();
         Dialog<Void> dialog = new Dialog<>();
         dialog.setTitle("商品详情");
         dialog.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
@@ -408,16 +417,167 @@ public class ShopController {
         name.setWrapText(true);
         Label price = new Label("¥ " + product.getPrice());
         price.getStyleClass().add("shop-detail-price");
+        Label stock = new Label(stockText(product));
+        stock.getStyleClass().add("shop-detail-meta");
+        Label sales = new Label("已售 " + detail.salesCount() + " 件");
+        sales.getStyleClass().add("shop-detail-meta");
+        HBox meta = new HBox(14, stock, sales);
+        meta.setAlignment(Pos.CENTER_LEFT);
         Label description = new Label(product.getDescription() == null ? "" : product.getDescription());
         description.setWrapText(true);
-        VBox information = new VBox(13, name, new Label("分类：" + product.getCategory()), price,
-                new Label("库存：" + product.getStock()), description);
+        VBox information = new VBox(11, name, new Label("分类：" + product.getCategory()), price, meta, description);
         information.setPrefWidth(320);
+
         HBox content = new HBox(22, picture, information);
         content.setPadding(new Insets(18));
-        dialog.getDialogPane().setContent(content);
-        dialog.getDialogPane().setPrefWidth(700);
+
+        VBox root = new VBox(4, content, buildReviewSection(product));
+        dialog.getDialogPane().setContent(root);
+        dialog.getDialogPane().setPrefWidth(720);
         dialog.showAndWait();
+    }
+
+    /** 库存状态文案：已下架 / 已售罄 / 仅剩 N 件 / 库存 N 件。 */
+    private static String stockText(Product product) {
+        Integer stock = product.getStock();
+        if (product.getStatus() != null && product.getStatus() != ProductStatus.ON_SALE) return "已下架";
+        if (stock == null) return "库存未知";
+        if (stock <= 0) return "已售罄";
+        if (stock <= 5) return "仅剩 " + stock + " 件";
+        return "库存 " + stock + " 件";
+    }
+
+    /** 详情弹窗里评价区的控件集合，避免在方法之间传一长串参数。 */
+    private static final class ReviewPane {
+        final Label summary = new Label("正在加载评价…");
+        final Label hint = new Label();
+        final ListView<ProductReview> list = new ListView<>();
+        final Button deleteButton = new Button("删除选中评价");
+        final ComboBox<Integer> ratingBox = new ComboBox<>(FXCollections.observableArrayList(5, 4, 3, 2, 1));
+        final TextArea input = new TextArea();
+        final Button submitButton = new Button("发表评价");
+        final VBox submitBox = new VBox(6);
+        final VBox root = new VBox(8);
+        Long myReviewId;
+    }
+
+    private VBox buildReviewSection(Product product) {
+        ReviewPane pane = new ReviewPane();
+
+        Label title = new Label("商品评价");
+        title.getStyleClass().add("subpanel-title");
+        pane.summary.getStyleClass().add("hint-text");
+        pane.hint.getStyleClass().add("hint-text");
+        pane.hint.setWrapText(true);
+
+        pane.list.setPrefHeight(150);
+        pane.list.setPlaceholder(new Label("还没有人评价这件商品"));
+        pane.list.setCellFactory(column -> reviewCell());
+
+        pane.deleteButton.getStyleClass().add("btn-secondary");
+        pane.deleteButton.setDisable(true);
+        pane.deleteButton.setOnAction(event -> {
+            ProductReview selected = pane.list.getSelectionModel().getSelectedItem();
+            if (selected == null) { AlertUtil.showWarning("商品评价", "请先选择一条评价"); return; }
+            if (AlertUtil.showConfirm("删除评价", "确定删除这条评价吗？") != ButtonType.OK) return;
+            Message request = request(MessageType.SHOP_PRODUCT_REVIEW_DELETE);
+            request.putData("reviewId", selected.getReviewId());
+            send(request, response -> {
+                AlertUtil.showInfo("商品评价", "评价已删除");
+                loadProductReviews(product.getProductId(), pane);
+            });
+        });
+
+        javafx.scene.layout.Region spacer = new javafx.scene.layout.Region();
+        HBox.setHgrow(spacer, javafx.scene.layout.Priority.ALWAYS);
+        HBox listBar = new HBox(8, pane.summary, spacer, pane.deleteButton);
+        listBar.setAlignment(Pos.CENTER_LEFT);
+
+        pane.ratingBox.getSelectionModel().selectFirst();
+        pane.ratingBox.setPrefWidth(84);
+        pane.input.setPromptText("写下你的使用感受（最多 500 字）");
+        pane.input.setPrefRowCount(2);
+        pane.input.setWrapText(true);
+        pane.submitButton.getStyleClass().add("btn-primary");
+        pane.submitButton.setOnAction(event -> {
+            Integer rating = pane.ratingBox.getValue();
+            String text = pane.input.getText();
+            if (text == null || text.trim().isEmpty()) { AlertUtil.showWarning("商品评价", "请填写评价内容"); return; }
+            Message request = request(MessageType.SHOP_PRODUCT_REVIEW_ADD);
+            request.putData("productId", product.getProductId());
+            request.putData("rating", rating == null ? 5 : rating);
+            request.putData("content", text.trim());
+            send(request, response -> {
+                AlertUtil.showInfo("商品评价", "评价发表成功");
+                pane.input.clear();
+                loadProductReviews(product.getProductId(), pane);
+            });
+        });
+        HBox submitBar = new HBox(8, new Label("评分"), pane.ratingBox, pane.submitButton);
+        submitBar.setAlignment(Pos.CENTER_LEFT);
+        pane.submitBox.getChildren().addAll(pane.input, submitBar);
+        pane.submitBox.setVisible(false);
+        pane.submitBox.setManaged(false);
+
+        pane.root.getChildren().addAll(title, listBar, pane.list, pane.submitBox, pane.hint);
+        pane.root.setPadding(new Insets(0, 18, 16, 18));
+
+        loadProductReviews(product.getProductId(), pane);
+        return pane.root;
+    }
+
+    /** 拉取评价列表，同时更新平均分、能否评价与提示文案。 */
+    private void loadProductReviews(long productId, ReviewPane pane) {
+        Message request = request(MessageType.SHOP_PRODUCT_REVIEW_LIST);
+        request.putData("productId", productId);
+        send(request, response -> {
+            List<ProductReview> reviews = new ArrayList<>();
+            Object rawReviews = response.getData("reviews");
+            if (rawReviews != null) {
+                ProductReview[] array = gson.fromJson(gson.toJson(rawReviews), ProductReview[].class);
+                if (array != null) reviews.addAll(java.util.Arrays.asList(array));
+            }
+            long count = response.getData("reviewCount") instanceof Number number ? number.longValue() : reviews.size();
+            double average = response.getData("averageRating") instanceof Number number ? number.doubleValue() : 0d;
+            boolean canReview = Boolean.TRUE.equals(response.getData("canReview"));
+            pane.myReviewId = response.getData("myReviewId") instanceof Number number ? number.longValue() : null;
+
+            pane.list.setItems(FXCollections.observableArrayList(reviews));
+            pane.deleteButton.setDisable(reviews.isEmpty());
+            pane.summary.setText(count == 0 ? "还没有评价" : String.format("平均 %.1f 分 · 共 %d 条", average, count));
+            pane.submitBox.setVisible(canReview);
+            pane.submitBox.setManaged(canReview);
+            if (canReview) {
+                pane.hint.setText("评价会显示你的账号，请文明发言；每件商品只能评价一次。");
+            } else if (isAdmin()) {
+                pane.hint.setText("管理员账号不参与商品评价，但可以删除不合适的评价。");
+            } else if (pane.myReviewId != null) {
+                pane.hint.setText("你已经评价过这件商品，可以删除后重新发表。");
+            } else {
+                pane.hint.setText("购买过这件商品才能评价。");
+            }
+        });
+    }
+
+    private ListCell<ProductReview> reviewCell() {
+        return new ListCell<>() {
+            @Override protected void updateItem(ProductReview review, boolean empty) {
+                super.updateItem(review, empty);
+                if (empty || review == null) { setText(null); return; }
+                int rating = review.getRating() == null ? 0 : Math.max(0, Math.min(5, review.getRating()));
+                String stars = "★".repeat(rating) + "☆".repeat(5 - rating);
+                setText(stars + "  " + util.UserDisplay.label(review.getDisplayName(), review.getUserId())
+                        + "  " + shortTime(review.getCreatedAt()) + "\n" + review.getContent());
+                setWrapText(true);
+            }
+        };
+    }
+
+    /** 服务端时间形如 2026-09-16 10:35:49.0，这里去掉毫秒部分。 */
+    private static String shortTime(String value) {
+        if (value == null) return "";
+        int dot = value.indexOf('.');
+        return dot > 0 ? value.substring(0, dot) : value;
     }
 
     @FXML
@@ -649,7 +809,7 @@ public class ShopController {
         TextField nameField = new TextField();
         nameField.setPromptText("商品名称不能与现有商品重复");
         ComboBox<String> categoryField = new ComboBox<>(FXCollections.observableArrayList(
-                "文具", "教材资料", "校园纪念品", "生活用品"));
+                "文具", "教材资料", "校园纪念品", "生活用品", "食品"));
         categoryField.setPromptText("请选择商品分类");
         categoryField.setMaxWidth(Double.MAX_VALUE);
         TextField priceField = new TextField();
@@ -821,11 +981,11 @@ public class ShopController {
         replaceProductImageButton.setDisable(selected == null || imageUploadInProgress);
         if (selected == null) return;
         long selectedId = selected.getProductId();
-        requestProductDetail(selectedId, (product, imageBase64) -> {
+        requestProductDetail(selectedId, detail -> {
             Product current = adminProductTable.getSelectionModel().getSelectedItem();
             if (generation != adminPreviewGeneration || current == null
                     || !Long.valueOf(selectedId).equals(current.getProductId())) return;
-            CompletableFuture.supplyAsync(() -> decodeProductImage(imageBase64))
+            CompletableFuture.supplyAsync(() -> decodeProductImage(detail.imageBase64()))
                     .thenAccept(image -> Platform.runLater(() -> {
                         Product stillSelected = adminProductTable.getSelectionModel().getSelectedItem();
                         if (generation != adminPreviewGeneration || stillSelected == null

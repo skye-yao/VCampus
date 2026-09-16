@@ -11,6 +11,7 @@ public class BookReview implements Serializable {
     private String userId;
     private int bookId;
     private String content;
+    private String displayName;
     private LocalDateTime createTime;
 
     public BookReview() {
@@ -47,6 +48,15 @@ public class BookReview implements Serializable {
 
     public void setBookId(int bookId) {
         this.bookId = bookId;
+    }
+
+    /** 展示用昵称：管理员看完整账号，作者看“我”，其他人看脱敏昵称。 */
+    public String getDisplayName() {
+        return displayName;
+    }
+
+    public void setDisplayName(String displayName) {
+        this.displayName = displayName;
     }
 
     public String getContent() {

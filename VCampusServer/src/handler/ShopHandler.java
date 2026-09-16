@@ -58,6 +58,13 @@ public class ShopHandler {
                         shopService.getProductDetail(number(request, "productId")));
                 case "SHOP_PRODUCT_THUMBNAILS" -> response.putData("thumbnails",
                         shopService.listProductThumbnails(numberList(request, "productIds")));
+                case "SHOP_PRODUCT_REVIEW_LIST" -> response.setData(shopService.listProductReviews(
+                        userId, admin, number(request, "productId")));
+                case "SHOP_PRODUCT_REVIEW_ADD" -> response.putData("reviewId", shopService.addProductReview(
+                        userId, admin, number(request, "productId"),
+                        integer(request, "rating"), string(request, "content")));
+                case "SHOP_PRODUCT_REVIEW_DELETE" -> shopService.deleteProductReview(
+                        userId, admin, number(request, "reviewId"));
                 case "SHOP_CART_LIST" -> response.putData("cartItems", shopService.listCart(userId));
                 case "SHOP_CART_ADD" -> shopService.addCartItem(userId,
                         number(request, "productId"), integer(request, "quantity"));
@@ -116,7 +123,7 @@ public class ShopHandler {
         return switch (action) {
             case "SHOP_CART_LIST", "SHOP_CART_ADD", "SHOP_CART_UPDATE", "SHOP_CART_REMOVE",
                     "SHOP_ORDER_CREATE", "SHOP_ORDER_LIST", "SHOP_ORDER_CANCEL", "SHOP_ORDER_PAY",
-                    "SHOP_REFUND_APPLY" -> true;
+                    "SHOP_REFUND_APPLY", "SHOP_PRODUCT_REVIEW_ADD" -> true;
             default -> false;
         };
     }

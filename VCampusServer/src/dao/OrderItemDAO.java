@@ -25,6 +25,19 @@ public class OrderItemDAO {
         }
     }
 
+    /** 已支付订单里该商品的累计销量（只要付过款就算）。 */
+    public int salesCount(Connection conn, long productId) throws SQLException {
+        String sql = "SELECT IFNULL(SUM(i.quantity),0) FROM tbl_order_item i "
+                + "JOIN tbl_shop_order o ON o.order_id=i.order_id "
+                + "WHERE i.product_id=? AND o.status IN ('PAID','REFUNDING','REFUNDED')";
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setLong(1, productId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        }
+    }
+
     public List<OrderItem> findByOrderId(long orderId) throws SQLException {
         try (Connection conn = LocalTimeConnection.getConnection()) {
             return findByOrderId(conn, orderId);

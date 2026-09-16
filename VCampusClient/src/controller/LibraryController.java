@@ -299,7 +299,7 @@ public class LibraryController {
         reviewList.setCellFactory(list -> new ListCell<>() {
             @Override protected void updateItem(BookReview review, boolean empty) {
                 super.updateItem(review, empty);
-                setText(empty || review == null ? null : review.getUserId() + "  " + time(review.getCreateTime()) + "\n" + review.getContent());
+                setText(empty || review == null ? null : util.UserDisplay.label(review.getDisplayName(), review.getUserId()) + "  " + time(review.getCreateTime()) + "\n" + review.getContent());
             }
         });
     }

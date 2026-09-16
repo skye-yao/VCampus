@@ -4,12 +4,14 @@ import dao.CartItemDAO;
 import dao.OrderItemDAO;
 import dao.ProductDAO;
 import dao.ProductImageDAO;
+import dao.ProductReviewDAO;
 import dao.ShopOrderDAO;
 import dao.ShopRefundDAO;
 import dao.ShopOperationLogDAO;
 import entity.CartItem;
 import entity.OrderItem;
 import entity.Product;
+import entity.ProductReview;
 import entity.ShopOrder;
 import entity.ShopRefund;
 import enums.OrderStatus;
@@ -33,11 +35,13 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.Base64;
 import util.LocalTimeConnection;
+import util.UserDisplay;
 
 /** 商店模块业务服务。 */
 public class ShopService {
     private final ProductDAO productDAO = new ProductDAO();
     private final ProductImageDAO productImageDAO = new ProductImageDAO();
+    private final ProductReviewDAO productReviewDAO = new ProductReviewDAO();
     private final CartItemDAO cartItemDAO = new CartItemDAO();
     private final ShopOrderDAO shopOrderDAO = new ShopOrderDAO();
     private final OrderItemDAO orderItemDAO = new OrderItemDAO();
@@ -81,6 +85,7 @@ public class ShopService {
             detail.put("product", product);
             detail.put("imageBase64", image == null ? null : Base64.getEncoder().encodeToString(image.bytes()));
             detail.put("imageMimeType", image == null ? null : image.mimeType());
+            detail.put("salesCount", orderItemDAO.salesCount(conn, productId));
             return detail;
         } catch (SQLException e) {
             throw new DatabaseException("查询商品详情失败", e);
@@ -110,6 +115,112 @@ public class ShopService {
             return thumbnails;
         } catch (SQLException e) {
             throw new DatabaseException("查询商品缩略图失败", e);
+        }
+    }
+
+    /** 商品评价列表：附带平均分，以及当前用户能否评价、哪一条是自己的。 */
+    public Map<String, Object> listProductReviews(String userId, boolean admin, long productId) {
+        try (Connection conn = LocalTimeConnection.getConnection()) {
+            Product product = productDAO.findById(conn, productId, false);
+            if (product == null) throw new BusinessException("商品不存在");
+            List<ProductReview> reviews = productReviewDAO.findByProductId(conn, productId);
+            long[] stats = productReviewDAO.statistics(conn, productId);
+            Long myReviewId = null;
+            for (ProductReview review : reviews) {
+                if (userId != null && userId.equals(review.getUserId())) { myReviewId = review.getReviewId(); break; }
+            }
+            // 展示脱敏：管理员看完整账号，作者看“我”，其他人的账号不下发。
+            for (ProductReview review : reviews) {
+                applyReviewDisplayName(review, userId, admin);
+            }
+            boolean canReview = !admin && myReviewId == null
+                    && productReviewDAO.hasPurchased(conn, userId, productId);
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("reviews", reviews);
+            result.put("reviewCount", stats[0]);
+            result.put("averageRating", stats[0] == 0 ? 0.0d : (double) stats[1] / stats[0]);
+            result.put("canReview", canReview);
+            result.put("myReviewId", myReviewId);
+            return result;
+        } catch (SQLException e) {
+            throw new DatabaseException("查询商品评价失败", e);
+        }
+    }
+
+    /** 评价展示脱敏：管理员看完整账号，作者看“我”，其他人只看脱敏昵称且不下发原始账号。 */
+    private static void applyReviewDisplayName(ProductReview review, String viewerId, boolean admin) {
+        String ownerId = review.getUserId();
+        if (admin) {
+            review.setDisplayName(ownerId == null ? "" : ownerId);
+        } else if (viewerId != null && viewerId.equals(ownerId)) {
+            review.setDisplayName("我");
+        } else {
+            review.setDisplayName(UserDisplay.masked(ownerId));
+            review.setUserId(null);
+        }
+    }
+
+    /** 发表评价：必须购买过该商品，且一件商品只能评价一次。 */
+    public long addProductReview(String userId, boolean admin, long productId, int rating, String content) {
+        if (admin) throw new BusinessException("管理员账号不能评价商品");
+        if (rating < 1 || rating > 5) throw new BusinessException("评分必须在 1 到 5 之间");
+        if (content == null || content.trim().isEmpty()) throw new BusinessException("请填写评价内容");
+        String text = content.trim();
+        if (text.length() > 500) throw new BusinessException("评价内容不能超过 500 字");
+
+        Connection conn = null;
+        try {
+            conn = LocalTimeConnection.getConnection();
+            conn.setAutoCommit(false);
+            Product product = productDAO.findById(conn, productId, false);
+            if (product == null) throw new BusinessException("商品不存在");
+            if (!productReviewDAO.hasPurchased(conn, userId, productId)) {
+                throw new BusinessException("购买过该商品才能评价");
+            }
+            if (productReviewDAO.existsForUser(conn, productId, userId)) {
+                throw new BusinessException("你已经评价过该商品");
+            }
+            ProductReview review = new ProductReview();
+            review.setProductId(productId);
+            review.setUserId(userId);
+            review.setRating(rating);
+            review.setContent(text);
+            long reviewId = productReviewDAO.insert(conn, review);
+            conn.commit();
+            return reviewId;
+        } catch (BusinessException e) {
+            rollback(conn); throw e;
+        } catch (SQLException e) {
+            rollback(conn);
+            if ("23000".equals(e.getSQLState())) throw new BusinessException("你已经评价过该商品");
+            throw new DatabaseException("发表评价失败", e);
+        } finally {
+            resetAndClose(conn);
+        }
+    }
+
+    /** 删除评价：作者可以删自己的，管理员可以删任意一条。 */
+    public void deleteProductReview(String userId, boolean admin, long reviewId) {
+        Connection conn = null;
+        try {
+            conn = LocalTimeConnection.getConnection();
+            conn.setAutoCommit(false);
+            ProductReview review = productReviewDAO.findById(conn, reviewId);
+            if (review == null) throw new BusinessException("评价不存在或已被删除");
+            if (!admin && !userId.equals(review.getUserId())) {
+                throw new BusinessException("只能删除自己发表的评价");
+            }
+            if (!productReviewDAO.delete(conn, reviewId)) {
+                throw new BusinessException("评价不存在或已被删除");
+            }
+            conn.commit();
+        } catch (BusinessException e) {
+            rollback(conn); throw e;
+        } catch (SQLException e) {
+            rollback(conn);
+            throw new DatabaseException("删除评价失败", e);
+        } finally {
+            resetAndClose(conn);
         }
     }
 
@@ -577,8 +688,8 @@ public class ShopService {
             throw new BusinessException("商品名称不能为空");
         }
         if (product.getCategory() == null || !java.util.Set.of(
-                "文具", "教材资料", "校园纪念品", "生活用品").contains(product.getCategory().trim())) {
-            throw new BusinessException("商品分类必须从四个预设分类中选择");
+                "文具", "教材资料", "校园纪念品", "生活用品", "食品").contains(product.getCategory().trim())) {
+            throw new BusinessException("商品分类必须从五个预设分类中选择");
         }
         if (product.getPrice() == null || product.getPrice().compareTo(BigDecimal.ZERO) <= 0) {
             throw new BusinessException("商品价格必须大于0");
