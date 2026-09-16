@@ -12,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.sql.*;
 import java.util.*;
+import util.LocalTimeConnection;
 
 public final class StudentBatchService {
     @FunctionalInterface public interface Connections { Connection open() throws SQLException; }
@@ -19,7 +20,7 @@ public final class StudentBatchService {
     private final StudentBatchDAO dao;
     private final ResourceLockManager locks;
     private final Gson gson=new Gson();
-    public StudentBatchService(){this(DBUtil::getConnection,new StudentBatchDAO(),ResourceLockManager.getInstance());}
+    public StudentBatchService(){this(LocalTimeConnection::getConnection,new StudentBatchDAO(),ResourceLockManager.getInstance());}
     public StudentBatchService(Connections connections,StudentBatchDAO dao,ResourceLockManager locks){this.connections=connections;this.dao=dao;this.locks=locks;}
     public StudentBatchResult add(UserSession user,StudentBatchRequest input,boolean award)throws SQLException {
         if(user==null||!("ADMIN".equalsIgnoreCase(user.getRole())||"管理员".equals(user.getRole())))throw new SecurityException("仅管理员可操作");

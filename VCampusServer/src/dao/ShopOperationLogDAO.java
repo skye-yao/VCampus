@@ -8,6 +8,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import util.LocalTimeConnection;
 
 /** 商店后台操作审计数据访问。 */
 public class ShopOperationLogDAO {
@@ -30,7 +31,7 @@ public class ShopOperationLogDAO {
     public List<ShopOperationLog> findLatest(int limit) throws SQLException {
         int safeLimit = Math.max(1, Math.min(limit, 500));
         String sql = "SELECT * FROM tbl_shop_operation_log ORDER BY log_id DESC LIMIT ?";
-        try (Connection conn = util.DBUtil.getConnection();
+        try (Connection conn = util.LocalTimeConnection.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, safeLimit);
             try (ResultSet rs = stmt.executeQuery()) {

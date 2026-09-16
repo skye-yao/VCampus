@@ -10,6 +10,7 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
+import util.LocalTimeConnection;
 
 /**
  * 图书预约数据访问对象 (ReservationDAO)
@@ -36,7 +37,7 @@ public class ReservationDAO {
         ResultSet rs = null;
 
         try {
-            conn = DBUtil.getConnection();
+            conn = LocalTimeConnection.getConnection();
             stmt = conn.prepareStatement(sql);
             stmt.setInt(1, id);
 
@@ -76,7 +77,7 @@ public class ReservationDAO {
         List<Reservation> reservations = new ArrayList<>();
 
         try {
-            conn = DBUtil.getConnection();
+            conn = LocalTimeConnection.getConnection();
             stmt = conn.prepareStatement(sql);
             stmt.setString(1, userId);
 
@@ -116,7 +117,7 @@ public class ReservationDAO {
         List<Reservation> reservations = new ArrayList<>();
 
         try {
-            conn = DBUtil.getConnection();
+            conn = LocalTimeConnection.getConnection();
             stmt = conn.prepareStatement(sql);
             stmt.setInt(1, bookId);
 
@@ -152,7 +153,7 @@ public class ReservationDAO {
         PreparedStatement stmt = null;
 
         try {
-            conn = DBUtil.getConnection();
+            conn = LocalTimeConnection.getConnection();
             stmt = conn.prepareStatement(sql);
 
             stmt.setString(1, reservation.getUserId());
@@ -197,7 +198,7 @@ public class ReservationDAO {
         PreparedStatement stmt = null;
 
         try {
-            conn = DBUtil.getConnection();
+            conn = LocalTimeConnection.getConnection();
             stmt = conn.prepareStatement(sql);
 
             stmt.setInt(1, status);
@@ -234,7 +235,7 @@ public class ReservationDAO {
         ResultSet rs = null;
 
         try {
-            conn = DBUtil.getConnection();
+            conn = LocalTimeConnection.getConnection();
             stmt = conn.prepareStatement(sql);
             stmt.setInt(1, bookId);
 

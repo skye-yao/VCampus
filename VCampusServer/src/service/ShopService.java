@@ -32,6 +32,7 @@ import java.util.UUID;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.Base64;
+import util.LocalTimeConnection;
 
 /** 商店模块业务服务。 */
 public class ShopService {
@@ -72,7 +73,7 @@ public class ShopService {
 
     /** 详情按需加载图片；列表查询始终不包含图片二进制。 */
     public Map<String, Object> getProductDetail(long productId) {
-        try (Connection conn = DBUtil.getConnection()) {
+        try (Connection conn = LocalTimeConnection.getConnection()) {
             Product product = productDAO.findById(conn, productId, false);
             if (product == null) throw new BusinessException("商品不存在");
             ProductImageDAO.ImageRow image = productImageDAO.findByProductId(conn, productId);
@@ -96,7 +97,7 @@ public class ShopService {
         if (productIds == null || productIds.isEmpty()) return Map.of();
         List<Long> ids = productIds.stream().filter(Objects::nonNull).distinct().limit(120).toList();
         if (ids.isEmpty()) return Map.of();
-        try (Connection conn = DBUtil.getConnection()) {
+        try (Connection conn = LocalTimeConnection.getConnection()) {
             Map<String, String> thumbnails = new LinkedHashMap<>();
             for (ProductImageDAO.ThumbSource source : productImageDAO.findThumbSources(conn, ids)) {
                 byte[] thumbnail = ProductThumbnailCache.thumbnail(
@@ -162,7 +163,7 @@ public class ShopService {
         List<Long> uniqueIds = new ArrayList<>(new LinkedHashSet<>(selectedCartItemIds));
         Connection conn = null;
         try {
-            conn = DBUtil.getConnection();
+            conn = LocalTimeConnection.getConnection();
             conn.setAutoCommit(false);
 
             List<CartItem> cartItems = cartItemDAO.findSelected(conn, userId, uniqueIds, true);
@@ -244,7 +245,7 @@ public class ShopService {
     public void cancelOrder(String userId, long orderId) {
         Connection conn = null;
         try {
-            conn = DBUtil.getConnection();
+            conn = LocalTimeConnection.getConnection();
             conn.setAutoCommit(false);
             ShopOrder order = shopOrderDAO.findById(conn, orderId, true);
             checkOrderOwner(order, userId, false);
@@ -277,7 +278,7 @@ public class ShopService {
 
         Connection conn = null;
         try {
-            conn = DBUtil.getConnection();
+            conn = LocalTimeConnection.getConnection();
             conn.setAutoCommit(false);
             ShopOrder order = shopOrderDAO.findById(conn, orderId, true);
             checkOrderOwner(order, userId, false);
@@ -317,7 +318,7 @@ public class ShopService {
         if (reason == null || reason.trim().isEmpty()) throw new BusinessException("请填写退款原因");
         Connection conn = null;
         try {
-            conn = DBUtil.getConnection(); conn.setAutoCommit(false);
+            conn = LocalTimeConnection.getConnection(); conn.setAutoCommit(false);
             ShopOrder order = shopOrderDAO.findById(conn, orderId, true);
             checkOrderOwner(order, userId, false);
             if (order.getStatus() != OrderStatus.PAID) {
@@ -353,7 +354,7 @@ public class ShopService {
                 ? null : ProductImageCodec.decode(imageBase64);
         Connection conn = null;
         try {
-            conn = DBUtil.getConnection(); conn.setAutoCommit(false);
+            conn = LocalTimeConnection.getConnection(); conn.setAutoCommit(false);
             // 新商品统一默认上架，不信任客户端传入的初始状态。
             product.setStatus(ProductStatus.ON_SALE);
             if (productDAO.findByName(conn, product.getProductName(), null) != null) {
@@ -387,7 +388,7 @@ public class ShopService {
         ProductImageCodec.ValidatedImage image = ProductImageCodec.decode(imageBase64);
         Connection conn = null;
         try {
-            conn = DBUtil.getConnection();
+            conn = LocalTimeConnection.getConnection();
             conn.setAutoCommit(false);
             Product before = productDAO.findById(conn, productId, true);
             if (before == null) throw new BusinessException("商品不存在");
@@ -430,7 +431,7 @@ public class ShopService {
         requireAdmin(admin);
         Connection conn = null;
         try {
-            conn = DBUtil.getConnection(); conn.setAutoCommit(false);
+            conn = LocalTimeConnection.getConnection(); conn.setAutoCommit(false);
             ShopRefund refund = shopRefundDAO.findById(conn, refundId, true);
             if (refund == null) throw new BusinessException("退款申请不存在");
             if (refund.getStatus() != RefundStatus.APPLIED) throw new BusinessException("退款申请已经审核");
@@ -470,7 +471,7 @@ public class ShopService {
         validateProduct(product, true);
         Connection conn = null;
         try {
-            conn = DBUtil.getConnection(); conn.setAutoCommit(false);
+            conn = LocalTimeConnection.getConnection(); conn.setAutoCommit(false);
             Product before = productDAO.findById(conn, product.getProductId(), true);
             if (before == null) throw new BusinessException("商品不存在");
             if (productDAO.findByName(conn, product.getProductName(), product.getProductId()) != null) {
@@ -496,7 +497,7 @@ public class ShopService {
         if (status == null) throw new BusinessException("商品状态不正确");
         Connection conn = null;
         try {
-            conn = DBUtil.getConnection(); conn.setAutoCommit(false);
+            conn = LocalTimeConnection.getConnection(); conn.setAutoCommit(false);
             Product before = productDAO.findById(conn, productId, true);
             if (before == null) throw new BusinessException("商品不存在");
             if (!productDAO.changeStatus(conn, productId, status, expectedVersion)) {
@@ -519,7 +520,7 @@ public class ShopService {
         if (stock < 0) throw new BusinessException("库存不能小于0");
         Connection conn = null;
         try {
-            conn = DBUtil.getConnection(); conn.setAutoCommit(false);
+            conn = LocalTimeConnection.getConnection(); conn.setAutoCommit(false);
             Product before = productDAO.findById(conn, productId, true);
             if (before == null) throw new BusinessException("商品不存在");
             if (!productDAO.updateStock(conn, productId, stock, expectedVersion)) {
@@ -549,7 +550,7 @@ public class ShopService {
     public int expireUnpaidOrders() {
         Connection conn = null;
         try {
-            conn = DBUtil.getConnection();
+            conn = LocalTimeConnection.getConnection();
             conn.setAutoCommit(false);
             int expiredCount = 0;
             for (Long orderId : shopOrderDAO.findExpiredWaitPayIds(conn)) {

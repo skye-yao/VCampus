@@ -283,6 +283,7 @@ public class ShopController {
                     case "PRODUCT_UPDATE" -> "修改商品";
                     case "PRODUCT_STATUS_CHANGE" -> "上架/下架";
                     case "PRODUCT_STOCK_UPDATE" -> "调整库存";
+                    case "PRODUCT_IMAGE_UPDATE" -> "更换商品图片";
                     case "REFUND_APPROVE" -> "同意退款";
                     case "REFUND_REJECT" -> "拒绝退款";
                     default -> action;

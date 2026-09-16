@@ -7,6 +7,7 @@ import util.DBUtil;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
+import util.LocalTimeConnection;
 
 /** 购物车数据访问对象。 */
 public class CartItemDAO {
@@ -16,7 +17,7 @@ public class CartItemDAO {
                 "p.product_name,p.price,p.stock,p.status " +
                 "FROM tbl_cart_item c JOIN tbl_product p ON p.product_id=c.product_id " +
                 "WHERE c.user_id=? ORDER BY c.updated_at DESC";
-        try (Connection conn = DBUtil.getConnection();
+        try (Connection conn = LocalTimeConnection.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, userId);
             try (ResultSet rs = stmt.executeQuery()) {
@@ -66,7 +67,7 @@ public class CartItemDAO {
     public void addOrIncrease(String userId, long productId, int quantity) throws SQLException {
         String sql = "INSERT INTO tbl_cart_item(user_id,product_id,quantity) VALUES(?,?,?) " +
                 "ON DUPLICATE KEY UPDATE quantity=quantity+VALUES(quantity), updated_at=CURRENT_TIMESTAMP";
-        try (Connection conn = DBUtil.getConnection();
+        try (Connection conn = LocalTimeConnection.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, userId);
             stmt.setLong(2, productId);
@@ -78,7 +79,7 @@ public class CartItemDAO {
     public boolean updateQuantity(String userId, long cartItemId, int quantity) throws SQLException {
         String sql = "UPDATE tbl_cart_item SET quantity=?,updated_at=CURRENT_TIMESTAMP " +
                 "WHERE cart_item_id=? AND user_id=?";
-        try (Connection conn = DBUtil.getConnection();
+        try (Connection conn = LocalTimeConnection.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, quantity);
             stmt.setLong(2, cartItemId);
@@ -89,7 +90,7 @@ public class CartItemDAO {
 
     public boolean remove(String userId, long cartItemId) throws SQLException {
         String sql = "DELETE FROM tbl_cart_item WHERE cart_item_id=? AND user_id=?";
-        try (Connection conn = DBUtil.getConnection();
+        try (Connection conn = LocalTimeConnection.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setLong(1, cartItemId);
             stmt.setString(2, userId);

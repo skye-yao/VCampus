@@ -4,11 +4,12 @@ import enums.StudentAwardType;
 import util.DBUtil;
 import java.sql.*;
 import java.util.*;
+import util.LocalTimeConnection;
 @SuppressWarnings({"SqlNoDataSourceInspection", "SqlResolve"})
 public class StudentAwardDAO {
     public List<StudentAward> findByStudentId(String id)throws SQLException {
         List<StudentAward>o=new ArrayList<>();
-        try(Connection c=DBUtil.getConnection();PreparedStatement p=c.prepareStatement("SELECT * FROM tblStudentAward WHERE studentId=? ORDER BY awardDate DESC")) {
+        try(Connection c=LocalTimeConnection.getConnection();PreparedStatement p=c.prepareStatement("SELECT * FROM tblStudentAward WHERE studentId=? ORDER BY awardDate DESC")) {
             p.setString(1,id);
             try(ResultSet r=p.executeQuery()) {
                 while(r.next()) {
@@ -34,7 +35,7 @@ public class StudentAwardDAO {
         return change("UPDATE tblStudentAward SET studentId=?,awardName=?,awardType=?,awardLevel=?,awardDate=?,organization=?,description=? WHERE awardId=?",a,true);
     }
     private boolean change(String q,StudentAward a,boolean id)throws SQLException {
-        try(Connection c=DBUtil.getConnection();PreparedStatement p=c.prepareStatement(q)) {
+        try(Connection c=LocalTimeConnection.getConnection();PreparedStatement p=c.prepareStatement(q)) {
             p.setString(1,a.getStudentId());
             p.setString(2,a.getAwardName());
             p.setString(3,a.getAwardType().name());
@@ -47,7 +48,7 @@ public class StudentAwardDAO {
         }
     }
     public boolean delete(long id)throws SQLException {
-        try(Connection c=DBUtil.getConnection();PreparedStatement p=c.prepareStatement("DELETE FROM tblStudentAward WHERE awardId=?")) {
+        try(Connection c=LocalTimeConnection.getConnection();PreparedStatement p=c.prepareStatement("DELETE FROM tblStudentAward WHERE awardId=?")) {
             p.setLong(1,id);
             return p.executeUpdate()==1;
         }

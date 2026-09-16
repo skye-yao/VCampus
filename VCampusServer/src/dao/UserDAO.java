@@ -16,6 +16,11 @@ import java.util.List;
 /**
  * 用户数据访问对象 (UserDAO)
  */
+@SuppressWarnings({
+        "SqlNoDataSourceInspection",
+        "SqlResolve",
+        "SqlWithoutWhere"
+})
 public class UserDAO {
 
     private static volatile boolean userTableReady = false;
@@ -41,7 +46,7 @@ public class UserDAO {
     /**
      * 注册新用户：在同一事务中创建用户账号、银行账户和学籍档案
      */
-    public boolean register(User user) throws SQLException {
+    public void register(User user) throws SQLException {
         String sqlUser = "INSERT INTO tbl_user (UID, name, gender, password, salt, role, college, major, phone, email, balance) " +
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         String sqlBank = "INSERT INTO tbl_bank_account (user_id, balance, status) VALUES (?, ?, 'ACTIVE') " +
@@ -71,11 +76,10 @@ public class UserDAO {
             }
 
             // 2. 银行表保存唯一可信余额，用户表中的 balance 是同一校园账户余额的镜像。
-            BigDecimal bankOpeningBalance = openingBalance;
             long accountId = 0;
             try (PreparedStatement stmt = conn.prepareStatement(sqlBank, Statement.RETURN_GENERATED_KEYS)) {
                 stmt.setString(1, user.getUID());
-                stmt.setBigDecimal(2, bankOpeningBalance);
+                stmt.setBigDecimal(2, openingBalance);
                 stmt.executeUpdate();
                 try (ResultSet rs = stmt.getGeneratedKeys()) {
                     if (rs.next()) accountId = rs.getLong(1);
@@ -97,8 +101,8 @@ public class UserDAO {
                 try (PreparedStatement stmt = conn.prepareStatement(sqlTx)) {
                     stmt.setString(1, "TX-BONUS-" + System.currentTimeMillis() + "-" + user.getUID());
                     stmt.setLong(2, accountId);
-                    stmt.setBigDecimal(3, bankOpeningBalance);
-                    stmt.setBigDecimal(4, bankOpeningBalance);
+                    stmt.setBigDecimal(3, openingBalance);
+                    stmt.setBigDecimal(4, openingBalance);
                     stmt.executeUpdate();
                 }
             }
@@ -132,7 +136,6 @@ public class UserDAO {
             }
 
             conn.commit();
-            return true;
         } catch (Exception e) {
             if (conn != null) {
                 try { conn.rollback(); } catch (SQLException ignored) {}
@@ -266,7 +269,8 @@ public class UserDAO {
         try {
             // 1. 同步学生学籍信息（学院、专业、姓名、性别、手机、邮箱）
             String sqlStudent = "UPDATE tbl_user u " +
-                    "JOIN tblStudent s ON (u.UID = s.UID OR u.UID = s.studentId) " +
+                    "JOIN tblStudent s ON (u.UID COLLATE utf8mb4_unicode_ci = s.UID COLLATE utf8mb4_unicode_ci " +
+                    "OR u.UID COLLATE utf8mb4_unicode_ci = s.studentId COLLATE utf8mb4_unicode_ci) " +
                     "SET u.name = s.name, u.gender = s.gender, u.college = s.college, u.major = s.major, " +
                     "u.phone = COALESCE(NULLIF(s.mobile, ''), u.phone), u.email = COALESCE(NULLIF(s.email, ''), u.email) " +
                     "WHERE u.UID = ?";
@@ -316,7 +320,7 @@ public class UserDAO {
              Statement stmt = conn.createStatement()) {
             // 1. 同步学生
             stmt.executeUpdate("UPDATE tbl_user u " +
-                    "JOIN tblStudent s ON u.UID = s.UID " +
+                    "JOIN tblStudent s ON u.UID COLLATE utf8mb4_unicode_ci = s.UID COLLATE utf8mb4_unicode_ci " +
                     "SET u.name = s.name, u.gender = s.gender, u.college = s.college, u.major = s.major");
             // 2. 同步教师
             stmt.executeUpdate("UPDATE tbl_user u " +

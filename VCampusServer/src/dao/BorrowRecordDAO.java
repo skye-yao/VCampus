@@ -10,6 +10,7 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
+import util.LocalTimeConnection;
 
 /**
  * 借阅记录数据访问对象 (BorrowRecordDAO)
@@ -36,7 +37,7 @@ public class BorrowRecordDAO {
         ResultSet rs = null;
 
         try {
-            conn = DBUtil.getConnection();
+            conn = LocalTimeConnection.getConnection();
             stmt = conn.prepareStatement(sql);
             stmt.setInt(1, id);
 
@@ -75,7 +76,7 @@ public class BorrowRecordDAO {
         List<BorrowRecord> records = new ArrayList<>();
 
         try {
-            conn = DBUtil.getConnection();
+            conn = LocalTimeConnection.getConnection();
             stmt = conn.prepareStatement(sql);
             stmt.setString(1, userId);
 
@@ -114,7 +115,7 @@ public class BorrowRecordDAO {
         List<BorrowRecord> records = new ArrayList<>();
 
         try {
-            conn = DBUtil.getConnection();
+            conn = LocalTimeConnection.getConnection();
             stmt = conn.prepareStatement(sql);
             stmt.setInt(1, bookId);
 
@@ -151,7 +152,7 @@ public class BorrowRecordDAO {
         PreparedStatement stmt = null;
 
         try {
-            conn = DBUtil.getConnection();
+            conn = LocalTimeConnection.getConnection();
             stmt = conn.prepareStatement(sql);
 
             stmt.setString(1, record.getUserId());
@@ -206,7 +207,7 @@ public class BorrowRecordDAO {
         PreparedStatement stmt = null;
 
         try {
-            conn = DBUtil.getConnection();
+            conn = LocalTimeConnection.getConnection();
             stmt = conn.prepareStatement(sql);
 
             stmt.setString(1, record.getUserId());
@@ -268,7 +269,7 @@ public class BorrowRecordDAO {
         List<BorrowRecord> records = new ArrayList<>();
 
         try {
-            conn = DBUtil.getConnection();
+            conn = LocalTimeConnection.getConnection();
             stmt = conn.prepareStatement(sql);
             stmt.setString(1, userId);
 

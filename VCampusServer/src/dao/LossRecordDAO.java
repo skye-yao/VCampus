@@ -10,6 +10,7 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
+import util.LocalTimeConnection;
 
 /**
  * 图书挂失记录数据访问对象 (LossRecordDAO)
@@ -19,7 +20,7 @@ import java.util.List;
 public class LossRecordDAO {
     /** 每本仍在挂失的图书一条公告，已解除的记录不公开。 */
     public List<vo.LostBookNotice> findPublicNotices() throws SQLException {
-        try (Connection conn = DBUtil.getConnection()) {
+        try (Connection conn = LocalTimeConnection.getConnection()) {
             return findPublicNotices(conn);
         }
     }
@@ -56,7 +57,7 @@ public class LossRecordDAO {
         ResultSet rs = null;
 
         try {
-            conn = DBUtil.getConnection();
+            conn = LocalTimeConnection.getConnection();
             stmt = conn.prepareStatement(sql);
             stmt.setInt(1, id);
 
@@ -96,7 +97,7 @@ public class LossRecordDAO {
         List<LossRecord> records = new ArrayList<>();
 
         try {
-            conn = DBUtil.getConnection();
+            conn = LocalTimeConnection.getConnection();
             stmt = conn.prepareStatement(sql);
             stmt.setString(1, userId);
 
@@ -136,7 +137,7 @@ public class LossRecordDAO {
         List<LossRecord> records = new ArrayList<>();
 
         try {
-            conn = DBUtil.getConnection();
+            conn = LocalTimeConnection.getConnection();
             stmt = conn.prepareStatement(sql);
             stmt.setInt(1, bookId);
 
@@ -172,7 +173,7 @@ public class LossRecordDAO {
         PreparedStatement stmt = null;
 
         try {
-            conn = DBUtil.getConnection();
+            conn = LocalTimeConnection.getConnection();
             stmt = conn.prepareStatement(sql);
 
             stmt.setString(1, record.getUserId());
@@ -210,7 +211,7 @@ public class LossRecordDAO {
         PreparedStatement stmt = null;
 
         try {
-            conn = DBUtil.getConnection();
+            conn = LocalTimeConnection.getConnection();
             stmt = conn.prepareStatement(sql);
 
             stmt.setInt(1, status);

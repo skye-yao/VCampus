@@ -1,5 +1,6 @@
 package service;
 import dao.*; import entity.*; import enums.StudentChangeStatus; import util.DBUtil; import util.InformationDateRules; import vo.TeacherOverviewVO; import java.sql.*; import java.util.*; import protocol.LockRequest; import session.UserSession;
+import util.LocalTimeConnection;
 public class TeacherService implements ITeacherService {
  @Override
     public void cancel(String UID,long requestId)throws SQLException{
@@ -25,9 +26,9 @@ public class TeacherService implements ITeacherService {
  String actual=teachers.fieldValueAsString(t,item.getFieldName());
  if(!actual.equals(teachers.canonicalValue(item.getFieldName(),item.getOldValue())))throw new IllegalStateException("教师信息已变化，请刷新后重新编辑");
  item.setOldValue(actual);String canonical=teachers.canonicalValue(item.getFieldName(),item.getNewValue());validateDateField(item.getFieldName(),canonical);
- }r.setTeacherId(t.getTeacherId());try(Connection c=DBUtil.getConnection()){c.setAutoCommit(false);try{long id=requests.insert(c,r);c.commit();return id;}catch(Exception e){c.rollback();throw e;}}}
+ }r.setTeacherId(t.getTeacherId());try(Connection c=LocalTimeConnection.getConnection()){c.setAutoCommit(false);try{long id=requests.insert(c,r);c.commit();return id;}catch(Exception e){c.rollback();throw e;}}}
  @Override
-    public void review(long id,StudentChangeStatus result,String reviewer,String note)throws SQLException{note=util.InformationRules.reviewNote(note);if(result!=StudentChangeStatus.APPROVED&&result!=StudentChangeStatus.REJECTED)throw new IllegalArgumentException("审核结果无效");try(Connection c=DBUtil.getConnection()){c.setAutoCommit(false);try{TeacherChangeRequest r=requests.findByIdForUpdate(c,id);if(r==null||r.getStatus()!=StudentChangeStatus.PENDING)throw new IllegalStateException("申请不存在或已处理");if(result==StudentChangeStatus.APPROVED){for(TeacherChangeItem item:r.getItems())validateDateField(item.getFieldName(),teachers.canonicalValue(item.getFieldName(),item.getNewValue()));if(!teachers.apply(c,r.getTeacherId(),r.getItems()))throw new SQLException("教师信息更新失败");new UserDAO().syncUserInfo(c,r.getTeacherId());}if(!requests.review(c,id,result,reviewer,note))throw new IllegalStateException("申请状态已变化");c.commit();}catch(Exception e){c.rollback();throw e;}}}
+    public void review(long id,StudentChangeStatus result,String reviewer,String note)throws SQLException{note=util.InformationRules.reviewNote(note);if(result!=StudentChangeStatus.APPROVED&&result!=StudentChangeStatus.REJECTED)throw new IllegalArgumentException("审核结果无效");try(Connection c=LocalTimeConnection.getConnection()){c.setAutoCommit(false);try{TeacherChangeRequest r=requests.findByIdForUpdate(c,id);if(r==null||r.getStatus()!=StudentChangeStatus.PENDING)throw new IllegalStateException("申请不存在或已处理");if(result==StudentChangeStatus.APPROVED){for(TeacherChangeItem item:r.getItems())validateDateField(item.getFieldName(),teachers.canonicalValue(item.getFieldName(),item.getNewValue()));if(!teachers.apply(c,r.getTeacherId(),r.getItems()))throw new SQLException("教师信息更新失败");new UserDAO().syncUserInfo(c,r.getTeacherId());}if(!requests.review(c,id,result,reviewer,note))throw new IllegalStateException("申请状态已变化");c.commit();}catch(Exception e){c.rollback();throw e;}}}
  @Override
     public boolean updateByAdmin(Teacher t,Teacher original)throws SQLException{
 		if(t==null||original==null||t.getTeacherId()==null||!t.getTeacherId().equals(original.getTeacherId()))throw new IllegalArgumentException("缺少原始教师快照或教师编号已变化，请刷新");
