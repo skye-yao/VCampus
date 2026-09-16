@@ -1,16 +1,20 @@
--- 仅供全新、空白图书馆数据库使用；重复执行会拒绝，避免重复记录与自增号消耗。
+-- 团队共享图书馆测试数据：先执行 init.sql，并启动新服务端完成字段升级。
+-- 可执行整个文件：基础样例仅在图书馆为空时插入；末尾 A～E 找回测试默认仅导入一次。
+-- 默认学生账号为 213242789；使用其他学生时请修改末尾 @recovery_test_user。
 
 USE `virtual_campus`;
 DELIMITER $$
 DROP PROCEDURE IF EXISTS seed_library_once$$
 CREATE PROCEDURE seed_library_once()
-BEGIN
+seed_base: BEGIN
   DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
   START TRANSACTION;
   IF EXISTS(SELECT 1 FROM tblBook) OR EXISTS(SELECT 1 FROM tblBorrowRecord)
      OR EXISTS(SELECT 1 FROM tblReservation) OR EXISTS(SELECT 1 FROM tblBookReview)
      OR EXISTS(SELECT 1 FROM tblLossRecord) OR EXISTS(SELECT 1 FROM tblFineRecord) THEN
-    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Library is not empty; sample import refused';
+    COMMIT;
+    SELECT 'Library is not empty; base samples skipped' AS seed_message;
+    LEAVE seed_base;
   END IF;
 -- ============================================================
 -- 插入测试数据
@@ -88,13 +92,15 @@ DELIMITER ;
 
 
 -- BEGIN LIBRARY RECOVERY TEST DATA
--- 已有数据时，只选中本节执行；上方原始样例仅适用于空白图书馆。
+-- 可单独执行本节，也可执行整个文件；上方基础样例在非空图书馆中自动跳过。
 -- 请先重启新服务端完成现有表字段升级，再导入本节。
 -- 找回入库测试数据：可在已有业务数据的数据库中执行，不删除或重置旧数据。
--- 每次执行新增一批 5 本书；测试完后可再次执行获得新数据。
+-- 默认使用固定 ISBN，只导入一批 5 本书；重复执行保留已经测试过的数据。
+-- 测试完需要全新一批时，将 @recovery_test_new_batch 改为 1（每次执行都会新增）。
 -- 先选择 virtual_campus 数据库；将下面账号改为你实际登录的学生一卡通号。
 USE `virtual_campus`;
 SET @recovery_test_user = '213242789';
+SET @recovery_test_new_batch = 0;
 
 -- 兼容旧数据库：测试数据使用书价，字段不存在时先补齐；已存在时不会重复添加。
 SET @price_column_missing = (
@@ -112,7 +118,7 @@ DEALLOCATE PREPARE price_upgrade_stmt;
 DELIMITER $$
 DROP PROCEDURE IF EXISTS seed_library_recovery_test$$
 CREATE PROCEDURE seed_library_recovery_test()
-BEGIN
+seed_recovery: BEGIN
     DECLARE batch VARCHAR(12);
     DECLARE seed_time DATETIME;
     DECLARE lost_normal INT;
@@ -126,7 +132,19 @@ BEGIN
     IF NOT EXISTS(SELECT 1 FROM tbl_user WHERE uid=@recovery_test_user AND role=2) THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Set recovery_test_user to an existing student UID first';
     END IF;
-    SET batch = LEFT(REPLACE(UUID(), '-', ''),12);
+    SET batch = IF(@recovery_test_new_batch = 1, LEFT(REPLACE(UUID(), '-', ''),12), 'SAMPLE-V1');
+    IF @recovery_test_new_batch = 0 AND EXISTS(
+        SELECT 1 FROM tblBook WHERE isbn IN('REC-SAMPLE-V1-1','REC-SAMPLE-V1-2',
+            'REC-SAMPLE-V1-3','REC-SAMPLE-V1-4','REC-SAMPLE-V1-5')
+    ) THEN
+        IF (SELECT COUNT(*) FROM tblBook WHERE isbn IN('REC-SAMPLE-V1-1','REC-SAMPLE-V1-2',
+            'REC-SAMPLE-V1-3','REC-SAMPLE-V1-4','REC-SAMPLE-V1-5')) <> 5 THEN
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Recovery samples are incomplete; inspect existing REC-SAMPLE-V1 books first';
+        END IF;
+        COMMIT;
+        SELECT 'Recovery samples already exist; skipped. Set recovery_test_new_batch=1 for a fresh batch' AS seed_message;
+        LEAVE seed_recovery;
+    END IF;
 
     INSERT INTO tblBook(isbn,name,author,publisher,status,price)
     VALUES(CONCAT('REC-',batch,'-1'),'[找回测试] 遗失图书A（未逾期）','测试作者','测试出版社',3,50.00);
