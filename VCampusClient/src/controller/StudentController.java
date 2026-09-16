@@ -197,6 +197,7 @@ public class StudentController {
             studentTabs.getSelectionModel().select(reviewTab);
         }
     }
+    public void openReviewFromDashboard(){handleShowReview();}
     //关闭维护模式
     @FXML private void handleShowStudentManagement(){exitDetailEditState();adminMaintenanceMode=false;applyAdminMode();}
     //开启维护模式
