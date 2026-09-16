@@ -16,6 +16,7 @@ import javafx.application.Platform;
 import javafx.embed.swing.SwingFXUtils;
 import javafx.event.Event;
 import javafx.fxml.FXMLLoader;
+import javafx.geometry.Bounds;
 import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
@@ -289,6 +290,31 @@ public final class TeacherCourseUiSmokeTest {
                                 + weekRange().getMin() + ".." + weekRange().getMax());
                 requireViewportReset("渲染第 8 周");
                 snapshot("schedule-week8.png");
+            });
+
+            // ------------------------------------------------------------ 铺满 / 自适应（Task 2）
+            // 用户要的是“跟着窗口变”：默认 860x580 横向装得下，网格宽度被拉到视口宽度（不再停在
+            // 自身 pref 尺寸），纵向 13 节装不下，于是按最小高度渲染并滚动；窗口拉大后两个方向都铺满
+            // （行高跟着长），拉窄到装不下时回落到最小宽度 + 滚动，而不是把列压到读不出来。
+            steps.add(() -> requireGridFillsViewport("860x580 默认窗口"));
+            steps.add(() -> resizeWindow(1180.0, 940.0));
+            steps.add(() -> {
+                requireGridFillsViewport("放大到 1180x940");
+                // 纵向铺满的实证：节次行自己长高了（行约束不再被 max=44 钉死），而不是被别的
+                // 节点把网格撑大。节次标签带 vgrow + maxSize=MAX，高度就是那一行的高度。
+                Node periodLabel = root.lookup(".teacher-schedule-period-label");
+                require(periodLabel != null && periodLabel.getLayoutBounds().getHeight() > 44.0,
+                        "窗口变高时节次行必须跟着长高，实际 "
+                                + (periodLabel == null
+                                        ? "没有节次行"
+                                        : periodLabel.getLayoutBounds().getHeight()));
+            });
+            steps.add(() -> resizeWindow(620.0, 420.0));
+            steps.add(this::requireGridScrollsInASmallWindow);
+            steps.add(() -> resizeWindow(WIDTH, HEIGHT));
+            steps.add(() -> {
+                requireGridFillsViewport("还原 860x580");
+                requireViewportReset("窗口还原后");
             });
 
             // 用户把这一周滚到底（看清第 13 节）后再离开：离开前的滚动位置不得被之后的每一周继承。
@@ -1538,6 +1564,17 @@ public final class TeacherCourseUiSmokeTest {
         }
 
         /**
+         * 把主窗口调到指定大小（冒烟里代替用户拖动窗口），并立刻把布局跑一遍，让下一个步骤读到的
+         * 就是新几何。结束后各步骤会把窗口还原成 860x580，截图因此始终是同一个尺寸。
+         */
+        private void resizeWindow(double width, double height) {
+            primaryStage.setWidth(width);
+            primaryStage.setHeight(height);
+            root.applyCss();
+            root.layout();
+        }
+
+        /**
          * 课表子页的根节点。工作台里教学班页也有一个 {@code #emptyLabel}，所以课表页里按 id
          * 查节点必须限定在这个子页内，否则会命中先被遍历到的教学班空态文案。
          */
@@ -1562,16 +1599,66 @@ public final class TeacherCourseUiSmokeTest {
         }
 
         /**
-         * 模拟用户把课表滚到右下角（13 节与第 7 天都要滚才能看到），并确认视口真的动了：
-         * 没有这一步，套件自己的流程从不让视口偏移，滚动位置缺陷就抓不出来。
+         * 模拟用户把课表滚到右下角，并确认视口真的动了：没有这一步，套件自己的流程从不让视口偏移，
+         * 滚动位置缺陷就抓不出来。
+         *
+         * <p>纵向一定滚得动（13 节在 860x580 里装不下）。横向只在表格比视口宽时才滚得动——
+         * 铺满之后默认窗口下横向没有余量，只有把窗口拉窄才有（那条路由
+         * {@link #requireGridScrollsInASmallWindow()} 走）。
          */
         private void scrollGridToBottom(String where) {
             ScrollPane scroll = requireNode("#scheduleScroll", ScrollPane.class, "课表滚动容器");
+            GridPane grid = requireNode("#scheduleGrid", GridPane.class, "课表网格");
             scroll.setVvalue(1.0);
             scroll.setHvalue(1.0);
-            require(scroll.getVvalue() > 0.5 && scroll.getHvalue() > 0.5,
-                    where + "：课表必须真的能滚动，实际 vvalue=" + scroll.getVvalue()
+            require(scroll.getVvalue() > 0.5,
+                    where + "：课表必须真的能纵向滚动，实际 vvalue=" + scroll.getVvalue());
+            require(grid.getWidth() <= scroll.getViewportBounds().getWidth() + 1.0
+                            || scroll.getHvalue() > 0.5,
+                    where + "：表格比视口宽时横向必须滚得动，实际 hvalue=" + scroll.getHvalue()
+                            + "，网格 " + grid.getWidth() + " / 视口 "
+                            + scroll.getViewportBounds().getWidth());
+        }
+
+        /**
+         * 铺满：网格被拉到视口大小，而不是停在自身 pref 尺寸。宽度必须正好等于视口宽度
+         * （{@code fitToWidth} + 日列 {@code hgrow}），高度至少是视口高度——13 节撑不下时按最小高度
+         * 渲染并交给 ScrollPane 滚动，撑得下时正好填满（{@code fitToHeight}）。
+         * 视口同时必须仍在左上角，否则“铺满”会把列头推出屏幕。
+         */
+        private void requireGridFillsViewport(String where) {
+            ScrollPane scroll = requireNode("#scheduleScroll", ScrollPane.class, "课表滚动容器");
+            GridPane grid = requireNode("#scheduleGrid", GridPane.class, "课表网格");
+            Bounds viewport = scroll.getViewportBounds();
+            require(viewport.getWidth() > 0 && viewport.getHeight() > 0,
+                    where + "：视口必须有尺寸，实际 " + viewport);
+            require(Math.abs(grid.getWidth() - viewport.getWidth()) < 1.0,
+                    where + "：网格宽度必须等于视口宽度（铺满），实际网格 " + grid.getWidth()
+                            + " / 视口 " + viewport.getWidth());
+            double expectedHeight = Math.max(viewport.getHeight(), grid.minHeight(-1));
+            require(Math.abs(grid.getHeight() - expectedHeight) < 2.0,
+                    where + "：网格高度必须是 max(视口, 最小高度)，实际网格 " + grid.getHeight()
+                            + " / 视口 " + viewport.getHeight() + " / 最小高度 "
+                            + grid.minHeight(-1));
+            require(scroll.getVvalue() == 0.0 && scroll.getHvalue() == 0.0,
+                    where + "：铺满之后视口仍必须停在左上角，实际 vvalue=" + scroll.getVvalue()
                             + "，hvalue=" + scroll.getHvalue());
+        }
+
+        /** 窗口拉窄到装不下整表时：表格按最小宽度渲染（不压字），横向滚动接管，纵向照样能滚。 */
+        private void requireGridScrollsInASmallWindow() {
+            ScrollPane scroll = requireNode("#scheduleScroll", ScrollPane.class, "课表滚动容器");
+            GridPane grid = requireNode("#scheduleGrid", GridPane.class, "课表网格");
+            double viewportWidth = scroll.getViewportBounds().getWidth();
+            require(grid.getWidth() >= grid.minWidth(-1) - 1.0,
+                    "窄窗口下表格不得被压到最小宽度以下，实际网格 " + grid.getWidth()
+                            + " / 最小宽度 " + grid.minWidth(-1));
+            require(grid.getWidth() > viewportWidth + 1.0,
+                    "窄窗口下表格应比视口宽并交给横向滚动，实际网格 " + grid.getWidth()
+                            + " / 视口 " + viewportWidth);
+            scrollGridToBottom("窄窗口滚到底");
+            scroll.setVvalue(0.0);
+            scroll.setHvalue(0.0);
         }
 
         private Button button(String selector, String description) {

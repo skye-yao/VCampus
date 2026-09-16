@@ -73,10 +73,16 @@ public final class TeacherScheduleController {
     /**
      * 节次列要放下 {@code 第 13 节 18:00:00-18:45:00}（11px 字号约 120px 字形 + 12px 内边距），
      * 因此固定宽度必须比 96 宽，否则 {@code Label} 默认的 {@code TextOverrun.ELLIPSIS} 会把它裁成
-     * {@code 第 1 节 08:00…}——秒与结束时间都看不见。整表因此比 860 窗口宽，横向滚动由 ScrollPane 负责。
+     * {@code 第 1 节 08:00…}——秒与结束时间都看不见。
      */
     private static final double PERIOD_COLUMN_WIDTH = 150.0;
-    private static final double DAY_COLUMN_MIN_WIDTH = 96.0;
+    /**
+     * 日期列的最小宽度：它同时是「铺满」的下限。整表的最小宽度是
+     * {@code 150 + 7 × 84 + 7 × 2 = 752}（节次列 + 7 天 + {@code hgap}），比 860 窗口里可用的
+     * 约 810px 窄，因此 {@code fitToWidth} 能把 7 个日期列拉伸到视口宽度（表格铺满）；
+     * 窗口再窄就轮到 ScrollPane 横向滚动，而不是把列压到读不出来。
+     */
+    private static final double DAY_COLUMN_MIN_WIDTH = 84.0;
     private static final double DAY_COLUMN_PREF_WIDTH = 112.0;
     private static final double HEADER_ROW_HEIGHT = 34.0;
     private static final double PERIOD_ROW_HEIGHT = 44.0;
@@ -375,10 +381,13 @@ public final class TeacherScheduleController {
                 dayColumn.setHgrow(Priority.ALWAYS);
                 scheduleGrid.getColumnConstraints().add(dayColumn);
             }
+            // 表头行固定 34px；节次行 44px 起、不设上限，窗口高过整表时由 vgrow 分摊多出来的高度
+            // （max 仍停在 44 的话 vgrow 是无效的，表格纵向永远铺不满）。
             scheduleGrid.getRowConstraints().add(new RowConstraints(HEADER_ROW_HEIGHT));
             for (int row = 0; row < periodRows.size(); row++) {
                 RowConstraints periodRow = new RowConstraints(PERIOD_ROW_HEIGHT);
                 periodRow.setMinHeight(PERIOD_ROW_HEIGHT);
+                periodRow.setMaxHeight(Double.MAX_VALUE);
                 periodRow.setVgrow(Priority.ALWAYS);
                 scheduleGrid.getRowConstraints().add(periodRow);
             }

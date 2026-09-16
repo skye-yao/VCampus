@@ -459,8 +459,16 @@ public final class TeacherScheduleControllerTest {
         noElementUsesTheReadOnlyDisabledAttribute(view);
         everyStyleClassExistsInTheStylesheet(view, readResource(CSS));
 
-        require(elementWithId(view, "scheduleGrid") != null,
-                "the page must expose the timetable grid");
+        Element grid = elementWithId(view, "scheduleGrid");
+        require(grid != null, "the page must expose the timetable grid");
+        require("1.7976931348623157E308".equals(grid.getAttribute("maxWidth"))
+                        && "1.7976931348623157E308".equals(grid.getAttribute("maxHeight")),
+                "the grid must be allowed to grow to the viewport in both directions, saw "
+                        + grid.getAttribute("maxWidth") + "x" + grid.getAttribute("maxHeight"));
+        require(!root.hasAttribute("prefWidth") && !root.hasAttribute("prefHeight"),
+                "the timetable page must not claim a size of its own: it fills the 860x580 shell,"
+                        + " saw " + root.getAttribute("prefWidth") + "x"
+                        + root.getAttribute("prefHeight"));
 
         // 周次控件与学生端同构（R2）：同一个 Spinner，同样可编辑；旧的“上一周/下一周”按钮与
         // “第 N 周（min-max）”文案都不再存在于视图里。
@@ -482,7 +490,15 @@ public final class TeacherScheduleControllerTest {
 
         Element scroll = elementWithId(view, "scheduleScroll");
         require(scroll != null && "ScrollPane".equals(scroll.getTagName()),
-                "the grid must live in a ScrollPane so 860x580 can scroll in both directions");
+                "the grid must live in a ScrollPane");
+        // 铺满（Task 2）：两个 fit 标志都打开，ScrollPane 才会把网格拉伸到视口大小；
+        // 关掉它们网格就永远停在自身 pref 尺寸（用户看到的“固定死的”）。装不下时仍由同一个
+        // ScrollPane 滚动，因为 fit 只能把内容拉到视口，压不过网格自己的最小尺寸。
+        require("true".equals(scroll.getAttribute("fitToWidth"))
+                        && "true".equals(scroll.getAttribute("fitToHeight")),
+                "the scroll pane must stretch the grid to the viewport in both directions, saw"
+                        + " fitToWidth=" + scroll.getAttribute("fitToWidth") + " fitToHeight="
+                        + scroll.getAttribute("fitToHeight"));
         require(containsId(scroll, "scheduleGrid"),
                 "the timetable grid must be the scroll pane's content");
     }

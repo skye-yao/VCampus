@@ -14,8 +14,9 @@
 
 <!--
   教师教学课程表（设计 §3）：日期列、节次行与可滚动网格都由控制器按响应动态生成，这里只声明外壳。
-  网格放进 ScrollPane（fitToWidth/fitToHeight 关闭），因此 860x580 里可以横向与纵向滚动；页面自身
-  不声明比外壳更大的 pref 尺寸。样式全部来自 teacher-course.css。
+  网格放进 ScrollPane，并且 fitToWidth/fitToHeight 都打开：网格因此会被拉伸到视口大小（铺满可用
+  区域），视口装不下时（例如窗口拉小）才按网格自己的最小尺寸渲染并滚动。页面自身不声明比外壳更大的
+  pref 尺寸。样式全部来自 teacher-course.css。
 -->
 <VBox spacing="10.0" styleClass="teacher-course-page" xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.TeacherScheduleController">
     <children>
@@ -31,7 +32,7 @@
         </HBox>
         <StackPane styleClass="teacher-course-list-area" VBox.vgrow="ALWAYS">
             <children>
-                <ScrollPane fx:id="scheduleScroll" fitToHeight="false" fitToWidth="false" maxHeight="1.7976931348623157E308" maxWidth="1.7976931348623157E308" styleClass="teacher-schedule-scroll" StackPane.alignment="CENTER">
+                <ScrollPane fx:id="scheduleScroll" fitToHeight="true" fitToWidth="true" maxHeight="1.7976931348623157E308" maxWidth="1.7976931348623157E308" styleClass="teacher-schedule-scroll" StackPane.alignment="CENTER">
                     <content>
                         <GridPane fx:id="scheduleGrid" maxHeight="1.7976931348623157E308" maxWidth="1.7976931348623157E308" styleClass="teacher-schedule-grid" />
                     </content>
