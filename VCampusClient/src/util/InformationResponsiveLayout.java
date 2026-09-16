@@ -1,11 +1,13 @@
 package util;
 
 import javafx.application.Platform;
+import javafx.geometry.Insets;
 import javafx.geometry.Orientation;
 import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TableView;
+import javafx.scene.control.TabPane;
 import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.Pane;
 import javafx.scene.layout.Region;
@@ -42,9 +44,39 @@ public final class InformationResponsiveLayout {
                 table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
                 table.setMinWidth(0);
             }
+            if (node instanceof TabPane tabs && tabs.getStyleClass().contains("student-tab-pane")) {
+                hideTabHeader(tabs);
+                tabs.sceneProperty().addListener((observable, oldScene, newScene) -> {
+                    if (newScene != null) Platform.runLater(() -> hideTabHeader(tabs));
+                });
+            }
             if (node instanceof Parent child) prepareTree(child);
         }
         wrapToolbar(parent);
+    }
+
+    /** The information pages switch tabs through their own navigation controls. */
+    private static void hideTabHeader(TabPane tabs) {
+        tabs.setTabMinHeight(0);
+        tabs.setTabMaxHeight(0);
+        tabs.applyCss();
+        for (Node tab : tabs.lookupAll(".tab")) collapse(tab);
+        collapse(tabs.lookup(".headers-region"));
+        collapse(tabs.lookup(".tab-header-background"));
+        Node header = tabs.lookup(".tab-header-area");
+        if (header != null) {
+            collapse(header);
+            header.setVisible(false);
+            header.setManaged(false);
+        }
+    }
+
+    private static void collapse(Node node) {
+        if (!(node instanceof Region region)) return;
+        region.setPadding(Insets.EMPTY);
+        region.setMinHeight(0);
+        region.setPrefHeight(0);
+        region.setMaxHeight(0);
     }
 
     private static void wrapToolbar(Parent parent) {

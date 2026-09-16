@@ -11,15 +11,26 @@ import entity.User;
 import javafx.application.Platform;
 import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
+import javafx.fxml.FXMLLoader;
+import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.ProgressBar;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.shape.Circle;
 import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
+import model.course.CourseTermView;
+import model.course.GradeSummaryView;
+import model.course.TrainingPlanGroupView;
+import service.CourseService;
+import service.CourseServices;
+import service.TeacherCourseServices;
+import java.util.Locale;
 import entity.AdminPermission;
 import entity.Student;
 import entity.Teacher;
@@ -70,6 +81,8 @@ public class MainController {
     @FXML private ImageView sidebarAvatarView;
     @FXML private Label sidebarNameLabel;
     @FXML private Label sidebarRoleLabel;
+    @FXML private Label sidebarCollegeLabel;
+    @FXML private Label sidebarMajorLabel;
 
     @FXML private Button navHomeBtn;
     @FXML private Button navProfileBtn;
@@ -83,8 +96,28 @@ public class MainController {
     @FXML private Button permissionNavBtn;
     @FXML private Button navLogoutBtn;
 
-    // ===== 课表卡片 (管理员隐藏) =====
+    // ===== 课表卡片 (管理员隐藏，学生/教师动态载入对应课表) =====
     @FXML private VBox scheduleCard;
+    @FXML private Label scheduleTermSubtitle;
+    @FXML private StackPane scheduleContainer;
+    @FXML private Label courseCardTitle;
+
+    private Node studentSchedulePage;
+    private ScheduleController studentSchedulePageController;
+    private Node teacherSchedulePage;
+    private TeacherScheduleController teacherSchedulePageController;
+    private String loadedScheduleRole;
+
+    // ===== 学生“学业与成绩概况”卡片 =====
+    @FXML private VBox studentAcademicSummaryCard;
+    @FXML private Label termGpaLabel;
+    @FXML private Label termAvgLabel;
+    @FXML private Label cumulativeGpaLabel;
+    @FXML private Label cumulativeAvgLabel;
+    @FXML private Label earnedCreditsLabel;
+    @FXML private Label requiredCreditsLabel;
+    @FXML private ProgressBar creditProgressBar;
+    @FXML private Label creditPercentLabel;
 
     // ===== 管理员“我的权限”卡片 =====
     @FXML private VBox adminPermissionCard;
@@ -152,12 +185,20 @@ public class MainController {
         String uid = ClientSession.getInstance().getUsername();
         String name = user != null && user.getName() != null && !user.getName().isBlank() ? user.getName() : uid;
 
-        // 侧边栏
+        // 侧边栏：第一行学院，第二行专业/职务
         if (sidebarNameLabel != null) sidebarNameLabel.setText(name != null ? name : "用户");
+        String college = (user != null && user.getCollege() != null && !user.getCollege().isBlank())
+                ? user.getCollege() : "—";
+        String major = (user != null && user.getMajor() != null && !user.getMajor().isBlank())
+                ? user.getMajor() : roleStr;
+        if (sidebarCollegeLabel != null) {
+            sidebarCollegeLabel.setText(college);
+        }
+        if (sidebarMajorLabel != null) {
+            sidebarMajorLabel.setText(major);
+        }
         if (sidebarRoleLabel != null) {
-            String college = (user != null && user.getCollege() != null && !user.getCollege().isBlank())
-                    ? user.getCollege() : "";
-            sidebarRoleLabel.setText(college.isEmpty() ? roleStr : (college + " · " + roleStr));
+            sidebarRoleLabel.setText(college.equals("—") ? roleStr : (college + " · " + major));
         }
         if (sidebarAvatarView != null) {
             showAvatar(sidebarAvatarView, user != null ? user.getAvatar() : null);
@@ -216,6 +257,66 @@ public class MainController {
             scheduleCard.setVisible(!isAdmin);
             scheduleCard.setManaged(!isAdmin);
         }
+        if (courseCardTitle != null) {
+            courseCardTitle.setText(courseCardTitleText(roleStr));
+        }
+
+        if (scheduleContainer != null) {
+            if (isAdmin) {
+                scheduleContainer.getChildren().clear();
+                loadedScheduleRole = null;
+                studentSchedulePage = null;
+                studentSchedulePageController = null;
+                teacherSchedulePage = null;
+                teacherSchedulePageController = null;
+            } else if (isTeacher) {
+                if (scheduleTermSubtitle != null) {
+                    scheduleTermSubtitle.setText("教学工作课表");
+                }
+                if (!"TEACHER".equals(loadedScheduleRole)) {
+                    try {
+                        FXMLLoader loader = new FXMLLoader(getClass().getResource("/resources/fxml/TeacherScheduleView.fxml"));
+                        teacherSchedulePage = loader.load();
+                        teacherSchedulePageController = loader.getController();
+                        scheduleContainer.getChildren().setAll(teacherSchedulePage);
+                        loadedScheduleRole = "TEACHER";
+                        studentSchedulePage = null;
+                        studentSchedulePageController = null;
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                }
+                if (teacherSchedulePageController != null) {
+                    teacherSchedulePageController.activate();
+                }
+            } else {
+                // 学生
+                if (!"STUDENT".equals(loadedScheduleRole)) {
+                    try {
+                        FXMLLoader loader = new FXMLLoader(getClass().getResource("/resources/fxml/ScheduleView.fxml"));
+                        studentSchedulePage = loader.load();
+                        studentSchedulePageController = loader.getController();
+                        scheduleContainer.getChildren().setAll(studentSchedulePage);
+                        loadedScheduleRole = "STUDENT";
+                        teacherSchedulePage = null;
+                        teacherSchedulePageController = null;
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                } else if (studentSchedulePageController != null) {
+                    studentSchedulePageController.refresh();
+                }
+            }
+        }
+
+        if (studentAcademicSummaryCard != null) {
+            boolean showAcademicSummary = !isAdmin && !isTeacher;
+            studentAcademicSummaryCard.setVisible(showAcademicSummary);
+            studentAcademicSummaryCard.setManaged(showAcademicSummary);
+            if (showAcademicSummary) {
+                loadStudentAcademicSummary();
+            }
+        }
         if (permissionNavBtn != null) {
             permissionNavBtn.setVisible(isSuperAdmin);
             permissionNavBtn.setManaged(isSuperAdmin);
@@ -228,6 +329,9 @@ public class MainController {
             navStudentBtn.setText(isAdmin
                     ? "🎓   信息管理"
                     : isTeacher ? "🎓   教职信息" : "🎓   学籍信息");
+        }
+        if (navCourseBtn != null) {
+            navCourseBtn.setText("📝   " + courseCardTitleText(roleStr));
         }
         if (adminPermissionCard != null) {
             adminPermissionCard.setVisible(isAdmin);
@@ -250,6 +354,51 @@ public class MainController {
         } else {
             fetchAcademicInfo(isTeacher);
         }
+    }
+
+    /**
+     * 异步加载学生“学业与成绩概况”（本学期/累计 绩点与均分、培养方案学分进度）
+     */
+    private void loadStudentAcademicSummary() {
+        CourseService courseService = CourseServices.current();
+        courseService.loadTerms().thenAccept(terms -> {
+            if (terms != null && !terms.isEmpty()) {
+                CourseTermView currentTerm = terms.get(0);
+                if (scheduleTermSubtitle != null && currentTerm.getDisplayName() != null) {
+                    Platform.runLater(() -> scheduleTermSubtitle.setText(currentTerm.getDisplayName()));
+                }
+                courseService.loadGrades(currentTerm).thenAccept(summary -> {
+                    if (summary != null) {
+                        Platform.runLater(() -> {
+                            if (termGpaLabel != null) termGpaLabel.setText(formatMetric(summary.getTermGpa()));
+                            if (termAvgLabel != null) termAvgLabel.setText(formatMetric(summary.getTermAverage()));
+                            if (cumulativeGpaLabel != null) cumulativeGpaLabel.setText(formatMetric(summary.getCumulativeGpa()));
+                            if (cumulativeAvgLabel != null) cumulativeAvgLabel.setText(formatMetric(summary.getCumulativeAverage()));
+                        });
+                    }
+                }).exceptionally(e -> null);
+            }
+        }).exceptionally(e -> null);
+
+        courseService.loadTrainingPlan().thenAccept(groups -> {
+            if (groups != null && !groups.isEmpty()) {
+                TrainingPlanController.PlanTotals totals = TrainingPlanController.aggregate(groups);
+                double earned = totals.getEarnedCredits();
+                double required = totals.getRequiredCredits();
+                double progress = totals.getProgress();
+                Platform.runLater(() -> {
+                    if (earnedCreditsLabel != null) earnedCreditsLabel.setText(String.format(Locale.ROOT, "%.1f", earned));
+                    if (requiredCreditsLabel != null) requiredCreditsLabel.setText(String.format(Locale.ROOT, "%.1f", required));
+                    if (creditProgressBar != null) creditProgressBar.setProgress(progress);
+                    if (creditPercentLabel != null) creditPercentLabel.setText(String.format(Locale.ROOT, "(%.1f%%)", progress * 100.0));
+                });
+            }
+        }).exceptionally(e -> null);
+    }
+
+    static String formatMetric(Double value) {
+        if (value == null || Double.isNaN(value)) return "--";
+        return String.format(Locale.ROOT, "%.2f", value);
     }
 
     /**
@@ -460,10 +609,15 @@ public class MainController {
     }
 
     /**
-     * 教务入口卡片标题：管理员进入教务管理，其余角色保持选课。
+     * 教务入口卡片标题：管理员与教师进入教务管理，学生及其他角色保持选课。
      */
     static String courseCardTitleText(String role) {
-        return "管理员".equals(role) ? "教务管理" : "选课";
+        if (role == null) return "选课";
+        if ("管理员".equalsIgnoreCase(role) || "ADMIN".equalsIgnoreCase(role)
+                || "教师".equalsIgnoreCase(role) || "TEACHER".equalsIgnoreCase(role)) {
+            return "教务管理";
+        }
+        return "选课";
     }
 
     void setSceneSwitcher(SceneSwitcher switcher) {

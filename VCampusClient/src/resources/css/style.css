@@ -269,28 +269,34 @@
     -fx-border-width: 0 1px 0 0;
 }
 
+.profile-tab-btn,
 .sidebar-tab-btn {
     -fx-background-color: transparent;
-    -fx-alignment: CENTER_LEFT;
+    -fx-alignment: CENTER;
     -fx-text-fill: #4e5a4e;
-    -fx-font-size: 14px;
+    -fx-font-size: 13px;
     -fx-font-weight: bold;
-    -fx-padding: 10px 14px;
-    -fx-background-radius: 8px;
+    -fx-padding: 6px 14px;
+    -fx-background-radius: 6px;
+    -fx-border-radius: 6px;
+    -fx-border-color: transparent;
+    -fx-border-width: 1px;
     -fx-cursor: hand;
 }
 
+.profile-tab-btn:hover,
 .sidebar-tab-btn:hover {
     -fx-background-color: #ebf1eb;
     -fx-text-fill: #231815;
 }
 
+.profile-tab-btn:selected,
 .sidebar-tab-btn:selected {
     -fx-background-color: #eaf0ea;
     -fx-text-fill: #587558;
     -fx-border-color: #587558;
-    -fx-border-width: 0 0 0 4px;
-    -fx-border-radius: 2px 8px 8px 2px;
+    -fx-border-width: 1px;
+    -fx-border-radius: 6px;
 }
 
 /* 个人头像大徽标 */
@@ -371,9 +377,22 @@
 /* 学籍管理 */
 .student-page, .student-scroll, .student-scroll > .viewport { -fx-background-color: #f4f7f4; }
 .student-scroll { -fx-border-color: transparent; }
-.student-tab-pane > .tab-header-area { -fx-padding: 0; -fx-pref-height: 0; -fx-max-height: 0; -fx-opacity: 0; }
-.student-tab-pane > .tab-header-area > .headers-region > .tab { -fx-background-color: transparent; -fx-padding: 8px 16px; }
-.student-tab-pane > .tab-header-area > .headers-region > .tab:selected { -fx-background-color: #eaf0ea; -fx-border-color: #587558; -fx-border-width: 0 0 3px 0; }
+.student-tab-pane { -fx-tab-min-height: 0; -fx-tab-max-height: 0; }
+.student-tab-pane .tab-header-area {
+    -fx-padding: 0;
+    -fx-min-height: 0;
+    -fx-pref-height: 0;
+    -fx-max-height: 0;
+    -fx-opacity: 0;
+}
+.student-tab-pane .tab-header-area .tab-header-background,
+.student-tab-pane .tab-header-area .headers-region,
+.student-tab-pane .tab-header-area .headers-region .tab {
+    -fx-padding: 0;
+    -fx-min-height: 0;
+    -fx-pref-height: 0;
+    -fx-max-height: 0;
+}
 .student-hero, .student-panel, .student-stat-card { -fx-background-color: #ffffff; -fx-background-radius: 12px; -fx-border-radius: 12px; -fx-border-color: #dce5dc; -fx-border-width: 1px; -fx-padding: 15px; }
 .student-hero { -fx-effect: dropshadow(three-pass-box, rgba(35,24,21,0.07), 12, 0, 0, 3); }
 .student-avatar { -fx-background-color: linear-gradient(to bottom right, #587558, #3f553f); -fx-background-radius: 50%; }
@@ -916,8 +935,14 @@
     -fx-text-fill: #231815;
 }
 
-.sidebar-role {
-    -fx-font-size: 12.5px;
+.sidebar-role,
+.sidebar-college {
+    -fx-font-size: 12px;
+    -fx-text-fill: #4b5563;
+}
+
+.sidebar-major {
+    -fx-font-size: 11.5px;
     -fx-text-fill: #6b7280;
 }
 
@@ -2314,7 +2339,7 @@
 .course-adjusted-original {
     -fx-background-color: #ededed;
     -fx-border-color: #9aa0a6;
-    -fx-border-style: segments(6, 4);
+    -fx-border-style: dashed;
     -fx-opacity: 0.85;
 }
 

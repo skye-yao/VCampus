@@ -95,7 +95,7 @@ $serverMfPath = Join-Path $serverDist "manifest.tmp"
 & $jarExe -cfm (Join-Path $serverDist "VCampusServer.jar") $serverMfPath -C (Join-Path $root "out\production\VCampusCommon") . -C (Join-Path $root "out\production\VCampusServer") .
 Remove-Item $serverMfPath -Force
 
-$startServerBat = "@echo off`r`nchcp 65001 >nul`r`ntitle VCampus Server`r`necho ====================================`r`necho   Starting VCampus Server...`r`necho ====================================`r`njava -jar VCampusServer.jar`r`npause`r`n"
+$startServerBat = "@echo off`r`nchcp 65001 >nul`r`ntitle VCampus Server`r`necho ====================================`r`necho   Starting VCampus Server...`r`necho ====================================`r`nfor /f `"tokens=5`" %%a in ('netstat -a -n -o ^| findstr `":8888 `" ^| findstr `"LISTENING`"') do (`r`n    echo [Info] Port 8888 is held by PID %%a, closing old process...`r`n    taskkill /F /PID %%a >nul 2>&1`r`n)`r`nfor /f `"tokens=5`" %%a in ('netstat -a -n -o ^| findstr `":8889 `" ^| findstr `"LISTENING`"') do (`r`n    echo [Info] Port 8889 is held by PID %%a, closing old process...`r`n    taskkill /F /PID %%a >nul 2>&1`r`n)`r`njava -jar VCampusServer.jar`r`npause`r`n"
 [System.IO.File]::WriteAllText((Join-Path $serverDist "start_server.bat"), $startServerBat, [System.Text.Encoding]::ASCII)
 $serverCnBat = [System.Text.Encoding]::UTF8.GetString([byte[]]@(0xE5,0x90,0xAF,0xE5,0x8A,0xA8,0xE6,0x9C,0x8D,0xE5,0x8A,0xA1,0xE7,0xAB,0xAF,0x2E,0x62,0x61,0x74))
 [System.IO.File]::WriteAllText((Join-Path $serverDist $serverCnBat), $startServerBat, [System.Text.Encoding]::ASCII)

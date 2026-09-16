@@ -25,6 +25,9 @@ public final class MainControllerRoleRoutingTest {
             testRoleWithoutSessionSeesNotice();
             testCourseCardTitleFollowsRole();
             testMainViewExposesCourseNavigationEntry();
+            testMainViewExposesSchedulesAndAcademicCard();
+            testAcademicMetricFormatting();
+            testMainViewSidebarTwoLineSubtext();
             System.out.println("MainControllerRoleRoutingTest: PASS");
         } finally {
             ClientSession.getInstance().logout();
@@ -86,10 +89,16 @@ public final class MainControllerRoleRoutingTest {
     private static void testCourseCardTitleFollowsRole() {
         require("教务管理".equals(MainController.courseCardTitleText("管理员")),
                 "administrator course card title must be 教务管理");
+        require("教务管理".equals(MainController.courseCardTitleText("ADMIN")),
+                "administrator (ADMIN) course card title must be 教务管理");
+        require("教务管理".equals(MainController.courseCardTitleText("教师")),
+                "teacher course card title must be 教务管理");
+        require("教务管理".equals(MainController.courseCardTitleText("TEACHER")),
+                "teacher (TEACHER) course card title must be 教务管理");
         require("选课".equals(MainController.courseCardTitleText("学生")),
                 "student course card title must stay 选课");
-        require("选课".equals(MainController.courseCardTitleText("教师")),
-                "teacher course card title must stay 选课");
+        require("选课".equals(MainController.courseCardTitleText("STUDENT")),
+                "student (STUDENT) course card title must stay 选课");
         require("选课".equals(MainController.courseCardTitleText(null)),
                 "a missing role must fall back to 选课");
     }
@@ -100,6 +109,55 @@ public final class MainControllerRoleRoutingTest {
                 "MainView.fxml must expose the course navigation button");
         require(fxml.contains("onAction=\"#openCourseSelection\""),
                 "the course navigation button must route through MainController");
+    }
+
+    private static void testMainViewExposesSchedulesAndAcademicCard() throws IOException {
+        String fxml = readResource("/resources/fxml/MainView.fxml");
+        require(fxml.contains("fx:id=\"scheduleCard\""),
+                "MainView.fxml must contain scheduleCard");
+        require(fxml.contains("fx:id=\"scheduleContainer\""),
+                "MainView.fxml must contain scheduleContainer");
+        require(readResource("/resources/fxml/ScheduleView.fxml") != null,
+                "ScheduleView.fxml must exist");
+        require(readResource("/resources/fxml/TeacherScheduleView.fxml") != null,
+                "TeacherScheduleView.fxml must exist");
+        require(fxml.contains("fx:id=\"studentAcademicSummaryCard\""),
+                "MainView.fxml must contain studentAcademicSummaryCard");
+        require(fxml.contains("fx:id=\"termGpaLabel\""),
+                "MainView.fxml must contain termGpaLabel");
+        require(fxml.contains("fx:id=\"termAvgLabel\""),
+                "MainView.fxml must contain termAvgLabel");
+        require(fxml.contains("fx:id=\"cumulativeGpaLabel\""),
+                "MainView.fxml must contain cumulativeGpaLabel");
+        require(fxml.contains("fx:id=\"cumulativeAvgLabel\""),
+                "MainView.fxml must contain cumulativeAvgLabel");
+        require(fxml.contains("fx:id=\"earnedCreditsLabel\""),
+                "MainView.fxml must contain earnedCreditsLabel");
+        require(fxml.contains("fx:id=\"requiredCreditsLabel\""),
+                "MainView.fxml must contain requiredCreditsLabel");
+        require(fxml.contains("fx:id=\"creditProgressBar\""),
+                "MainView.fxml must contain creditProgressBar");
+        require(fxml.contains("fx:id=\"creditPercentLabel\""),
+                "MainView.fxml must contain creditPercentLabel");
+    }
+
+    private static void testAcademicMetricFormatting() {
+        require("--".equals(MainController.formatMetric(null)),
+                "null metric must format as --");
+        require("--".equals(MainController.formatMetric(Double.NaN)),
+                "NaN metric must format as --");
+        require("3.85".equals(MainController.formatMetric(3.854)),
+                "3.854 metric must format to 2 decimal places (3.85)");
+        require("88.50".equals(MainController.formatMetric(88.5)),
+                "88.5 metric must format to 2 decimal places (88.50)");
+    }
+
+    private static void testMainViewSidebarTwoLineSubtext() throws IOException {
+        String fxml = readResource("/resources/fxml/MainView.fxml");
+        require(fxml.contains("fx:id=\"sidebarCollegeLabel\""),
+                "MainView.fxml must contain sidebarCollegeLabel for college line");
+        require(fxml.contains("fx:id=\"sidebarMajorLabel\""),
+                "MainView.fxml must contain sidebarMajorLabel for major/position line");
     }
 
     private static Harness route(String role) {

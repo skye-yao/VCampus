@@ -57,12 +57,16 @@ import util.LocalTimeConnection;
     }
     public List<StudentChangeRequest> findPending()throws SQLException {
         return list("SELECT r.* FROM tblStudentChangeRequest r WHERE r.status='PENDING' " +
-                "AND EXISTS (SELECT 1 FROM tbl_user u WHERE u.UID = r.studentId AND (u.status IN ('ACTIVE', 'FROZEN') OR u.status IS NULL)) " +
+                "AND EXISTS (SELECT 1 FROM tbl_user u " +
+                "WHERE u.UID COLLATE utf8mb4_unicode_ci = r.studentId COLLATE utf8mb4_unicode_ci " +
+                "AND (u.status IN ('ACTIVE', 'FROZEN') OR u.status IS NULL)) " +
                 "ORDER BY r.submitTime", null);
     }
     public List<StudentChangeRequest> findAll()throws SQLException {
         return list("SELECT r.* FROM tblStudentChangeRequest r " +
-                "WHERE EXISTS (SELECT 1 FROM tbl_user u WHERE u.UID = r.studentId AND (u.status IN ('ACTIVE', 'FROZEN') OR u.status IS NULL)) " +
+                "WHERE EXISTS (SELECT 1 FROM tbl_user u " +
+                "WHERE u.UID COLLATE utf8mb4_unicode_ci = r.studentId COLLATE utf8mb4_unicode_ci " +
+                "AND (u.status IN ('ACTIVE', 'FROZEN') OR u.status IS NULL)) " +
                 "ORDER BY r.submitTime DESC", null);
     }
     public StudentChangeRequest findPendingByStudentId(String id)throws SQLException {
