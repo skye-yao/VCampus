@@ -1,7 +1,11 @@
 package service;
 
+import course.grade.GradeCalculator;
+import course.grade.GradePointScale;
 import dto.course.teacher.GradeComponentCodeDTO;
 import dto.course.teacher.GradeComponentDTO;
+import dto.course.teacher.GradeSchemeDTO;
+import dto.course.teacher.GradeScoresDTO;
 import dto.course.teacher.TeacherGradeBookDTO;
 import dto.course.teacher.TeacherGradeRowDTO;
 import dto.course.teacher.TeacherRosterRowDTO;
@@ -20,6 +24,7 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -35,7 +40,8 @@ import java.util.zip.ZipException;
 import java.util.zip.ZipFile;
 
 /**
- * 教师成绩 Excel 的服务端「表格大脑」：解析上传的工作簿、生成空白成绩模板、导出完整名单。
+ * 教师成绩 Excel 的服务端「表格大脑」：解析上传的工作簿、生成空白成绩模板、导出完整名单，
+ * 以及导出成绩（名单 + 已保存草稿的四项成绩、总评与绩点）。
  *
  * <p>本类只做文件与文本，不碰数据库、不签发票据、不写草稿：教学班归属与名单由调用方在**生成文件之前**
  * 通过既有归属校验入口取好（导出文件是另一份名单的快照，缺失这一步就会把别人的学生交给教师）。
@@ -77,8 +83,12 @@ public final class TeacherSpreadsheetService {
     private static final String SHEET_ENTRY = "成绩录入";
     private static final String SHEET_NOTES = "说明";
     private static final String SHEET_ROSTER = "学生名单";
+    private static final String SHEET_GRADES = "学生成绩";
     private static final List<String> ROSTER_HEADERS =
             List.of("学号", "姓名", "专业", "状态", "选课时间", "退课时间");
+    /** 成绩导出的固定列，顺序即列序：名单三列 + 四项成绩 + 总评 + 绩点。 */
+    static final List<String> GRADE_HEADERS =
+            List.of("学号", "姓名", "专业", "平时成绩", "期中成绩", "实验成绩", "期末成绩", "总评", "绩点");
     /** 与教学班详情页一致：空值显示破折号，状态显示「正常/退课」。 */
     private static final String BLANK_TEXT = "—";
     private static final String ENROLLED_TEXT = "正常";
@@ -240,6 +250,122 @@ public final class TeacherSpreadsheetService {
         } catch (IOException failure) {
             throw new IllegalStateException("无法导出名单", failure);
         }
+    }
+
+    /**
+     * 导出成绩：成绩表当前这一版草稿的每一行，加上名单里的专业。
+     *
+     * <p>列序固定为 {@link #GRADE_HEADERS}，学号是文本单元格（前导零必须保留），六个数字列是
+     * 数值单元格（拿到文件就能直接求和）。<b>未填写的成绩一律写 0</b>：这份文件是拿来直接算的，
+     * 留空白会让人分不清“还没录”和“丢了”。总评与绩点因此按同一份规则对**文件里的**那四个数计算
+     * （{@link GradeCalculator} / {@link GradePointScale}，与页面「总评」「绩点」两列同一口径）：
+     * 分数填齐的行与页面完全一致，残缺行给出的是这份文件自己算得出来的数。权重还没配齐、
+     * 或库里存着算不出来的分数时，该行总评与绩点写 0——一行的问题不能让整份导出失败。
+     *
+     * <p>行集合与总评口径都来自 {@code gradeBook}（与页面同一张表）；{@code roster} 只贡献专业，
+     * 不在名单里的行专业留占位符（与名单导出同一个约定）。
+     *
+     * @param gradeBook 已按归属校验取到的成绩表
+     * @param roster    同一教学班的名单（只用来取专业，允许为空）
+     */
+    public void writeGrades(Path target, TeacherGradeBookDTO gradeBook,
+                            List<TeacherRosterRowDTO> roster) {
+        requireTarget(target);
+        if (gradeBook == null || gradeBook.getScheme() == null) {
+            throw new IllegalArgumentException("缺少成绩方案，无法导出成绩");
+        }
+        List<TeacherGradeRowDTO> rows = gradeBook.getRows();
+        if (rows.size() > MAX_ROWS) {
+            throw new IllegalArgumentException(
+                    "名单超过 " + MAX_ROWS + " 行，无法写出工作簿，请缩小筛选范围后重试");
+        }
+        Map<String, String> majors = majorsByEnrollmentId(roster);
+        try (Workbook workbook = new XSSFWorkbook()) {
+            CellStyle headerStyle = headerStyle(workbook);
+            CellStyle textStyle = textStyle(workbook);
+            Sheet sheet = workbook.createSheet(SHEET_GRADES);
+            Row header = sheet.createRow(0);
+            for (int column = 0; column < GRADE_HEADERS.size(); column++) {
+                Cell cell = header.createCell(column);
+                cell.setCellValue(GRADE_HEADERS.get(column));
+                cell.setCellStyle(headerStyle);
+            }
+            int rowIndex = 1;
+            for (TeacherGradeRowDTO student : rows) {
+                Row row = sheet.createRow(rowIndex++);
+                Cell uid = row.createCell(0);
+                uid.setCellValue(nullToEmpty(student.getStudentUid()));
+                uid.setCellStyle(textStyle);
+                row.createCell(1).setCellValue(blankToDash(student.getStudentName()));
+                row.createCell(2).setCellValue(blankToDash(
+                        majors.get(nullToEmpty(student.getEnrollmentId()))));
+                GradeScoresDTO scores = zeroFilled(student.getScores());
+                row.createCell(3).setCellValue(scoreValue(scores.getDailyScore()));
+                row.createCell(4).setCellValue(scoreValue(scores.getMidtermScore()));
+                row.createCell(5).setCellValue(scoreValue(scores.getExperimentScore()));
+                row.createCell(6).setCellValue(scoreValue(scores.getFinaltermScore()));
+                BigDecimal total = totalOf(gradeBook.getScheme(), scores);
+                row.createCell(7).setCellValue(scoreValue(total));
+                row.createCell(8).setCellValue(scoreValue(gradePointOf(total)));
+            }
+            int[] widths = {16, 20, 24, 12, 12, 12, 12, 10, 8};
+            for (int column = 0; column < widths.length; column++) {
+                sheet.setColumnWidth(column, widths[column] * 256);
+            }
+            writeWorkbook(workbook, target);
+        } catch (IOException failure) {
+            throw new IllegalStateException("无法导出成绩", failure);
+        }
+    }
+
+    /** 名单里的专业按 enrollmentId 索引；同一个学生出现多行时第一行说了算（与名单导出的取值一致）。 */
+    private static Map<String, String> majorsByEnrollmentId(List<TeacherRosterRowDTO> roster) {
+        Map<String, String> majors = new HashMap<>();
+        if (roster == null) return majors;
+        for (TeacherRosterRowDTO row : roster) {
+            if (row == null || row.getEnrollmentId() == null) continue;
+            majors.putIfAbsent(row.getEnrollmentId(), row.getMajor());
+        }
+        return majors;
+    }
+
+    /** 未填写的成绩一律写 0：导出的四个成绩列里不出现空白。 */
+    private static GradeScoresDTO zeroFilled(GradeScoresDTO scores) {
+        if (scores == null) {
+            return new GradeScoresDTO(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
+                    BigDecimal.ZERO);
+        }
+        return new GradeScoresDTO(orZero(scores.getDailyScore()), orZero(scores.getMidtermScore()),
+                orZero(scores.getExperimentScore()), orZero(scores.getFinaltermScore()));
+    }
+
+    private static BigDecimal orZero(BigDecimal score) {
+        return score == null ? BigDecimal.ZERO : score;
+    }
+
+    /** 总评：与页面同一份规则；权重未配齐或分数算不出来时写 0（导出的每一格都是确定的数）。 */
+    private static BigDecimal totalOf(GradeSchemeDTO scheme, GradeScoresDTO scores) {
+        try {
+            BigDecimal total = GradeCalculator.total(scheme, scores);
+            return total == null ? BigDecimal.ZERO : total;
+        } catch (IllegalArgumentException broken) {
+            return BigDecimal.ZERO;
+        }
+    }
+
+    /** 绩点：与页面同一张表；没有总评就没有绩点，写 0（{@link GradePointScale} 对 null 直接拒绝）。 */
+    private static BigDecimal gradePointOf(BigDecimal total) {
+        if (total == null) return BigDecimal.ZERO;
+        try {
+            return GradePointScale.gradePointFor(total);
+        } catch (IllegalArgumentException unavailable) {
+            return BigDecimal.ZERO;
+        }
+    }
+
+    /** 数字单元格的取值：null 与 0 等价（未填写已经在上游补成 0，这里是第二道防线）。 */
+    private static double scoreValue(BigDecimal score) {
+        return score == null ? 0d : score.doubleValue();
     }
 
     // ------------------------------------------------------------------ 读取

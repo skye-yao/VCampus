@@ -247,6 +247,13 @@ public final class SocketTeacherCourseService implements TeacherCourseService {
     }
 
     @Override
+    public CompletableFuture<TeacherFileTicketDTO> requestGradeExport(String offeringId) {
+        Message request = request(TeacherCourseActions.REQUEST_GRADE_EXPORT);
+        request.putData("offeringId", offeringId);
+        return map(request, response -> read(response, "ticket", TeacherFileTicketDTO.class));
+    }
+
+    @Override
     public CompletableFuture<TeacherFileTicketDTO> beginGradeUpload(
             TeacherFileUploadRequestDTO upload) {
         Message request = request(TeacherCourseActions.BEGIN_GRADE_UPLOAD);

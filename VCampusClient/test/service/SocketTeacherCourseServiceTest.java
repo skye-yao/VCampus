@@ -106,6 +106,7 @@ public final class SocketTeacherCourseServiceTest {
             gradeConflictKeepsTheLatestGradeBook();
             templateAndRosterDownloadsUseTheTicketKey();
             rosterExportSendsTheSameFiltersAsTheList();
+            gradeExportAsksForTheDraftOfOneOffering();
             uploadPreviewReviseAndConfirmUseTheirOwnShapes();
             cancelSendsTheTokenScalarAndExpectsNoPayload();
             expiredImportTokenKeepsTheServerMessage();
@@ -843,6 +844,24 @@ public final class SocketTeacherCourseServiceTest {
         require(transport.lastRequest.getData("query") == null
                         && transport.lastRequest.getData("enrollmentStatus") == null,
                 "an absent filter must be omitted so the server keeps its own default");
+    }
+
+    /** 成绩导出：只带教学班（成绩表是服务端的事实来源，没有任何可替换的过滤条件）。 */
+    private static void gradeExportAsksForTheDraftOfOneOffering() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("ticket", wireShaped(ticketDto(
+                TeacherFileTicketDTO.DIRECTION_DOWNLOAD))));
+        SocketTeacherCourseService service = new SocketTeacherCourseService(transport);
+
+        TeacherFileTicketDTO ticket = service.requestGradeExport(OFFERING_ID).join();
+        requireEnvelope(transport, "requestGradeExport");
+        require(OFFERING_ID.equals(transport.lastRequest.getData("offeringId")),
+                "the grade export must name the offering as an exact decimal string");
+        require(transport.lastRequest.getData("request") == null
+                        && transport.lastRequest.getData("query") == null,
+                "a grade export carries neither a write body nor list filters");
+        require(TeacherFileTicketDTO.DIRECTION_DOWNLOAD.equals(ticket.getDirection()),
+                "the grade export must be a download ticket");
     }
 
     /** 上传 → 预览 → 修订 → 确认：四种请求体与三种响应键（ticket/preview/result）各就各位。 */

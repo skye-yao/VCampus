@@ -117,6 +117,14 @@ public final class TeacherGradeImportController {
     static final String SUMMARY_PREFIX = "导入预览：";
     static final String EXPORT_FILENAME = "学生名单.xlsx";
     static final String TEMPLATE_FILENAME = "成绩模板.xlsx";
+    /**
+     * 成绩录入页的「导出成绩」自己的一份文件名与成功文案。
+     *
+     * <p>刻意不复用 {@link #EXPORT_FILENAME}／{@link #ROSTER_SUCCESS_TEXT}：那两个常量是教学班
+     * 详情页导出名单的交付物，改一个字都等于改了那个页面（导出的是一个班的学生名单，不是成绩）。
+     */
+    static final String GRADE_EXPORT_FILENAME = "学生成绩.xlsx";
+    static final String GRADE_EXPORT_SUCCESS_TEXT = "学生成绩已保存到：";
 
     /** 文件指纹与解析等待的后台线程池；FX 线程只负责选文件与触碰控件。 */
     private static final ExecutorService BACKGROUND = Executors.newCachedThreadPool(runnable -> {
@@ -290,7 +298,7 @@ public final class TeacherGradeImportController {
         dialog = null;
     }
 
-    // ------------------------------------------------------------------ 下载：模板与名单导出
+    // ------------------------------------------------------------------ 下载：模板、名单导出与成绩导出
 
     /**
      * 下载成绩模板：选目标文件 → 覆盖确认 → 申请票据 → 后台传输。
@@ -311,9 +319,9 @@ public final class TeacherGradeImportController {
     }
 
     /**
-     * 导出名单：与名单列表相同的过滤条件，但服务端取全部结果而不是当前页。成绩表页挂在本控制器
-     * 上，提示直接进反馈区；详情页自己有反馈区，所以只在挂了宿主时提示，返回的 Future 始终带着
-     * 「保存到哪个文件」（用户取消时为 null）。
+     * 导出名单：与名单列表相同的过滤条件，但服务端取全部结果而不是当前页。这是**教学班详情页**
+     * 学生名单 Tab 的导出通道（成绩录入页导出的是成绩，见 {@link #exportGrades}）。详情页自己有反馈区，
+     * 所以只在挂了宿主时提示，返回的 Future 始终带着「保存到哪个文件」（用户取消时为 null）。
      */
     CompletableFuture<Path> exportRoster(String offeringId, String query, Integer enrollmentStatus) {
         if (offeringId == null || offeringId.isBlank()) {
@@ -325,6 +333,24 @@ public final class TeacherGradeImportController {
                 EXPORT_FILENAME).whenComplete((saved, failure) -> fxExecutor.accept(() -> {
                     if (current != downloadGeneration) return;
                     reportDownload(saved, failure, ROSTER_SUCCESS_TEXT);
+                }));
+    }
+
+    /**
+     * 导出成绩：成绩录入页的入口，服务端取**已保存的草稿**（名单 + 四项成绩 + 总评 + 绩点），
+     * 未填写的成绩在文件里是 0。与 {@link #exportRoster} 各走各的动作与文案，但那一条下载通道
+     * （选文件 → 覆盖确认 → 票据 → 后台传输）完全共用，提示照旧进本页的反馈区。
+     */
+    CompletableFuture<Path> exportGrades(String offeringId) {
+        if (offeringId == null || offeringId.isBlank()) {
+            return CompletableFuture.completedFuture(null);
+        }
+        long current = ++downloadGeneration;
+        return downloadTicketToFile(dialogs, transport, overwriteConfirmation,
+                () -> service.requestGradeExport(offeringId), GRADE_EXPORT_FILENAME)
+                .whenComplete((saved, failure) -> fxExecutor.accept(() -> {
+                    if (current != downloadGeneration) return;
+                    reportDownload(saved, failure, GRADE_EXPORT_SUCCESS_TEXT);
                 }));
     }
 

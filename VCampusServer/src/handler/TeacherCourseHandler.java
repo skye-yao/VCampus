@@ -55,10 +55,10 @@ import java.util.function.Consumer;
  * 原课次快照派生。提交与撤销/保存与提交都是写操作，Handler 不做“先查后写”的归属判断，权限一律由
  * 服务端在事务内重新计算。
  *
- * <p>文件动作的响应键：{@code ticket}（上传票据、以及成绩模板/名单导出两张下载票据）。Excel 文件
- * 本身绝不进业务 JSON，业务请求只带回一张绑定当前 Session、教师、教学班、用途与长度的短时票据，
- * 字节走独立文件端口。下载票据的生成顺序固定为「校验归属 → 生成文件 → 签发票据」：文件是从某个
- * 教学班的名单生成的，先发票据就等于先把别人的名单借出去。
+ * <p>文件动作的响应键：{@code ticket}（上传票据，以及成绩模板、名单导出、成绩导出三张下载票据）。
+ * Excel 文件本身绝不进业务 JSON，业务请求只带回一张绑定当前 Session、教师、教学班、用途与长度的
+ * 短时票据，字节走独立文件端口。下载票据的生成顺序固定为「校验归属 → 生成文件 → 签发票据」：
+ * 文件是从某个教学班的名单/成绩生成的，先发票据就等于先把别人的数据借出去。
  *
  * <p>成绩动作的响应键：{@code offerings}（成绩列表）、{@code gradeBook}（成绩表）、{@code result}
  * （保存/提交/驳回重开/发起更正/确认导入的操作结果信封）、{@code preview}（导入预览与修订）。成绩冲突用
@@ -75,6 +75,8 @@ public class TeacherCourseHandler {
     /** 与设计第 3 节一致：size 为 1..100。 */
     private static final int MAX_PAGE_SIZE = 100;
     private static final String TEACHER_ROLE = "教师";
+    /** 选课记录状态：2 是「正常修读」，与成绩表取行集合时用的是同一个值（退课行不参与成绩）。 */
+    private static final int ENROLLED_STATUS = 2;
     /** 写请求体只做一次 JSON → 类型转换，转换失败统一按 BAD_REQUEST 返回。 */
     private static final Gson GSON = new Gson();
     /**
@@ -263,6 +265,19 @@ public class TeacherCourseHandler {
                             optionalText(request, "query"), enrollmentStatus(request));
                     response.putData("ticket", issueDownloadFile(fileService, session, offeringId,
                             "学生名单.xlsx", path -> spreadsheets.writeRoster(path, roster)));
+                }
+                case TeacherCourseActions.REQUEST_GRADE_EXPORT -> {
+                    // 成绩导出的两个数据源都走各自的归属校验入口：成绩表给出要导出的行与总评口径，
+                    // 名单只补专业。两者都在生成文件之前取好——文件一旦生成，就已经是别人的成绩了。
+                    TeacherFileTicketService fileService = files();
+                    String offeringId = decimalId(request, "offeringId");
+                    TeacherGradeBookDTO gradeBook = grades().getGradeBook(uid, offeringId);
+                    // 成绩表的行集合是 status=2（正常修读）的学生，这里取同一份集合的专业。
+                    List<TeacherRosterRowDTO> roster =
+                            queries.listAllOfferingStudents(uid, offeringId, null, ENROLLED_STATUS);
+                    response.putData("ticket", issueDownloadFile(fileService, session, offeringId,
+                            "学生成绩.xlsx",
+                            path -> spreadsheets.writeGrades(path, gradeBook, roster)));
                 }
                 case TeacherCourseActions.PREVIEW_GRADE_IMPORT -> {
                     // 预览不写库：兑换上传票据、解析、把候选与问题一起回给界面。

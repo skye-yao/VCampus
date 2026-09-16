@@ -3,6 +3,7 @@ package service;
 import dto.course.teacher.GradeComponentCodeDTO;
 import dto.course.teacher.GradeComponentDTO;
 import dto.course.teacher.GradeSchemeDTO;
+import dto.course.teacher.GradeScoresDTO;
 import dto.course.teacher.TeacherCourseActions;
 import dto.course.teacher.TeacherFileTicketDTO;
 import dto.course.teacher.TeacherGradeBookDTO;
@@ -28,6 +29,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -71,6 +73,9 @@ public final class TeacherSpreadsheetServiceTest {
             List.of("学号", "姓名", "平时成绩", "期中成绩", "实验成绩", "期末成绩");
     private static final List<String> ROSTER_HEADERS =
             List.of("学号", "姓名", "专业", "状态", "选课时间", "退课时间");
+    /** 成绩导出的九列，逐字钉住——同样故意不引用生产常量。 */
+    private static final List<String> GRADE_HEADERS =
+            List.of("学号", "姓名", "专业", "平时成绩", "期中成绩", "实验成绩", "期末成绩", "总评", "绩点");
     /** 单个填充压缩项的上限：留出余量，让超限用例命中「解压后总量」而不是「单个压缩项」规则。 */
     private static final long PADDING_ENTRY_BYTES = 20L * 1024 * 1024;
 
@@ -98,6 +103,7 @@ public final class TeacherSpreadsheetServiceTest {
             verifyRosterMatching(service);
             verifyGradeTemplate(service);
             verifyRosterExport(service);
+            verifyGradeExport(service);
             verifyHandlerDownloadTickets(teacher);
             verifyOwnershipBeforeDownloadTicket(teacher);
         } finally {
@@ -426,6 +432,106 @@ public final class TeacherSpreadsheetServiceTest {
                 tempDirectory.resolve("roster-too-big.xlsx"), oversized));
     }
 
+    /**
+     * 成绩导出：九列的列序逐字钉住，未填写的成绩写 0，总评/绩点按写进文件的那四个数算（与页面同一份
+     * 规则），专业来自名单、不在名单里的行留占位符，超限报错不截断。
+     */
+    private static void verifyGradeExport(TeacherSpreadsheetService service) {
+        Path target = tempDirectory.resolve("grades.xlsx");
+        service.writeGrades(target, scoredGradeBook(), List.of(
+                roster("1001", "000123", "张三", "ENROLLED"),
+                // 李四没有专业：专业列必须留占位符，而不是空白
+                new TeacherRosterRowDTO("1002", "000124", "李四", null, "ENROLLED",
+                        "2026-09-01T00:00:00Z", null),
+                // 名单里有、成绩表里没有的学生（退课历史）不得出现在成绩导出里
+                roster("1099", "000199", "退课生", "DROPPED")));
+
+        try (Workbook workbook = WorkbookFactory.create(target.toFile())) {
+            require(workbook.getNumberOfSheets() == 1, "the grade export must contain a single sheet");
+            Sheet sheet = workbook.getSheetAt(0);
+            require("学生成绩".equals(sheet.getSheetName()),
+                    "the grade sheet must be named 学生成绩, saw " + sheet.getSheetName());
+            Row header = sheet.getRow(0);
+            for (int column = 0; column < GRADE_HEADERS.size(); column++) {
+                require(GRADE_HEADERS.get(column).equals(text(header.getCell(column))),
+                        "grade column " + column + " must be " + GRADE_HEADERS.get(column)
+                                + ", saw " + text(header.getCell(column)));
+            }
+            require(sheet.getLastRowNum() == 3,
+                    "only the grade book's rows may be exported, saw " + sheet.getLastRowNum());
+
+            Cell uid = sheet.getRow(1).getCell(0);
+            require("000123".equals(text(uid)) && uid.getCellType() == CellType.STRING,
+                    "the student uid must keep its leading zeros as text, saw " + text(uid)
+                            + " / " + uid.getCellType());
+            Row filled = sheet.getRow(1);
+            require("张三".equals(text(filled.getCell(1)))
+                            && "计算机科学与技术".equals(text(filled.getCell(2))),
+                    "the major must come from the roster");
+            for (int column = 3; column <= 8; column++) {
+                require(filled.getCell(column).getCellType() == CellType.NUMERIC,
+                        "column " + column + " must be a number, saw "
+                                + filled.getCell(column).getCellType());
+            }
+            require(score(filled, 3) == 90d && score(filled, 4) == 80d && score(filled, 5) == 70d
+                            && score(filled, 6) == 60d,
+                    "the four components must be the saved draft scores, saw " + scoresOf(filled));
+            require(score(filled, 7) == 75d && score(filled, 8) == 2.5d,
+                    "a complete row must carry the same 总评/绩点 the page shows, saw "
+                            + score(filled, 7) + "/" + score(filled, 8));
+
+            Row missing = sheet.getRow(2);
+            require(score(missing, 3) == 100d && score(missing, 4) == 100d
+                            && score(missing, 5) == 0d && score(missing, 6) == 100d,
+                    "an unfilled grade must be written as 0, saw " + scoresOf(missing));
+            require(score(missing, 7) == 80d && score(missing, 8) == 3d,
+                    "总评/绩点 must be computed from the numbers in this file (缺项写 0), saw "
+                            + score(missing, 7) + "/" + score(missing, 8));
+            require("—".equals(text(missing.getCell(2))),
+                    "a student without a major must show the placeholder, saw "
+                            + text(missing.getCell(2)));
+
+            Row empty = sheet.getRow(3);
+            for (int column = 3; column <= 8; column++) {
+                require(score(empty, column) == 0d,
+                        "a row with no grades must be all zeros, saw " + scoresOf(empty));
+            }
+            require("—".equals(text(empty.getCell(2))),
+                    "a student outside the roster must keep the placeholder major");
+        } catch (IOException failure) {
+            throw new UncheckedIOException(failure);
+        }
+
+        List<TeacherGradeRowDTO> oversized = new ArrayList<>();
+        for (int i = 0; i <= TeacherSpreadsheetService.MAX_ROWS; i++) {
+            oversized.add(new TeacherGradeRowDTO(String.valueOf(3000 + i), "0001" + i, "学生" + i,
+                    null, null, null, false, List.of()));
+        }
+        // 权重还没配齐（草稿方案合计不到 10000，页面上的总评是占位符）：四项成绩照常导出，
+        // 总评与绩点写 0——文件里不留算不出来的数。
+        Path unconfigured = tempDirectory.resolve("grades-without-weights.xlsx");
+        service.writeGrades(unconfigured, gradeBookWithScheme(scoredScheme(0, 0, 0, 0)), List.of(
+                roster("1001", "000123", "张三", "ENROLLED")));
+        try (Workbook workbook = WorkbookFactory.create(unconfigured.toFile())) {
+            Row row = workbook.getSheetAt(0).getRow(1);
+            require(score(row, 3) == 90d && score(row, 4) == 80d,
+                    "the saved scores must be exported even without a usable scheme, saw "
+                            + scoresOf(row));
+            require(score(row, 7) == 0d && score(row, 8) == 0d,
+                    "without a configured weight the 总评/绩点 must be 0, saw " + scoresOf(row));
+        } catch (IOException failure) {
+            throw new UncheckedIOException(failure);
+        }
+
+        expectInvalid("5000", () -> service.writeGrades(
+                tempDirectory.resolve("grades-too-big.xlsx"),
+                new TeacherGradeBookDTO(OFFERING_ID, 4, DIGEST, "DRAFT", scoredScheme(),
+                        oversized, null, null, true, null, false),
+                List.of()));
+        require(!Files.exists(tempDirectory.resolve("grades-too-big.xlsx")),
+                "a rejected grade export must not leave a file behind");
+    }
+
     /** Handler 的下载动作：响应只有一张 DOWNLOAD 票据，真正的表格已经生成在服务端临时目录里。 */
     private static void verifyHandlerDownloadTickets(UserSession teacher) {
         TeacherFileTicketService tickets = new TeacherFileTicketService(0);
@@ -472,6 +578,41 @@ public final class TeacherSpreadsheetServiceTest {
             require(headerOf(fileAwaitingDownload(tickets.getTempDirectory(), ROSTER_HEADERS))
                             .equals(ROSTER_HEADERS),
                     "the generated file must be the roster export");
+
+            // 成绩导出：行与总评口径来自成绩表，专业来自（正常修读的）名单；它是另一个动作，
+            // 名单导出那一步的行为一个字节都不受影响。
+            RecordingQueryService gradeQueries = new RecordingQueryService(List.of(
+                    roster("9000", "000000", "学生0", "ENROLLED")));
+            TeacherCourseHandler gradeHandler = new TeacherCourseHandler(gradeQueries, null,
+                    new RecordingGradeService(gradeBook(1)), tickets);
+            Message grades = gradeHandler.handle(request(TeacherCourseActions.REQUEST_GRADE_EXPORT,
+                    teacher.getToken(), "offeringId", OFFERING_ID));
+            require(grades.getCode() == MessageCode.SUCCESS,
+                    "the grade export must succeed: " + grades.getMessage());
+            require(grades.getData() != null && grades.getData().size() == 1
+                            && grades.getData().containsKey("ticket"),
+                    "the grade export must expose exactly the ticket key, saw " + grades.getData());
+            TeacherFileTicketDTO gradeTicket = (TeacherFileTicketDTO) grades.getData().get("ticket");
+            require(TeacherFileTicketDTO.DIRECTION_DOWNLOAD.equals(gradeTicket.getDirection()),
+                    "the grade export must be a download ticket");
+            require(TEACHER.equals(gradeQueries.lastUid)
+                            && OFFERING_ID.equals(gradeQueries.lastOfferingId)
+                            && Integer.valueOf(2).equals(gradeQueries.lastStatus),
+                    "the teacher identity must come from the session, and the majors from the"
+                            + " enrolled roster, saw " + gradeQueries.lastUid + "/"
+                            + gradeQueries.lastOfferingId + "/" + gradeQueries.lastStatus);
+            require(headerOf(fileAwaitingDownload(tickets.getTempDirectory(), GRADE_HEADERS))
+                            .equals(GRADE_HEADERS),
+                    "the generated file must be the grade export");
+
+            Message gradeExportWithoutRoster = new TeacherCourseHandler(
+                    new RecordingQueryService(List.of()), null,
+                    new RecordingGradeService(gradeBook(1)), tickets).handle(
+                    request(TeacherCourseActions.REQUEST_GRADE_EXPORT, teacher.getToken(),
+                            "offeringId", OFFERING_ID));
+            require(gradeExportWithoutRoster.getCode() == MessageCode.SUCCESS,
+                    "an offering with an empty roster must still export grades: "
+                            + gradeExportWithoutRoster.getMessage());
 
             Message missingId = handler.handle(request(TeacherCourseActions.REQUEST_GRADE_TEMPLATE,
                     teacher.getToken(), "offeringId", 9007199254740993L));
@@ -527,6 +668,23 @@ public final class TeacherSpreadsheetServiceTest {
                     "a forbidden export must not issue a ticket");
             require(tickets.getTempDirectory().toFile().listFiles().length == 0,
                     "a forbidden export must not leave a generated file behind");
+
+            // 成绩导出的第一步就是取成绩表（它自己带归属校验）：被拒时同样没有票据、没有文件。
+            RecordingGradeService deniedGrades = new RecordingGradeService(gradeBook(1));
+            deniedGrades.failure =
+                    new TeacherAccessPolicy.AccessDeniedException("没有查看该教学班的权限");
+            Message deniedGradesExport = new TeacherCourseHandler(
+                    new RecordingQueryService(List.of()), null, deniedGrades, tickets).handle(
+                    request(TeacherCourseActions.REQUEST_GRADE_EXPORT, teacher.getToken(),
+                            "offeringId", OFFERING_ID));
+            require(deniedGradesExport.getCode() == MessageCode.FORBIDDEN,
+                    "another teacher's grade book must be forbidden, saw "
+                            + deniedGradesExport.getCode());
+            require(deniedGradesExport.getData() == null
+                            || !deniedGradesExport.getData().containsKey("ticket"),
+                    "a forbidden grade export must not issue a ticket");
+            require(tickets.getTempDirectory().toFile().listFiles().length == 0,
+                    "no file may be generated for a forbidden grade export");
         } finally {
             tickets.close();
         }
@@ -553,6 +711,60 @@ public final class TeacherSpreadsheetServiceTest {
                                               String status) {
         return new TeacherRosterRowDTO(enrollmentId, uid, name, "计算机科学与技术", status,
                 "2026-09-01T00:00:00Z", null);
+    }
+
+    /** 成绩导出用的成绩表：一行填齐、一行缺实验、一行全空。 */
+    private static TeacherGradeBookDTO scoredGradeBook() {
+        List<TeacherGradeRowDTO> rows = List.of(
+                new TeacherGradeRowDTO("1001", "000123", "张三",
+                        new GradeScoresDTO(new BigDecimal("90"), new BigDecimal("80"),
+                                new BigDecimal("70"), new BigDecimal("60")),
+                        new BigDecimal("75.00"), new BigDecimal("2.5"), true, List.of()),
+                new TeacherGradeRowDTO("1002", "000124", "李四",
+                        new GradeScoresDTO(new BigDecimal("100"), new BigDecimal("100"), null,
+                                new BigDecimal("100")),
+                        null, null, false, List.of()),
+                new TeacherGradeRowDTO("1003", "000125", "王五", null, null, null, false,
+                        List.of()));
+        return new TeacherGradeBookDTO(OFFERING_ID, 4, DIGEST, "DRAFT", scoredScheme(), rows,
+                null, null, true, null, false);
+    }
+
+    /** 30/20/20/30 四项全部启用：权重配齐，总评与绩点都算得出来。 */
+    private static GradeSchemeDTO scoredScheme() {
+        return scoredScheme(3000, 2000, 2000, 3000);
+    }
+
+    /** 同一个方案换一组权重：传 0 就是「还没配齐」，总评算不出来。 */
+    private static GradeSchemeDTO scoredScheme(int daily, int midterm, int experiment,
+                                               int finalterm) {
+        return new GradeSchemeDTO(List.of(
+                new GradeComponentDTO(GradeComponentCodeDTO.DAILY, true, daily),
+                new GradeComponentDTO(GradeComponentCodeDTO.MIDTERM, true, midterm),
+                new GradeComponentDTO(GradeComponentCodeDTO.EXPERIMENT, true, experiment),
+                new GradeComponentDTO(GradeComponentCodeDTO.FINALTERM, true, finalterm)));
+    }
+
+    /** 成绩导出用的成绩表换一个方案（行不变）：用来验证「权重未配齐」那一条分支。 */
+    private static TeacherGradeBookDTO gradeBookWithScheme(GradeSchemeDTO scheme) {
+        TeacherGradeBookDTO scored = scoredGradeBook();
+        return new TeacherGradeBookDTO(OFFERING_ID, 4, DIGEST, "DRAFT", scheme,
+                List.of(scored.getRows().get(0)), null, null, true, null, false);
+    }
+
+    /** 数值单元格的值；缺失单元格返回 -1（不会与合法分数混淆）。 */
+    private static double score(Row row, int column) {
+        Cell cell = row.getCell(column);
+        return cell == null ? -1d : cell.getNumericCellValue();
+    }
+
+    /** 一行里 6 个数字列的文本，用于断言失败时看清整行。 */
+    private static String scoresOf(Row row) {
+        StringBuilder joined = new StringBuilder();
+        for (int column = 3; column <= 8; column++) {
+            joined.append(text(row.getCell(column))).append(' ');
+        }
+        return joined.toString().strip();
     }
 
     /** 写一个真实 .xlsx：给定表头与逐行内容（行号由调用方给，便于核对 Excel 行号）。 */

@@ -205,7 +205,7 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
     @FXML private TextField gradeBookFinaltermWeight;
     @FXML private Label gradeBookImportSummaryLabel;
     @FXML private Button gradeBookDownloadTemplateButton;
-    @FXML private Button gradeBookExportRosterButton;
+    @FXML private Button gradeBookExportGradesButton;
     @FXML private Button gradeBookImportButton;
     @FXML private Button gradeBookImportIssuesButton;
     @FXML private Button gradeBookCancelImportButton;
@@ -501,12 +501,13 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
     }
 
     /**
-     * 导出名单：本页没有筛选控件，因此导出「不套筛选」的完整名单（服务端取全部结果，不是当前页）。
-     * 要按姓名/学号或正常/退课筛选导出，走教学班详情页学生名单 Tab 的导出按钮——那里的导出带当前筛选。
+     * 导出成绩：本页导出的是**这张表当前的草稿**——名单三列加四项成绩、总评与绩点，未填写的成绩在
+     * 文件里写 0。要导出学生名单本身（含退课行、状态与选课/退课时间，并可按当前筛选）走教学班详情页
+     * 学生名单 Tab 的导出按钮，那是另一条路径、另一份文件。
      */
     @FXML
-    void handleExportRoster(Event event) {
-        importController.exportRoster(offeringId, null, null);
+    void handleExportGrades(Event event) {
+        importController.exportGrades(offeringId);
     }
 
     /** 导入入口：FileChooser 在 FX 线程，上传与解析在后台，服务端预览回来后合并进这张表。 */
@@ -1109,7 +1110,7 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
     }
 
     /**
-     * 成绩表底部的导入区：模板下载、名单导出、导入入口，进入预览后换成取消/确认与异常明细。
+     * 成绩表底部的导入区：模板下载、导出成绩、导入入口，进入预览后换成取消/确认与异常明细。
      * 确认按钮的可用性直接取最新服务端预览的有效性（没有未解决异常行），不看本地红框。
      */
     private void renderImportBar(boolean hasModel, boolean importing) {
@@ -1122,8 +1123,8 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
         if (gradeBookDownloadTemplateButton != null) {
             gradeBookDownloadTemplateButton.setDisable(!hasModel || importing || busy);
         }
-        if (gradeBookExportRosterButton != null) {
-            gradeBookExportRosterButton.setDisable(!hasModel || importing || busy);
+        if (gradeBookExportGradesButton != null) {
+            gradeBookExportGradesButton.setDisable(!hasModel || importing || busy);
         }
         if (gradeBookImportButton != null) {
             gradeBookImportButton.setDisable(!hasModel || !model.canEdit() || importing || busy);

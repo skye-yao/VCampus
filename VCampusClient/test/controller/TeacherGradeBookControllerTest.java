@@ -577,7 +577,7 @@ public final class TeacherGradeBookControllerTest {
         Element row = ownerElement(feedback);
         require("HBox".equals(row.getTagName()), "状态提示必须直接挂在按钮行 HBox 上，收到 "
                 + row.getTagName());
-        for (String id : List.of("gradeBookDownloadTemplateButton", "gradeBookExportRosterButton",
+        for (String id : List.of("gradeBookDownloadTemplateButton", "gradeBookExportGradesButton",
                 "gradeBookImportButton", "gradeBookImportSummaryLabel",
                 "gradeBookImportIssuesButton", "gradeBookCancelImportButton",
                 "gradeBookConfirmImportButton")) {

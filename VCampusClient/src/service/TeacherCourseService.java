@@ -147,6 +147,11 @@ public interface TeacherCourseService {
         throw new UnsupportedOperationException("requestRosterExport");
     }
 
+    /** 申请一张成绩导出的下载票据：名单 + 已保存草稿的四项成绩、总评与绩点（与名单导出各走各路）。 */
+    default CompletableFuture<TeacherFileTicketDTO> requestGradeExport(String offeringId) {
+        throw new UnsupportedOperationException("requestGradeExport");
+    }
+
     /** 申请一张上传票据：客户端只声明教学班、草稿版本、文件名、字节数与摘要，不发送文件内容。 */
     default CompletableFuture<TeacherFileTicketDTO> beginGradeUpload(
             TeacherFileUploadRequestDTO request) {

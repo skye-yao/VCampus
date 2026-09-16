@@ -358,8 +358,8 @@ public final class TeacherOfferingDetailControllerTest {
      * 契约白名单：原有查询路径原样保留，T4 的调课工作流、T5 的成绩工作副本与 §9 的 Excel
      * 模板/导入/名单导出是被允许的扩展——调课里 options/preview/get/list 是读，submit/withdraw 是写；
      * 成绩里 listGradeOfferings 与 getGradeBook 是读，saveGradeDraft/submitGradeBook 是写；
-     * §9 里 requestGradeTemplate/requestRosterExport/beginGradeUpload 只签发短时票据，
-     * previewGradeImport/reviseGradeImport 不写库，confirmGradeImport 只写草稿，
+     * §9 里 requestGradeTemplate/requestRosterExport/requestGradeExport/beginGradeUpload 只签发
+     * 短时票据，previewGradeImport/reviseGradeImport 不写库，confirmGradeImport 只写草稿，
      * cancelGradeImport 丢弃令牌。权限、版本、名单摘要、冲突与成绩归属一律由服务端在事务内重算。
      * 除白名单外不得出现任何其他方法。
      */
@@ -371,8 +371,8 @@ public final class TeacherOfferingDetailControllerTest {
                 "withdrawAdjustment", "getAdjustmentRequest", "listMyAdjustmentRequests"));
         allowed.addAll(Set.of("listGradeOfferings", "getGradeBook", "saveGradeDraft",
                 "submitGradeBook"));
-        allowed.addAll(Set.of("requestGradeTemplate", "requestRosterExport", "beginGradeUpload",
-                "previewGradeImport", "reviseGradeImport", "confirmGradeImport",
+        allowed.addAll(Set.of("requestGradeTemplate", "requestRosterExport", "requestGradeExport",
+                "beginGradeUpload", "previewGradeImport", "reviseGradeImport", "confirmGradeImport",
                 "cancelGradeImport"));
         for (Method method : TeacherCourseService.class.getDeclaredMethods()) {
             require(allowed.contains(method.getName()),
@@ -380,8 +380,9 @@ public final class TeacherOfferingDetailControllerTest {
                             + " adjustment/grade workflows, found " + method.getName());
         }
         for (String required : List.of("saveGradeDraft", "submitGradeBook", "requestGradeTemplate",
-                "requestRosterExport", "beginGradeUpload", "previewGradeImport",
-                "reviseGradeImport", "confirmGradeImport", "cancelGradeImport")) {
+                "requestRosterExport", "requestGradeExport", "beginGradeUpload",
+                "previewGradeImport", "reviseGradeImport", "confirmGradeImport",
+                "cancelGradeImport")) {
             require(hasDefaultImplementation(required),
                     "the new grade writes must stay default methods so old test doubles keep"
                             + " compiling: " + required);

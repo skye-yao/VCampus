@@ -578,6 +578,19 @@ public final class MockTeacherCourseService implements TeacherCourseService {
     }
 
     @Override
+    public CompletableFuture<TeacherFileTicketDTO> requestGradeExport(String offeringId) {
+        try {
+            // 与真实服务同序：先按归属校验入口取成绩表（专业来源是名单，它是同一份归属校验），
+            // 再签发票据。清单本身只取已保存草稿，因此不需要任何请求体。
+            String id = requireGradeOffering(offeringId);
+            snapshotOf(id);
+            return CompletableFuture.completedFuture(downloadTicket("mock-grades-" + id));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    @Override
     public CompletableFuture<TeacherFileTicketDTO> beginGradeUpload(
             TeacherFileUploadRequestDTO upload) {
         try {

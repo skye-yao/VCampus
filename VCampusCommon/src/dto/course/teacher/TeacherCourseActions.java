@@ -39,6 +39,13 @@ public final class TeacherCourseActions {
     public static final String REQUEST_GRADE_TEMPLATE = "requestGradeTemplate";
     /** 申请一张完整名单导出的下载票据：按与列表相同的过滤取全部结果，不是当前页。 */
     public static final String REQUEST_ROSTER_EXPORT = "requestRosterExport";
+    /**
+     * 申请一张成绩导出的下载票据：名单（学号/姓名/专业）加已保存草稿的四项成绩、总评与绩点。
+     *
+     * <p>与 {@link #REQUEST_ROSTER_EXPORT} 是两条独立的路径：名单导出写的是教学班的学生名单
+     * （含退课行与状态），成绩导出写的是成绩表当前这一版草稿，两者共用的只有文件票据通道。
+     */
+    public static final String REQUEST_GRADE_EXPORT = "requestGradeExport";
     /** 用上传成功的文件生成一份可编辑的导入预览（不写库）；响应键 {@code preview}。 */
     public static final String PREVIEW_GRADE_IMPORT = "previewGradeImport";
     /** 修订预览：修正异常行或明确排除它们；响应键同为 {@code preview}。 */

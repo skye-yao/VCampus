@@ -121,7 +121,8 @@ public final class TeacherCourseUiSmokeTest {
     private static final String LEAVE_PROMPT_FRAGMENT = "未保存的修改";
     /** T5 验证的导入区：三个入口的文案，以及异常明细弹窗的 FXML / 标题 / 提示片段。 */
     private static final String TEMPLATE_BUTTON_TEXT = "下载成绩模板";
-    private static final String EXPORT_BUTTON_TEXT = "导出名单";
+    /** 成绩录入页的导出是「导出成绩」；教学班详情页的名单导出按钮仍叫「导出」（它导的是名单）。 */
+    private static final String EXPORT_BUTTON_TEXT = "导出成绩";
     private static final String IMPORT_BUTTON_TEXT = "导入 Excel";
     private static final String IMPORT_FEEDBACK_VIEW =
             "/resources/fxml/TeacherGradeImportFeedback.fxml";
@@ -761,7 +762,7 @@ public final class TeacherCourseUiSmokeTest {
             // 覆盖（mock 给不出 issues，这里造不出来，也不伪造）。
             steps.add(() -> {
                 Button template = button("#gradeBookDownloadTemplateButton", "下载成绩模板按钮");
-                Button export = button("#gradeBookExportRosterButton", "导出名单按钮");
+                Button export = button("#gradeBookExportGradesButton", "导出成绩按钮");
                 Button importButton = button("#gradeBookImportButton", "导入 Excel 按钮");
                 require(TEMPLATE_BUTTON_TEXT.equals(template.getText())
                                 && EXPORT_BUTTON_TEXT.equals(export.getText())
@@ -769,7 +770,7 @@ public final class TeacherCourseUiSmokeTest {
                         "三个导入入口的文案必须与交付一致，实际 " + template.getText() + "/"
                                 + export.getText() + "/" + importButton.getText());
                 require(!template.isDisabled() && !export.isDisabled() && !importButton.isDisabled(),
-                        "草稿页上的下载模板/导出名单/导入 Excel 必须可用");
+                        "草稿页上的下载模板/导出成绩/导入 Excel 必须可用");
                 require(template.getOnAction() != null && export.getOnAction() != null
                                 && importButton.getOnAction() != null,
                         "三个导入入口必须真的接上处理器（FXML 的 onAction）");

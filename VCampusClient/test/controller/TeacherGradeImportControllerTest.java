@@ -102,6 +102,7 @@ public final class TeacherGradeImportControllerTest {
         feedbackShowsCountsAndAbnormalNamesWithoutTheImportToken();
         downloadsChooseTheFileOnTheCallingThreadAndTransferInBackground();
         bottomBarFreezesTheSchemeAndSwapsItsButtons();
+        exportingGradesUsesItsOwnTicketAndWording();
         exportFeedbackNeverLandsOnAnotherOffering();
         downloadFeedbackNeverLandsOnAnotherOffering();
         mockPreviewRevisionsIncrementAndRejectStaleOnes();
@@ -997,6 +998,44 @@ public final class TeacherGradeImportControllerTest {
     }
 
     /**
+     * 成绩录入页的「导出成绩」：问到的是**成绩导出**那个动作，文件名与成功文案用本页自己的两份常量。
+     * 教学班详情页名单导出的两个常量因此可以在这里逐字钉住——那条路径一个字都不许动。
+     */
+    private static void exportingGradesUsesItsOwnTicketAndWording() throws Exception {
+        ImportService service = new ImportService();
+        // 目标文件刻意不存在：覆盖确认是真实对话框（无工具包环境里弹不出来），这条用例验证的是
+        // 「问到的是哪个动作、提示用哪句文案」，不是覆盖确认。
+        Path target = Files.createTempDirectory("vcampus-grade-export-test")
+                .resolve(TeacherGradeImportController.GRADE_EXPORT_FILENAME);
+        FakeDialogs dialogs = new FakeDialogs(target);
+        FakeTransport transport = new FakeTransport();
+        TeacherGradeBookController controller = controller(service, transport, dialogs);
+        controller.showOffering(OFFERING);
+
+        controller.handleExportGrades(null);
+        require(service.gradeExports.equals(List.of(OFFERING)),
+                "导出成绩必须申请成绩导出的票据，收到 " + service.gradeExports);
+        require(service.exports.isEmpty(),
+                "导出成绩不得复用名单导出的动作（那是教学班页的路径）");
+        require("学生成绩.xlsx".equals(dialogs.lastSuggestedFileName),
+                "成绩导出默认的文件名必须是 学生成绩.xlsx，收到 " + dialogs.lastSuggestedFileName);
+        require("学生成绩.xlsx".equals(TeacherGradeImportController.GRADE_EXPORT_FILENAME)
+                        && "学生成绩已保存到：".equals(
+                                TeacherGradeImportController.GRADE_EXPORT_SUCCESS_TEXT),
+                "成绩导出的文件名与成功文案必须是本页独立常量");
+        require("学生名单.xlsx".equals(TeacherGradeImportController.EXPORT_FILENAME)
+                        && "学生名单已保存到：".equals(
+                                TeacherGradeImportController.ROSTER_SUCCESS_TEXT),
+                "教学班页名单导出的文件名与成功文案必须逐字不变");
+        require(transport.lastTicket != null, "导出成绩必须真的开始下载");
+
+        waitUntil(() -> controller.feedbackText() != null, "导出完成必须给出反馈");
+        require(controller.feedbackText()
+                        .equals(TeacherGradeImportController.GRADE_EXPORT_SUCCESS_TEXT + target),
+                "成功提示必须写明保存位置，收到 " + controller.feedbackText());
+    }
+
+    /**
      * 详情页的导出：页面的**复用模式**下，迟到的响应不能写到一个别的教学班上。
      *
      * <p>这条用例必须走「离开 A → 打开 B → A 的下载才回来」这条路径，而不是「离开就再也不回来」：
@@ -1186,8 +1225,10 @@ public final class TeacherGradeImportControllerTest {
         Document book = parseView(BOOK_VIEW);
         require(textOfButton(book, "取消导入") != null && textOfButton(book, "确认导入") != null,
                 "成绩表底部必须有取消导入与确认导入两个按钮");
-        require(textOfButton(book, "下载成绩模板") != null && textOfButton(book, "导出名单") != null,
-                "成绩表底部必须接通模板下载与名单导出");
+        require(textOfButton(book, "下载成绩模板") != null && textOfButton(book, "导出成绩") != null,
+                "成绩表底部必须接通模板下载与导出成绩");
+        require(textOfButton(book, "导出名单") == null,
+                "成绩录入页不得再出现「导出名单」按钮：这一页导出的是成绩");
         for (String text : List.of("取消导入", "确认导入", "异常明细")) {
             Element button = textOfButton(book, text);
             require("false".equals(button.getAttribute("visible"))
@@ -1422,6 +1463,8 @@ public final class TeacherGradeImportControllerTest {
         private final List<Thread> callingThreads = new ArrayList<>();
         private Path uploadSource;
         private Path saveTarget;
+        /** 最近一次建议的文件名：导出用的文件名常量由此可以逐字核对。 */
+        private String lastSuggestedFileName;
 
         private FakeDialogs() {
             try {
@@ -1450,6 +1493,7 @@ public final class TeacherGradeImportControllerTest {
         @Override
         public Path chooseSaveTarget(String suggestedFileName) {
             callingThreads.add(Thread.currentThread());
+            lastSuggestedFileName = suggestedFileName;
             return saveTarget;
         }
     }
@@ -1502,6 +1546,8 @@ public final class TeacherGradeImportControllerTest {
         private final List<WriteGradeBookRequestDTO> submits = new ArrayList<>();
         private final List<String> cancelledTokens = new ArrayList<>();
         private final List<String[]> exports = new ArrayList<>();
+        /** 成绩导出（成绩录入页的「导出成绩」）申请过票据的教学班。 */
+        private final List<String> gradeExports = new ArrayList<>();
         private List<String> ticketOrder = new ArrayList<>();
         private TeacherFileUploadRequestDTO upload;
         private PreviewGradeImportRequestDTO previewRequest;
@@ -1591,6 +1637,12 @@ public final class TeacherGradeImportControllerTest {
                 String offeringId, String query, Integer enrollmentStatus) {
             exports.add(new String[] {offeringId, query,
                     enrollmentStatus == null ? null : enrollmentStatus.toString()});
+            return CompletableFuture.completedFuture(ticketDto());
+        }
+
+        @Override
+        public CompletableFuture<TeacherFileTicketDTO> requestGradeExport(String offeringId) {
+            gradeExports.add(offeringId);
             return CompletableFuture.completedFuture(ticketDto());
         }
 
