@@ -94,6 +94,7 @@ public final class TeacherGradeImportControllerTest {
         correctionsAreRefusedWhileAConfirmIsInFlight();
         cancellingOrLeavingIsRefusedWhileAConfirmIsInFlight();
         anInFlightConfirmIsKeyedToItsOwnGeneration();
+        aSynchronouslyFailingConfirmDoesNotWedgeThePage();
         leavingDuringImportCancelsTheTransferAndRestoresTheCopy();
         decliningToLeaveKeepsTheImportPreview();
         leavingBeforeTheUploadIsDispatchedSpendsNoTicket();
@@ -632,6 +633,35 @@ public final class TeacherGradeImportControllerTest {
         Field field = TeacherGradeImportController.class.getDeclaredField("generation");
         field.setAccessible(true);
         field.setLong(imports, field.getLong(imports) + 1);
+    }
+
+    /**
+     * 服务**同步抛出**（而不是返回失败的 Future）也不能把 confirming 留在 true 上。
+     *
+     * <p>真实实现永远返回 Future（{@code SocketClient.sendAsync} 把一切异常都装进 Future），所以这条
+     * 分支在生产里不可达；但不变式说的是「永远不会留在 true 上」，这里用一个会同步抛出的替身把它钉住：
+     * 确认失败照旧保留预览与导入前的副本，页面照旧可以继续操作。
+     */
+    private static void aSynchronouslyFailingConfirmDoesNotWedgeThePage() {
+        ImportService service = new ImportService();
+        TeacherGradeBookController controller = controller(service, new FakeDialogs());
+        controller.showOffering(OFFERING);
+        loadConfirmablePreview(service, controller);
+
+        service.confirmThrows = new IllegalStateException("传输层没有接上");
+        controller.importController().confirmImport();
+
+        require(service.confirms.size() == 1, "确认请求已经派出去了");
+        require(!controller.importController().confirming(), "同步抛出必须把 confirming 收回来");
+        require(!controller.importController().busy(), "同步抛出之后不能停在忙状态");
+        require(controller.importController().importing()
+                        && controller.importController().preview() != null,
+                "同步抛出与异步失败同一口径：预览与导入前的副本都保留");
+        require(TeacherGradeImportController.CONFIRM_FAILURE_TEXT.equals(controller.feedbackText()),
+                "同步抛出要给可重试的说明，收到 " + controller.feedbackText());
+        // 页面没有被锁死：还能再确认一次。
+        service.confirmThrows = null;
+        require(controller.importController().confirmEnabled(), "失败之后确认按钮必须重新可用");
     }
 
     /** 导入途中离开上传页：取消在途 Future（传输层据此关闭短连接）并恢复导入前的副本。 */
@@ -1479,6 +1509,8 @@ public final class TeacherGradeImportControllerTest {
         private CompletableFuture<TeacherFileTicketDTO> heldUploadTicket;
         /** 挂起的确认请求：非空时 confirmGradeImport 返回它，用来观察「确认在途」的窗口。 */
         private CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> heldConfirm;
+        /** 非空时 confirmGradeImport 同步抛出它：模拟「不返回 Future 而是直接抛」的实现。 */
+        private RuntimeException confirmThrows;
 
         @Override
         public CompletableFuture<List<CourseTermDTO>> listTerms() {
@@ -1596,6 +1628,9 @@ public final class TeacherGradeImportControllerTest {
         public CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> confirmGradeImport(
                 ConfirmGradeImportRequestDTO request) {
             confirms.add(request);
+            if (confirmThrows != null) {
+                throw confirmThrows;
+            }
             if (heldConfirm != null) {
                 return heldConfirm;
             }

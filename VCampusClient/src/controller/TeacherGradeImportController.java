@@ -192,12 +192,13 @@ public final class TeacherGradeImportController {
      * {@code current != generation} 直接 return），{@code confirming} 从此再也没人清。
      *
      * <p>能推进 {@code confirmGeneration} 的只有两处：确认自己派发（{@link #confirmImport()}），以及
-     * {@link #abandonImport}（取消/离开/页面卸下）。因此清除 {@code confirming} 的也只有两条路：
-     * 确认完成回调真正落地的那次（成功或失败），与 {@link #closeImportState()}（{@code abandonImport}
-     * 必经）。其余一切会改动导入状态的路径——修正、排除、取消导入、返回、重新加载——在
-     * {@code confirming} 期间一律拒绝执行（见 {@link #correct}、{@link #setExcluded}、
-     * {@link #cancelImport} 与 {@code TeacherGradeBookController#requestLeave}）。这样「确认在途」
-     * 这件事要么完成、要么被显式放弃，不会被第三只手偷走。
+     * {@link #abandonImport}（取消/离开/页面卸下）。因此让 {@code confirming} 落回 false 的只有三处：
+     * 确认完成回调真正落地的那次（成功或失败）、服务同步抛出的那次（同一个 try 的 catch），与
+     * {@link #closeImportState()}（{@code abandonImport} 必经）。其余一切会改动导入状态的路径——
+     * 修正、排除、取消导入、返回、重新加载——在 {@code confirming} 期间一律拒绝执行（见
+     * {@link #correct}、{@link #setExcluded}、{@link #cancelImport} 与
+     * {@code TeacherGradeBookController#requestLeave}）。这样「确认在途」这件事要么完成、要么被显式
+     * 放弃，不会被第三只手偷走。
      *
      * <p>残余：页面被直接卸下（{@link #release()}，例如关窗）时确认仍在途，服务端可能已经把草稿写成。
      * 那条路不向教师显示任何「已恢复」的文案（页面已经不在），重新进入时 {@code loadBook} 拿到的
@@ -632,33 +633,52 @@ public final class TeacherGradeImportController {
         // 弹窗还开着的话立刻重画一次：把「修正/排除」冻上并换成「正在保存」那句提示——
         // 模态窗口挡住成绩表页的反馈区，那半句解释只有在弹窗里才看得见。
         if (dialogOpen && dialog != null) dialog.render();
-        service.confirmGradeImport(new ConfirmGradeImportRequestDTO(pendingConfirmOperationId, token,
-                previewRevision, expectedRevision))
-                .whenComplete((result, failure) -> fxExecutor.accept(() -> {
-                    if (current != confirmGeneration) return;
-                    // 不变式优先于界面写入：只要这次确认仍然作数，confirming 无条件落下；真的被界面
-                    // 之外的原因卸下了页面（active 为 false），也只是少写一次界面而已。
-                    confirming = false;
-                    if (!active) return;
-                    if (failure != null) {
-                        // 冲突（版本过期/名单变化）与其它失败一样保留预览与导入前的副本，等教师决定。
-                        feedbackText = conflictPrefix(failure)
-                                + failureText(failure, CONFIRM_FAILURE_TEXT);
-                        host.feedback(feedbackText);
-                        host.importStateChanged();
-                        return;
-                    }
-                    TeacherGradeBookDTO book = result == null ? null : result.getValue();
-                    closeImportState();
-                    if (book != null) {
-                        host.replaceWithServerDraft(book);
-                    } else {
-                        host.gradeBookChanged();
-                    }
-                    feedbackText = CONFIRM_SUCCESS_TEXT;
-                    host.feedback(feedbackText);
-                    host.importStateChanged();
-                }));
+        CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> pending;
+        try {
+            pending = service.confirmGradeImport(new ConfirmGradeImportRequestDTO(
+                    pendingConfirmOperationId, token, previewRevision, expectedRevision));
+        } catch (RuntimeException refused) {
+            // 服务同步抛出（而不是返回失败的 Future）也是「确认已经结束」的一种：不变式没有第三个
+            // 出口，这里把 confirming 收回来，其余按与异步失败完全相同的口径处理。真实实现在生产里
+            // 永远返回 Future（SocketClient.sendAsync 把一切异常都装进 Future），所以这条分支是对
+            // 不变式的结构性兜底，由 aSynchronouslyFailingConfirmDoesNotWedgeThePage 钉住。
+            confirming = false;
+            reportConfirmFailure(refused);
+            return;
+        }
+        pending.whenComplete((result, failure) -> fxExecutor.accept(() -> {
+            if (current != confirmGeneration) return;
+            // 不变式优先于界面写入：只要这次确认仍然作数，confirming 无条件落下；真的被界面之外的
+            // 原因卸下了页面（active 为 false），也只是少写一次界面而已。
+            confirming = false;
+            if (!active) return;
+            if (failure != null) {
+                // 冲突（版本过期/名单变化）与其它失败一样保留预览与导入前的副本，等教师决定。
+                reportConfirmFailure(failure);
+                return;
+            }
+            TeacherGradeBookDTO book = result == null ? null : result.getValue();
+            closeImportState();
+            if (book != null) {
+                host.replaceWithServerDraft(book);
+            } else {
+                host.gradeBookChanged();
+            }
+            feedbackText = CONFIRM_SUCCESS_TEXT;
+            host.feedback(feedbackText);
+            host.importStateChanged();
+        }));
+    }
+
+    /**
+     * 确认失败的统一收尾：预览与导入前的副本都保留（教师可以重新加载或取消），提示带上冲突前缀与
+     * 服务端原因。异步失败与同步抛出走同一条路，两种失败对教师是同一件事。
+     */
+    private void reportConfirmFailure(Throwable failure) {
+        if (host == null) return;
+        feedbackText = conflictPrefix(failure) + failureText(failure, CONFIRM_FAILURE_TEXT);
+        host.feedback(feedbackText);
+        host.importStateChanged();
     }
 
     /**
