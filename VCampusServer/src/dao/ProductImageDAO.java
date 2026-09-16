@@ -21,6 +21,43 @@ public class ProductImageDAO {
         @Override public byte[] bytes() { return bytes.clone(); }
     }
 
+    /** 缩略图缓存只需要“有没有图、原图什么时候更新的”，不需要把图片二进制读出来。 */
+    public record ThumbMeta(long productId, long updatedAtMillis) { }
+
+    /** 只查元信息，供缓存命中判断；命中时完全不用碰 image_data。 */
+    public List<ThumbMeta> findThumbMetas(Connection conn, List<Long> productIds) throws SQLException {
+        if (productIds == null || productIds.isEmpty()) return List.of();
+        String placeholders = String.join(",", Collections.nCopies(productIds.size(), "?"));
+        String sql = "SELECT product_id, UNIX_TIMESTAMP(updated_at)*1000 AS updated_ms "
+                + "FROM tbl_product_image WHERE product_id IN (" + placeholders + ")";
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            for (int i = 0; i < productIds.size(); i++) stmt.setLong(i + 1, productIds.get(i));
+            try (ResultSet rs = stmt.executeQuery()) {
+                List<ThumbMeta> result = new ArrayList<>();
+                while (rs.next()) {
+                    result.add(new ThumbMeta(rs.getLong("product_id"), rs.getLong("updated_ms")));
+                }
+                return result;
+            }
+        }
+    }
+
+    /** 服务端启动预热用：一次取出前 limit 张图片的元信息。 */
+    public List<ThumbMeta> findAllThumbMetas(Connection conn, int limit) throws SQLException {
+        String sql = "SELECT product_id, UNIX_TIMESTAMP(updated_at)*1000 AS updated_ms "
+                + "FROM tbl_product_image ORDER BY product_id LIMIT ?";
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setInt(1, Math.max(1, limit));
+            try (ResultSet rs = stmt.executeQuery()) {
+                List<ThumbMeta> result = new ArrayList<>();
+                while (rs.next()) {
+                    result.add(new ThumbMeta(rs.getLong("product_id"), rs.getLong("updated_ms")));
+                }
+                return result;
+            }
+        }
+    }
+
     public ImageRow findByProductId(Connection conn, long productId) throws SQLException {
         String sql = "SELECT mime_type, image_data FROM tbl_product_image WHERE product_id=?";
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {

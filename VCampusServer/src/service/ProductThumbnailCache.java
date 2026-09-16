@@ -2,8 +2,11 @@ package service;
 
 import javax.imageio.IIOImage;
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReadParam;
+import javax.imageio.ImageReader;
 import javax.imageio.ImageWriteParam;
 import javax.imageio.ImageWriter;
+import javax.imageio.stream.ImageInputStream;
 import javax.imageio.stream.MemoryCacheImageOutputStream;
 import java.awt.Color;
 import java.awt.Graphics2D;
@@ -27,21 +30,39 @@ public final class ProductThumbnailCache {
 
     /** 缩略图最长边像素。 */
     private static final int MAX_EDGE = 180;
-    private static final float JPEG_QUALITY = 0.85f;
+    private static final float JPEG_QUALITY = 0.80f;
     /** 缓存条目上限，超出后整体清空，避免长期运行占用过多内存。 */
     private static final int MAX_ENTRIES = 512;
+    /** JPEG 可以按 1/N 抽样解码，最多抽到 1/4，再交给 Graphics2D 缩到目标尺寸。 */
+    private static final int MAX_SUBSAMPLE = 4;
 
     private static final Map<Long, Entry> CACHE = new ConcurrentHashMap<>();
+
+    static {
+        // 缩略图只在内存里处理，关掉 ImageIO 的磁盘缓存可省掉临时文件读写。
+        ImageIO.setUseCache(false);
+    }
 
     private record Entry(long updatedAtMillis, byte[] jpeg) { }
 
     private ProductThumbnailCache() { }
 
+    /** 缓存条目上限，供服务端启动预热时使用。 */
+    public static int maxEntries() {
+        return MAX_ENTRIES;
+    }
+
+    /** 命中缓存返回缩略图副本；没有缓存或原图已更新时返回 null（调用方再去读原图）。 */
+    public static byte[] get(long productId, long updatedAtMillis) {
+        Entry cached = CACHE.get(productId);
+        return cached != null && cached.updatedAtMillis() == updatedAtMillis ? cached.jpeg().clone() : null;
+    }
+
     /** 返回 JPEG 缩略图字节；原图不可解码时返回 null。 */
     public static byte[] thumbnail(long productId, long updatedAtMillis, byte[] source) {
+        byte[] hit = get(productId, updatedAtMillis);
+        if (hit != null) return hit;
         if (source == null || source.length == 0) return null;
-        Entry cached = CACHE.get(productId);
-        if (cached != null && cached.updatedAtMillis() == updatedAtMillis) return cached.jpeg().clone();
         byte[] generated = scale(source);
         if (generated == null) return null;
         if (CACHE.size() >= MAX_ENTRIES) CACHE.clear();
@@ -55,8 +76,8 @@ public final class ProductThumbnailCache {
     }
 
     private static byte[] scale(byte[] source) {
-        try (ByteArrayInputStream input = new ByteArrayInputStream(source)) {
-            BufferedImage original = ImageIO.read(input);
+        try {
+            BufferedImage original = readForThumbnail(source);
             if (original == null || original.getWidth() < 1 || original.getHeight() < 1) return null;
             int width = original.getWidth();
             int height = original.getHeight();
@@ -79,6 +100,34 @@ public final class ProductThumbnailCache {
             return writeJpeg(target);
         } catch (IOException | RuntimeException e) {
             return null;
+        }
+    }
+
+    /**
+     * 解码原图。JPEG 支持抽样解码，先按 1/N 拿一张小图再缩放，
+     * 比先把整张大图解码出来再缩要快得多；PNG 等格式走普通解码。
+     */
+    private static BufferedImage readForThumbnail(byte[] source) throws IOException {
+        try (ImageInputStream stream = ImageIO.createImageInputStream(new ByteArrayInputStream(source))) {
+            if (stream == null) return ImageIO.read(new ByteArrayInputStream(source));
+            Iterator<ImageReader> readers = ImageIO.getImageReaders(stream);
+            if (!readers.hasNext()) return ImageIO.read(new ByteArrayInputStream(source));
+            ImageReader reader = readers.next();
+            try {
+                reader.setInput(stream, true, true);
+                int width = reader.getWidth(0);
+                int height = reader.getHeight(0);
+                int step = 1;
+                while (step < MAX_SUBSAMPLE && MAX_EDGE * (step + 1) <= Math.max(width, height)) step++;
+                if (step > 1) {
+                    ImageReadParam param = reader.getDefaultReadParam();
+                    param.setSourceSubsampling(step, step, 0, 0);
+                    return reader.read(0, param);
+                }
+                return reader.read(0);
+            } finally {
+                reader.dispose();
+            }
         }
     }
 

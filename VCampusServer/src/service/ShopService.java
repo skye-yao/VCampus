@@ -103,8 +103,30 @@ public class ShopService {
         List<Long> ids = productIds.stream().filter(Objects::nonNull).distinct().limit(120).toList();
         if (ids.isEmpty()) return Map.of();
         try (Connection conn = LocalTimeConnection.getConnection()) {
-            Map<String, String> thumbnails = new LinkedHashMap<>();
-            for (ProductImageDAO.ThumbSource source : productImageDAO.findThumbSources(conn, ids)) {
+            return collectThumbnails(conn, ids);
+        } catch (SQLException e) {
+            throw new DatabaseException("查询商品缩略图失败", e);
+        }
+    }
+
+    /**
+     * 缩略图分两步取：先只查“有没有图、原图什么时候更新”这类小字段，能命中缓存就直接编码返回；
+     * 只有没命中的商品才真正去读图片二进制。这样在商品中心反复切分类、切视图时，
+     * 数据库不必一次次把原图整包搬出来，缓存命中时也不会重新解码缩放。
+     */
+    private Map<String, String> collectThumbnails(Connection conn, List<Long> ids) throws SQLException {
+        Map<String, String> thumbnails = new LinkedHashMap<>();
+        List<Long> missing = new ArrayList<>();
+        for (ProductImageDAO.ThumbMeta meta : productImageDAO.findThumbMetas(conn, ids)) {
+            byte[] cached = ProductThumbnailCache.get(meta.productId(), meta.updatedAtMillis());
+            if (cached == null) {
+                missing.add(meta.productId());
+            } else {
+                thumbnails.put(String.valueOf(meta.productId()), Base64.getEncoder().encodeToString(cached));
+            }
+        }
+        if (!missing.isEmpty()) {
+            for (ProductImageDAO.ThumbSource source : productImageDAO.findThumbSources(conn, missing)) {
                 byte[] thumbnail = ProductThumbnailCache.thumbnail(
                         source.productId(), source.updatedAtMillis(), source.bytes());
                 if (thumbnail != null) {
@@ -112,9 +134,39 @@ public class ShopService {
                             Base64.getEncoder().encodeToString(thumbnail));
                 }
             }
-            return thumbnails;
-        } catch (SQLException e) {
-            throw new DatabaseException("查询商品缩略图失败", e);
+        }
+        return thumbnails;
+    }
+
+    /**
+     * 服务端启动后在后台预热缩略图缓存，第一位打开商品中心的用户不用等现场解码缩放。
+     * 预热失败只影响速度，不影响功能，因此只打日志、不抛出。
+     */
+    public static void warmThumbnailCacheAsync() {
+        Thread worker = new Thread(ShopService::warmThumbnailCache, "shop-thumbnail-warmup");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    private static void warmThumbnailCache() {
+        ShopService shop = new ShopService();
+        long startedAt = System.currentTimeMillis();
+        try (Connection conn = LocalTimeConnection.getConnection()) {
+            List<Long> pending = new ArrayList<>();
+            for (ProductImageDAO.ThumbMeta meta
+                    : shop.productImageDAO.findAllThumbMetas(conn, ProductThumbnailCache.maxEntries())) {
+                if (ProductThumbnailCache.get(meta.productId(), meta.updatedAtMillis()) == null) {
+                    pending.add(meta.productId());
+                }
+            }
+            if (pending.isEmpty()) return;
+            for (ProductImageDAO.ThumbSource source : shop.productImageDAO.findThumbSources(conn, pending)) {
+                ProductThumbnailCache.thumbnail(source.productId(), source.updatedAtMillis(), source.bytes());
+            }
+            System.out.println("商品缩略图缓存预热完成：" + pending.size() + " 张，用时 "
+                    + (System.currentTimeMillis() - startedAt) + " ms");
+        } catch (RuntimeException | SQLException e) {
+            System.err.println("商品缩略图缓存预热失败（不影响功能）：" + e.getMessage());
         }
     }
 

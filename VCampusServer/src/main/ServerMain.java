@@ -11,6 +11,7 @@ import network.Server;
 import service.CourseEventDispatcher;
 import service.CourseWaitlistScheduler;
 import service.CourseWaitlistService;
+import service.ShopService;
 import service.TeacherAdjustmentApplicationService;
 import service.TeacherCourseQueryService;
 import service.TeacherFileTicketService;
@@ -48,6 +49,9 @@ public class ServerMain {
             System.err.println("数据库不可用，服务端启动中止。");
             return;
         }
+
+        // 后台预热商品缩略图：不阻塞启动，第一位打开商品中心的用户不必等待现场生成。
+        ShopService.warmThumbnailCacheAsync();
 
         OnlineConnectionRegistry registry = new OnlineConnectionRegistry();
         CourseWaitlistService waitlistService = new CourseWaitlistService();
