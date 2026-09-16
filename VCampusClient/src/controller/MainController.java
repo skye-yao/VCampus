@@ -4,9 +4,7 @@ import java.util.Objects;
 import java.util.function.BiConsumer;
 import app.ClientMain;
 import com.google.gson.Gson;
-import entity.BorrowRecord;
-import entity.FineRecord;
-import entity.Reservation;
+import entity.ShopOrder;
 import entity.User;
 import javafx.application.Platform;
 import javafx.event.ActionEvent;
@@ -36,7 +34,7 @@ import java.util.Locale;
 import entity.AdminPermission;
 import entity.Student;
 import entity.Teacher;
-import enums.ReservationStatus;
+import enums.OrderStatus;
 import enums.StudentChangeStatus;
 import vo.StudentOverviewVO;
 import vo.TeacherOverviewVO;
@@ -172,9 +170,15 @@ public class MainController {
     @FXML private HBox noticeItemOne;
     @FXML private HBox noticeItemTwo;
     @FXML private HBox noticeItemThree;
+    @FXML private StackPane noticeEmptyPane;
     @FXML private Hyperlink studentReviewNoticeLink;
     @FXML private Hyperlink teacherReviewNoticeLink;
+    @FXML private Hyperlink libraryTaskNoticeLink;
+    @FXML private Hyperlink shopTaskNoticeLink;
     @FXML private Hyperlink libraryNoticeLink;
+
+    private long noticeOneCount = Long.MIN_VALUE;
+    private long noticeTwoCount = Long.MIN_VALUE;
 
     // ===== 一卡通金额卡片 =====
     @FXML private Label walletBalanceLabel;
@@ -454,11 +458,14 @@ public class MainController {
     }
 
     private void loadInformationReviewNotices() {
+        resetNoticeState();
         if (noticeBadgeOne != null) noticeBadgeOne.setText("学生信息");
         if (noticeBadgeTwo != null) noticeBadgeTwo.setText("教师信息");
         setManagedVisible(noticeItemThree, false);
         setManagedVisible(studentReviewNoticeLink, true);
         setManagedVisible(teacherReviewNoticeLink, true);
+        setManagedVisible(libraryTaskNoticeLink, false);
+        setManagedVisible(shopTaskNoticeLink, false);
         setManagedVisible(libraryNoticeLink, false);
         if (libraryBorrowNoticeLabel != null) libraryBorrowNoticeLabel.setText("正在读取学生信息审核待办...");
         if (libraryReservationNoticeLabel != null) libraryReservationNoticeLabel.setText("正在读取教师信息审核待办...");
@@ -486,6 +493,7 @@ public class MainController {
 
     private void updateReviewNotice(HBox item, Label label, long count, String applicantType) {
         setManagedVisible(item, count != 0);
+        recordNoticeCount(item, count);
         if (label == null || count == 0) return;
         label.setText(count < 0
                 ? applicantType + "信息审核待办加载失败"
@@ -517,70 +525,75 @@ public class MainController {
     }
 
     private void loadLibraryNotices() {
-        if (noticeBadgeOne != null) noticeBadgeOne.setText("图书在借");
-        if (noticeBadgeTwo != null) noticeBadgeTwo.setText("图书预约");
-        if (noticeBadgeThree != null) noticeBadgeThree.setText("图书欠款");
-        setManagedVisible(noticeItemThree, true);
+        resetNoticeState();
+        if (noticeBadgeOne != null) noticeBadgeOne.setText("图书馆");
+        if (noticeBadgeTwo != null) noticeBadgeTwo.setText("商店");
+        setManagedVisible(noticeItemThree, false);
         setManagedVisible(studentReviewNoticeLink, false);
         setManagedVisible(teacherReviewNoticeLink, false);
-        setManagedVisible(libraryNoticeLink, true);
-        // 1. 查询借阅记录
+        setManagedVisible(libraryTaskNoticeLink, true);
+        setManagedVisible(shopTaskNoticeLink, true);
+        setManagedVisible(libraryNoticeLink, false);
+
+        if (libraryBorrowNoticeLabel != null) libraryBorrowNoticeLabel.setText("正在读取未归还图书...");
+        if (libraryReservationNoticeLabel != null) libraryReservationNoticeLabel.setText("正在读取未支付订单...");
+
+        // 1. 当前借阅记录就是尚未归还的图书。
         LibraryClientService.getInstance().getCurrentBorrow().thenAccept(borrows -> {
             Platform.runLater(() -> {
-                if (libraryBorrowNoticeLabel != null) {
-                    if (borrows == null || borrows.isEmpty()) {
-                        libraryBorrowNoticeLabel.setText("当前无在借图书，欢迎借阅");
-                    } else {
-                        libraryBorrowNoticeLabel.setText("当前在借图书 " + borrows.size() + " 本，请注意归还期限");
-                    }
-                }
+                long count = borrows == null ? 0 : borrows.size();
+                updateUserTaskNotice(noticeItemOne, libraryBorrowNoticeLabel, count,
+                        "本图书未归还", "图书馆");
             });
         }).exceptionally(e -> {
-            Platform.runLater(() -> {
-                if (libraryBorrowNoticeLabel != null) libraryBorrowNoticeLabel.setText("图书借阅服务运行正常");
-            });
+            Platform.runLater(() -> updateUserTaskNotice(
+                    noticeItemOne, libraryBorrowNoticeLabel, -1, "", "图书馆"));
             return null;
         });
 
-        // 2. 查询预约记录（仅统计状态为 0 - 预约中的有效记录）
-        LibraryClientService.getInstance().getReservations().thenAccept(reservations -> {
-            Platform.runLater(() -> {
-                if (libraryReservationNoticeLabel != null) {
-                    long activeCount = reservations != null ? reservations.stream()
-                            .filter(r -> r.getStatus() == ReservationStatus.RESERVING.getCode())
-                            .count() : 0;
-                    if (activeCount == 0) {
-                        libraryReservationNoticeLabel.setText("暂无图书预约到馆提醒");
-                    } else {
-                        libraryReservationNoticeLabel.setText("您有 " + activeCount + " 本图书处于预约中");
-                    }
-                }
-            });
-        }).exceptionally(e -> {
-            Platform.runLater(() -> {
-                if (libraryReservationNoticeLabel != null) libraryReservationNoticeLabel.setText("图书预约服务运行正常");
-            });
+        // 2. 查询商店待支付订单。
+        Message orderRequest = new Message(MessageType.REQUEST, "shop", MessageType.SHOP_ORDER_LIST.name());
+        SocketClient.getInstance().sendAsync(orderRequest).thenAccept(response -> Platform.runLater(() -> {
+            if (response == null || response.getCode() != MessageCode.SUCCESS) {
+                updateUserTaskNotice(noticeItemTwo, libraryReservationNoticeLabel, -1, "", "商店");
+                return;
+            }
+            ShopOrder[] orders = new Gson().fromJson(
+                    new Gson().toJson((Object) response.getData("orders")), ShopOrder[].class);
+            long unpaid = orders == null ? 0 : java.util.Arrays.stream(orders)
+                    .filter(order -> order != null && order.getStatus() == OrderStatus.WAIT_PAY)
+                    .count();
+            updateUserTaskNotice(noticeItemTwo, libraryReservationNoticeLabel, unpaid,
+                    "个订单未支付", "商店");
+        })).exceptionally(error -> {
+            Platform.runLater(() -> updateUserTaskNotice(
+                    noticeItemTwo, libraryReservationNoticeLabel, -1, "", "商店"));
             return null;
         });
+    }
 
-        // 3. 查询罚款记录
-        LibraryClientService.getInstance().getFineRecords().thenAccept(fines -> {
-            Platform.runLater(() -> {
-                if (libraryFineNoticeLabel != null) {
-                    long unpaid = fines != null ? fines.stream().filter(f -> f.getStatus() == 0).count() : 0;
-                    if (unpaid == 0) {
-                        libraryFineNoticeLabel.setText("暂无未缴逾期图书罚款");
-                    } else {
-                        libraryFineNoticeLabel.setText("您有 " + unpaid + " 笔图书罚款待缴纳，请及时处理");
-                    }
-                }
-            });
-        }).exceptionally(e -> {
-            Platform.runLater(() -> {
-                if (libraryFineNoticeLabel != null) libraryFineNoticeLabel.setText("暂无逾期欠款记录");
-            });
-            return null;
-        });
+    private void updateUserTaskNotice(HBox item, Label label, long count, String unitText, String module) {
+        setManagedVisible(item, count != 0);
+        recordNoticeCount(item, count);
+        if (label == null || count == 0) return;
+        label.setText(count < 0
+                ? module + "消息加载失败"
+                : "你有 " + count + " " + unitText);
+    }
+
+    private void resetNoticeState() {
+        noticeOneCount = Long.MIN_VALUE;
+        noticeTwoCount = Long.MIN_VALUE;
+        setManagedVisible(noticeEmptyPane, false);
+        setManagedVisible(noticeItemOne, true);
+        setManagedVisible(noticeItemTwo, true);
+    }
+
+    private void recordNoticeCount(HBox item, long count) {
+        if (item == noticeItemOne) noticeOneCount = count;
+        if (item == noticeItemTwo) noticeTwoCount = count;
+        boolean loaded = noticeOneCount != Long.MIN_VALUE && noticeTwoCount != Long.MIN_VALUE;
+        setManagedVisible(noticeEmptyPane, loaded && noticeOneCount == 0 && noticeTwoCount == 0);
     }
 
     private void showAvatar(ImageView view, String base64) {
