@@ -133,7 +133,18 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
     static final String REOPEN_FAILURE_TEXT = "重新编辑失败，请重试";
     static final String REOPEN_CONFLICT_PREFIX = "成绩表已被其他操作更新，请重新加载后再重新编辑：";
     static final String CORRECTION_OPEN_FAILURE_TEXT = "无法打开更正表单，请重试";
+    /** 更正草稿建立且拟修改分数<b>真的写进了编辑模型</b>时的提示。 */
     static final String CORRECTION_STARTED_TEXT = "更正草稿已建立，拟修改的分数已写入成绩表；保存或提交后等待管理员审核";
+    /**
+     * 更正草稿建立、但这名学生已经不在名单里时的提示。
+     *
+     * <p>它必须与 {@link #CORRECTION_STARTED_TEXT} 分开，而且是两句不同的话：那一条路<b>故意</b>什么都不写
+     * （见 {@link #applyCorrection} 里的分支注释「不把分数写到别处」）。共用一句「分数已写入成绩表」会让
+     * 教师在确认之后照常保存并提交一份<b>不含</b>这次更正的批次，还以为改到了——用一个说假话的提示去实现
+     * 「如实说明」的意图，等于白做。
+     */
+    static final String CORRECTION_STARTED_ROSTER_GONE_TEXT =
+            "更正草稿已建立，但这名学生已不在本教学班的名单里，你填写的分数没有写入成绩表";
     /** 更正表单的资源路径；标题由 {@link TeacherGradeCorrectionDialogController#TITLE} 固定。 */
     static final String CORRECTION_VIEW = "/resources/fxml/TeacherGradeCorrectionDialog.fxml";
     /** 只有这两种批次状态各自有一个新的版本入口；其它状态下两个按钮都不出现。 */
@@ -895,6 +906,9 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
      *
      * <p>只是写进模型：脏标记随之立起，随后照常走「保存草稿 / 提交成绩」，本页不新增第二条写入
      * 通路，也绝不单独写一行已发布的成绩。
+     *
+     * <p>两条分支说<b>两句不同的话</b>：只有真把分数写进模型时才说「已写入成绩表」；学生已经不在名单里
+     * 时走 {@link #CORRECTION_STARTED_ROSTER_GONE_TEXT}，明说这次没有写。
      */
     void applyCorrection(TeacherGradeCorrectionDialogController.CorrectionOutcome outcome) {
         if (model == null || outcome == null || outcome.book() == null) return;
@@ -903,7 +917,7 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
         pendingSubmitOperationId = null;
         if (!hasRow(outcome.enrollmentId())) {
             // 更正草稿建立之后名单里已经没有这名学生（例如他退课了）：如实说明，不把分数写到别处。
-            setFeedback(CORRECTION_STARTED_TEXT);
+            setFeedback(CORRECTION_STARTED_ROSTER_GONE_TEXT);
             render();
             return;
         }

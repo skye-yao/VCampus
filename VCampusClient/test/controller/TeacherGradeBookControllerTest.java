@@ -98,6 +98,7 @@ public final class TeacherGradeBookControllerTest {
         pendingBookOffersNoEditableVersionEntry();
         approvedBookIsReachableOnlyThroughTheCorrectionEntry();
         theCorrectionEntryCarriesTheProposedScoresThroughTheOrdinarySave();
+        aCorrectionForAStudentWhoLeftTheRosterWritesNothing();
         gradeViewsDeclareTheirControllerIdsAndHandlers();
         theStatusLineSitsOnTheButtonRow();
         everyStyleClassExistsInTheStylesheet();
@@ -741,6 +742,9 @@ public final class TeacherGradeBookControllerTest {
                 "没改动的组成保持原值，收到 " + row.cell(GradeComponentCodeDTO.DAILY).text()
                         + "/" + row.cell(GradeComponentCodeDTO.FINALTERM).text());
         require(controller.dirty(), "拟修改的分数是未保存的修改");
+        require(TeacherGradeBookController.CORRECTION_STARTED_TEXT.equals(
+                        controller.feedbackText()),
+                "真把分数写进模型时才可以说「已写入成绩表」，收到 " + controller.feedbackText());
 
         controller.save();
 
@@ -757,6 +761,55 @@ public final class TeacherGradeBookControllerTest {
                 "拟修改的实验分必须由普通保存请求送出，收到 "
                         + (sent == null ? "没有这一行" : sent.getScores().getExperimentScore()));
         require(!controller.dirty(), "保存成功后必须回到干净状态");
+    }
+
+    /**
+     * 更正之后名单里已经没有这名学生（例如他在表单打开与确认之间退课）：草稿照样建立、页面照样变成
+     * 可编辑的草稿，但**一个分数都不许写**，提示也必须说清楚这一点。
+     *
+     * <p>这条路以前复用「拟修改的分数已写入成绩表」那句提示，教师于是被告知改到了，随后保存并提交一份
+     * <b>不含</b>这次更正的批次。两条分支现在各自钉一句不同的文案：只有真写了才说「已写入」，
+     * 什么都没写的那条必须说「没有写入」并点名学生已不在名单里。
+     */
+    private static void aCorrectionForAStudentWhoLeftTheRosterWritesNothing() {
+        RecordingService service = new RecordingService();
+        service.approvedBook = approvedBook();
+        TeacherGradeBookController controller = controller(service, message -> true);
+        // 表单打开时选中的是名单里的学生，确认时他已经退课：模型里因此找不到这个 enrollmentId。
+        String leftTheRoster = "9999";
+        List<String> opened = new ArrayList<>();
+        controller.setCorrectionOpener(row -> {
+            opened.add(row.enrollmentId());
+            controller.applyCorrection(new TeacherGradeCorrectionDialogController.CorrectionOutcome(
+                    correctedBook(), leftTheRoster, Map.of(
+                            GradeComponentCodeDTO.DAILY, "70",
+                            GradeComponentCodeDTO.MIDTERM, "65",
+                            GradeComponentCodeDTO.EXPERIMENT, "88",
+                            GradeComponentCodeDTO.FINALTERM, "80")));
+        });
+        controller.showOffering(APPROVED_OFFERING);
+        controller.selectRow(controller.rows().get(0));
+
+        controller.beginCorrection();
+
+        require(opened.equals(List.of(APPROVED_ENROLLMENT)),
+                "更正仍然从选中的那一位学生打开，收到 " + opened);
+        require("DRAFT".equals(controller.model().state()) && controller.model().canEdit(),
+                "服务端的更正草稿照样建立、页面照样变成可编辑，收到 " + controller.model().state());
+        require(TeacherGradeBookController.CORRECTION_STARTED_ROSTER_GONE_TEXT.equals(
+                        controller.feedbackText()),
+                "学生不在名单里时必须如实说明这次没有写，收到 " + controller.feedbackText());
+        require(!TeacherGradeBookController.CORRECTION_STARTED_TEXT.equals(
+                        controller.feedbackText()),
+                "这一条路不能复用「拟修改的分数已写入成绩表」那句提示");
+        require(controller.feedbackText().contains("名单")
+                        && controller.feedbackText().contains("没有写入"),
+                "提示必须点名学生已不在名单、并明说分数没有写入，收到 " + controller.feedbackText());
+        Row row = controller.rows().get(0);
+        require("75".equals(row.cell(GradeComponentCodeDTO.EXPERIMENT).text()),
+                "拟修改的分数一个都不许写进编辑模型，收到 "
+                        + row.cell(GradeComponentCodeDTO.EXPERIMENT).text());
+        require(!controller.dirty(), "什么都没写，页面必须仍然是干净的");
     }
 
     // ------------------------------------------------------------------ 视图契约

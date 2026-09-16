@@ -3,15 +3,23 @@
 # 用法：
 #   pwsh -File scripts/test-teacher.ps1
 #       不带参数时只列出已知套件并退出 0，不编译、不连接数据库。
-#   pwsh -File scripts/test-teacher.ps1 -Suite Foundation
-#       分目录编译 Common/Server/Client，串行运行 Foundation 套件的全部测试类。
-#   pwsh -File scripts/test-teacher.ps1 -Suite Foundation -WithMySql
-#       额外把 `mysql` 传给服务端迁移测试，启用受保护的 MySQL 迁移用例。
-#   pwsh -File scripts/test-teacher.ps1 -Suite Foundation -TestConfigPath <db.properties>
-#       覆盖默认的 VCampusServer/src/resources/db.properties。
-#   pwsh -File scripts/test-teacher.ps1 -Suite <name> -WithGui [-JavaFxHome <sdk>]
-#       以完整 JavaFX SDK 启动工具包运行 GUI 测试；-JavaFxHome 默认指向本机已解压的
-#       openjfx-25.0.4 SDK，缺少原生 DLL 时立即报错而不是静默降级。
+#   pwsh -File scripts/test-teacher.ps1 -Suite Foundation -WithMySql -TestConfigPath <db.properties>
+#       分目录编译 Common/Server/Client，串行运行 Foundation 套件的全部测试类（含受保护的 MySQL 用例）。
+#   pwsh -File scripts/test-teacher.ps1 -Suite <name> -WithMySql [-WithTcp] [-WithGui]
+#       [-TestConfigPath <db.properties>] [-JavaFxHome <sdk>]
+#       三个开关可以任意组合，但每个都必须被所选套件声明过（见下面的约定）。`-WithGui` 用完整
+#       JavaFX SDK 启动工具包；`-JavaFxHome` 默认指向本机已解压的 openjfx-25.0.4 SDK，缺少原生 DLL
+#       时立即报错而不是静默降级。
+#
+# **两个参数实际上是必需的**（两条都实测过）：
+#   * `-WithMySql` —— 六个套件都声明了 MySQL 门控的类，少传它会在选测试的阶段直接报错退出
+#     （`Suite <name> declares MySQL-gated tests (…); without -WithMySql they would print SKIP and
+#     still exit 0`），而不是跑完再让你误以为通过。
+#   * `-TestConfigPath` —— 默认值是 `VCampusServer/src/resources/db.properties`，而那份 git-ignored
+#     文件在本工作树里被另一个会话指向了**演示库** `virtual_campus`。不传它时，连库的用例会以
+#     `AssertionError: Refusing live migration test: JDBC database must be exactly
+#     virtual_campus_course_test` 硬失败——它们拒绝跑演示库，也不会把这种失败降级成 SKIP。
+#     跑受保护测试库请传 `-TestConfigPath .codex-tmp/t1config/resources/db.properties`。
 #
 # 约定：javac/java 非零退出立即停止；SKIP 永远不等于 PASS；每次运行在 .codex-tmp/teacher/<套件>-<唯一值>
 # 下用独立输出目录；不自动创建或删除数据库。
@@ -362,7 +370,9 @@ if ([string]::IsNullOrWhiteSpace($Suite)) {
     Write-Output 'Known teacher suites:'
     foreach ($entry in $suites) { Write-Output ('  ' + $entry.Name) }
     Write-Output ''
-    Write-Output 'Usage: pwsh -File scripts/test-teacher.ps1 -Suite <name> [-WithMySql] [-WithTcp] [-WithGui] [-TestConfigPath <path>]'
+    Write-Output 'Usage: pwsh -File scripts/test-teacher.ps1 -Suite <name> -WithMySql [-WithTcp] [-WithGui] [-TestConfigPath <path>]'
+    Write-Output '       -WithMySql is required: every suite declares MySQL-gated tests, and without it'
+    Write-Output '       the suite fails at selection instead of silently skipping its database assertions.'
     exit 0
 }
 
