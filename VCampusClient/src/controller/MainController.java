@@ -95,6 +95,8 @@ public class MainController {
     @FXML private Button userNavBtn;
     @FXML private Button permissionNavBtn;
     @FXML private Button navLogoutBtn;
+    @FXML private Button navChatBtn;
+    private ChatEntry chatEntry;
 
     // ===== 课表卡片 (管理员隐藏，学生/教师动态载入对应课表) =====
     @FXML private VBox scheduleCard;
@@ -163,6 +165,7 @@ public class MainController {
     @FXML
     public void initialize() {
         instance = this;
+        if (navChatBtn != null) chatEntry = new ChatEntry(navChatBtn);
 
         // 1. 读取并显示当前用户本地 Session 数据
         loadUserData();

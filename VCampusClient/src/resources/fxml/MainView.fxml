@@ -78,6 +78,7 @@
                 </VBox>
 
                 <!-- 9. 安全退出 -->
+                <Button fx:id="navChatBtn" maxWidth="1.7976931348623157E308" styleClass="main-nav-btn" text="☏   聊天" />
                 <Button fx:id="navLogoutBtn" maxWidth="1.7976931348623157E308" onAction="#handleLogout" styleClass="main-nav-btn, main-nav-btn-exit" text="🚪   安全退出" />
             </children>
         </VBox>

@@ -1,0 +1,20 @@
+.chat-root { -fx-background-color: #f5f8f5; }
+.chat-root .split-pane { -fx-background-color: transparent; -fx-padding: 0; }
+.chat-root .split-pane-divider { -fx-background-color: #e1e7e1; -fx-padding: 0 1 0 0; }
+.chat-root .tab-pane .tab-header-area .tab-header-background { -fx-background-color: #edf3ed; }
+.chat-root .tab { -fx-background-color: transparent; -fx-padding: 10 7; -fx-background-insets: 0; }
+.chat-root .tab:selected { -fx-background-color: #dceadc; }
+.chat-root .tab-label { -fx-text-fill: #35543b; }
+.chat-root .tab-pane:focused > .tab-header-area > .headers-region > .tab:selected .focus-indicator { -fx-border-color: transparent; }
+.chat-root .list-view { -fx-background-color: #edf3ed; -fx-padding: 0; }
+.chat-root .list-cell { -fx-background-color: #edf3ed; -fx-padding: 18 14; -fx-text-fill: #2f4134; }
+.chat-root .list-cell:filled:selected { -fx-background-color: #d5e5d5; -fx-text-fill: #244a2e; }
+.chat-root .list-cell:filled:hover { -fx-background-color: #e0ebe0; }
+.chat-root .scroll-pane, .chat-root .scroll-pane > .viewport { -fx-background-color: #f5f8f5; -fx-background-insets: 0; }
+.chat-root .scroll-pane { -fx-padding: 0; }
+.chat-root .text-area, .chat-root .text-field { -fx-background-color: #dce5dc, white; -fx-background-insets: 0, 1; -fx-background-radius: 8; -fx-padding: 8; }
+.chat-root .text-area .content { -fx-background-color: white; -fx-background-radius: 6; }
+.chat-root .button { -fx-background-color: #e2ece2; -fx-text-fill: #365d3d; -fx-background-radius: 6; -fx-padding: 8 14; -fx-cursor: hand; }
+.chat-root .button:hover { -fx-background-color: #d0e2d0; }
+.chat-root .chat-send { -fx-background-color: #507a56; -fx-text-fill: white; -fx-font-weight: bold; -fx-padding: 9 28; }
+.chat-root .chat-send:hover { -fx-background-color: #3e6544; }
