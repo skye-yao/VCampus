@@ -70,11 +70,11 @@ public class ClientHandler implements Runnable {
                 String line;
                 while ((line = readBoundedLine(reader, MAX_REQUEST_LINE_CHARS)) != null) {
                     Message request = parse(line);
-                    System.out.println("收到请求: " + request);
+                    System.out.println("收到请求: " + (request != null && "chat".equalsIgnoreCase(request.getModule()) ? "chat/" + request.getAction() : request));
 
                     Message response = correlate(request, respond(request));
                     activeConnection.send(response);
-                    System.out.println("发送响应: " + response);
+                    System.out.println("发送响应: " + ("chat".equalsIgnoreCase(response.getModule()) ? "chat/" + response.getAction() + " " + response.getCode() : response));
 
                     boundUid = rebind(activeConnection, boundUid, resolveUid(request, response));
                 }

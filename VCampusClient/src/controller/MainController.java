@@ -15,6 +15,7 @@ import javafx.fxml.FXMLLoader;
 import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.control.Button;
+import javafx.scene.control.Hyperlink;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressBar;
 import javafx.scene.control.ScrollPane;
@@ -22,6 +23,7 @@ import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.shape.Circle;
 import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.HBox;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import model.course.CourseTermView;
@@ -35,6 +37,7 @@ import entity.AdminPermission;
 import entity.Student;
 import entity.Teacher;
 import enums.ReservationStatus;
+import enums.StudentChangeStatus;
 import vo.StudentOverviewVO;
 import vo.TeacherOverviewVO;
 import network.SocketClient;
@@ -50,8 +53,12 @@ import util.PageLeaveGuard;
 import java.io.ByteArrayInputStream;
 import java.util.Base64;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class MainController {
+
+    private static final Set<String> SHOWN_REJECTED_REQUESTS = ConcurrentHashMap.newKeySet();
 
     static final String ADMIN_COURSE_VIEW = "/resources/fxml/AdminCourseManagementView.fxml";
     static final String STUDENT_COURSE_VIEW = "/resources/fxml/CourseManagementView.fxml";
@@ -95,6 +102,8 @@ public class MainController {
     @FXML private Button userNavBtn;
     @FXML private Button permissionNavBtn;
     @FXML private Button navLogoutBtn;
+    @FXML private Button navChatBtn;
+    private ChatEntry chatEntry;
 
     // ===== 课表卡片 (管理员隐藏，学生/教师动态载入对应课表) =====
     @FXML private VBox scheduleCard;
@@ -155,6 +164,15 @@ public class MainController {
     @FXML private Label libraryBorrowNoticeLabel;
     @FXML private Label libraryReservationNoticeLabel;
     @FXML private Label libraryFineNoticeLabel;
+    @FXML private Label noticeBadgeOne;
+    @FXML private Label noticeBadgeTwo;
+    @FXML private Label noticeBadgeThree;
+    @FXML private HBox noticeItemOne;
+    @FXML private HBox noticeItemTwo;
+    @FXML private HBox noticeItemThree;
+    @FXML private Hyperlink studentReviewNoticeLink;
+    @FXML private Hyperlink teacherReviewNoticeLink;
+    @FXML private Hyperlink libraryNoticeLink;
 
     // ===== 一卡通金额卡片 =====
     @FXML private Label walletBalanceLabel;
@@ -163,6 +181,7 @@ public class MainController {
     @FXML
     public void initialize() {
         instance = this;
+        if (navChatBtn != null) chatEntry = new ChatEntry(navChatBtn,this::openChat);
 
         // 1. 读取并显示当前用户本地 Session 数据
         loadUserData();
@@ -170,8 +189,8 @@ public class MainController {
         // 2. 异步向服务端查询最新用户信息（同步最新学籍与余额）
         fetchLatestUserInfo();
 
-        // 3. 异步拉取图书馆相关通知消息
-        loadLibraryNotices();
+        // 3. 管理员查看信息审核待办，其他用户查看图书馆消息
+        loadNotices();
     }
 
     /**
@@ -427,7 +446,76 @@ public class MainController {
     /**
      * 异步读取图书馆通知消息
      */
+    private void loadNotices() {
+        if (isAdminUser()) loadInformationReviewNotices();
+        else loadLibraryNotices();
+    }
+
+    private void loadInformationReviewNotices() {
+        if (noticeBadgeOne != null) noticeBadgeOne.setText("学生信息");
+        if (noticeBadgeTwo != null) noticeBadgeTwo.setText("教师信息");
+        setManagedVisible(noticeItemThree, false);
+        setManagedVisible(studentReviewNoticeLink, true);
+        setManagedVisible(teacherReviewNoticeLink, true);
+        setManagedVisible(libraryNoticeLink, false);
+        if (libraryBorrowNoticeLabel != null) libraryBorrowNoticeLabel.setText("正在读取学生信息审核待办...");
+        if (libraryReservationNoticeLabel != null) libraryReservationNoticeLabel.setText("正在读取教师信息审核待办...");
+
+        Message studentRequest = new Message(MessageType.STUDENT_REVIEW_LIST, "student", "listPendingRequests");
+        SocketClient.getInstance().sendAsync(studentRequest).thenAccept(response -> Platform.runLater(() -> {
+            if (libraryBorrowNoticeLabel != null) {
+                long count = pendingReviewCount(response);
+                libraryBorrowNoticeLabel.setText(count < 0 ? "学生信息审核待办加载失败" : "你有 " + count + " 条学生信息待审核");
+            }
+        })).exceptionally(error -> {
+            Platform.runLater(() -> libraryBorrowNoticeLabel.setText("学生信息审核待办加载失败"));
+            return null;
+        });
+
+        Message teacherRequest = new Message(MessageType.TEACHER_REVIEW_LIST, "teacher", "reviews");
+        SocketClient.getInstance().sendAsync(teacherRequest).thenAccept(response -> Platform.runLater(() -> {
+            if (libraryReservationNoticeLabel != null) {
+                long count = pendingReviewCount(response);
+                libraryReservationNoticeLabel.setText(count < 0 ? "教师信息审核待办加载失败" : "你有 " + count + " 条教师信息待审核");
+            }
+        })).exceptionally(error -> {
+            Platform.runLater(() -> libraryReservationNoticeLabel.setText("教师信息审核待办加载失败"));
+            return null;
+        });
+    }
+
+    private long pendingReviewCount(Message response) {
+        if (response == null || response.getCode() != MessageCode.SUCCESS) return -1;
+        Object requests = response.getData("requests");
+        if (requests == null) return 0;
+        try {
+            long count = 0;
+            for (var item : new Gson().toJsonTree(requests).getAsJsonArray()) {
+                if (item.isJsonObject() && "PENDING".equalsIgnoreCase(
+                        item.getAsJsonObject().has("status") ? item.getAsJsonObject().get("status").getAsString() : "")) {
+                    count++;
+                }
+            }
+            return count;
+        } catch (RuntimeException error) {
+            return -1;
+        }
+    }
+
+    private static void setManagedVisible(Node node, boolean value) {
+        if (node == null) return;
+        node.setManaged(value);
+        node.setVisible(value);
+    }
+
     private void loadLibraryNotices() {
+        if (noticeBadgeOne != null) noticeBadgeOne.setText("图书在借");
+        if (noticeBadgeTwo != null) noticeBadgeTwo.setText("图书预约");
+        if (noticeBadgeThree != null) noticeBadgeThree.setText("图书欠款");
+        setManagedVisible(noticeItemThree, true);
+        setManagedVisible(studentReviewNoticeLink, false);
+        setManagedVisible(teacherReviewNoticeLink, false);
+        setManagedVisible(libraryNoticeLink, true);
         // 1. 查询借阅记录
         LibraryClientService.getInstance().getCurrentBorrow().thenAccept(borrows -> {
             Platform.runLater(() -> {
@@ -545,7 +633,7 @@ public class MainController {
         updateActiveNavButton(navHomeBtn);
         loadUserData();
         fetchLatestUserInfo();
-        loadLibraryNotices();
+        loadNotices();
     }
 
     /**
@@ -591,7 +679,7 @@ public class MainController {
         Button[] buttons = {
                 navHomeBtn, navProfileBtn, navStudentBtn, navLibraryBtn,
                 navCourseBtn, navStoreBtn, navBankBtn, navAiBtn,
-                userNavBtn, permissionNavBtn
+                userNavBtn, permissionNavBtn, navChatBtn
         };
         for (Button btn : buttons) {
             if (btn != null) {
@@ -633,6 +721,21 @@ public class MainController {
     }
 
     // ===== 页面导航动作 =====
+    private ChatPane chatPane;
+
+    public void openChat() {
+        if (chatPane != null && rootMain.getCenter() == chatPane.getView()) return;
+        PageLeaveGuard previousGuard=PageLeaveGuard.active();
+        if(previousGuard!=null&&!previousGuard.requestLeave())return;
+        if(previousGuard!=null)previousGuard.onClosed();
+        PageLeaveGuard.clear(previousGuard);
+        ClientMain.cleanupPage();
+        ChatPane page=new ChatPane();chatPane=page;
+        rootMain.setCenter(page.getView());
+        ClientMain.setPageCleanup(()->{page.close();if(chatPane==page)chatPane=null;});
+        updateActiveNavButton(navChatBtn);
+        page.start();
+    }
 
     @FXML
     public void handleNavigateHome(ActionEvent event) {
@@ -642,7 +745,7 @@ public class MainController {
             // 当前已在主页，重新刷新数据
             loadUserData();
             fetchLatestUserInfo();
-            loadLibraryNotices();
+            loadNotices();
         }
     }
 
@@ -664,6 +767,24 @@ public class MainController {
             loadCenterView("/resources/fxml/InformationSelectView.fxml");
         } else {
             loadCenterView("/resources/fxml/StudentView.fxml");
+        }
+    }
+
+    @FXML
+    public void openStudentReviewNotifications(ActionEvent event) {
+        loadCenterView("/resources/fxml/StudentView.fxml");
+        Object controller = FXMLUtil.loadedController();
+        if (controller instanceof StudentController studentController) {
+            studentController.openReviewFromDashboard();
+        }
+    }
+
+    @FXML
+    public void openTeacherReviewNotifications(ActionEvent event) {
+        loadCenterView("/resources/fxml/TeacherView.fxml");
+        Object controller = FXMLUtil.loadedController();
+        if (controller instanceof TeacherController teacherController) {
+            teacherController.openReviewFromDashboard();
         }
     }
 
@@ -891,6 +1012,12 @@ public class MainController {
                     if (obj != null) {
                         Gson gson = new Gson();
                         TeacherOverviewVO vo = gson.fromJson(gson.toJson(obj), TeacherOverviewVO.class);
+                        if (vo != null && vo.getLatestRequest() != null) {
+                            showRejectedRequestNotice(
+                                    "teacher",
+                                    vo.getLatestRequest().getRequestId(),
+                                    vo.getLatestRequest().getStatus());
+                        }
                         if (vo != null && vo.getTeacher() != null) {
                             Teacher t = vo.getTeacher();
                             Platform.runLater(() -> {
@@ -914,6 +1041,12 @@ public class MainController {
                     if (obj != null) {
                         Gson gson = new Gson();
                         StudentOverviewVO vo = gson.fromJson(gson.toJson(obj), StudentOverviewVO.class);
+                        if (vo != null && vo.getLatestRequest() != null) {
+                            showRejectedRequestNotice(
+                                    "student",
+                                    vo.getLatestRequest().getRequestId(),
+                                    vo.getLatestRequest().getStatus());
+                        }
                         if (vo != null && vo.getStudent() != null) {
                             Student s = vo.getStudent();
                             Platform.runLater(() -> {
@@ -928,6 +1061,22 @@ public class MainController {
                 }
             }).exceptionally(e -> null);
         }
+    }
+
+    private void showRejectedRequestNotice(String applicantType, Long requestId, StudentChangeStatus status) {
+        if (status != StudentChangeStatus.REJECTED) return;
+
+        String token = ClientSession.getInstance().getToken();
+        if (token == null || token.isBlank()) return;
+
+        String noticeKey = token + ":" + applicantType + ":" + String.valueOf(requestId);
+        if (!SHOWN_REJECTED_REQUESTS.add(noticeKey)) return;
+
+        Platform.runLater(() -> {
+            if (Objects.equals(token, ClientSession.getInstance().getToken())) {
+                warningReporter.accept("审核信息提醒", "审核信息被退回，请重新修改");
+            }
+        });
     }
 
     private String strOrDefault(String val) {
