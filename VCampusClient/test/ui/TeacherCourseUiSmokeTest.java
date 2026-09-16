@@ -8,6 +8,10 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import javax.imageio.ImageIO;
+import dto.course.teacher.GradeComponentCodeDTO;
+import dto.course.teacher.GradeScoresDTO;
+import dto.course.teacher.TeacherGradeBookDTO;
+import dto.course.teacher.TeacherGradeRowDTO;
 import dto.course.teacher.TeacherOfferingDTO;
 import dto.course.teacher.TeacherRosterRowDTO;
 import javafx.animation.PauseTransition;
@@ -85,7 +89,13 @@ public final class TeacherCourseUiSmokeTest {
     private static final String ADJUSTMENT_TITLE = "申请调课";
     /** Mock 周 8 的跨周原位置卡片对应的课程；点它打开详情再“查看教学班”。 */
     private static final String CROSS_WEEK_COURSE_NAME = "数据结构与算法基础";
+    /** 跨周原位置（第 8 周周二）的教室，也就是那块灰显提示上仍然写着的原地点。 */
     private static final String CROSS_WEEK_LOCATION = "A-101";
+    /** 跨周新位置（第 9 周周三）的教室：调课后那块是真实占用，地点必须是新的。 */
+    private static final String CROSS_WEEK_NEW_LOCATION = "B-203";
+    /** 跨周移动后两个块各自的样式类；普通课次一个都不带。 */
+    private static final String ORIGINAL_BLOCK_CLASS = "teacher-schedule-adjusted-original";
+    private static final String TARGET_BLOCK_CLASS = "teacher-schedule-adjusted-target";
     /** Mock 周 8 里唯一还能申请调课的课次（9203，未调整的周六第 12-13 节）。 */
     private static final String ADJUSTABLE_COURSE_NAME = "操作系统原理";
     private static final String CROSS_WEEK_TARGET_DATE = "2026-11-02";
@@ -112,6 +122,9 @@ public final class TeacherCourseUiSmokeTest {
             + "希望教务处审批后把本次课次调整到新的教学日，后续如有变动会第一时间重新提交申请。";
     /** T6 成绩夹具：CS203-01 草稿（每五人缺一个实验分）、CS301-01 空班、CS204-01 已驳回、CS352-01 待审核。 */
     private static final String GRADE_DRAFT_OFFERING = "CS203-01";
+    /** 成绩教学班列表的学期：Mock 的 2025/3（春学期）里放着草稿与空班两个夹具。 */
+    private static final int GRADE_TERM_YEAR = 2025;
+    private static final int GRADE_TERM_SEMESTER = 3;
     private static final String GRADE_EMPTY_OFFERING = "CS301-01";
     private static final String GRADE_REJECTED_OFFERING = "CS204-01";
     private static final String GRADE_PENDING_OFFERING = "CS352-01";
@@ -135,6 +148,19 @@ public final class TeacherCourseUiSmokeTest {
     /** Mock 的被驳回批次审核意见与待审核批次号。 */
     private static final String REVIEW_COMMENT_FRAGMENT = "总分与平时分不一致";
     private static final String PENDING_SUBMISSION_ID = "9601";
+    /** 成绩更正表单：资源路径、标题与「原分数」行的措辞（与控制器常量逐字一致）。 */
+    private static final String CORRECTION_VIEW = "/resources/fxml/TeacherGradeCorrectionDialog.fxml";
+    private static final String CORRECTION_TITLE = "申请更正成绩";
+    private static final String CORRECTION_ORIGINAL_PREFIX = "　原分数 ";
+    private static final String CORRECTION_PLACEHOLDER = "—";
+    /** = TeacherGradeCorrectionDialogController.MAX_REASON_LENGTH：更正原因的上界（服务端同宽）。 */
+    private static final int CORRECTION_MAX_REASON_LENGTH = 500;
+    /**
+     * 「我的申请」入口的文案。逐字等于 FXML 里的静态文案与
+     * {@code TeacherCourseManagementController.APPLICATIONS_ENTRY_TEXT}（那两个都是包私有的，
+     * 冒烟测试在 {@code ui} 包里读不到，因此这里各写一份并在下面用真实按钮文案断言）。
+     */
+    private static final String APPLICATIONS_ENTRY = "我的申请";
     /** = TeacherGradeBookController 的未录入占位符与单元格样式类，界面上必须真的画出来。 */
     private static final String PLACEHOLDER = "—";
     private static final String GRADE_CELL_ERROR_CLASS = "teacher-course-grade-cell-error";
@@ -157,7 +183,10 @@ public final class TeacherCourseUiSmokeTest {
             "gradebook-paste-block.png", "gradebook-inline-error.png",
             // T5 的导入证据：异常明细弹窗的真实加载（空态）。预览红框与异常姓名要有一份真实服务端
             // 预览才画得出来，那部分由无工具包的控制器用例与服务端 E2E 覆盖。
-            "gradebook-import-feedback.png"
+            "gradebook-import-feedback.png",
+            // T4 追加的验收截图：跨周的原位置灰块与新位置、以及更正表单上的「原分数 / 拟修改」对照。
+            "schedule-cross-week-original.png", "schedule-week9-target.png",
+            "gradebook-correction-dialog.png"
     };
     private static final Path OUTPUT = Path.of(".codex-tmp", "teacher");
 
@@ -180,6 +209,15 @@ public final class TeacherCourseUiSmokeTest {
         private Parent root;
         private Stage primaryStage;
         private int stepIndex;
+        /** T4 的更正表单夹具：打开时装配，关闭时清空。 */
+        private CorrectionFixture correctionTarget;
+        /**
+         * 装配完成时的窗口外框尺寸。{@code Scene} 是 860x580，而 {@code Stage} 的外框比它多出标题栏与
+         * 边框，所以「还原成 860x580」必须还原到这两个实测值，不能拿场景尺寸去 {@code setWidth}——
+         * 那样每还原一次场景就缩小一圈，后半程的截图会悄悄小于 860x580。
+         */
+        private double frameWidth;
+        private double frameHeight;
         /** 确认框可能晚一个脉冲才建窗，重新排队的次数上限。 */
         private int leavePromptAttempts;
 
@@ -196,6 +234,10 @@ public final class TeacherCourseUiSmokeTest {
             stage.setScene(new Scene(root, WIDTH, HEIGHT));
             stage.setResizable(false);
             stage.show();
+            // 场景就是 860x580（Scene 的构造参数），下面两个是含边框的外框尺寸：后面的窗口缩放
+            // 一律按外框来，还原时才回得到同一个场景尺寸。
+            frameWidth = stage.getWidth();
+            frameHeight = stage.getHeight();
             planSteps();
             advance();
         }
@@ -210,6 +252,7 @@ public final class TeacherCourseUiSmokeTest {
             // Task 3：装配完成就直接停“教学课程表”，不再先停那个只写着“已接入”的占位首页。
             // 这一步不打任何点击，读的就是工作台装配之后的界面。
             steps.add(() -> {
+                requireWindowSize("进入工作台");
                 require(effectivelyVisible(requireNode("#schedulePage", Parent.class, "课表子页")),
                         "进入工作台必须直接显示教学课程表");
                 require(!requireNode("#homePanel", VBox.class, "首页提示区").isVisible(),
@@ -302,6 +345,7 @@ public final class TeacherCourseUiSmokeTest {
                 require(badges.contains("原安排") && badges.contains("调课后"),
                         "第 8 周必须同时出现 原安排 与 调课后 角标，实际 " + badges);
                 requireVerticalBadges();
+                requireCrossWeekOriginalBlock();
                 // 范围来自响应里的 minWeek/maxWeek，控件因此可用（没有范围时它是禁用的）。
                 require(!weekSpinner().isDisabled(),
                         "第 8 周已加载，周次控件必须可用");
@@ -311,6 +355,8 @@ public final class TeacherCourseUiSmokeTest {
                 requireViewportReset("渲染第 8 周");
                 snapshot("schedule-week8.png");
             });
+            steps.add(() -> snapshotNode(cardForCourse(CROSS_WEEK_COURSE_NAME),
+                    "schedule-cross-week-original.png"));
 
             // ------------------------------------------------------------ 铺满 / 自适应（Task 2）
             // 用户要的是“跟着窗口变”：默认 860x580 横向装得下，网格宽度被拉到视口宽度（不再停在
@@ -333,6 +379,7 @@ public final class TeacherCourseUiSmokeTest {
             steps.add(this::requireGridScrollsInASmallWindow);
             steps.add(() -> resizeWindow(WIDTH, HEIGHT));
             steps.add(() -> {
+                requireWindowSize("窗口还原后");
                 requireGridFillsViewport("还原 860x580");
                 requireViewportReset("窗口还原后");
             });
@@ -389,9 +436,12 @@ public final class TeacherCourseUiSmokeTest {
                 require(cards().size() == WEEK_NINE_CARDS,
                         "第 9 周只应剩跨周调入的 " + WEEK_NINE_CARDS + " 张卡片，实际 "
                                 + cards().size());
+                requireCrossWeekTargetBlock();
                 requireViewportReset("切到第 9 周");
                 snapshot("schedule-week9.png");
             });
+            steps.add(() -> snapshotNode(cardForCourse(CROSS_WEEK_COURSE_NAME),
+                    "schedule-week9-target.png"));
             steps.add(this::pressWeekUp);
             steps.add(() -> {
                 require(shownWeek() == CURRENT_WEEK,
@@ -659,6 +709,8 @@ public final class TeacherCourseUiSmokeTest {
                                 && list.getChildren().get(0).getLayoutBounds().getHeight() > 0,
                         "列表行必须按内容排版，不能被换行标签撑成整屏，实际行高 "
                                 + list.getChildren().get(0).getLayoutBounds().getHeight());
+                // 入口角标：两行都还没读过（服务端算出的 unread，客户端不自己猜）。
+                requireUnreadBadge(2);
             });
             steps.add(() -> applicationRow(PENDING_REQUEST_ID).fire());
             steps.add(() -> {
@@ -670,6 +722,9 @@ public final class TeacherCourseUiSmokeTest {
                 require(withdraw.isVisible() && !withdraw.isDisabled(),
                         "PENDING 申请必须提供可用的撤销入口");
             });
+            // 详情加载后页面会为这一行发一次「标记已读」，服务端回执之后重新查询列表：
+            // 角标必须跟着服务端的真实状态落到 1（刚读过的那条不再计数）。
+            steps.add(() -> requireUnreadBadge(1));
             steps.add(() -> requireIn(applicationsScope(), "#applicationWithdrawButton",
                     Button.class, "撤销按钮").fire());
             steps.add(() -> {
@@ -700,6 +755,9 @@ public final class TeacherCourseUiSmokeTest {
                 require(applicationRowOrNull(WITHDRAWN_REQUEST_ID) != null
                                 && applicationRowOrNull(PENDING_REQUEST_ID) != null,
                         "撤销必须真实改变查询快照（已撤销列表里出现 9404 与 9405）");
+                // 切筛选就是换一次查询：角标跟着这一页的未读条数走。9405 的那次撤销是页面自己做的，
+                // 撤销后面板上的详情被刷新，新到达的终态随之被标成已读，于是这一页只剩 9404 未读。
+                requireUnreadBadge(1);
             });
 
             // ------------------------------------------------------------ T6：成绩录入
@@ -1128,6 +1186,15 @@ public final class TeacherCourseUiSmokeTest {
                 snapshot("gradebook-rejected.png");
             });
 
+            // ------------------------------------------------ T4：更正表单的「原分数 / 拟修改」对照
+            // 更正表单从成绩表上「已通过」的批次打开，而 Mock 里没有任何一个教学班处于已通过
+            // （CS203-01 草稿、CS352-01 待审核、CS204-01 已驳回），所以离屏冒烟点不到那条入口。
+            // 这里直接加载同一份 FXML、把「要更正谁、他的四项原分数是什么」注入控制器，之后走的是
+            // 与真实弹窗完全相同的 render 路径；注入用的是反射，只为了越过那个包私有的入参。
+            steps.add(this::openCorrectionComparisonDialog);
+            steps.add(this::requireCorrectionComparison);
+            steps.add(this::closeCorrectionComparisonDialog);
+
             // ------------------------------------------------ T5：导入异常明细弹窗的加载守卫
             // 这个弹窗只会在预览回来时由 TeacherGradeImportController 打开，而那条路径把加载失败
             // 整个吞掉（`catch (IOException | RuntimeException | LinkageError)`，预览照常合并进表格），
@@ -1176,6 +1243,7 @@ public final class TeacherCourseUiSmokeTest {
 
             // 收尾：课次详情弹窗是 WINDOW_MODAL + show()（不阻塞），结束时不能有遗留窗口。
             steps.add(() -> {
+                requireWindowSize("结束时");
                 require(Window.getWindows().size() == 1,
                         "除主窗口外不应留下任何窗口，实际 " + Window.getWindows().size() + " 个");
                 require(Window.getWindows().get(0) == primaryStage
@@ -1211,13 +1279,29 @@ public final class TeacherCourseUiSmokeTest {
 
         // ---------------------------------------------------------------- 节点查找
 
+        /**
+         * 右上入口按钮。文案在「我的申请」上会随未读条数变长（{@code 我的申请（本页未读 N）}），
+         * 所以这里按「逐字相等，或后接一个左括号的角标」匹配，而不是只认逐字相等——否则一旦某个
+         * 调用点落在申请页加载之后，查找就会失败。<b>前缀匹配必须带括号</b>：单纯的
+         * {@code startsWith} 会让「教学」之类的短串同时命中两个入口，把一个更脆的查找换成一个
+         * 会静默选错的查找。
+         */
         private Button entryButton(String text) {
+            List<Button> matches = new ArrayList<>();
             for (Node node : root.lookupAll(".teacher-course-entry")) {
-                if (node instanceof Button button && text.equals(button.getText())) {
-                    return button;
+                if (node instanceof Button button && button.getText() != null
+                        && (button.getText().equals(text)
+                        || button.getText().startsWith(text + "（"))) {
+                    matches.add(button);
                 }
             }
-            throw new IllegalStateException("找不到工作台入口按钮：" + text);
+            if (matches.size() == 1) {
+                return matches.get(0);
+            }
+            throw new IllegalStateException(matches.isEmpty()
+                    ? "找不到工作台入口按钮：" + text
+                    : "入口 " + text + " 匹配到多个按钮："
+                            + matches.stream().map(Button::getText).toList());
         }
 
         /** 课表里某个课程的卡片按钮；卡片正文是 graphic，因此按标题标签反查它的按钮祖先。 */
@@ -1336,6 +1420,29 @@ public final class TeacherCourseUiSmokeTest {
         /** 我的申请子页的根节点：里面的 fx:id 带 application 前缀，但仍按子页作用域查找。 */
         private Parent applicationsScope() {
             return requireNode("#applicationsPage", Parent.class, "我的申请子页");
+        }
+
+        /**
+         * 「我的申请」入口上的未读角标必须逐字等于当前页的未读条数：
+         * {@code 我的申请（本页未读 N）}。这是「未读状态同步」在界面上的那一半——计数来自服务端
+         * 算出的 {@code unread}，页面只负责显示，客户端不自己推。
+         */
+        private void requireUnreadBadge(int expectedUnread) {
+            String entry = entryButton(APPLICATIONS_ENTRY).getText();
+            require((APPLICATIONS_ENTRY + "（本页未读 " + expectedUnread + "）").equals(entry),
+                    "我的申请入口必须显示本页未读 " + expectedUnread + " 条，实际 " + entry
+                            + "；本页各行为 " + applicationRowTexts());
+        }
+
+        /** 本页每一行的可读文本（未读的行会多一颗「未读」角标），用在角标断言的失败信息里。 */
+        private List<String> applicationRowTexts() {
+            Node node = applicationsScope().lookup("#applicationList");
+            if (!(node instanceof VBox list)) return List.of("找不到申请列表");
+            List<String> texts = new ArrayList<>();
+            for (Node child : list.getChildren()) {
+                texts.add(rowText(child).replace('\n', ' '));
+            }
+            return texts;
         }
 
         // ---------------------------------------------------------------- 成绩表查找
@@ -1533,6 +1640,188 @@ public final class TeacherCourseUiSmokeTest {
             }
         }
 
+        // ---------------------------------------------------------------- 更正表单（T4）
+
+        /**
+         * 真实工具包加载 TeacherGradeCorrectionDialog.fxml，并把一名学生的四项原分数喂给控制器。
+         * 反映射的是包私有的 {@code prepare(CorrectionTarget)}：它只有一个入参（选中了谁），其余
+         * 渲染、校验与提交都在控制器自己的公开路径上。
+         */
+        private void openCorrectionComparisonDialog() {
+            try {
+                FXMLLoader loader = new FXMLLoader(getClass().getResource(CORRECTION_VIEW));
+                Parent correctionRoot = loader.load();
+                Object controller = loader.getController();
+                require(controller != null, "更正表单的 fx:controller 必须解析到真实控制器");
+                String offeringId = gradeBookOfferingId();
+                TeacherGradeBookDTO book = TeacherCourseServices.current()
+                        .getGradeBook(offeringId).join();
+                TeacherGradeRowDTO row = null;
+                for (TeacherGradeRowDTO candidate : book.getRows()) {
+                    // 挑一位「有组成没录」的学生：这样原分数行必须画占位符，而不是 0 或 null。
+                    if (candidate.getScores() != null
+                            && candidate.getScores().getExperimentScore() == null) {
+                        row = candidate;
+                        break;
+                    }
+                }
+                require(row != null, "草稿夹具里必须有一位缺实验分的学生");
+                correctionTarget = new CorrectionFixture(controller, correctionRoot, row,
+                        book.getOfferingId(), book.getLastSubmissionId(), book.getRevision());
+                correctionTarget.present();
+
+                Stage stage = new Stage();
+                stage.initOwner(primaryStage);
+                stage.setTitle(CORRECTION_TITLE);
+                stage.setScene(new Scene(correctionRoot));
+                stage.show();
+                correctionTarget.stage = stage;
+                correctionRoot.applyCss();
+                correctionRoot.layout();
+            } catch (IOException failure) {
+                throw new UncheckedIOException("更正表单加载失败", failure);
+            }
+        }
+
+        /**
+         * 草稿夹具教学班的<b>数值</b> offeringId。界面上与 {@link #GRADE_DRAFT_OFFERING} 用的是教学班
+         * 代码（CS203-01），而成绩接口收的是十进制 ID（Mock 的教学班 ID 是 9007199254740993 这种
+         * 刻意超出 double 精度的值），所以这里从成绩教学班列表里按代码反查。
+         */
+        private String gradeBookOfferingId() {
+            var page = TeacherCourseServices.current()
+                    .listGradeOfferings(GRADE_TERM_YEAR, GRADE_TERM_SEMESTER, 1, 20).join();
+            for (var item : page.getItems()) {
+                if (GRADE_DRAFT_OFFERING.equals(item.getOffering().getOfferingCode())) {
+                    return item.getOffering().getOfferingId();
+                }
+            }
+            throw new IllegalStateException("成绩列表里找不到教学班 " + GRADE_DRAFT_OFFERING);
+        }
+
+        /** 四项原分数逐行对上学生自己的分数；未录入的那一项必须是占位符而不是 0。 */
+        private void requireCorrectionComparison() {
+            require(correctionTarget != null, "更正表单必须先被打开");
+            Parent scope = correctionTarget.root;
+            GradeScoresDTO scores = correctionTarget.row.getScores();
+            requireCorrectionOriginal(scope, "#dailyOriginalLabel", "平时", scores.getDailyScore());
+            requireCorrectionOriginal(scope, "#midtermOriginalLabel", "期中",
+                    scores.getMidtermScore());
+            requireCorrectionOriginal(scope, "#experimentOriginalLabel", "实验",
+                    scores.getExperimentScore());
+            requireCorrectionOriginal(scope, "#finaltermOriginalLabel", "期末",
+                    scores.getFinaltermScore());
+            require(labelIn(scope, "#studentLine").contains(correctionTarget.row.getStudentName())
+                            && labelIn(scope, "#studentLine")
+                            .contains(correctionTarget.row.getStudentUid()),
+                    "更正表单必须写明这名学生的姓名与学号，实际 " + labelIn(scope, "#studentLine"));
+
+            // 拟修改一栏是原文：原分数行保持不动，右边的输入框改成新值，这就是界面上的「更正对比」。
+            TextField experiment = requireIn(scope, "#experimentField", TextField.class, "实验拟修改值");
+            require("".equals(experiment.getText()),
+                    "未录入的组成在拟修改栏里必须是空的，实际 '" + experiment.getText() + "'");
+            experiment.setText("95");
+            require(requireIn(scope, "#experimentOriginalLabel", Label.class, "实验原分数")
+                            .getText().endsWith(CORRECTION_PLACEHOLDER),
+                    "改动拟修改值不得改写原分数行，实际 "
+                            + requireIn(scope, "#experimentOriginalLabel", Label.class, "实验原分数")
+                            .getText());
+
+            Button submit = requireIn(scope, "#submitButton", Button.class, "确认更正按钮");
+            require(submit.isDisabled(), "原因还是空的时候确认必须禁用（空文本在本地就被挡下）");
+            TextArea reason = requireIn(scope, "#reasonArea", TextArea.class, "更正原因");
+            reason.setText("期末成绩登分错误，需要更正");
+            require(!submit.isDisabled(), "填了原因之后确认必须可用");
+            // 长文本按上界截断（与服务端 500 字符的列宽一致），不靠服务端 400 来发现。
+            String tooLong = "长".repeat(CORRECTION_MAX_REASON_LENGTH + 80);
+            reason.setText(tooLong);
+            require(reason.getText().length() == CORRECTION_MAX_REASON_LENGTH
+                            && tooLong.startsWith(reason.getText()),
+                    "超长原因必须按 " + CORRECTION_MAX_REASON_LENGTH + " 字符截断，实际 "
+                            + reason.getText().length());
+            reason.setText(LONG_REASON);
+            requireWindowSize("更正表单截图前");
+            snapshotNode(scope, "gradebook-correction-dialog.png");
+        }
+
+        private void requireCorrectionOriginal(Parent scope, String selector, String label,
+                java.math.BigDecimal value) {
+            String text = labelIn(scope, selector);
+            String expected = value == null
+                    ? CORRECTION_PLACEHOLDER
+                    : value.stripTrailingZeros().toPlainString();
+            require(text.equals(label + CORRECTION_ORIGINAL_PREFIX + expected),
+                    "原分数行必须是「" + label + CORRECTION_ORIGINAL_PREFIX + expected + "」，实际 "
+                            + text);
+        }
+
+        private void closeCorrectionComparisonDialog() {
+            require(correctionTarget != null, "更正表单必须先被打开");
+            requireIn(correctionTarget.root, "#cancelButton", Button.class, "取消按钮").fire();
+            require(!correctionTarget.stage.isShowing(), "取消必须真的关掉更正表单");
+            require(Window.getWindows().size() == 1,
+                    "关闭更正表单后不能留下多余窗口，实际 " + Window.getWindows().size());
+            correctionTarget = null;
+        }
+
+        /** 一次更正表单的装配结果：控制器（反射调用它的 prepare）、Scene root 与夹具学生。 */
+        private final class CorrectionFixture {
+            private final Object controller;
+            private final Parent root;
+            private final TeacherGradeRowDTO row;
+            private final String offeringId;
+            private final String submissionId;
+            private final long revision;
+            private Stage stage;
+
+            private CorrectionFixture(Object controller, Parent root, TeacherGradeRowDTO row,
+                    String offeringId, String submissionId, long revision) {
+                this.controller = controller;
+                this.root = root;
+                this.row = row;
+                this.offeringId = offeringId;
+                this.submissionId = submissionId;
+                this.revision = revision;
+            }
+
+            /** 把「选中了谁、他的原分数是什么」注入控制器（包私有方法，只能反射调用）。 */
+            private void present() throws IOException {
+                try {
+                    Class<?> targetType = Class.forName(
+                            "controller.TeacherGradeCorrectionDialogController$CorrectionTarget");
+                    java.util.Map<GradeComponentCodeDTO, String> originals =
+                            new java.util.LinkedHashMap<>();
+                    for (GradeComponentCodeDTO code : GradeComponentCodeDTO.values()) {
+                        originals.put(code, cellText(code));
+                    }
+                    java.lang.reflect.Constructor<?> constructor = targetType.getDeclaredConstructor(
+                            String.class, String.class, long.class, String.class, String.class,
+                            String.class, java.util.Map.class);
+                    constructor.setAccessible(true);
+                    Object target = constructor.newInstance(offeringId, submissionId,
+                            revision, row.getEnrollmentId(), row.getStudentUid(),
+                            row.getStudentName(), originals);
+                    java.lang.reflect.Method prepare = controller.getClass()
+                            .getDeclaredMethod("prepare", targetType);
+                    prepare.setAccessible(true);
+                    prepare.invoke(controller, target);
+                } catch (ReflectiveOperationException failure) {
+                    throw new IOException("无法把更正目标注入控制器", failure);
+                }
+            }
+
+            private String cellText(GradeComponentCodeDTO code) {
+                GradeScoresDTO scores = row.getScores();
+                java.math.BigDecimal value = switch (code) {
+                    case DAILY -> scores.getDailyScore();
+                    case MIDTERM -> scores.getMidtermScore();
+                    case EXPERIMENT -> scores.getExperimentScore();
+                    case FINALTERM -> scores.getFinaltermScore();
+                };
+                return value == null ? "" : value.stripTrailingZeros().toPlainString();
+            }
+        }
+
         /** 排队任务里的失败不靠异常回传（它在嵌套事件循环里），直接以退出码 1 结束。 */
         private void fail(Throwable failure) {
             failure.printStackTrace();
@@ -1627,13 +1916,27 @@ public final class TeacherCourseUiSmokeTest {
 
         /**
          * 把主窗口调到指定大小（冒烟里代替用户拖动窗口），并立刻把布局跑一遍，让下一个步骤读到的
-         * 就是新几何。结束后各步骤会把窗口还原成 860x580，截图因此始终是同一个尺寸。
+         * 就是新几何。传 {@link #WIDTH}x{@link #HEIGHT} 表示「还原」：那一路按装配时记下的外框尺寸
+         * 还原，场景因此回到正好 860x580，所有主题截图都是同一个尺寸。
          */
         private void resizeWindow(double width, double height) {
-            primaryStage.setWidth(width);
-            primaryStage.setHeight(height);
+            boolean restore = width == WIDTH && height == HEIGHT;
+            primaryStage.setWidth(restore ? frameWidth : width);
+            primaryStage.setHeight(restore ? frameHeight : height);
             root.applyCss();
             root.layout();
+        }
+
+        /**
+         * 场景必须正好是 860x580。这是「截图检查就是在 860x580 下做的」这句话的凭据：窗口外框尺寸
+         * 不是场景尺寸，只断言外框等于某个数会把标题栏与边框算进去，反而证明不了截图尺寸。
+         */
+        private void requireWindowSize(String where) {
+            Scene scene = root.getScene();
+            require(Math.abs(scene.getWidth() - WIDTH) < 1.0
+                            && Math.abs(scene.getHeight() - HEIGHT) < 1.0,
+                    where + "：场景必须是 " + WIDTH + "x" + HEIGHT + "，实际 "
+                            + scene.getWidth() + "x" + scene.getHeight());
         }
 
         /**
@@ -1723,6 +2026,45 @@ public final class TeacherCourseUiSmokeTest {
                 require(bounds.getHeight() <= 44.0,
                         "竖排角标不得撑高课次块（节次行 44px），实际高度 " + bounds.getHeight());
             }
+        }
+
+        /**
+         * 跨周移动后的<b>原位置灰块</b>：第 8 周那一块只带 {@code teacher-schedule-adjusted-original}
+         * 样式（灰底 + 灰边，CSS 里与「调课后」的黄色块成对），正文仍是原来的课程名与原教室。
+         * 角标文本与几何由 {@link #requireVerticalBadges()} 钉住，这里钉的是它「长得像灰块」。
+         */
+        private void requireCrossWeekOriginalBlock() {
+            Button card = cardForCourse(CROSS_WEEK_COURSE_NAME);
+            require(card.getStyleClass().contains(ORIGINAL_BLOCK_CLASS),
+                    "第 8 周的跨周原位置必须是灰显的提示块（" + ORIGINAL_BLOCK_CLASS + "），实际样式 "
+                            + card.getStyleClass());
+            require(!card.getStyleClass().contains(TARGET_BLOCK_CLASS),
+                    "同一个块不得同时是原位置与新位置，实际样式 " + card.getStyleClass());
+            require(cardTexts(card).contains(CROSS_WEEK_LOCATION),
+                    "灰块上必须仍写着原教室 " + CROSS_WEEK_LOCATION + "，实际 " + cardTexts(card));
+            require(!cardTexts(card).contains(CROSS_WEEK_NEW_LOCATION),
+                    "灰块不得提前显示新教室，实际 " + cardTexts(card));
+        }
+
+        /** 跨周移动后的<b>新位置</b>：第 9 周唯一那块带 {@code teacher-schedule-adjusted-target}，地点是新的。 */
+        private void requireCrossWeekTargetBlock() {
+            Button card = cardForCourse(CROSS_WEEK_COURSE_NAME);
+            require(card.getStyleClass().contains(TARGET_BLOCK_CLASS),
+                    "第 9 周的跨周新位置必须是真实占用块（" + TARGET_BLOCK_CLASS + "），实际样式 "
+                            + card.getStyleClass());
+            require(!card.getStyleClass().contains(ORIGINAL_BLOCK_CLASS),
+                    "新位置不得带原位置的灰显样式，实际样式 " + card.getStyleClass());
+            require(cardTexts(card).contains(CROSS_WEEK_NEW_LOCATION),
+                    "新位置必须写新教室 " + CROSS_WEEK_NEW_LOCATION + "，实际 " + cardTexts(card));
+            require(!cardTexts(card).contains(CROSS_WEEK_LOCATION),
+                    "新位置不得还写着原教室，实际 " + cardTexts(card));
+        }
+
+        /** 课表卡片正文里的全部标签文本（标题 + 元信息 + 角标），按出现顺序。 */
+        private static List<String> cardTexts(Node card) {
+            StringBuilder text = new StringBuilder();
+            collectLabelText(card, text);
+            return text.toString().lines().toList();
         }
 
         /** 窗口拉窄到装不下整表时：表格按最小宽度渲染（不压字），横向滚动接管，纵向照样能滚。 */

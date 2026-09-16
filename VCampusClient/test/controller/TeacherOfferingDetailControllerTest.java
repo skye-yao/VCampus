@@ -391,7 +391,8 @@ public final class TeacherOfferingDetailControllerTest {
                 "cancelGradeImport", "reopenRejectedGradeBook", "beginGradeCorrection",
                 "listMyApplications", "getMyApplication", "markApplicationRead")) {
             require(hasDefaultImplementation(required),
-                    "the new grade writes must stay default methods so old test doubles keep"
+                    "the methods added after the first release (grade writes, spreadsheets and the"
+                            + " application list) must stay default methods so old test doubles keep"
                             + " compiling: " + required);
         }
         require(!hasDefaultImplementation("listTerms"),

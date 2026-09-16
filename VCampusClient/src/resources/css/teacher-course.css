@@ -16,7 +16,7 @@
     -fx-text-fill: #ffffff;
 }
 
-/* 分阶段占位入口：本阶段一律禁用，置灰表明功能尚未接入。 */
+/* 右上四入口：全部已接入，样式只负责顶栏里的排版与高亮（激活态见下面的 -active 规则）。 */
 .teacher-course-entry {
     -fx-background-color: transparent;
     -fx-background-radius: 0;

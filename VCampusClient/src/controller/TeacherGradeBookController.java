@@ -211,7 +211,10 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
      *
      * <p>复用是必要的：服务端已经打开了草稿但响应在网络上丢了时，换一个新 ID 再按一次只会拿到
      * 「成绩草稿已经打开」的冲突，而这个操作其实早就成功了；同一个 ID 换回来的是那次成功的重放。
-     * 重新加载、切换教学班或离开页面都会作废它（页面状态变了，这一次意图不再成立）。
+     *
+     * <p>作废它的只有三条路：{@link #showOffering(String)}（切换教学班）、{@link #loadBook()}（重新
+     * 加载）与重开成功之后。{@link #release()}（离开页面）<b>不</b>清它——离开只是把页面卸下并作废
+     * 在途响应，下一次进入这一页仍然先经过 {@code showOffering} 或 {@code loadBook}，那时才清。
      */
     private String pendingReopenOperationId;
     private long generation;
