@@ -9,6 +9,8 @@ import dao.TeacherGradeBookDAO;
 import dto.course.admin.AdminCourseActions;
 import dto.course.admin.approval.ApprovalDecisionRequestDTO;
 import dto.course.admin.approval.ApprovalStatusDTO;
+import dto.course.admin.approval.GradeCorrectionChangeDTO;
+import dto.course.admin.approval.GradeCorrectionComparisonDTO;
 import dto.course.admin.approval.GradeDistributionBucketDTO;
 import dto.course.admin.approval.GradeSubmissionDetailDTO;
 import dto.course.admin.approval.GradeSubmissionItemDTO;
@@ -29,8 +31,11 @@ import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -401,7 +406,66 @@ public class GradeApprovalService {
                 mapItems(items), row.reviewedBy(), GradeApprovalDAO.instantText(row.reviewedAt()),
                 row.reviewComment(), TeacherGradeBookDAO.scheme(row.schemeSnapshotJson()),
                 row.baseSubmissionId() == null ? null : Long.toString(row.baseSubmissionId()),
-                uncoveredCount(connection, row, items));
+                uncoveredCount(connection, row, items),
+                comparison(connection, row, items));
+    }
+
+    /**
+     * What this batch actually changed against the batch it was based on.
+     *
+     * <p>Both sides are read from their own {@code grade_submission_item} rows. That is the whole
+     * point: the teacher's working copy has moved on since submission (or is about to), so a
+     * "previous value" taken from it would be a fabricated history. A batch without a base, or whose
+     * base can no longer be read, yields {@code null} rather than an invented comparison.
+     *
+     * <p>Only genuinely moved students are listed — including one who was added by this correction
+     * (no previous item) and one who dropped between the two submissions (no current item).
+     */
+    private GradeCorrectionComparisonDTO comparison(Connection connection,
+            GradeApprovalDAO.SubmissionRow row, List<GradeApprovalDAO.ItemRow> items)
+            throws SQLException {
+        if (row.baseSubmissionId() == null) return null;
+        GradeApprovalDAO.SubmissionRow base = dao.findSubmission(connection, row.baseSubmissionId());
+        if (base == null) return null;
+        Map<Long, GradeApprovalDAO.ItemRow> previous = new LinkedHashMap<>();
+        for (GradeApprovalDAO.ItemRow item : dao.findItems(connection, row.baseSubmissionId())) {
+            previous.put(item.enrollmentId(), item);
+        }
+        Set<Long> current = new LinkedHashSet<>();
+        List<GradeCorrectionChangeDTO> changes = new ArrayList<>();
+        for (GradeApprovalDAO.ItemRow item : items) {
+            current.add(item.enrollmentId());
+            GradeApprovalDAO.ItemRow before = previous.get(item.enrollmentId());
+            if (before == null || !sameItem(before, item)) {
+                changes.add(new GradeCorrectionChangeDTO(
+                        before == null ? null : mapItem(before), mapItem(item)));
+            }
+        }
+        for (GradeApprovalDAO.ItemRow before : previous.values()) {
+            if (!current.contains(before.enrollmentId())) {
+                changes.add(new GradeCorrectionChangeDTO(mapItem(before), null));
+            }
+        }
+        return new GradeCorrectionComparisonDTO(base.version(), row.correctionReason(), changes);
+    }
+
+    /**
+     * Every published value of one item: a student whose four component scores are identical but
+     * whose total or grade point moved is still a change worth showing.
+     */
+    private static boolean sameItem(GradeApprovalDAO.ItemRow left, GradeApprovalDAO.ItemRow right) {
+        return same(left.dailyScore(), right.dailyScore())
+                && same(left.midtermScore(), right.midtermScore())
+                && same(left.experimentScore(), right.experimentScore())
+                && same(left.finaltermScore(), right.finaltermScore())
+                && same(left.score(), right.score())
+                && Objects.equals(left.gradeLevel(), right.gradeLevel())
+                && same(left.gradePoint(), right.gradePoint());
+    }
+
+    /** {@code BigDecimal} equality by value, so {@code 88.50} and {@code 88.5} are not a change. */
+    private static boolean same(BigDecimal left, BigDecimal right) {
+        return left == null ? right == null : right != null && left.compareTo(right) == 0;
     }
 
     /**
@@ -425,13 +489,17 @@ public class GradeApprovalService {
     private static List<GradeSubmissionItemDTO> mapItems(List<GradeApprovalDAO.ItemRow> items) {
         List<GradeSubmissionItemDTO> mapped = new ArrayList<>();
         for (GradeApprovalDAO.ItemRow item : items) {
-            mapped.add(new GradeSubmissionItemDTO(Long.toString(item.enrollmentId()),
-                    item.studentUid(), item.studentName(), number(item.dailyScore()),
-                    number(item.midtermScore()), number(item.experimentScore()),
-                    number(item.finaltermScore()), number(item.score()), item.gradeLevel(),
-                    number(item.gradePoint())));
+            mapped.add(mapItem(item));
         }
         return mapped;
+    }
+
+    private static GradeSubmissionItemDTO mapItem(GradeApprovalDAO.ItemRow item) {
+        return new GradeSubmissionItemDTO(Long.toString(item.enrollmentId()),
+                item.studentUid(), item.studentName(), number(item.dailyScore()),
+                number(item.midtermScore()), number(item.experimentScore()),
+                number(item.finaltermScore()), number(item.score()), item.gradeLevel(),
+                number(item.gradePoint()));
     }
 
     /**

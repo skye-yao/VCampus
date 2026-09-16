@@ -33,6 +33,9 @@
                         <Label styleClass="course-approval-dialog-header" text="学生成绩" />
                         <VBox fx:id="itemRows" spacing="4.0" />
                         <Separator />
+                        <Label styleClass="course-approval-dialog-header" text="更正比较" />
+                        <VBox fx:id="comparisonRows" spacing="4.0" />
+                        <Separator />
                         <Label styleClass="course-approval-dialog-header" text="审批信息" />
                         <VBox fx:id="detailBody" spacing="4.0" />
                     </children>

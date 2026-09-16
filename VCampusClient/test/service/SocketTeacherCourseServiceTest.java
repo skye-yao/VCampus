@@ -24,6 +24,7 @@ import dto.course.teacher.GradeScoresDTO;
 import dto.course.teacher.ConfirmGradeImportRequestDTO;
 import dto.course.teacher.PreviewGradeImportRequestDTO;
 import dto.course.teacher.ReviseGradeImportRequestDTO;
+import dto.course.teacher.StartGradeRevisionRequestDTO;
 import dto.course.teacher.TeacherFileTicketDTO;
 import dto.course.teacher.TeacherFileUploadRequestDTO;
 import dto.course.teacher.TeacherAdjustmentOptionsDTO;
@@ -104,6 +105,8 @@ public final class SocketTeacherCourseServiceTest {
             gradeBookMapsScoresSchemeAndNullableTotals();
             gradeWritesUseTheirOwnActionAndMapTheResult();
             gradeConflictKeepsTheLatestGradeBook();
+            gradeRevisionsUseTheirOwnActionsAndMapTheResult();
+            gradeRevisionConflictKeepsTheLatestGradeBook();
             templateAndRosterDownloadsUseTheTicketKey();
             rosterExportSendsTheSameFiltersAsTheList();
             gradeExportAsksForTheDraftOfOneOffering();
@@ -803,6 +806,81 @@ public final class SocketTeacherCourseServiceTest {
                     (SocketTeacherCourseService.TeacherCourseServiceException) failure.getCause();
             require(error.getLatestGradeBook() == null,
                     "a conflict without a grade book must stay null, never fabricated");
+        }
+    }
+
+    /**
+     * 驳回重开与发起更正是两个动作常量：请求体是起始版本写请求（教学班 + 来源批次 + 期望版本 +
+     * 原因），响应与两个成绩写动作同形——<b>result</b> 键上的操作结果信封。
+     */
+    private static void gradeRevisionsUseTheirOwnActionsAndMapTheResult() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("result", wireShaped(
+                new TeacherOperationResultDTO<>(OPERATION_ID, "已回到编辑状态", gradeBookDto(),
+                        false))));
+        SocketTeacherCourseService service = new SocketTeacherCourseService(transport);
+
+        StartGradeRevisionRequestDTO reopen = new StartGradeRevisionRequestDTO(OPERATION_ID,
+                OFFERING_ID, "9601", 4, null);
+        TeacherOperationResultDTO<TeacherGradeBookDTO> reopened =
+                service.reopenRejectedGradeBook(reopen).join();
+        requireEnvelope(transport, "reopenRejectedGradeBook");
+        require(transport.lastRequest.getData("request") == reopen,
+                "the typed revision DTO must travel under request unchanged");
+        require(transport.lastRequest.getData("uid") == null
+                        && transport.lastRequest.getData("teacherId") == null,
+                "a revision write must not carry a client-supplied identity");
+        require(OPERATION_ID.equals(reopened.getOperationId())
+                        && "已回到编辑状态".equals(reopened.getMessage())
+                        && !reopened.isReplayed(),
+                "the operation result envelope must map");
+        require(reopened.getValue() != null && reopened.getValue().getRevision() == 4,
+                "the write result must carry the reopened grade book");
+
+        transport.respond(message -> message.putData("result", wireShaped(
+                new TeacherOperationResultDTO<>(OPERATION_ID, "更正草稿已建立", gradeBookDto(),
+                        false))));
+        StartGradeRevisionRequestDTO correction = new StartGradeRevisionRequestDTO(OPERATION_ID,
+                OFFERING_ID, "9601", 4, "实验分录入有误");
+        TeacherOperationResultDTO<TeacherGradeBookDTO> corrected =
+                service.beginGradeCorrection(correction).join();
+        requireEnvelope(transport, "beginGradeCorrection");
+        require(transport.lastRequest.getData("request") == correction,
+                "the correction must travel as its typed DTO under request");
+        require("实验分录入有误".equals(correction.getReason())
+                        && correction.getExpectedRevision() == 4,
+                "the correction must carry its reason and the expected revision");
+        require(corrected.getValue() != null,
+                "the correction result must carry the new working copy");
+    }
+
+    /** 版本入口的拒绝同样带回最新成绩表：界面据此提示重新加载，而不是只拿到一句话。 */
+    private static void gradeRevisionConflictKeepsTheLatestGradeBook() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> {
+            message.setCode(MessageCode.CONFLICT);
+            message.setMessage("成绩草稿已经打开，请先提交或丢弃当前草稿");
+            message.putData("gradeBook", wireShaped(gradeBookDto()));
+        });
+        SocketTeacherCourseService service = new SocketTeacherCourseService(transport);
+
+        try {
+            service.beginGradeCorrection(new StartGradeRevisionRequestDTO(OPERATION_ID,
+                    OFFERING_ID, "9601", 4, "实验分录入有误")).join();
+            throw new AssertionError("a refused correction must fail the future");
+        } catch (CompletionException failure) {
+            if (!(failure.getCause()
+                    instanceof SocketTeacherCourseService.TeacherCourseServiceException error)) {
+                throw new AssertionError("unexpected cause " + failure.getCause(),
+                        failure.getCause());
+            }
+            require(error.getCode() == MessageCode.CONFLICT,
+                    "a refused version change must keep the CONFLICT code");
+            require(error.getLatestGradeBook() != null
+                            && error.getLatestGradeBook().getRevision() == 4,
+                    "the latest grade book must be available for the refresh hint");
+            require(error.getMessage().contains("已经打开"),
+                    "the server message must survive the mapping");
         }
     }
 

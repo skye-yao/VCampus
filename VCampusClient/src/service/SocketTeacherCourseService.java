@@ -21,6 +21,7 @@ import dto.course.teacher.ConfirmGradeImportRequestDTO;
 import dto.course.teacher.GradeImportPreviewDTO;
 import dto.course.teacher.PreviewGradeImportRequestDTO;
 import dto.course.teacher.ReviseGradeImportRequestDTO;
+import dto.course.teacher.StartGradeRevisionRequestDTO;
 import dto.course.teacher.TeacherAdjustmentOptionsDTO;
 import dto.course.teacher.TeacherAdjustmentPreviewDTO;
 import dto.course.teacher.TeacherAdjustmentWriteDTO;
@@ -213,6 +214,31 @@ public final class SocketTeacherCourseService implements TeacherCourseService {
     public CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> submitGradeBook(
             WriteGradeBookRequestDTO write) {
         return write(TeacherCourseActions.SUBMIT_GRADE_BOOK, write);
+    }
+
+    @Override
+    public CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>>
+            reopenRejectedGradeBook(StartGradeRevisionRequestDTO revision) {
+        return startRevision(TeacherCourseActions.REOPEN_REJECTED_GRADE_BOOK, revision);
+    }
+
+    @Override
+    public CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> beginGradeCorrection(
+            StartGradeRevisionRequestDTO revision) {
+        return startRevision(TeacherCourseActions.BEGIN_GRADE_CORRECTION, revision);
+    }
+
+    /**
+     * 两个版本入口共用一条通路：请求体是 {@link StartGradeRevisionRequestDTO}（operationId + 教学班 +
+     * 来源批次 + 期望版本 + 原因），响应与两个成绩写动作同形——{@code result} 键上的操作结果信封。
+     * 冲突同样由 {@link #requireSuccess} 把 {@code gradeBook} 键送进
+     * {@link TeacherCourseServiceException#getLatestGradeBook()}，界面因此能拿到服务端当前版本。
+     */
+    private CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> startRevision(
+            String action, StartGradeRevisionRequestDTO revision) {
+        Message request = request(action);
+        request.putData("request", revision);
+        return map(request, response -> read(response, "result", GRADE_WRITE_RESULT_TYPE));
     }
 
     /**

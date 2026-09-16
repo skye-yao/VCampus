@@ -4,12 +4,15 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -21,8 +24,14 @@ import app.ClientMain;
 import dto.course.CourseTermDTO;
 import dto.course.admin.schedule.ScheduleArrangementDTO;
 import dto.course.teacher.GradeComponentCodeDTO;
+import dto.course.teacher.GradeComponentDTO;
+import dto.course.teacher.GradeRowInputDTO;
+import dto.course.teacher.GradeSchemeDTO;
+import dto.course.teacher.GradeScoresDTO;
+import dto.course.teacher.StartGradeRevisionRequestDTO;
 import dto.course.teacher.TeacherGradeBookDTO;
 import dto.course.teacher.TeacherGradeOfferingDTO;
+import dto.course.teacher.TeacherGradeRowDTO;
 import dto.course.teacher.TeacherOfferingDTO;
 import dto.course.teacher.TeacherOfferingDetailDTO;
 import dto.course.teacher.TeacherOperationResultDTO;
@@ -51,6 +60,13 @@ public final class TeacherGradeBookControllerTest {
     private static final String PENDING_OFFERING = "9007199254740997";
     private static final String REJECTED_OFFERING = "9007199254740999";
     private static final String EMPTY_OFFERING = "9007199254740995";
+    /**
+     * 已通过批次的代码内夹具：mock 的成绩夹具刻意不种“已通过”这一种（2025/3 与 2025/2 各只有
+     * 两个教学班，冒烟测试逐条钉住了这两个列表），所以这里由假服务直接给出这份快照。
+     */
+    private static final String APPROVED_OFFERING = "9007199254740901";
+    private static final String APPROVED_BATCH = "9601";
+    private static final String APPROVED_ENROLLMENT = "9001";
     /** 与 MockTeacherCourseService 的已驳回夹具一致：只读提示里应出现这句话。 */
     private static final String REJECTED_REVIEW_COMMENT = "总分与平时分不一致，请核对后重新提交";
     private static final String GRADE_VIEW = "/resources/fxml/TeacherGradeView.fxml";
@@ -73,6 +89,10 @@ public final class TeacherGradeBookControllerTest {
         allowedLeaveReleasesThePageAndClearsTheGuard();
         releasedPageIgnoresLateResponses();
         readOnlyBookShowsTheReviewStateAndBlocksWrites();
+        rejectedBookOffersTheExplicitReopenEntry();
+        pendingBookOffersNoEditableVersionEntry();
+        approvedBookIsReachableOnlyThroughTheCorrectionEntry();
+        theCorrectionEntryCarriesTheProposedScoresThroughTheOrdinarySave();
         gradeViewsDeclareTheirControllerIdsAndHandlers();
         theStatusLineSitsOnTheButtonRow();
         everyStyleClassExistsInTheStylesheet();
@@ -523,6 +543,168 @@ public final class TeacherGradeBookControllerTest {
                 "重开之后审核意见不能消失，收到 " + rejected.model().stateNotice());
     }
 
+    // ------------------------------------------------------------------ 新的版本入口
+
+    /**
+     * 被驳回的批次：显式「重新编辑」。在确认框上取消什么都不发生（不建草稿、不发请求）；确认之后
+     * 由服务端按那一批的冻结快照重开草稿，页面据此回到可编辑状态。
+     *
+     * <p>提示语必须如实描述这套语义：提交时未启用的组成没有进过批次，教师为它们输入的值不会回来。
+     * 承诺“未保存的修改都会保留”会是一句与服务器行为矛盾的话。
+     */
+    private static void rejectedBookOffersTheExplicitReopenEntry() {
+        List<String> asked = new ArrayList<>();
+        RecordingService declining = new RecordingService();
+        TeacherGradeBookController cancelled = controller(declining, message -> {
+            asked.add(message);
+            return false;
+        });
+        cancelled.showOffering(REJECTED_OFFERING);
+
+        require(cancelled.canReopenRejected(), "被驳回的批次必须给出重新编辑入口");
+        require(!cancelled.canRequestCorrection(), "被驳回不是更正，不能给出申请修改入口");
+
+        cancelled.reopenRejected();
+
+        require(asked.size() == 1, "重新编辑必须先问一次，收到 " + asked);
+        require(declining.reopens.isEmpty(), "在确认框上取消不能发出任何请求");
+        require("REJECTED".equals(cancelled.model().state()) && !cancelled.dirty(),
+                "取消之后批次状态与编辑内容都不能变，收到 " + cancelled.model().state());
+
+        require(TeacherGradeBookController.REOPEN_PROMPT_TEXT.contains("未启用的组成")
+                        && TeacherGradeBookController.REOPEN_PROMPT_TEXT.contains("不会回来"),
+                "重开提示必须如实说明按被驳回批次重建的语义，收到 "
+                        + TeacherGradeBookController.REOPEN_PROMPT_TEXT);
+
+        RecordingService service = new RecordingService();
+        TeacherGradeBookController controller = controller(service, message -> true);
+        controller.showOffering(REJECTED_OFFERING);
+        int revisionBefore = controller.model().revision();
+        String batchBefore = controller.model().lastSubmissionId();
+        require(batchBefore != null, "已驳回的夹具必须带着它那一批的批次号");
+
+        controller.reopenRejected();
+
+        require(service.reopens.size() == 1,
+                "确认后必须恰好发一次重开请求，收到 " + service.reopens.size());
+        StartGradeRevisionRequestDTO request = service.reopens.get(0);
+        require(REJECTED_OFFERING.equals(request.getOfferingId())
+                        && batchBefore.equals(request.getSourceSubmissionId())
+                        && request.getExpectedRevision() == revisionBefore,
+                "重开请求必须指向本班最后一次被驳回的批次与当前版本，收到 "
+                        + request.getOfferingId() + "/" + request.getSourceSubmissionId() + "/"
+                        + request.getExpectedRevision());
+        require(request.getReason() == null, "驳回重开不要求原因，也不该伪造一个");
+
+        require("DRAFT".equals(controller.model().state()) && controller.model().canEdit(),
+                "重开之后必须回到可编辑的草稿，收到 " + controller.model().state());
+        require(APPROVED_BATCH.equals(controller.model().lastSubmissionId())
+                        || batchBefore.equals(controller.model().lastSubmissionId()),
+                "重开不改变最后一次批次");
+        require(!controller.canReopenRejected(), "已经重开的草稿不能再重开");
+        require(controller.feedbackText() != null
+                        && controller.feedbackText().contains("重新提交"),
+                "重开成功必须给出反馈，收到 " + controller.feedbackText());
+        require(!controller.dirty(), "重开本身不是未保存的修改");
+    }
+
+    /** 待审核只读：两个版本入口一个都不出现，而且调用它们真的发不出任何请求。 */
+    private static void pendingBookOffersNoEditableVersionEntry() {
+        RecordingService service = new RecordingService();
+        List<Row> opened = new ArrayList<>();
+        TeacherGradeBookController controller = controller(service, message -> true);
+        controller.setCorrectionOpener(opened::add);
+        controller.showOffering(PENDING_OFFERING);
+
+        require(!controller.canReopenRejected() && !controller.canRequestCorrection(),
+                "待审核的批次一个可编辑入口都不能有");
+
+        controller.reopenRejected();
+        controller.beginCorrection();
+
+        require(service.reopens.isEmpty() && service.corrections.isEmpty() && opened.isEmpty(),
+                "待审核时两个版本入口都不能发出任何请求");
+    }
+
+    /** 已通过的批次：唯一可编辑入口是「申请修改」，并且它从表格里选中的那一位学生打开。 */
+    private static void approvedBookIsReachableOnlyThroughTheCorrectionEntry() {
+        RecordingService service = new RecordingService();
+        service.approvedBook = approvedBook();
+        List<Row> opened = new ArrayList<>();
+        TeacherGradeBookController controller = controller(service, message -> true);
+        controller.setCorrectionOpener(opened::add);
+        controller.showOffering(APPROVED_OFFERING);
+
+        require("APPROVED".equals(controller.model().state()),
+                "夹具必须是已通过的批次，收到 " + controller.model().state());
+        require(!controller.model().canEdit(), "已通过的批次是只读的");
+        require(!controller.canReopenRejected(), "已通过不是驳回，不能给出重新编辑");
+        require(!controller.canRequestCorrection(), "没有选中学生时不能更正");
+
+        controller.beginCorrection();
+        require(opened.isEmpty(), "没有选中学生时不能打开更正表单");
+
+        controller.selectRow(controller.rows().get(0));
+        require(controller.canRequestCorrection(), "选中学生之后更正入口必须可用");
+        controller.beginCorrection();
+        require(opened.size() == 1 && opened.get(0) == controller.rows().get(0),
+                "更正必须从选中的那一位学生打开，收到 " + opened);
+    }
+
+    /**
+     * 更正的落点：服务端建立草稿 → 页面变成可编辑的草稿 → 拟修改的分数写进编辑模型 → 仍然走
+     * 普通的「保存草稿」。本页不新增第二条写库通路，也绝不单独写一行已发布的成绩。
+     */
+    private static void theCorrectionEntryCarriesTheProposedScoresThroughTheOrdinarySave() {
+        RecordingService service = new RecordingService();
+        service.approvedBook = approvedBook();
+        service.saveResult = new TeacherOperationResultDTO<>("op-correction", "成绩草稿已保存",
+                correctedBook(), false);
+        TeacherGradeBookController controller = controller(service, message -> true);
+        controller.setCorrectionOpener(row -> controller.applyCorrection(
+                new TeacherGradeCorrectionDialogController.CorrectionOutcome(correctedBook(),
+                        row.enrollmentId(), Map.of(
+                                GradeComponentCodeDTO.DAILY, "70",
+                                GradeComponentCodeDTO.MIDTERM, "65",
+                                GradeComponentCodeDTO.EXPERIMENT, "88",
+                                GradeComponentCodeDTO.FINALTERM, "80"))));
+        controller.showOffering(APPROVED_OFFERING);
+        controller.selectRow(controller.rows().get(0));
+
+        controller.beginCorrection();
+
+        require("DRAFT".equals(controller.model().state()) && controller.model().canEdit(),
+                "更正草稿建立后必须变成可编辑的草稿，收到 " + controller.model().state());
+        require("实验分录入有误".equals(controller.model().correctionReason()),
+                "更正原因必须从服务端快照映射到模型，收到 "
+                        + controller.model().correctionReason());
+        Row row = controller.rows().get(0);
+        require("88".equals(row.cell(GradeComponentCodeDTO.EXPERIMENT).text()),
+                "拟修改的分数必须写进编辑模型，收到 "
+                        + row.cell(GradeComponentCodeDTO.EXPERIMENT).text());
+        require("70".equals(row.cell(GradeComponentCodeDTO.DAILY).text())
+                        && "80".equals(row.cell(GradeComponentCodeDTO.FINALTERM).text()),
+                "没改动的组成保持原值，收到 " + row.cell(GradeComponentCodeDTO.DAILY).text()
+                        + "/" + row.cell(GradeComponentCodeDTO.FINALTERM).text());
+        require(controller.dirty(), "拟修改的分数是未保存的修改");
+
+        controller.save();
+
+        require(service.saves.size() == 1,
+                "更正之后必须走普通的保存草稿通路，收到 " + service.saves.size());
+        require(service.submits.isEmpty(), "更正本身不是一次提交");
+        GradeRowInputDTO sent = null;
+        for (GradeRowInputDTO candidate : service.saves.get(0).getContent().getRows()) {
+            if (row.enrollmentId().equals(candidate.getEnrollmentId())) sent = candidate;
+        }
+        require(sent != null && sent.getScores().getExperimentScore() != null
+                        && sent.getScores().getExperimentScore()
+                                .compareTo(new BigDecimal("88")) == 0,
+                "拟修改的实验分必须由普通保存请求送出，收到 "
+                        + (sent == null ? "没有这一行" : sent.getScores().getExperimentScore()));
+        require(!controller.dirty(), "保存成功后必须回到干净状态");
+    }
+
     // ------------------------------------------------------------------ 视图契约
 
     /** 两个新视图：fx:controller、fx:id 与 onAction 全部能在对应控制器上解析。 */
@@ -555,6 +737,12 @@ public final class TeacherGradeBookControllerTest {
         require(elementWithId(bookView, "gradeBookConfirmSubmitButton") != null
                         && elementWithId(bookView, "gradeBookCancelSubmitButton") != null,
                 "提交必须有二次确认与取消入口");
+        for (String id : List.of("gradeBookReopenButton", "gradeBookCorrectionButton")) {
+            Element entry = elementWithId(bookView, id);
+            require(entry != null && "false".equals(entry.getAttribute("visible"))
+                            && "false".equals(entry.getAttribute("managed")),
+                    id + " 必须默认隐藏：两个版本入口各自只在被驳回/已通过时才出现");
+        }
     }
 
     /**
@@ -696,6 +884,38 @@ public final class TeacherGradeBookControllerTest {
         throw new AssertionError("夹具里必须有一行缺实验分");
     }
 
+    /** 已通过批次的快照：只读、带着那一批的批次号，等一位选中它的学生来发起更正。 */
+    private static TeacherGradeBookDTO approvedBook() {
+        return new TeacherGradeBookDTO(APPROVED_OFFERING, 6, "approved-digest", "APPROVED",
+                fullScheme(), List.of(approvedRow()), APPROVED_BATCH, null, false, null, false,
+                null);
+    }
+
+    /** 更正草稿建立后的快照：状态回到可编辑，并带上基础批次与更正原因。 */
+    private static TeacherGradeBookDTO correctedBook() {
+        return new TeacherGradeBookDTO(APPROVED_OFFERING, 7, "approved-digest", "DRAFT",
+                fullScheme(), List.of(approvedRow()), APPROVED_BATCH, APPROVED_BATCH, true,
+                "实验分录入有误", false, null);
+    }
+
+    private static TeacherGradeRowDTO approvedRow() {
+        return new TeacherGradeRowDTO(APPROVED_ENROLLMENT, "00005678", "张三",
+                new GradeScoresDTO(new BigDecimal("70"), new BigDecimal("65"),
+                        new BigDecimal("75"), new BigDecimal("80")),
+                new BigDecimal("73.5"), new BigDecimal("2.5"), true, List.of());
+    }
+
+    /** 30/20/20/30，合计 10000 万分比：与 mock 的成绩夹具同一套配齐的权重。 */
+    private static GradeSchemeDTO fullScheme() {
+        int[] weights = {3000, 2000, 2000, 3000};
+        GradeComponentCodeDTO[] codes = GradeComponentCodeDTO.values();
+        List<GradeComponentDTO> components = new ArrayList<>();
+        for (int index = 0; index < codes.length; index++) {
+            components.add(new GradeComponentDTO(codes[index], true, weights[index]));
+        }
+        return new GradeSchemeDTO(components);
+    }
+
     private static void verifyBindings(Document view, Class<?> controller, String label) {
         NodeList elements = view.getElementsByTagName("*");
         int ids = 0;
@@ -800,11 +1020,17 @@ public final class TeacherGradeBookControllerTest {
         private final MockTeacherCourseService delegate = new MockTeacherCourseService();
         private final List<WriteGradeBookRequestDTO> saves = new ArrayList<>();
         private final List<WriteGradeBookRequestDTO> submits = new ArrayList<>();
+        private final List<StartGradeRevisionRequestDTO> reopens = new ArrayList<>();
+        private final List<StartGradeRevisionRequestDTO> corrections = new ArrayList<>();
         private final Deque<CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>>>
                 submitResponses = new ArrayDeque<>();
         private CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> heldSubmit;
         private RuntimeException saveFailure;
         private CompletableFuture<TeacherGradeBookDTO> pendingBook;
+        /** 已通过批次的代码内快照；mock 的成绩夹具没有这一种状态（见 APPROVED_OFFERING 的说明）。 */
+        private TeacherGradeBookDTO approvedBook;
+        /** 保存草稿的固定回复：用来断言“更正走的是普通保存通路”，而不依赖 mock 的名单校验。 */
+        private TeacherOperationResultDTO<TeacherGradeBookDTO> saveResult;
 
         @Override
         public CompletableFuture<List<CourseTermDTO>> listTerms() {
@@ -849,6 +1075,9 @@ public final class TeacherGradeBookControllerTest {
         @Override
         public CompletableFuture<TeacherGradeBookDTO> getGradeBook(String offeringId) {
             if (pendingBook != null) return pendingBook;
+            if (approvedBook != null && offeringId.equals(approvedBook.getOfferingId())) {
+                return CompletableFuture.completedFuture(approvedBook);
+            }
             return delegate.getGradeBook(offeringId);
         }
 
@@ -857,7 +1086,23 @@ public final class TeacherGradeBookControllerTest {
                 WriteGradeBookRequestDTO write) {
             saves.add(write);
             if (saveFailure != null) return failed(saveFailure);
+            if (saveResult != null) return CompletableFuture.completedFuture(saveResult);
             return delegate.saveGradeDraft(write);
+        }
+
+        /** 两个版本入口同样记一笔再交给 mock：它的状态机就是这两个入口的最小模型。 */
+        @Override
+        public CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>>
+                reopenRejectedGradeBook(StartGradeRevisionRequestDTO request) {
+            reopens.add(request);
+            return delegate.reopenRejectedGradeBook(request);
+        }
+
+        @Override
+        public CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>>
+                beginGradeCorrection(StartGradeRevisionRequestDTO request) {
+            corrections.add(request);
+            return delegate.beginGradeCorrection(request);
         }
 
         @Override

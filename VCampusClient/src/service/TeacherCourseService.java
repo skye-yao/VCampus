@@ -12,6 +12,7 @@ import dto.course.teacher.ConfirmGradeImportRequestDTO;
 import dto.course.teacher.GradeImportPreviewDTO;
 import dto.course.teacher.PreviewGradeImportRequestDTO;
 import dto.course.teacher.ReviseGradeImportRequestDTO;
+import dto.course.teacher.StartGradeRevisionRequestDTO;
 import dto.course.teacher.TeacherAdjustmentOptionsDTO;
 import dto.course.teacher.TeacherAdjustmentPreviewDTO;
 import dto.course.teacher.TeacherAdjustmentWriteDTO;
@@ -130,6 +131,26 @@ public interface TeacherCourseService {
     default CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> submitGradeBook(
             WriteGradeBookRequestDTO request) {
         throw new UnsupportedOperationException("submitGradeBook");
+    }
+
+    /**
+     * 驳回重开：以本班最后一次<b>被驳回</b>的批次为来源重建工作副本（{@code draft_kind=RESUBMISSION}）。
+     *
+     * <p>草稿是从那一批的冻结快照重建的——提交时被禁用的组成没有进过批次，教师为它输入的值因此
+     * 不会回来。原因非必填。返回的是打开后的成绩表，随后的保存/提交走原有通路。
+     */
+    default CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>>
+            reopenRejectedGradeBook(StartGradeRevisionRequestDTO request) {
+        throw new UnsupportedOperationException("reopenRejectedGradeBook");
+    }
+
+    /**
+     * 发起更正：以本班最后一次<b>已通过</b>的批次为来源重建工作副本（{@code draft_kind=CORRECTION}），
+     * 并把原因复制到随后提交的新批次。原因必填、且不超过 500 字符（服务端也拒绝）。
+     */
+    default CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> beginGradeCorrection(
+            StartGradeRevisionRequestDTO request) {
+        throw new UnsupportedOperationException("beginGradeCorrection");
     }
 
     // ------------------------------------------------------------------ Excel 模板、导入与名单导出

@@ -1,8 +1,10 @@
 package controller;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -12,6 +14,7 @@ import java.util.concurrent.CompletionException;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import dto.course.teacher.GradeComponentCodeDTO;
+import dto.course.teacher.StartGradeRevisionRequestDTO;
 import dto.course.teacher.TeacherGradeBookDTO;
 import dto.course.teacher.TeacherOperationResultDTO;
 import dto.course.teacher.WriteGradeBookRequestDTO;
@@ -22,7 +25,10 @@ import javafx.application.Platform;
 import javafx.beans.property.ReadOnlyStringWrapper;
 import javafx.event.Event;
 import javafx.fxml.FXML;
+import javafx.fxml.FXMLLoader;
 import javafx.scene.Node;
+import javafx.scene.Parent;
+import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.CheckBox;
@@ -36,6 +42,8 @@ import javafx.scene.control.TextField;
 import javafx.scene.input.Clipboard;
 import javafx.scene.input.ClipboardContent;
 import javafx.scene.input.KeyEvent;
+import javafx.stage.Modality;
+import javafx.stage.Stage;
 import javafx.stage.Window;
 import javafx.util.Duration;
 import model.course.teacher.GradeBookEditorModel;
@@ -52,6 +60,7 @@ import service.TeacherCourseService;
 import service.TeacherCourseServices;
 import service.TeacherFileTransport;
 import util.AlertUtil;
+import util.FXMLUtil;
 import util.PageLeaveGuard;
 
 /**
@@ -87,6 +96,12 @@ import util.PageLeaveGuard;
  * 因此既没有“按回车才算数”的二次确认，也不会为每敲一个键发一次网络请求。以后要加防抖自动保存，
  * 只需在 {@link #liveScoreEdit} 之后挂一个定时器即可，模型与幂等 ID 的设计都不用动。
  *
+ * <p>批次另有 <b>两个新的版本入口</b>（设计 §8），各自只在一种状态下出现：被驳回显示
+ * 「重新编辑」（{@link #reopenRejected()}，按那一批的冻结快照重开，取消不建草稿），已通过显示
+ * 「申请修改」（{@link #beginCorrection()}，从表格里选中的那一位学生打开更正表单）。更正始终以整个
+ * 教学班为单位提交：表单只是把拟修改分数写回这张表，随后仍走同一套保存/提交，本页不新增第二条写库
+ * 通路，因而也不会把新增补录写成一行独立的已发布成绩。待审核时两个入口都不出现。
+ *
  * <p>所有节点都可能为 {@code null}，控制器测试因此无需 JavaFX 工具包；离开确认函数可注入，
  * 测试不会真的弹对话框。
  */
@@ -108,6 +123,22 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
     static final String RELOAD_PROMPT_TEXT = "重新加载会丢弃未保存的修改，确定重新加载吗？";
     static final String FROZEN_SCHEME_TEXT = "导入预览期间方案已冻结，取消导入后才能调整权重";
     static final String PLACEHOLDER = "—";
+
+    // ---- 两个版本入口（设计 §8：驳回重提与发起更正）。入口文案同时是结果提示的来源，
+    //      避免同一件事出现两套说法。
+    static final String REOPEN_PROMPT_TEXT = "重新编辑会按最后一次被驳回的批次重建草稿："
+            + "提交该批次时未启用的组成没有进过批次，你为它们输入的值不会回来。确定重新编辑吗？";
+    static final String REOPENING_TEXT = "正在按被驳回的批次重建草稿...";
+    static final String REOPEN_SUCCESS_TEXT = "已回到编辑状态，修改后重新提交";
+    static final String REOPEN_FAILURE_TEXT = "重新编辑失败，请重试";
+    static final String REOPEN_CONFLICT_PREFIX = "成绩表已被其他操作更新，请重新加载后再重新编辑：";
+    static final String CORRECTION_OPEN_FAILURE_TEXT = "无法打开更正表单，请重试";
+    static final String CORRECTION_STARTED_TEXT = "更正草稿已建立，拟修改的分数已写入成绩表；保存或提交后等待管理员审核";
+    /** 更正表单的资源路径；标题由 {@link TeacherGradeCorrectionDialogController#TITLE} 固定。 */
+    static final String CORRECTION_VIEW = "/resources/fxml/TeacherGradeCorrectionDialog.fxml";
+    /** 只有这两种批次状态各自有一个新的版本入口；其它状态下两个按钮都不出现。 */
+    private static final String STATE_APPROVED = "APPROVED";
+    private static final String STATE_REJECTED = "REJECTED";
 
     /** 导航到一个还没渲染出来的行时，等布局把它带进视口的重试次数上限。 */
     private static final int PENDING_EDIT_RETRIES = 5;
@@ -135,7 +166,17 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
     private boolean saving;
     private boolean submitting;
     private boolean confirmingSubmit;
+    private boolean reopening;
     private boolean syncingScheme;
+    /**
+     * 更正入口选中的那一行：更正从某一位学生打开，但提交的仍是整个教学班的新版本。
+     *
+     * <p>它只在表格存在时由选中监听器推进，也由 {@link #selectRow(Row)} 直接注入——无工具包的
+     * 控制器测试因此不需要真的构造一棵表格树。
+     */
+    private Row selectedRow;
+    /** 打开更正表单的一方；默认弹窗口，测试注入替身（与课表页的弹窗打开方式一致）。 */
+    private Consumer<Row> correctionOpener = this::openCorrectionDialog;
     /**
      * 状态提示的文本：本类的唯一事实来源（测试经 {@link #feedbackText()} 读取）。
      *
@@ -179,6 +220,8 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
     @FXML private Button gradeBookReloadButton;
     @FXML private Button gradeBookSaveButton;
     @FXML private Button gradeBookSubmitButton;
+    @FXML private Button gradeBookReopenButton;
+    @FXML private Button gradeBookCorrectionButton;
     @FXML private Button gradeBookConfirmSubmitButton;
     @FXML private Button gradeBookCancelSubmitButton;
     @FXML private Button gradeBookBackButton;
@@ -272,6 +315,8 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
             // 九列在 860 宽的窗口里放不下：保留列宽并横向滚动，而不是把文字压成省略号。
             gradeBookTable.setColumnResizePolicy(TableView.UNCONSTRAINED_RESIZE_POLICY);
             bindTableKeyboard();
+            gradeBookTable.getSelectionModel().selectedItemProperty().addListener(
+                    (observable, previous, next) -> selectRow(next));
         }
         bindSchemeBarToTableScroll();
         bindTextColumn(gradeBookUidColumn, row -> row.studentUid());
@@ -381,6 +426,9 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
         this.pendingSaveOperationId = null;
         this.pendingSubmitOperationId = null;
         this.confirmingSubmit = false;
+        this.reopening = false;
+        // 选中行属于上一个班：新班的更正入口必须等到它自己的表格选中了人才可用。
+        this.selectedRow = null;
         setFeedback(null);
         this.errorText = null;
         this.active = true;
@@ -401,6 +449,8 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
         saving = false;
         submitting = false;
         confirmingSubmit = false;
+        reopening = false;
+        selectedRow = null;
         generation++;
         // 提示的消退计时也一起停掉：页面已卸下，不能留下一个还在跑的动画（同一个控制器实例
         // 会被反复进出，计时器更不能跨页泄漏）。
@@ -578,6 +628,9 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
         // 重新加载作废在途写请求的响应（generation 已经变了）；写入标志复位，按钮不会永久禁用。
         saving = false;
         submitting = false;
+        reopening = false;
+        // 行对象会被整份换掉，旧选中行不再属于这张表。
+        selectedRow = null;
         render();
         service.getGradeBook(offeringId).whenComplete((book, failure) -> fxExecutor.accept(() -> {
             if (!isCurrent(current)) return;
@@ -742,6 +795,177 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
         if (result != null && result.getValue() != null) {
             model.applyServerSnapshot(result.getValue());
         }
+    }
+
+    // ------------------------------------------------------------------ 新的版本入口
+
+    /**
+     * 被驳回的批次：显式「重新编辑」。在此之前教师只能靠“再存一次”让草稿悄悄重开，现在有一个
+     * 说清楚发生了什么的入口。
+     *
+     * <p>它<b>不是</b>一次普通保存：草稿按那一批的冻结快照重建，因此提交时被禁用的组成如果当时
+     * 没进批次，教师为它输入的值不会回来——提示语必须如实这么说，不能承诺未提交的修改会幸存。
+     * 用户在这里点「取消」什么都不发生：不建草稿、不发请求、也不消耗 operationId。
+     */
+    @FXML
+    void handleReopenRejected(Event event) {
+        reopenRejected();
+    }
+
+    void reopenRejected() {
+        if (!canReopenRejected()) return;
+        if (!confirmation.apply(REOPEN_PROMPT_TEXT)) return;
+        String operationId = UUID.randomUUID().toString();
+        StartGradeRevisionRequestDTO request = new StartGradeRevisionRequestDTO(operationId,
+                offeringId, model.lastSubmissionId(), model.revision(), null);
+        reopening = true;
+        loading = false;
+        setFeedback(REOPENING_TEXT);
+        errorText = null;
+        render();
+        long current = ++generation;
+        service.reopenRejectedGradeBook(request).whenComplete((result, failure) ->
+                fxExecutor.accept(() -> {
+                    if (!isCurrent(current)) return;
+                    reopening = false;
+                    if (failure != null) {
+                        // 与保存/提交同一套失败语义：保留编辑内容，只把原因和当前版本说清楚。
+                        setFeedback(conflictPrefix(failure, REOPEN_CONFLICT_PREFIX)
+                                + failureText(failure, REOPEN_FAILURE_TEXT));
+                        render();
+                        return;
+                    }
+                    applySnapshot(result);
+                    // 重开之后草稿是新的一份：上一次流程的幂等 ID 一律作废。
+                    pendingSaveOperationId = null;
+                    pendingSubmitOperationId = null;
+                    setFeedback(REOPEN_SUCCESS_TEXT);
+                    errorText = null;
+                    render();
+                }));
+    }
+
+    /**
+     * 已通过的批次：唯一可编辑入口是「申请修改」——它打开更正表单，由表单建立更正草稿。更正从
+     * 表格里选中的那一位学生打开（表单要显示他的姓名、学号与原始分数），但提交的仍是整个教学班的
+     * 新版本，这一页不会因为“只改一个人”而多出一条写单行成绩的通路。
+     */
+    @FXML
+    void handleBeginCorrection(Event event) {
+        beginCorrection();
+    }
+
+    void beginCorrection() {
+        if (!canRequestCorrection()) return;
+        correctionOpener.accept(selectedRow);
+    }
+
+    /**
+     * 更正表单确认后的落点：先把服务端建立的更正草稿换成当前编辑内容（页面因此变成可编辑的
+     * DRAFT），再把教师在表单里填写的拟修改原文写进编辑模型。
+     *
+     * <p>只是写进模型：脏标记随之立起，随后照常走「保存草稿 / 提交成绩」，本页不新增第二条写入
+     * 通路，也绝不单独写一行已发布的成绩。
+     */
+    void applyCorrection(TeacherGradeCorrectionDialogController.CorrectionOutcome outcome) {
+        if (model == null || outcome == null || outcome.book() == null) return;
+        model.applyServerSnapshot(outcome.book());
+        pendingSaveOperationId = null;
+        pendingSubmitOperationId = null;
+        if (!hasRow(outcome.enrollmentId())) {
+            // 更正草稿建立之后名单里已经没有这名学生（例如他退课了）：如实说明，不把分数写到别处。
+            setFeedback(CORRECTION_STARTED_TEXT);
+            render();
+            return;
+        }
+        for (GradeComponentCodeDTO code : GradeComponentCodeDTO.values()) {
+            model.setScore(outcome.enrollmentId(), code, outcome.proposed().get(code));
+        }
+        setFeedback(CORRECTION_STARTED_TEXT);
+        errorText = null;
+        render();
+    }
+
+    /**
+     * 用独立 {@code WINDOW_MODAL} Stage 打开更正表单。表单持有同一个教师课程服务实例
+     * （生产路径上是共享单例），确认成功后把新草稿与拟修改值交回本页。
+     */
+    private void openCorrectionDialog(Row row) {
+        if (row == null || model == null) return;
+        FXMLLoader loader = FXMLUtil.getLoader(CORRECTION_VIEW);
+        Parent root;
+        try {
+            root = loader.load();
+        } catch (IOException | RuntimeException failure) {
+            setFeedback(CORRECTION_OPEN_FAILURE_TEXT);
+            render();
+            return;
+        }
+        TeacherGradeCorrectionDialogController dialog = loader.getController();
+        dialog.setOnConfirmed(this::applyCorrection);
+        dialog.prepare(new TeacherGradeCorrectionDialogController.CorrectionTarget(offeringId,
+                model.lastSubmissionId(), model.revision(), row.enrollmentId(), row.studentUid(),
+                row.studentName(), originalsOf(row)));
+        Stage stage = new Stage();
+        stage.initModality(Modality.WINDOW_MODAL);
+        Window owner = ownerWindow();
+        if (owner != null) stage.initOwner(owner);
+        stage.setTitle(TeacherGradeCorrectionDialogController.TITLE);
+        stage.setScene(new Scene(root));
+        stage.setOnHidden(event -> dialog.dispose());
+        stage.show();
+    }
+
+    /**
+     * 被驳回且本班确实有那一批才可重开：没有批次就没有可回到的基线。
+     * 导入过程中的短连接在途时同样不给入口——同一个页面上两条写流程不能同时开跑。
+     */
+    boolean canReopenRejected() {
+        if (model == null || importBusy() || saving || submitting || reopening) return false;
+        return STATE_REJECTED.equals(model.state()) && model.lastSubmissionId() != null;
+    }
+
+    /** 更正要有个对象：已通过 + 表格里选中了一位学生，两个条件缺一不可。 */
+    boolean canRequestCorrection() {
+        if (model == null || importBusy() || saving || submitting || reopening) return false;
+        return STATE_APPROVED.equals(model.state()) && selectedRow != null
+                && model.lastSubmissionId() != null;
+    }
+
+    private boolean importBusy() {
+        return importController.importing() || importController.busy();
+    }
+
+    private boolean hasRow(String enrollmentId) {
+        if (enrollmentId == null) return false;
+        for (Row row : model.rows()) {
+            if (enrollmentId.equals(row.enrollmentId())) return true;
+        }
+        return false;
+    }
+
+    private static Map<GradeComponentCodeDTO, String> originalsOf(Row row) {
+        Map<GradeComponentCodeDTO, String> values = new LinkedHashMap<>();
+        for (GradeComponentCodeDTO code : GradeComponentCodeDTO.values()) {
+            values.put(code, row.cell(code).text());
+        }
+        return values;
+    }
+
+    /** 由表格的选中监听器与测试共用：选中一位学生，更正入口据此可用。 */
+    void selectRow(Row row) {
+        if (selectedRow == row) return;
+        selectedRow = row;
+        render();
+    }
+
+    Row selectedRow() {
+        return selectedRow;
+    }
+
+    /** 打开更正表单的一方；null 表示回到真实的弹窗口（见 {@link #openCorrectionDialog(Row)}）。 */
+    void setCorrectionOpener(Consumer<Row> opener) {
+        this.correctionOpener = opener == null ? this::openCorrectionDialog : opener;
     }
 
     // ------------------------------------------------------------------ 编辑
@@ -1088,16 +1312,27 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
         // 而确认导入只写草稿，提交审批只能走原来的「提交成绩」流程。
         boolean importing = importController.importing();
         boolean editable = hasModel && model.canEdit() && !importing;
+        String state = hasModel ? model.state() : null;
         if (gradeBookReloadButton != null) {
             // 写请求在途时不许重新加载：否则会用旧快照覆盖刚提交的结果，写入标志也会被复位。
             gradeBookReloadButton.setDisable(!hasModel || loading || saving || submitting
-                    || importController.busy());
+                    || reopening || importController.busy());
         }
         if (gradeBookSaveButton != null) {
-            gradeBookSaveButton.setDisable(!editable || saving || submitting);
+            gradeBookSaveButton.setDisable(!editable || saving || submitting || reopening);
         }
         if (gradeBookSubmitButton != null) {
-            gradeBookSubmitButton.setDisable(!editable || saving || submitting || confirmingSubmit);
+            gradeBookSubmitButton.setDisable(
+                    !editable || saving || submitting || reopening || confirmingSubmit);
+        }
+        // 两个版本入口各自只在一种批次状态下出现：PENDING 一个可编辑按钮都不给。
+        setActive(gradeBookReopenButton, STATE_REJECTED.equals(state));
+        setActive(gradeBookCorrectionButton, STATE_APPROVED.equals(state));
+        if (gradeBookReopenButton != null) {
+            gradeBookReopenButton.setDisable(!canReopenRejected());
+        }
+        if (gradeBookCorrectionButton != null) {
+            gradeBookCorrectionButton.setDisable(!canRequestCorrection());
         }
         setActive(gradeBookConfirmSubmitButton, confirmingSubmit);
         setActive(gradeBookCancelSubmitButton, confirmingSubmit);
@@ -1491,6 +1726,10 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
 
     boolean confirmingSubmit() {
         return confirmingSubmit;
+    }
+
+    boolean reopening() {
+        return reopening;
     }
 
     boolean dirty() {

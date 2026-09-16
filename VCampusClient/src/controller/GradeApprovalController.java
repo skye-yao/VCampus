@@ -12,6 +12,8 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import dto.course.admin.approval.ApprovalDecisionRequestDTO;
 import dto.course.admin.approval.ApprovalStatusDTO;
+import dto.course.admin.approval.GradeCorrectionChangeDTO;
+import dto.course.admin.approval.GradeCorrectionComparisonDTO;
 import dto.course.admin.approval.GradeDistributionBucketDTO;
 import dto.course.admin.approval.GradeSubmissionDetailDTO;
 import dto.course.admin.approval.GradeSubmissionItemDTO;
@@ -415,6 +417,7 @@ public final class GradeApprovalController {
         if (detail.getBaseSubmissionId() != null) {
             lines.add("基础批次：" + detail.getBaseSubmissionId());
         }
+        lines.addAll(correctionLines(detail));
         if (detail.getUncoveredCount() > 0) {
             lines.add("未纳入批次的新成员：" + detail.getUncoveredCount()
                     + " 人（尚未纳入已提交批次，待该批结束后补录）");
@@ -426,6 +429,80 @@ public final class GradeApprovalController {
             lines.add("审批意见：" + detail.getReviewComment());
         }
         return List.copyOf(lines);
+    }
+
+    /**
+     * 更正比较：原批准版本、本次更正原因，以及本次真的改变了的学生及其旧/新值。
+     *
+     * <p>这些值全部来自服务端从<b>两个批次各自的明细行</b>算出的比较（{@code correctionComparison}），
+     * 客户端绝不拿教师当前可变草稿当历史值——草稿在他按下提交之后还会继续变。普通批次、历史批次与
+     * 基础批次已不可读的批次都没有比较，返回空列表，不编造任何一行。
+     */
+    static List<String> correctionLines(GradeSubmissionDetailDTO detail) {
+        GradeCorrectionComparisonDTO comparison =
+                detail == null ? null : detail.getCorrectionComparison();
+        if (comparison == null) return List.of();
+        List<String> lines = new ArrayList<>();
+        if (detail.getBaseSubmissionId() != null) {
+            lines.add("原批准版本：v" + comparison.getBaseVersion()
+                    + "（批次 " + detail.getBaseSubmissionId() + "）");
+        }
+        if (comparison.getReason() != null) {
+            lines.add("更正原因：" + comparison.getReason());
+        }
+        List<GradeCorrectionChangeDTO> changes = comparison.getChanges();
+        if (changes.isEmpty()) {
+            // 例如只调整了权重方案：没有学生的分数动过，如实说明，而不是省略这一节。
+            lines.add("本次更正没有改变任何学生的成绩");
+            return List.copyOf(lines);
+        }
+        lines.add("改变的学生：" + changes.size() + " 人");
+        for (GradeCorrectionChangeDTO change : changes) {
+            lines.add(changeLine(change));
+        }
+        return List.copyOf(lines);
+    }
+
+    /** 一名改变学生的旧/新值：总评与真的动过的组成分；占位符与成绩表口径一致。 */
+    static String changeLine(GradeCorrectionChangeDTO change) {
+        if (change == null) return "";
+        String name = orDash(change.getStudentName()) + "（" + orDash(change.getStudentUid()) + "）";
+        if (change.isAdded()) {
+            return name + "　补录进本次批次：总评 " + scoreText(change.getCurrent().getScore())
+                    + "　" + componentChanges(change);
+        }
+        if (change.isRemoved()) {
+            return name + "　本次批次不再收录：原总评 "
+                    + scoreText(change.getPrevious().getScore());
+        }
+        return name + "　总评 " + scoreText(change.getPrevious().getScore()) + " → "
+                + scoreText(change.getCurrent().getScore()) + "　" + componentChanges(change);
+    }
+
+    /**
+     * 四个组成分的“旧 → 新”，只列出真的动过的那些。一个都没动时说明变化来自权重方案——
+     * 只说“总评变了”会让管理员以为分数被改过。
+     */
+    private static String componentChanges(GradeCorrectionChangeDTO change) {
+        GradeSubmissionItemDTO before = change.getPrevious();
+        GradeSubmissionItemDTO after = change.getCurrent();
+        List<String> moved = new ArrayList<>();
+        addComponentChange(moved, "平时", before == null ? null : before.getDailyScore(),
+                after == null ? null : after.getDailyScore());
+        addComponentChange(moved, "期中", before == null ? null : before.getMidtermScore(),
+                after == null ? null : after.getMidtermScore());
+        addComponentChange(moved, "实验", before == null ? null : before.getExperimentScore(),
+                after == null ? null : after.getExperimentScore());
+        addComponentChange(moved, "期末", before == null ? null : before.getFinaltermScore(),
+                after == null ? null : after.getFinaltermScore());
+        if (moved.isEmpty()) return "组成分未变（总评变化来自权重方案）";
+        return "组成分 " + String.join("　", moved);
+    }
+
+    private static void addComponentChange(List<String> moved, String label, Double before,
+            Double after) {
+        if (java.util.Objects.equals(before, after)) return;
+        moved.add(label + " " + scoreText(before) + " → " + scoreText(after));
     }
 
     /** 组成与权重一行显示：启用项按万分比给出百分比，禁用项写明未启用；历史批次没有快照。 */

@@ -258,9 +258,17 @@ $suites = @(
     # 名单新增与退课、两个教师竞争、事务中途失败整笔回滚、惰性重开与显式重开同形、纯权重更正只记实际变化的行，
     # 以及 v1 通过 → 更正草稿 → v2 驳回 → 重提 → v3 通过的整条版本链（学生可见成绩一律读已发布的 grade 投影），
     # 全部对着真实库验证。
+    # T2 的客户端更正入口：controller.TeacherGradeCorrectionDialogControllerTest 是不需要工具包的成绩更正
+    # 表单测试（姓名/学号/原分数、空原因本地拒绝、取消不建草稿、确认建立草稿并交回拟修改值）；
+    # controller.TeacherGradeBookControllerTest 钉住同一页上的两个版本入口（被驳回→重新编辑、已通过→申请修改、
+    # 待审核一个都不给）以及它解析的那份 FXML 的 fx:id/onAction 绑定——不经它注册，改坏 FXML 的绑定在本套件里
+    # 看不见；service.SocketTeacherCourseServiceTest 覆盖两个新 Socket 方法（动作常量、request/result 形状、
+    # CONFLICT 里的最新成绩表）。三者在别的套件里也有注记，跨套件重复在本文件里是有先例的。
     [pscustomobject]@{ Name = 'Applications'
         Common = @()
-        Client = @()
+        Client = @('controller.TeacherGradeCorrectionDialogControllerTest',
+            'controller.TeacherGradeBookControllerTest',
+            'service.SocketTeacherCourseServiceTest')
         Server = @('service.TeacherGradeRevisionMySqlTest')
         Tcp = @()
         Gui = @() }

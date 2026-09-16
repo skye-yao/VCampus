@@ -563,3 +563,13 @@
     -fx-text-fill: #b3261e;
     -fx-border-color: #b3261e;
 }
+
+/* 更正表单里“拟修改分数”的输入框：与权重输入框同形，但宽度由 FXML 给足，便于比对原分数。 */
+.teacher-course-correction-score-field {
+    -fx-background-color: #ffffff;
+    -fx-background-radius: 4px;
+    -fx-border-color: #cfd8cf;
+    -fx-border-radius: 4px;
+    -fx-font-size: 13px;
+    -fx-padding: 4px 6px 4px 6px;
+}

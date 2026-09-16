@@ -32,6 +32,7 @@ import dto.course.teacher.GradeSchemeDTO;
 import dto.course.teacher.GradeScoresDTO;
 import dto.course.teacher.PreviewGradeImportRequestDTO;
 import dto.course.teacher.ReviseGradeImportRequestDTO;
+import dto.course.teacher.StartGradeRevisionRequestDTO;
 import dto.course.teacher.TeacherFileTicketDTO;
 import dto.course.teacher.TeacherFileUploadRequestDTO;
 import dto.course.teacher.TeacherGradeBookDTO;
@@ -156,7 +157,10 @@ public final class MockTeacherCourseService implements TeacherCourseService {
     // “编辑 → 保存 → 提交 → 只读”的完整路径。提交的分数完整性与权重规则复用 Common 的纯计算。
     private static final String GRADE_STATE_DRAFT = "DRAFT";
     private static final String GRADE_STATE_PENDING = "PENDING";
+    private static final String GRADE_STATE_APPROVED = "APPROVED";
     private static final String GRADE_STATE_REJECTED = "REJECTED";
+    /** 更正原因的字符上限：与三个原因列（工作副本、批次、变更日志）的宽度一致，服务端同样拒绝超长。 */
+    private static final int GRADE_MAX_REASON = 500;
     private static final String GRADE_SAVED_MESSAGE = "成绩草稿已保存";
     private static final String GRADE_SUBMITTED_MESSAGE = "成绩批次已提交";
     /** 被驳回批次的审核意见（管理员填写）；待审核批次还没有意见，保持 null。 */
@@ -541,6 +545,18 @@ public final class MockTeacherCourseService implements TeacherCourseService {
         return gradeWrite(TeacherCourseActions.SUBMIT_GRADE_BOOK, write, true);
     }
 
+    @Override
+    public CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>>
+            reopenRejectedGradeBook(StartGradeRevisionRequestDTO revision) {
+        return gradeRevision(TeacherCourseActions.REOPEN_REJECTED_GRADE_BOOK, revision, false);
+    }
+
+    @Override
+    public CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> beginGradeCorrection(
+            StartGradeRevisionRequestDTO revision) {
+        return gradeRevision(TeacherCourseActions.BEGIN_GRADE_CORRECTION, revision, true);
+    }
+
     // ------------------------------------------------------------------ Excel 模板、导入与名单导出
 
     /**
@@ -804,6 +820,74 @@ public final class MockTeacherCourseService implements TeacherCourseService {
         }
     }
 
+    /**
+     * 两个版本入口共用一条写路径：校验 operationId → 幂等重放 → 教学班 → 版本 → 状态 → 来源批次，
+     * 然后重开工作副本。校验顺序与真实服务一致，客户端因此能在本地看到同一批冲突文案。
+     *
+     * <p>mock 的工作副本只有一个分数集合（提交时写进去的那一份），所以“从冻结批次重建”在这里就是
+     * “保持原样”——快照复制本身属于服务端语义，由服务端的真实库测试覆盖。
+     *
+     * @param correction true 表示更正（来源必须是最后一次<b>已通过</b>的批次、原因必填并写到工作副本上）；
+     *                   false 表示驳回重开（来源必须是最后一次<b>被驳回</b>的批次、原因非必填且一律清空）
+     */
+    private CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> gradeRevision(
+            String action, StartGradeRevisionRequestDTO request, boolean correction) {
+        try {
+            if (request == null) throw badRequest("请求体不能为空");
+            String operationId = requireOperationId(request.getOperationId());
+            String offeringId = requiredDecimal(request.getOfferingId(), "offeringId");
+            String sourceSubmissionId = requiredDecimal(request.getSourceSubmissionId(),
+                    "sourceSubmissionId");
+            String reason = blankToNull(request.getReason());
+            if (correction && reason == null) throw badRequest("更正原因不能为空");
+            if (reason != null && reason.length() > GRADE_MAX_REASON) {
+                throw badRequest("更正原因不能超过 " + GRADE_MAX_REASON + " 字符");
+            }
+            String digest = action + "|" + offeringId + "|" + sourceSubmissionId + "|"
+                    + request.getExpectedRevision() + "|" + reason;
+            RecordedGradeOperation stored = gradeOperations.get(operationId);
+            if (stored != null) {
+                if (!stored.digest().equals(digest)) {
+                    throw gradeConflict("operationId 已用于不同的成绩写入请求", null);
+                }
+                TeacherOperationResultDTO<TeacherGradeBookDTO> first = stored.result();
+                return CompletableFuture.completedFuture(new TeacherOperationResultDTO<>(
+                        first.getOperationId(), first.getMessage(), first.getValue(), true));
+            }
+
+            String id = requireGradeOffering(offeringId);
+            MockGradeBook book = gradeBooks.get(id);
+            if (book == null || book.revision() != request.getExpectedRevision()) {
+                throw gradeConflict("成绩草稿版本已变化，请重新加载后重试", snapshotOf(id));
+            }
+            if (GRADE_STATE_PENDING.equals(book.state())) {
+                throw gradeConflict("该教学班已有待审批的成绩批次，不能开始新的版本", snapshotOf(id));
+            }
+            // 已打开的普通草稿必须先提交或丢弃：草稿只有一份，第二版不能把教师正在改的内容顶掉。
+            if (GRADE_STATE_DRAFT.equals(book.state())) {
+                throw gradeConflict("成绩草稿已经打开，请先提交或丢弃当前草稿", snapshotOf(id));
+            }
+            if (book.lastSubmissionId() == null
+                    || !book.lastSubmissionId().equals(sourceSubmissionId)) {
+                throw gradeConflict("来源批次不是该教学班最后一次提交", snapshotOf(id));
+            }
+            String required = correction ? GRADE_STATE_APPROVED : GRADE_STATE_REJECTED;
+            if (!required.equals(book.state())) {
+                throw gradeConflict(correction ? "只有已通过的成绩批次可以发起更正"
+                        : "只有被驳回的成绩批次可以重新编辑", snapshotOf(id));
+            }
+            book.reopen(sourceSubmissionId, correction ? reason : null);
+            TeacherOperationResultDTO<TeacherGradeBookDTO> result = new TeacherOperationResultDTO<>(
+                    operationId,
+                    correction ? "更正草稿已建立，保存或提交后等待管理员审核" : "已回到编辑状态，修改后可重新提交",
+                    snapshotOf(id), false);
+            gradeOperations.put(operationId, new RecordedGradeOperation(digest, result));
+            return CompletableFuture.completedFuture(result);
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
     /** 教学班必须属于 mock 的任课范围，且未建草稿时按 virtual 草稿处理。 */
     private String requireGradeOffering(String offeringId) {
         String id = requiredDecimal(offeringId, "offeringId");
@@ -838,7 +922,8 @@ public final class MockTeacherCourseService implements TeacherCourseService {
         }
         return new TeacherGradeBookDTO(offeringId, book == null ? 0 : book.revision(),
                 rosterDigest, stateOf(book), scheme, rows,
-                book == null ? null : book.lastSubmissionId(), null,
+                book == null ? null : book.lastSubmissionId(),
+                book == null ? null : book.baseSubmissionId(),
                 book == null || book.canEdit(),
                 book == null ? null : book.correctionReason(), false,
                 book == null ? null : book.reviewComment());
@@ -1016,6 +1101,7 @@ public final class MockTeacherCourseService implements TeacherCourseService {
         private String state = GRADE_STATE_DRAFT;
         private boolean canEdit = true;
         private String correctionReason;
+        private String baseSubmissionId;
         private String lastSubmissionId;
         private String reviewComment;
         private String rosterDigest = "";
@@ -1048,6 +1134,10 @@ public final class MockTeacherCourseService implements TeacherCourseService {
 
         private String lastSubmissionId() {
             return lastSubmissionId;
+        }
+
+        private String baseSubmissionId() {
+            return baseSubmissionId;
         }
 
         private String reviewComment() {
@@ -1095,6 +1185,18 @@ public final class MockTeacherCourseService implements TeacherCourseService {
             this.state = GRADE_STATE_PENDING;
             this.canEdit = false;
             this.lastSubmissionId = GRADE_SUBMISSION_ID;
+        }
+
+        /**
+         * 从一个已结束的批次重开工作副本：状态回到草稿、来源批次成为新的基础批次。
+         * 分数保持原样（mock 的工作副本就是那一批的分数）；重开不推进版本，推进它的是随后的保存。
+         * 原因只属于更正——驳回重开一律传 {@code null}，绝不沿用上一轮的更正原因。
+         */
+        private void reopen(String sourceSubmissionId, String reason) {
+            this.state = GRADE_STATE_DRAFT;
+            this.canEdit = true;
+            this.baseSubmissionId = sourceSubmissionId;
+            this.correctionReason = reason;
         }
     }
 

@@ -33,6 +33,10 @@
                 <Label fx:id="gradeBookSchemeLabel" styleClass="teacher-course-page-summary" text="" />
                 <Region HBox.hgrow="ALWAYS" />
                 <Button fx:id="gradeBookReloadButton" onAction="#handleReload" styleClass="teacher-course-refresh-button" text="重新加载" />
+                <!-- 两个版本入口各自只在一种批次状态下出现：被驳回给「重新编辑」，已通过给「申请修改」，
+                     待审核一个都不给（只读）。 -->
+                <Button fx:id="gradeBookReopenButton" managed="false" onAction="#handleReopenRejected" styleClass="teacher-course-grade-button" text="重新编辑" visible="false" />
+                <Button fx:id="gradeBookCorrectionButton" managed="false" onAction="#handleBeginCorrection" styleClass="teacher-course-grade-button" text="申请修改" visible="false" />
                 <Button fx:id="gradeBookSaveButton" onAction="#handleSave" styleClass="teacher-course-save-button" text="保存草稿" />
                 <Button fx:id="gradeBookSubmitButton" onAction="#handleSubmit" styleClass="teacher-course-submit-button" text="提交成绩" />
                 <Button fx:id="gradeBookConfirmSubmitButton" managed="false" onAction="#handleConfirmSubmit" styleClass="teacher-course-submit-button" text="确认提交" visible="false" />

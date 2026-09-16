@@ -11,6 +11,8 @@ import dto.course.admin.approval.AdjustmentRequestPageDTO;
 import dto.course.admin.approval.ApprovalDecisionRequestDTO;
 import dto.course.admin.approval.ApprovalStatusDTO;
 import dto.course.AdjustmentRequestStatusDTO;
+import dto.course.admin.approval.GradeCorrectionChangeDTO;
+import dto.course.admin.approval.GradeCorrectionComparisonDTO;
 import dto.course.admin.approval.GradeDistributionBucketDTO;
 import dto.course.admin.approval.GradeSubmissionDetailDTO;
 import dto.course.admin.approval.GradeSubmissionItemDTO;
@@ -51,6 +53,7 @@ public final class GradeApprovalControllerTest {
         testConflictRendersTheLatestServerState();
         testCompletedSubmissionRendersReadOnlyWithReview();
         testCapturedSchemeAndUncoveredMembersRender();
+        testCorrectionComparisonRendersOldAndNewValues();
         testShellSharesFilterAndOnlyLoadsTheActiveTab();
         System.out.println("GradeApprovalControllerTest: PASS");
     }
@@ -325,6 +328,80 @@ public final class GradeApprovalControllerTest {
                         && legacyLines.stream().noneMatch(line -> line.startsWith("未纳入批次")),
                 "a legacy batch shows neither a base batch nor an uncovered-member hint, saw "
                         + legacyLines);
+    }
+
+    /**
+     * 管理员要看到这次更正到底改了什么：原批准版本、本次提交版本、更正原因，以及真的改变了的学生
+     * 与他们的旧/新值。补录进来的新学生没有旧值，两次提交之间退课的学生没有新值，两者都要如实说；
+     * 只改了权重方案（组成分一个都没动）时不能说得像分数被改过。普通批次没有比较对象，整节不出现。
+     */
+    private static void testCorrectionComparisonRendersOldAndNewValues() {
+        GradeSubmissionDetailDTO correction = new GradeSubmissionDetailDTO(
+                summary("9002", ApprovalStatusDTO.PENDING), List.of(), List.of(), null, null, null,
+                null, "9001", 0,
+                new GradeCorrectionComparisonDTO(2, "实验分录入有误", List.of(
+                        new GradeCorrectionChangeDTO(
+                                item("8101", "S1001", "张三", 88.0, 78.0, 90.0, 92.0, 87.0, 3, 3.7),
+                                item("8101", "S1001", "张三", 88.0, 78.0, 95.0, 92.0, 89.0, 3, 3.9)),
+                        // 补录：这一版才把新学生纳入批次。
+                        new GradeCorrectionChangeDTO(null,
+                                item("8103", "S1003", "王五", 70.0, 70.0, 70.0, 70.0, 70.0, 2, 2.0)),
+                        // 退课：这一版不再收录他。
+                        new GradeCorrectionChangeDTO(
+                                item("8102", "S1002", "李四", 60.0, 60.0, 60.0, 60.0, 60.0, 1, 1.0),
+                                null))));
+
+        List<String> lines = GradeApprovalController.detailLines(correction);
+
+        require(lines.contains("原批准版本：v2（批次 9001）"),
+                "the comparison must name the approved base version, saw " + lines);
+        require(lines.contains("提交版本：v3　提交：2026-09-10T02:00:00Z"),
+                "the comparison must keep showing this batch's own version, saw " + lines);
+        require(lines.contains("更正原因：实验分录入有误"),
+                "the comparison must show the correction reason, saw " + lines);
+        require(lines.contains("改变的学生：3 人"),
+                "the comparison must count the changed students, saw " + lines);
+        require(lines.stream().anyMatch(line -> line.contains("总评 87.0 → 89.0")
+                        && line.contains("实验 90.0 → 95.0")),
+                "a moved component must render its old and new value, saw " + lines);
+        require(lines.stream().anyMatch(line -> line.contains("王五")
+                        && line.contains("补录进本次批次")),
+                "a student the batch newly covers must be reported as back-filled, saw " + lines);
+        require(lines.stream().anyMatch(line -> line.contains("李四")
+                        && line.contains("本次批次不再收录")),
+                "a student who dropped must be reported without a fabricated new value, saw "
+                        + lines);
+
+        // 只改了权重方案：组成分一个都没动，不能说得像分数被改过。
+        GradeSubmissionDetailDTO schemeOnly = new GradeSubmissionDetailDTO(
+                summary("9003", ApprovalStatusDTO.PENDING), List.of(), List.of(), null, null, null,
+                null, "9002", 0,
+                new GradeCorrectionComparisonDTO(2, "调整权重", List.of(
+                        new GradeCorrectionChangeDTO(
+                                item("8101", "S1001", "张三", 88.0, 78.0, 90.0, 92.0, 87.0, 3, 3.7),
+                                item("8101", "S1001", "张三", 88.0, 78.0, 90.0, 92.0, 91.0, 4, 4.0)))));
+        List<String> schemeLines = GradeApprovalController.detailLines(schemeOnly);
+        require(schemeLines.stream().anyMatch(line -> line.contains("总评 87.0 → 91.0")
+                        && line.contains("组成分未变（总评变化来自权重方案）")),
+                "a scheme-only change must not look like edited scores, saw " + schemeLines);
+
+        // 没有改变任何学生时也如实说一句，而不是整节消失。
+        GradeSubmissionDetailDTO untouched = new GradeSubmissionDetailDTO(
+                summary("9004", ApprovalStatusDTO.PENDING), List.of(), List.of(), null, null, null,
+                null, "9003", 0, new GradeCorrectionComparisonDTO(4, "仅重新提交", List.of()));
+        require(GradeApprovalController.detailLines(untouched)
+                        .contains("本次更正没有改变任何学生的成绩"),
+                "an empty comparison must say so instead of rendering nothing");
+
+        // 普通批次：没有比较对象，整节不出现。
+        GradeSubmissionDetailDTO plain = new GradeSubmissionDetailDTO(
+                summary("9005", ApprovalStatusDTO.PENDING), List.of(), List.of(), null, null, null,
+                null, null, 0, null);
+        require(GradeApprovalController.detailLines(plain).stream()
+                        .noneMatch(line -> line.startsWith("原批准版本")
+                                || line.startsWith("更正原因")),
+                "a batch without a base must not render a comparison, saw "
+                        + GradeApprovalController.detailLines(plain));
     }
 
     private static void testShellSharesFilterAndOnlyLoadsTheActiveTab() throws Exception {
