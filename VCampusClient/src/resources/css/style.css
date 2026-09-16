@@ -2339,7 +2339,7 @@
 .course-adjusted-original {
     -fx-background-color: #ededed;
     -fx-border-color: #9aa0a6;
-    -fx-border-style: segments(6, 4);
+    -fx-border-style: dashed;
     -fx-opacity: 0.85;
 }
 
