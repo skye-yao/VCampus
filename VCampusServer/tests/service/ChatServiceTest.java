@@ -22,12 +22,17 @@ public final class ChatServiceTest {
                 // Match MySQL 8's existing user tables while chat tables use unicode_ci.
                 s.execute("CREATE TEMPORARY TABLE tbl_user(UID VARCHAR(32) PRIMARY KEY,name VARCHAR(50),role INT,status VARCHAR(20)) COLLATE=utf8mb4_0900_ai_ci");
                 s.execute("INSERT INTO tbl_user VALUES('alice','甲',2,'ACTIVE'),('bob','乙',1,'ACTIVE'),('eve','丙',0,'ACTIVE'),('frozen','丁',2,'FROZEN')");
+                s.execute("ALTER TABLE tbl_user ADD avatar LONGTEXT NULL");
+                s.execute("UPDATE tbl_user SET avatar='test-avatar' WHERE UID='bob'");
                 try(var in=ChatService.class.getResourceAsStream("/resources/migrations/v301_chat.sql")){
                     String sql=new String(in.readAllBytes(),StandardCharsets.UTF_8).replaceAll("(?m)^--.*$","").replace("CREATE TABLE IF NOT EXISTS","CREATE TEMPORARY TABLE");
                     for(String part:sql.split(";"))if(!part.isBlank())s.execute(part);
                 }
             }
             var peer=Map.<String,Object>of("peer","bob");
+            check("test-avatar".equals(run("alice","AVATAR",peer).get("avatar")),"profile avatar");
+            check(run("alice","AVATAR",Map.of("peer","eve")).get("avatar")==null,"default avatar");
+            blocked("alice","AVATAR",Map.of("peer","frozen"));
             blocked("alice","HISTORY",peer);blocked("alice","REQUEST",Map.of("peer","alice"));blocked("alice","REQUEST",Map.of("peer","frozen"));
             run("alice","REQUEST",peer);run("alice","REQUEST",peer);
             check(((Number)run("bob","SUMMARY",Map.of()).get("pending")).intValue()==1,"deduplicate requests");

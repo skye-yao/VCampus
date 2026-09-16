@@ -8,15 +8,14 @@ import service.ChatClientService;
 import session.ClientSession;
 import java.util.*;
 
-/** Owned by the main scene. Releases polling and the child window when the scene exits. */
+/** Main-scene unread badge; the chat content itself follows ordinary module routing. */
 public final class ChatEntry implements AutoCloseable {
     private final Button button;
     private final String token=ClientSession.getInstance().getToken();
     private final Timeline timer;
-    private ChatWindow window;
     private boolean busy,closed;
-    public ChatEntry(Button button){
-        this.button=button;button.setOnAction(e->{if(window==null||!window.isShowing())window=new ChatWindow(button.getScene().getWindow());window.show();});
+    public ChatEntry(Button button,Runnable open){
+        this.button=button;button.setOnAction(e->open.run());
         timer=new Timeline(new KeyFrame(Duration.seconds(3),e->refresh()));timer.setCycleCount(Timeline.INDEFINITE);
         button.sceneProperty().addListener((o,old,scene)->{if(scene==null){close();}else{
             scene.rootProperty().addListener((p,a,b)->{if(button.getScene()!=scene)close();});
@@ -32,5 +31,5 @@ public final class ChatEntry implements AutoCloseable {
             int n=r.get("unread").getAsInt()+r.get("pending").getAsInt();button.setText("☏   聊天"+(n>0?"  ("+n+")":""));
         }));
     }
-    public void close(){if(closed)return;closed=true;timer.stop();if(window!=null)window.close();}
+    public void close(){if(closed)return;closed=true;timer.stop();}
 }

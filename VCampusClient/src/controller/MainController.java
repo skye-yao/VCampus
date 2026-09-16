@@ -165,7 +165,7 @@ public class MainController {
     @FXML
     public void initialize() {
         instance = this;
-        if (navChatBtn != null) chatEntry = new ChatEntry(navChatBtn);
+        if (navChatBtn != null) chatEntry = new ChatEntry(navChatBtn,this::openChat);
 
         // 1. 读取并显示当前用户本地 Session 数据
         loadUserData();
@@ -594,7 +594,7 @@ public class MainController {
         Button[] buttons = {
                 navHomeBtn, navProfileBtn, navStudentBtn, navLibraryBtn,
                 navCourseBtn, navStoreBtn, navBankBtn, navAiBtn,
-                userNavBtn, permissionNavBtn
+                userNavBtn, permissionNavBtn, navChatBtn
         };
         for (Button btn : buttons) {
             if (btn != null) {
@@ -636,6 +636,21 @@ public class MainController {
     }
 
     // ===== 页面导航动作 =====
+    private ChatPane chatPane;
+
+    public void openChat() {
+        if (chatPane != null && rootMain.getCenter() == chatPane.getView()) return;
+        PageLeaveGuard previousGuard=PageLeaveGuard.active();
+        if(previousGuard!=null&&!previousGuard.requestLeave())return;
+        if(previousGuard!=null)previousGuard.onClosed();
+        PageLeaveGuard.clear(previousGuard);
+        ClientMain.cleanupPage();
+        ChatPane page=new ChatPane();chatPane=page;
+        rootMain.setCenter(page.getView());
+        ClientMain.setPageCleanup(()->{page.close();if(chatPane==page)chatPane=null;});
+        updateActiveNavButton(navChatBtn);
+        page.start();
+    }
 
     @FXML
     public void handleNavigateHome(ActionEvent event) {

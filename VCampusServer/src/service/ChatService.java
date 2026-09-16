@@ -24,6 +24,10 @@ public final class ChatService {
         me = user(c, me);
         Map<String,Object> out = new HashMap<>();
         switch (action) {
+            case "AVATAR" -> {
+                String peer=user(c,text(data,"peer",32));
+                out.put("avatar",rows(c,"SELECT avatar FROM tbl_user WHERE UID=?",peer).get(0).get("avatar"));
+            }
             case "SUMMARY" -> {
                 out.put("unread", rows(c,"SELECT COUNT(*) AS n FROM tbl_chat_message WHERE recipient=? AND read_at IS NULL",me).get(0).get("n"));
                 out.put("pending", rows(c,"SELECT COUNT(*) AS n FROM tbl_chat_friend WHERE (user_low=? OR user_high=?) AND requester<>? AND status='PENDING'",me,me,me).get(0).get("n"));
