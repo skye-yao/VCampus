@@ -60,6 +60,26 @@ public final class TeacherCourseActions {
     public static final String CONFIRM_GRADE_IMPORT = "confirmGradeImport";
     /** 取消导入：丢弃预览令牌，客户端恢复导入前的编辑副本。 */
     public static final String CANCEL_GRADE_IMPORT = "cancelGradeImport";
+    /**
+     * 统一的「我的申请」列表：把调课申请与成绩提交批次合并成一条按 (submittedAt DESC, type, id DESC)
+     * 稳定排序的分页流，可按类型与状态筛选。响应键沿用 {@code applications}（列表仍叫这个名字）。
+     *
+     * <p>它与 {@link #LIST_MY_ADJUSTMENT_REQUESTS} 是两个动作而不是同一个：后者的页元素是
+     * {@code AdjustmentRequestSummaryDTO}（四态枚举），前者的页元素是
+     * {@link dto.course.teacher.TeacherApplicationDTO}（字符串状态，两张表共用）。两者的响应键相同
+     * 但 TypeToken 不同，客户端按各自的泛型实参解析，因此不能互相复用。
+     */
+    public static final String LIST_MY_APPLICATIONS = "listMyApplications";
+    /** 单条申请详情：响应键 {@code application}（单数），详情里恰好一个类型化变体非空。 */
+    public static final String GET_MY_APPLICATION = "getMyApplication";
+    /**
+     * 标记一条申请结果为已读：写请求体位于 {@code data.request}，响应走 {@code result} 信封。
+     *
+     * <p>它没有 {@code operationId}：已读回执按「教师 + 类型 + 申请」主键 upsert，本身就幂等，
+     * 而真正需要防的是「用看到旧结果时的确认去标新的结果」——那件事由 {@code expectedStateKey}
+     * 的 compare-and-set 负责，不是幂等键。
+     */
+    public static final String MARK_APPLICATION_READ = "markApplicationRead";
 
     private TeacherCourseActions() {
     }

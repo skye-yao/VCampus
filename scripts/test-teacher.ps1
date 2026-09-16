@@ -263,13 +263,24 @@ $suites = @(
     # controller.TeacherGradeBookControllerTest 钉住同一页上的两个版本入口（被驳回→重新编辑、已通过→申请修改、
     # 待审核一个都不给）以及它解析的那份 FXML 的 fx:id/onAction 绑定——不经它注册，改坏 FXML 的绑定在本套件里
     # 看不见；service.SocketTeacherCourseServiceTest 覆盖两个新 Socket 方法（动作常量、request/result 形状、
-    # CONFLICT 里的最新成绩表）。三者在别的套件里也有注记，跨套件重复在本文件里是有先例的。
+    # CONFLICT 里的最新成绩表），T3 又在同一个类里补上统一申请列表/详情/标记已读三个方法与
+    # CONFLICT 里的当前申请行。三者在别的套件里也有注记，跨套件重复在本文件里是有先例的。
+    # T3 的统一「我的申请」：service.TeacherApplicationsMySqlTest 自带 `mysql` 开关（-WithMySql 才跑真实库，
+    # 未传时打印 SKIP 且不算通过），对着真实库验证两张事实表在 SQL 里的合并分页与总数、类型/状态的按表白名单、
+    # 不同类型里数字相同的两条申请互不影响、读过 PENDING 之后 APPROVED 重新未读、过期的已读确认被拒且不写回执、
+    # 别人的申请不可见，以及教学班成员关系解除后自己的历史仍可读。
+    # controller.TeacherApplicationsControllerTest 是同一页的无工具包控制器测试（它同时是 FXML 的 fx:id/
+    # onAction/样式类契约测试）。**它已经在 Adjustment 套件里登记过**：那是调课计划 T5 当时的我的申请页测试，
+    # 不是空类，也不能从 Adjustment 挪走；这里按本文件的既有先例在第二个套件里再登记一次，因为 T3 改写的正是
+    # 这一页。三者的解释都在各自套件里各写一份。
     [pscustomobject]@{ Name = 'Applications'
         Common = @()
         Client = @('controller.TeacherGradeCorrectionDialogControllerTest',
             'controller.TeacherGradeBookControllerTest',
-            'service.SocketTeacherCourseServiceTest')
-        Server = @('service.TeacherGradeRevisionMySqlTest')
+            'service.SocketTeacherCourseServiceTest',
+            'controller.TeacherApplicationsControllerTest')
+        Server = @('service.TeacherGradeRevisionMySqlTest',
+            'service.TeacherApplicationsMySqlTest')
         Tcp = @()
         Gui = @() }
 

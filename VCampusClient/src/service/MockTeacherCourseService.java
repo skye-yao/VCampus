@@ -30,6 +30,7 @@ import dto.course.teacher.GradeImportPreviewDTO;
 import dto.course.teacher.GradeRowInputDTO;
 import dto.course.teacher.GradeSchemeDTO;
 import dto.course.teacher.GradeScoresDTO;
+import dto.course.teacher.MarkTeacherApplicationReadDTO;
 import dto.course.teacher.PreviewGradeImportRequestDTO;
 import dto.course.teacher.ReviseGradeImportRequestDTO;
 import dto.course.teacher.StartGradeRevisionRequestDTO;
@@ -46,6 +47,9 @@ import dto.course.ScheduleDisplayKindDTO;
 import dto.course.admin.approval.AdjustmentRequestDetailDTO;
 import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
 import dto.course.admin.approval.AdjustmentTargetDTO;
+import dto.course.admin.approval.ApprovalStatusDTO;
+import dto.course.admin.approval.GradeSubmissionDetailDTO;
+import dto.course.admin.approval.GradeSubmissionSummaryDTO;
 import dto.course.admin.schedule.ScheduleArrangementDTO;
 import dto.course.admin.schedule.ScheduleConflictDTO;
 import dto.course.admin.schedule.ScheduleConflictSeverityDTO;
@@ -55,6 +59,8 @@ import dto.course.teacher.TeacherAdjustmentOptionsDTO;
 import dto.course.teacher.TeacherAdjustmentPreviewDTO;
 import dto.course.teacher.TeacherAdjustmentTargetInputDTO;
 import dto.course.teacher.TeacherAdjustmentWriteDTO;
+import dto.course.teacher.TeacherApplicationDTO;
+import dto.course.teacher.TeacherApplicationDetailDTO;
 import dto.course.teacher.TeacherCalendarDateDTO;
 import dto.course.teacher.TeacherCourseActions;
 import dto.course.teacher.TeacherOfferingDTO;
@@ -152,6 +158,17 @@ public final class MockTeacherCourseService implements TeacherCourseService {
     private static final String CLASSROOM_B_203 = "8103";
     private static final String CLASSROOM_C_301 = "8105";
 
+    // 统一「我的申请」的 mock 约定：两张事实表的申请行共用一套文案与判据，成绩批次是两个终态夹具。
+    // 已读回执按「类型|ID」存放，因此数字相同的两条申请互不影响——这正是真实服务里复合主键的语义。
+    private static final String APPLICATION_MISSING = "申请不存在或不属于本人";
+    private static final String STALE_READ_CONFIRM = "申请结果已更新，请刷新后重试";
+    private static final String SUBMISSION_APPROVED_ID = "9601";
+    private static final String SUBMISSION_REJECTED_ID = "9602";
+    private static final String SUBMISSION_APPROVED_AT = "2026-09-13T08:00:00Z";
+    private static final String SUBMISSION_REJECTED_AT = "2026-09-13T06:00:00Z";
+    private static final String SUBMISSION_APPROVED_COMMENT = "同意，成绩已发布";
+    private static final String SUBMISSION_REJECTED_COMMENT = "期末分与平时分不一致，请核对后重新提交";
+
     // 成绩 mock 的确定性约定：三个状态夹具（草稿含缺分、待审核、已驳回含更正原因）与一份配齐的
     // 权重方案；保存/提交会真实改变快照（revision 递增、状态迁移），因此界面在没有服务端时也能走完
     // “编辑 → 保存 → 提交 → 只读”的完整路径。提交的分数完整性与权重规则复用 Common 的纯计算。
@@ -188,6 +205,9 @@ public final class MockTeacherCourseService implements TeacherCourseService {
     private final Map<String, List<ScheduleArrangementDTO>> schedules = new LinkedHashMap<>();
     private final Map<String, AdjustmentRequestDetailDTO> adjustmentRequests = new LinkedHashMap<>();
     private final Map<String, RecordedAdjustmentOperation> adjustmentOperations = new LinkedHashMap<>();
+    private final Map<String, MockSubmission> gradeSubmissions = new LinkedHashMap<>();
+    /** 已读回执：键是「类型|申请ID」，与真实服务 {teacher,type,id} 主键的语义一致。 */
+    private final Map<String, String> seenStateKeys = new LinkedHashMap<>();
     private final Map<String, MockGradeBook> gradeBooks = new LinkedHashMap<>();
     private final Map<String, RecordedGradeOperation> gradeOperations = new LinkedHashMap<>();
     private final Map<String, TeacherFileUploadRequestDTO> uploadTickets = new LinkedHashMap<>();
@@ -202,6 +222,7 @@ public final class MockTeacherCourseService implements TeacherCourseService {
         seedAutumnOffering();
         seedSchedules();
         seedAdjustmentRequests();
+        seedGradeSubmissions();
         seedGradeBooks();
     }
 
@@ -488,6 +509,165 @@ public final class MockTeacherCourseService implements TeacherCourseService {
         } catch (RuntimeException failure) {
             return failed(failure);
         }
+    }
+
+    // -------------------------------------------------------- 统一我的申请与已读
+
+    /**
+     * 统一的「我的申请」：调课申请与成绩提交批次合并、按 {@code (submittedAt DESC, type, id DESC)}
+     * 排序后分页，与真实服务同一套类型/状态白名单（成绩提交没有 WITHDRAWN）。
+     *
+     * <p>mock 里没有 PENDING 的成绩批次：种子数据只有已通过与已驳回两批，因此默认的
+     * 「待审批」视图仍然只有调课申请，界面在不连服务端时看到的分页同样真实。
+     */
+    @Override
+    public CompletableFuture<TeacherPageDTO<TeacherApplicationDTO>> listMyApplications(
+            String type, String status, int page, int size) {
+        try {
+            String wantedType = blankToNull(type);
+            if (wantedType != null && !TeacherApplicationDTO.isType(wantedType)) {
+                throw badRequest("type 必须为 SCHEDULE_ADJUSTMENT 或 GRADE_SUBMISSION");
+            }
+            String wantedStatus = blankToNull(status);
+            if (wantedStatus != null && !TeacherApplicationDTO.isStatus(wantedType, wantedStatus)) {
+                throw badRequest("status 对该类型无效: " + wantedStatus);
+            }
+            List<TeacherApplicationDTO> matched = new ArrayList<>();
+            for (AdjustmentRequestDetailDTO request : adjustmentRequests.values()) {
+                TeacherApplicationDTO row = adjustmentApplication(request);
+                if (matches(row, wantedType, wantedStatus)) matched.add(row);
+            }
+            for (MockSubmission submission : gradeSubmissions.values()) {
+                TeacherApplicationDTO row = submissionApplication(submission);
+                if (matches(row, wantedType, wantedStatus)) matched.add(row);
+            }
+            matched.sort(MockTeacherCourseService::compareApplications);
+            return CompletableFuture.completedFuture(page(matched, page, size));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    /** 详情：按类型取恰好一个变体——调课详情，或成绩批次的只读快照。 */
+    @Override
+    public CompletableFuture<TeacherApplicationDetailDTO> getMyApplication(String type, String id) {
+        try {
+            String wantedType = requireApplicationType(type);
+            String wantedId = requiredDecimal(id, "id");
+            if (TeacherApplicationDTO.SCHEDULE_ADJUSTMENT.equals(wantedType)) {
+                AdjustmentRequestDetailDTO request = adjustmentRequests.get(wantedId);
+                if (request == null) throw notFound(APPLICATION_MISSING);
+                return CompletableFuture.completedFuture(new TeacherApplicationDetailDTO(
+                        adjustmentApplication(request), request, null));
+            }
+            MockSubmission submission = gradeSubmissions.get(wantedId);
+            if (submission == null) throw notFound(APPLICATION_MISSING);
+            return CompletableFuture.completedFuture(new TeacherApplicationDetailDTO(
+                    submissionApplication(submission), null, submissionDetail(submission)));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    /**
+     * 标记已读：与真实服务同样是 compare-and-set——状态键不一致就先什么都不写地拒绝（冲突携带当前
+     * 行）。已读回执按「类型 + ID」存放，两张表里数字相同的申请互不影响。
+     */
+    @Override
+    public CompletableFuture<TeacherApplicationDTO> markApplicationRead(
+            MarkTeacherApplicationReadDTO write) {
+        try {
+            if (write == null) throw badRequest("请求体不能为空");
+            String type = requireApplicationType(write.getType());
+            String id = requiredDecimal(write.getId(), "id");
+            String expected = blankToNull(write.getExpectedStateKey());
+            if (expected == null) throw badRequest("expectedStateKey 不能为空");
+            TeacherApplicationDTO current = findApplication(type, id);
+            if (current == null) throw notFound(APPLICATION_MISSING);
+            if (!current.getStateKey().equals(expected)) {
+                throw new TeacherCourseServiceException(MessageCode.CONFLICT,
+                        STALE_READ_CONFIRM, List.of(), null, null, current);
+            }
+            seenStateKeys.put(type + "|" + id, current.getStateKey());
+            return CompletableFuture.completedFuture(findApplication(type, id));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    private TeacherApplicationDTO findApplication(String type, String id) {
+        if (TeacherApplicationDTO.SCHEDULE_ADJUSTMENT.equals(type)) {
+            AdjustmentRequestDetailDTO request = adjustmentRequests.get(id);
+            return request == null ? null : adjustmentApplication(request);
+        }
+        MockSubmission submission = gradeSubmissions.get(id);
+        return submission == null ? null : submissionApplication(submission);
+    }
+
+    private static boolean matches(TeacherApplicationDTO row, String type, String status) {
+        return (type == null || type.equals(row.getType()))
+                && (status == null || status.equals(row.getStatus()));
+    }
+
+    /** 与真实服务同一条排序规则：提交时间倒序，同一时刻按类型、再按 ID 倒序。 */
+    private static int compareApplications(TeacherApplicationDTO left, TeacherApplicationDTO right) {
+        int byTime = right.getSubmittedAt().compareTo(left.getSubmittedAt());
+        if (byTime != 0) return byTime;
+        int byType = left.getType().compareTo(right.getType());
+        if (byType != 0) return byType;
+        return Long.compare(Long.parseLong(right.getId()), Long.parseLong(left.getId()));
+    }
+
+    private TeacherApplicationDTO adjustmentApplication(AdjustmentRequestDetailDTO request) {
+        // mock 的调课详情没有 withdrawn_at 列，撤销的「已处理时间」退回提交时间；真实服务用
+        // withdrawn_at。两者都让状态键随状态变化而改变，界面的未读判据因此一致。
+        String handledAt = request.getReviewedAt() != null ? request.getReviewedAt()
+                : request.getStatus() == AdjustmentRequestStatusDTO.WITHDRAWN
+                        ? request.getSubmittedAt() : null;
+        return applicationSummary(TeacherApplicationDTO.SCHEDULE_ADJUSTMENT, request.getRequestId(),
+                request.getOfferingId(), request.getSubmittedAt(), handledAt,
+                request.getStatus().name(), request.getReviewComment());
+    }
+
+    private TeacherApplicationDTO submissionApplication(MockSubmission submission) {
+        return applicationSummary(TeacherApplicationDTO.GRADE_SUBMISSION,
+                submission.submissionId(), submission.offeringId(), submission.submittedAt(),
+                submission.reviewedAt(), submission.status(), submission.reviewComment());
+    }
+
+    private TeacherApplicationDTO applicationSummary(String type, String id, String offeringId,
+            String submittedAt, String handledAt, String status, String reviewComment) {
+        TeacherOfferingDTO offering = offerings.get(offeringId);
+        String title = offering == null ? "" : offering.getCourseName() + "　"
+                + offering.getOfferingCode();
+        String stateKey = status + ":" + (handledAt != null ? handledAt : submittedAt);
+        String seen = seenStateKeys.get(type + "|" + id);
+        boolean canWithdraw = TeacherApplicationDTO.SCHEDULE_ADJUSTMENT.equals(type)
+                && GRADE_STATE_PENDING.equals(status);
+        return new TeacherApplicationDTO(type, id, offeringId, title, status, submittedAt,
+                handledAt, reviewComment, canWithdraw, stateKey, !stateKey.equals(seen));
+    }
+
+    private GradeSubmissionDetailDTO submissionDetail(MockSubmission submission) {
+        TeacherOfferingDTO offering = offerings.get(submission.offeringId());
+        GradeSubmissionSummaryDTO summary = new GradeSubmissionSummaryDTO(submission.submissionId(),
+                submission.offeringId(), offering == null ? "" : offering.getCourseName(),
+                offering == null ? "" : offering.getOfferingCode(), submission.version(),
+                ADJUSTMENT_APPLICANT, ADJUSTMENT_TEACHER, submission.totalCount(),
+                submission.average(), submission.highest(), submission.lowest(),
+                submission.failedCount(), ApprovalStatusDTO.valueOf(submission.status()),
+                submission.submittedAt());
+        return new GradeSubmissionDetailDTO(summary, List.of(), List.of(), ADJUSTMENT_REVIEWER,
+                submission.reviewedAt(), submission.reviewComment());
+    }
+
+    private static String requireApplicationType(String type) {
+        String wanted = blankToNull(type);
+        if (wanted == null) throw badRequest("type 不能为空");
+        if (!TeacherApplicationDTO.isType(wanted)) {
+            throw badRequest("type 必须为 SCHEDULE_ADJUSTMENT 或 GRADE_SUBMISSION");
+        }
+        return wanted;
     }
 
     // ------------------------------------------------------------------ 成绩工作副本
@@ -1309,6 +1489,16 @@ public final class MockTeacherCourseService implements TeacherCourseService {
             TeacherOperationResultDTO<AdjustmentRequestDetailDTO> result) {
     }
 
+    /**
+     * 一个成绩提交批次的 mock 事实：{@code grade_submission} 的字段子集加批次统计。它是只读的——
+     * 确认导入/提交会改写 mock 的成绩工作副本，但不会回写已经存在的历史批次（真实服务同样如此，
+     * 批次是冻结快照）。
+     */
+    private record MockSubmission(String submissionId, String offeringId, String status, int version,
+            int totalCount, double average, double highest, double lowest, int failedCount,
+            String submittedAt, String reviewedAt, String reviewComment) {
+    }
+
     /** 预检查/提交的解析结果：冲突、目标快照与请求头的教学星期。 */
     private record Assessment(List<ScheduleConflictDTO> conflicts, List<AdjustmentTargetDTO> targets,
             int newWeekday) {
@@ -1479,6 +1669,23 @@ public final class MockTeacherCourseService implements TeacherCourseService {
 
     private void addAdjustmentRequest(AdjustmentRequestDetailDTO request) {
         adjustmentRequests.put(request.getRequestId(), request);
+    }
+
+    /**
+     * 两个终态的成绩批次：界面在没有服务端时也能演示「类型筛选」与两类状态字母表的差别。
+     * 故意没有 PENDING 批次——默认的「待审批」视图因此仍然只由调课申请构成。
+     */
+    private void seedGradeSubmissions() {
+        addSubmission(new MockSubmission(SUBMISSION_APPROVED_ID, FULL_ROSTER_OFFERING,
+                GRADE_STATE_APPROVED, 2, ROSTER_LENGTH, 78.42, 96.0, 41.5, 3,
+                "2026-09-13T07:00:00Z", SUBMISSION_APPROVED_AT, SUBMISSION_APPROVED_COMMENT));
+        addSubmission(new MockSubmission(SUBMISSION_REJECTED_ID, OPERATING_SYSTEM_OFFERING,
+                GRADE_STATE_REJECTED, 1, 12, 0.0, 0.0, 0.0, 0, "2026-09-13T05:00:00Z",
+                SUBMISSION_REJECTED_AT, SUBMISSION_REJECTED_COMMENT));
+    }
+
+    private void addSubmission(MockSubmission submission) {
+        gradeSubmissions.put(submission.submissionId(), submission);
     }
 
     private static AdjustmentTargetDTO target(String occurrenceId, int week, String startAt,

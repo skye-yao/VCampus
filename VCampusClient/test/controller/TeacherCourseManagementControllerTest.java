@@ -917,6 +917,18 @@ public final class TeacherCourseManagementControllerTest {
                     new TeacherPageDTO<>(List.of(), 0, page, size));
         }
 
+        /**
+         * 我的申请页自 T6 起查的是统一的合并列表；这个替身只需要回答“一次查询、空页”，
+         * 让工作台的导航断言仍然只关心页面有没有被激活并真的加载了一页。
+         */
+        @Override
+        public CompletableFuture<TeacherPageDTO<dto.course.teacher.TeacherApplicationDTO>>
+                listMyApplications(String type, String status, int page, int size) {
+            applicationCalls++;
+            return CompletableFuture.completedFuture(
+                    new TeacherPageDTO<>(List.of(), 0, page, size));
+        }
+
         @Override
         public CompletableFuture<TeacherPageDTO<TeacherGradeOfferingDTO>> listGradeOfferings(
                 int academicYear, int semester, int page, int size) {

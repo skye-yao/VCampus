@@ -492,6 +492,15 @@
     -fx-text-fill: #657067;
 }
 
+/* 结果角标：未读的申请行在「查看」左边带一颗标记。是否显示完全由服务端算出的 unread 决定。 */
+.teacher-course-application-badge {
+    -fx-background-color: #b4453c;
+    -fx-background-radius: 9px;
+    -fx-text-fill: #ffffff;
+    -fx-font-size: 11px;
+    -fx-padding: 2px 8px 2px 8px;
+}
+
 .teacher-course-feedback-text {
     -fx-font-size: 12px;
     -fx-text-fill: #456045;

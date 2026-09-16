@@ -10,12 +10,15 @@ import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
 import dto.course.admin.schedule.ScheduleArrangementDTO;
 import dto.course.teacher.ConfirmGradeImportRequestDTO;
 import dto.course.teacher.GradeImportPreviewDTO;
+import dto.course.teacher.MarkTeacherApplicationReadDTO;
 import dto.course.teacher.PreviewGradeImportRequestDTO;
 import dto.course.teacher.ReviseGradeImportRequestDTO;
 import dto.course.teacher.StartGradeRevisionRequestDTO;
 import dto.course.teacher.TeacherAdjustmentOptionsDTO;
 import dto.course.teacher.TeacherAdjustmentPreviewDTO;
 import dto.course.teacher.TeacherAdjustmentWriteDTO;
+import dto.course.teacher.TeacherApplicationDTO;
+import dto.course.teacher.TeacherApplicationDetailDTO;
 import dto.course.teacher.TeacherFileTicketDTO;
 import dto.course.teacher.TeacherFileUploadRequestDTO;
 import dto.course.teacher.TeacherGradeBookDTO;
@@ -97,6 +100,42 @@ public interface TeacherCourseService {
     default CompletableFuture<TeacherPageDTO<AdjustmentRequestSummaryDTO>> listMyAdjustmentRequests(
             AdjustmentRequestStatusDTO status, int page, int size) {
         throw new UnsupportedOperationException("listMyAdjustmentRequests");
+    }
+
+    // ------------------------------------------------------------------ 我的申请与已读
+
+    /**
+     * 统一的「我的申请」：调课申请与成绩提交批次合并成一条按 {@code (submittedAt DESC, type, id DESC)}
+     * 稳定排序的分页流，合并、排序与分页都在服务端 SQL 里完成。
+     *
+     * <p>{@code type} 为 {@link TeacherApplicationDTO#SCHEDULE_ADJUSTMENT}/
+     * {@link TeacherApplicationDTO#GRADE_SUBMISSION} 或 null（不限类型）；{@code status} 按类型的
+     * 状态白名单解析（成绩提交没有 WITHDRAWN），null 表示不限状态。两个参数都是字符串而不是枚举：
+     * 两张事实表的状态字母表不一样，一个枚举装不下。
+     */
+    default CompletableFuture<TeacherPageDTO<TeacherApplicationDTO>> listMyApplications(
+            String type, String status, int page, int size) {
+        throw new UnsupportedOperationException("listMyApplications");
+    }
+
+    /**
+     * 一条本人申请的详情：{@code summary} 外加**恰好一个**类型化变体（调课详情或成绩提交快照）。
+     * 别人的申请与不存在的申请同样以 NOT_FOUND 结束。
+     */
+    default CompletableFuture<TeacherApplicationDetailDTO> getMyApplication(String type, String id) {
+        throw new UnsupportedOperationException("getMyApplication");
+    }
+
+    /**
+     * 标记一条本人的申请结果为已读，返回最新的申请行。
+     *
+     * <p>{@code expectedStateKey} 是客户端看到的那一行的状态键；服务端比对不一致时拒绝写入并以
+     * CONFLICT 结束，冲突携带的当前行可从
+     * {@link SocketTeacherCourseService.TeacherCourseServiceException#getLatestApplication()} 取出。
+     */
+    default CompletableFuture<TeacherApplicationDTO> markApplicationRead(
+            MarkTeacherApplicationReadDTO request) {
+        throw new UnsupportedOperationException("markApplicationRead");
     }
 
     // ------------------------------------------------------------------ 成绩工作副本

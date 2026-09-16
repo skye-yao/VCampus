@@ -5,10 +5,12 @@ import com.google.gson.JsonParseException;
 import dto.course.AdjustmentRequestStatusDTO;
 import dto.course.admin.approval.AdjustmentRequestDetailDTO;
 import dto.course.teacher.ConfirmGradeImportRequestDTO;
+import dto.course.teacher.MarkTeacherApplicationReadDTO;
 import dto.course.teacher.PreviewGradeImportRequestDTO;
 import dto.course.teacher.ReviseGradeImportRequestDTO;
 import dto.course.teacher.StartGradeRevisionRequestDTO;
 import dto.course.teacher.TeacherAdjustmentWriteDTO;
+import dto.course.teacher.TeacherApplicationDTO;
 import dto.course.teacher.TeacherCourseActions;
 import dto.course.teacher.TeacherFileTicketDTO;
 import dto.course.teacher.TeacherFileUploadRequestDTO;
@@ -23,6 +25,7 @@ import protocol.MessageCode;
 import protocol.MessageType;
 import service.TeacherAccessPolicy;
 import service.TeacherAdjustmentApplicationService;
+import service.TeacherApplicationService;
 import service.TeacherCourseQueryService;
 import service.TeacherFileTicketService;
 import service.TeacherGradeBookService;
@@ -65,6 +68,13 @@ import java.util.function.Consumer;
  * {@code gradeBook} 带回最新成绩表，与调课冲突的 {@code conflicts}/{@code latest} 区分开，
  * 客户端不解析对方的类型。
  *
+ * <p>「我的申请」动作的响应键沿用模块的「复数列表 / 单数详情」约定：{@code applications} 是合并了
+ * 调课申请与成绩提交的统一分页（元素是 {@link dto.course.teacher.TeacherApplicationDTO}，与旧动作
+ * {@code listMyAdjustmentRequests} 的 {@code applications} 同名但泛型实参不同，客户端各按自己的
+ * TypeToken 解析），{@code application} 是**单数**详情；标记已读是写操作，走 {@code result} 信封。
+ * 过期读取确认的冲突同样用 {@code application} 带回当前行——调课冲突的 {@code latest} 与成绩冲突的
+ * {@code gradeBook} 已各有所属，不能再塞进第三种实体。
+ *
  * <p>导入动作（previewGradeImport/reviseGradeImport/confirmGradeImport/cancelGradeImport）走同一套
  * 防线：身份只来自会话，写请求体不许带身份/人员/强制字段，预览的编辑副本与保存草稿的内容共用同一份
  * 形状校验。预览请求里的 {@code baseDraft} 直接沿用成绩写入的字段约定（offeringId 与每行
@@ -92,6 +102,11 @@ public class TeacherCourseHandler {
     private final TeacherGradeBookService grades;
     private final TeacherFileTicketService files;
     private final TeacherGradeImportService imports;
+    /**
+     * 我的申请：查询与已读回执照旧由服务端在事务内重算归属。它没有外部资源依赖（不像票据服务要
+     * 临时目录），因此即使未显式接线也按默认实例可用，与只读查询服务同一口径。
+     */
+    private final TeacherApplicationService applications;
     /**
      * 表格读写本身不碰数据库也不碰票据，因此固定实例化，没有构造参数：调用方只需保证
      * 「先校验归属、再生成文件、最后签发票据」的顺序（下载票据一旦签发，文件就已经是别人的名单了）。
@@ -138,11 +153,25 @@ public class TeacherCourseHandler {
                                 TeacherGradeBookService grades,
                                 TeacherFileTicketService files,
                                 TeacherGradeImportService imports) {
+        this(queries, adjustments, grades, files, imports, new TeacherApplicationService());
+    }
+
+    /**
+     * 全参构造：把「我的申请」也交给调用方决定（测试用它注入固定时钟或空实现）。
+     * 传 {@code null} 时该组动作报「尚未开放」，与其它可选服务一致。
+     */
+    public TeacherCourseHandler(TeacherCourseQueryService queries,
+                                TeacherAdjustmentApplicationService adjustments,
+                                TeacherGradeBookService grades,
+                                TeacherFileTicketService files,
+                                TeacherGradeImportService imports,
+                                TeacherApplicationService applications) {
         this.queries = queries == null ? new TeacherCourseQueryService() : queries;
         this.adjustments = adjustments;
         this.grades = grades;
         this.files = files;
         this.imports = imports;
+        this.applications = applications;
     }
 
     public Message handle(Message request) {
@@ -214,6 +243,25 @@ public class TeacherCourseHandler {
                     Paging paging = paging(request);
                     response.putData("applications", service.listMine(uid,
                             adjustmentStatus(request), paging.number(), paging.size()));
+                }
+                case TeacherCourseActions.LIST_MY_APPLICATIONS -> {
+                    // 统一的「我的申请」：调课申请与成绩提交合并分页。类型/状态先过白名单，
+                    // 两张表的状态字母表不同，一个全局枚举会在这里把「已撤销」错配到成绩上。
+                    TeacherApplicationService service = applications();
+                    Paging paging = paging(request);
+                    response.putData("applications", service.listMyApplications(uid,
+                            applicationType(request), applicationStatus(request),
+                            paging.number(), paging.size()));
+                }
+                case TeacherCourseActions.GET_MY_APPLICATION -> response.putData("application",
+                        applications().getMyApplication(uid, requiredApplicationType(request),
+                                decimalId(request, "id")));
+                case TeacherCourseActions.MARK_APPLICATION_READ -> {
+                    // 写操作：过期确认由服务端比对 expectedStateKey，冲突时带回当前申请行。
+                    TeacherApplicationDTO latest = applications().markApplicationRead(uid,
+                            applicationRead(request));
+                    return mutation(response, new TeacherOperationResultDTO<>(null,
+                            "申请结果已标记为已读", latest, false));
                 }
                 case TeacherCourseActions.LIST_GRADE_OFFERINGS -> {
                     TeacherGradeBookService service = grades();
@@ -315,6 +363,15 @@ public class TeacherCourseHandler {
         } catch (TeacherGradeImportService.NotFoundException expired) {
             // 导入预览已过期或不属于本人：客户端据此回到「重新上传」这一步。
             return failure(response, MessageCode.NOT_FOUND, expired.getMessage());
+        } catch (TeacherApplicationService.NotFoundException missing) {
+            // 别人的申请与不存在的申请对外同形：一律 NOT_FOUND，绝不透露「存在但不是你的」。
+            return failure(response, MessageCode.NOT_FOUND, missing.getMessage());
+        } catch (TeacherApplicationService.ConflictException conflict) {
+            // 过期读取确认：带回**当前**申请行（{@code application} 键），页面刷新后重新判断。
+            if (conflict.getEntity() != null) {
+                response.putData("application", conflict.getEntity());
+            }
+            return failure(response, MessageCode.CONFLICT, conflict.getMessage());
         } catch (TeacherGradeBookService.ConflictException conflict) {
             // 成绩冲突只有“最新成绩表”一种附带实体：版本过期或名单变化时客户端据此提示重新加载。
             if (conflict.getEntity() != null) response.putData("gradeBook", conflict.getEntity());
@@ -354,6 +411,13 @@ public class TeacherCourseHandler {
             throw new IllegalArgumentException("该教师操作尚未开放");
         }
         return imports;
+    }
+
+    private TeacherApplicationService applications() {
+        if (applications == null) {
+            throw new IllegalArgumentException("该教师操作尚未开放");
+        }
+        return applications;
     }
 
     /**
@@ -571,6 +635,53 @@ public class TeacherCourseHandler {
         integerValue(values.get("expectedRevision"), "expectedRevision");
         integerValue(values.get("byteLength"), "byteLength");
         return payload(request, TeacherFileUploadRequestDTO.class);
+    }
+
+    /**
+     * 列表的类型筛选：缺省或空白表示两种都查；给了值就必须是白名单里的两种之一。
+     * 白名单本身只写在 {@link TeacherApplicationDTO} 里，服务层用的是同一份判断，不会各有一套口径。
+     */
+    private static String applicationType(Message request) {
+        String type = optionalText(request, "type");
+        if (type == null) return null;
+        String wanted = type.trim();
+        if (!TeacherApplicationDTO.isType(wanted)) {
+            throw new IllegalArgumentException(
+                    "type 必须为 SCHEDULE_ADJUSTMENT 或 GRADE_SUBMISSION");
+        }
+        return wanted;
+    }
+
+    /** 详情与已读必须落在一张具体的事实表上，因此这两个动作不接受空类型。 */
+    private static String requiredApplicationType(Message request) {
+        String type = applicationType(request);
+        if (type == null) throw new IllegalArgumentException("缺少参数: type");
+        return type;
+    }
+
+    /** 状态按类型白名单解析：给定类型时只接受该类型的状态，不限类型时接受两者的并集。 */
+    private static String applicationStatus(Message request) {
+        String status = optionalText(request, "status");
+        if (status == null) return null;
+        String type = applicationType(request);
+        String wanted = status.trim();
+        if (!TeacherApplicationDTO.isStatus(type, wanted)) {
+            throw new IllegalArgumentException("status 对该类型无效: " + wanted);
+        }
+        return wanted;
+    }
+
+    /**
+     * 标记已读的写请求体：类型、ID 与客户端看到的状态键。ID 必须是十进制字符串（BIGINT 在网络上的
+     * 唯一形态，数字会被 Gson 经 double 静默改写）；类型与状态键都必须在 Gson 之前就是字符串，
+     * 避免「数字放进字符串字段」这种输入变成一个看似合法的请求。归属由服务端在事务内重新校验。
+     */
+    private MarkTeacherApplicationReadDTO applicationRead(Message request) {
+        Map<String, Object> values = writeValues(request, "申请");
+        requireOptionalString(values, "type");
+        requireOptionalString(values, "expectedStateKey");
+        requireDecimalText(values.get("id"), "id");
+        return payload(request, MarkTeacherApplicationReadDTO.class);
     }
 
     private WithdrawTeacherAdjustmentRequestDTO withdrawal(Message request) {

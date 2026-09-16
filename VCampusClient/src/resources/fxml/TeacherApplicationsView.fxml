@@ -12,14 +12,16 @@
 <?import javafx.scene.layout.VBox?>
 
 <!--
-  我的调课申请页（设计 §5.3）：左侧按四态筛选本人申请，右侧显示原/新时间地点、提交时间、状态、
-  处理意见与（PENDING 的）实时冲突快照；撤销用两步确认，成功与失败都在页面内联提示。
-  本页由工作台通过 fx:include 装入，样式全部来自 teacher-course.css；T6 会在同一页合并成绩记录。
+  我的申请页（设计 §10/§11）：左侧把调课申请与成绩提交批次合并成一条时间线，按类型与状态筛选，
+  未读结果带结果角标；右侧显示该条申请恰好一个类型化详情（调课安排与实时冲突，或成绩批次的只读
+  快照）与处理意见。撤销只对 PENDING 的调课申请开放，用两步确认；成功与失败都在页面内联提示。
+  本页由工作台通过 fx:include 装入，样式全部来自 teacher-course.css。
 -->
 <VBox spacing="10.0" styleClass="teacher-course-page" xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.TeacherApplicationsController">
     <children>
         <HBox alignment="CENTER_LEFT" spacing="10.0" styleClass="teacher-course-toolbar">
             <children>
+                <ComboBox fx:id="applicationTypeFilter" prefWidth="130.0" promptText="类型" styleClass="teacher-course-term-filter" />
                 <ComboBox fx:id="applicationStatusFilter" prefWidth="160.0" promptText="状态" styleClass="teacher-course-term-filter" />
                 <Label fx:id="applicationSummaryLabel" styleClass="teacher-course-page-summary" text="" />
                 <Region HBox.hgrow="ALWAYS" />
@@ -40,7 +42,7 @@
                                 <VBox alignment="CENTER" maxHeight="-Infinity" spacing="10.0" styleClass="teacher-course-state-area" StackPane.alignment="TOP_CENTER">
                                     <children>
                                         <Label fx:id="applicationLoadingLabel" managed="false" styleClass="teacher-course-loading-text" text="正在加载我的申请..." visible="false" />
-                                        <Label fx:id="applicationEmptyLabel" managed="false" maxWidth="300.0" styleClass="teacher-course-empty-state" text="该状态下没有调课申请" visible="false" wrapText="true" />
+                                        <Label fx:id="applicationEmptyLabel" managed="false" maxWidth="300.0" styleClass="teacher-course-empty-state" text="该筛选下没有申请" visible="false" wrapText="true" />
                                         <Label fx:id="applicationErrorLabel" managed="false" maxWidth="300.0" styleClass="teacher-course-error-text" text="" visible="false" wrapText="true" />
                                         <Button fx:id="applicationErrorRetryButton" managed="false" onAction="#refresh" styleClass="teacher-course-retry-button" text="重试" visible="false" />
                                     </children>
@@ -62,8 +64,8 @@
                 </VBox>
                 <VBox maxHeight="-Infinity" spacing="8.0" styleClass="teacher-course-section" HBox.hgrow="ALWAYS">
                     <children>
-                        <Label fx:id="applicationDetailTitleLabel" styleClass="teacher-course-detail-title" text="请选择调课申请" wrapText="true" />
-                        <Label fx:id="applicationDetailPlaceholder" styleClass="teacher-course-placeholder-text" text="左侧选择一条申请后可查看原安排与处理结果" wrapText="true" />
+                        <Label fx:id="applicationDetailTitleLabel" styleClass="teacher-course-detail-title" text="请选择申请" wrapText="true" />
+                        <Label fx:id="applicationDetailPlaceholder" styleClass="teacher-course-placeholder-text" text="左侧选择一条申请后可查看提交内容与处理结果" wrapText="true" />
                         <ScrollPane fitToWidth="true" hbarPolicy="NEVER" styleClass="teacher-course-tab-scroll" VBox.vgrow="ALWAYS">
                             <content>
                                 <VBox fx:id="applicationDetailBody" spacing="6.0" />
