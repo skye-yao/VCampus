@@ -32,6 +32,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import util.LocalTimeConnection;
 
 /** 校园银行基础业务，同时向商店提供可信的服务端内部支付接口。 */
 public class BankService implements IBankPaymentService {
@@ -41,7 +42,7 @@ public class BankService implements IBankPaymentService {
     private final CampusFinanceDAO financeDAO = new CampusFinanceDAO();
 
     public BankAccount getAccount(String userId) {
-        try (Connection conn = DBUtil.getConnection()) {
+        try (Connection conn = LocalTimeConnection.getConnection()) {
             BankAccount account = accountDAO.findByUserId(conn, userId, false);
             if (account == null) throw new BusinessException("当前用户尚未开通校园银行账户");
             return account;
@@ -51,7 +52,7 @@ public class BankService implements IBankPaymentService {
     }
 
     public List<BankTransaction> listTransactions(String userId, int limit) {
-        try (Connection conn = DBUtil.getConnection()) {
+        try (Connection conn = LocalTimeConnection.getConnection()) {
             BankAccount account = requireAccount(conn, userId, false);
             return transactionDAO.findByAccountId(conn, account.getAccountId(), limit);
         } catch (SQLException e) {
@@ -61,7 +62,7 @@ public class BankService implements IBankPaymentService {
 
     public void setPaymentPassword(String userId, String newPassword) {
         validateNewPassword(newPassword);
-        try (Connection conn = DBUtil.getConnection()) {
+        try (Connection conn = LocalTimeConnection.getConnection()) {
             BankAccount account = requireAccount(conn, userId, true);
             if (account.isPaymentPasswordSet() && account.getStatus() != BankAccountStatus.RESET_REQUIRED) {
                 throw new BusinessException("支付密码已经设置，请使用修改密码功能");
@@ -74,7 +75,7 @@ public class BankService implements IBankPaymentService {
 
     public void changePaymentPassword(String userId, String oldPassword, String newPassword) {
         validateNewPassword(newPassword);
-        try (Connection conn = DBUtil.getConnection()) {
+        try (Connection conn = LocalTimeConnection.getConnection()) {
             BankAccount account = requireAccount(conn, userId, true);
             requireActive(account);
             verifyPaymentPassword(conn, account, oldPassword);
@@ -88,7 +89,7 @@ public class BankService implements IBankPaymentService {
     public void resetPaymentPassword(boolean admin, String targetUserId) {
         if (!admin) throw new BusinessException("仅管理员可以重置支付密码");
         if (targetUserId == null || targetUserId.isBlank()) throw new BusinessException("请输入要重置的用户编号");
-        try (Connection conn = DBUtil.getConnection()) {
+        try (Connection conn = LocalTimeConnection.getConnection()) {
             BankAccount account = requireAccount(conn, targetUserId.trim(), true);
             if (!accountDAO.requirePasswordReset(conn, account.getAccountId())) {
                 throw new BusinessException("重置支付密码失败");
@@ -107,7 +108,7 @@ public class BankService implements IBankPaymentService {
 
         Connection conn = null;
         try {
-            conn = DBUtil.getConnection();
+            conn = LocalTimeConnection.getConnection();
             conn.setAutoCommit(false);
             BankAccount sourcePreview = requireAccount(conn, userId, false);
             BankAccount targetPreview = requireAccount(conn, targetUserId.trim(), false);
@@ -177,7 +178,7 @@ public class BankService implements IBankPaymentService {
 
         Connection conn = null;
         try {
-            conn = DBUtil.getConnection(); conn.setAutoCommit(false);
+            conn = LocalTimeConnection.getConnection(); conn.setAutoCommit(false);
             BankAccount sourcePreview = requireAccount(conn, userId, false);
             BankTransaction duplicate = transactionDAO.findByRequestId(conn, requestId + "-0");
             if (duplicate != null) {
@@ -257,7 +258,7 @@ public class BankService implements IBankPaymentService {
 
     public List<FinanceBill> listBills(String userId, boolean admin, String keyword,
                                        String billType, String status) {
-        try (Connection conn = DBUtil.getConnection()) {
+        try (Connection conn = LocalTimeConnection.getConnection()) {
             return financeDAO.findBills(conn, userId, admin, keyword, billType, status);
         } catch (SQLException e) { throw new DatabaseException("查询校园账单失败", e); }
     }
@@ -265,7 +266,7 @@ public class BankService implements IBankPaymentService {
     public List<FinanceChargeTarget> listChargeTargets(boolean admin, String keyword,
                                                         Integer role, String college) {
         if (!admin) throw new BusinessException("仅管理员可以查询收费对象");
-        try (Connection conn = DBUtil.getConnection()) {
+        try (Connection conn = LocalTimeConnection.getConnection()) {
             return financeDAO.findChargeTargets(conn, keyword, role, college);
         } catch (SQLException e) {
             throw new DatabaseException("查询收费对象失败", e);
@@ -306,7 +307,7 @@ public class BankService implements IBankPaymentService {
 
         Connection conn = null;
         try {
-            conn = DBUtil.getConnection();
+            conn = LocalTimeConnection.getConnection();
             conn.setAutoCommit(false);
             List<String> ids = new ArrayList<>(uniqueIds);
             int created = financeDAO.createBills(conn, ids, billType, title, amount,
@@ -327,7 +328,7 @@ public class BankService implements IBankPaymentService {
 
     public Map<String, Object> billStatistics(boolean admin) {
         if (!admin) throw new BusinessException("仅管理员可以查看缴费统计");
-        try (Connection conn = DBUtil.getConnection()) { return financeDAO.billStatistics(conn); }
+        try (Connection conn = LocalTimeConnection.getConnection()) { return financeDAO.billStatistics(conn); }
         catch (SQLException e) { throw new DatabaseException("查询缴费统计失败", e); }
     }
 
@@ -338,7 +339,7 @@ public class BankService implements IBankPaymentService {
         }
         Connection conn = null;
         try {
-            conn = DBUtil.getConnection(); conn.setAutoCommit(false);
+            conn = LocalTimeConnection.getConnection(); conn.setAutoCommit(false);
             FinanceBill bill = financeDAO.findBillForUpdate(conn, billId);
             if (bill == null || !userId.equals(bill.getUserId())) throw new BusinessException("账单不存在或无权支付");
             BankAccount userPreview = requireAccount(conn, userId, false);
@@ -387,13 +388,13 @@ public class BankService implements IBankPaymentService {
         Reimbursement item = new Reimbursement();
         item.setApplicantId(userId); item.setTitle(title.trim());
         item.setAmount(normalizeAmount(amount)); item.setReason(reason.trim());
-        try (Connection conn = DBUtil.getConnection()) {
+        try (Connection conn = LocalTimeConnection.getConnection()) {
             return financeDAO.insertReimbursement(conn, item);
         } catch (SQLException e) { throw new DatabaseException("提交报销申请失败", e); }
     }
 
     public List<Reimbursement> listReimbursements(String userId, boolean admin) {
-        try (Connection conn = DBUtil.getConnection()) {
+        try (Connection conn = LocalTimeConnection.getConnection()) {
             return financeDAO.findReimbursements(conn, userId, admin);
         } catch (SQLException e) { throw new DatabaseException("查询报销申请失败", e); }
     }
@@ -403,7 +404,7 @@ public class BankService implements IBankPaymentService {
         if (!admin) throw new BusinessException("仅管理员可以审核报销");
         Connection conn = null;
         try {
-            conn = DBUtil.getConnection(); conn.setAutoCommit(false);
+            conn = LocalTimeConnection.getConnection(); conn.setAutoCommit(false);
             Reimbursement item = financeDAO.findReimbursementForUpdate(conn, id);
             if (item == null) throw new BusinessException("报销申请不存在");
             if (!"APPLIED".equals(item.getStatus())) throw new BusinessException("该报销申请已经审核");
@@ -609,7 +610,7 @@ public class BankService implements IBankPaymentService {
     public String deductAiFee(String userId, BigDecimal actualAmount, String requestId, String remark) {
         Connection conn = null;
         try {
-            conn = DBUtil.getConnection();
+            conn = LocalTimeConnection.getConnection();
             conn.setAutoCommit(false);
             String txNo = deductAiFee(conn, userId, actualAmount, requestId, remark);
             conn.commit();

@@ -7,6 +7,7 @@ import util.DBUtil;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
+import util.LocalTimeConnection;
 
 /** 商店订单数据访问对象。 */
 public class ShopOrderDAO {
@@ -30,7 +31,7 @@ public class ShopOrderDAO {
     public List<ShopOrder> findByUserId(String userId, boolean admin) throws SQLException {
         String sql = "SELECT * FROM tbl_shop_order " + (admin ? "" : "WHERE user_id=? ") +
                 "ORDER BY created_at DESC";
-        try (Connection conn = DBUtil.getConnection();
+        try (Connection conn = LocalTimeConnection.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
             if (!admin) stmt.setString(1, userId);
             try (ResultSet rs = stmt.executeQuery()) {
@@ -42,7 +43,7 @@ public class ShopOrderDAO {
     }
 
     public List<ShopOrder> findAll() throws SQLException {
-        try (Connection conn = DBUtil.getConnection()) {
+        try (Connection conn = LocalTimeConnection.getConnection()) {
             try (PreparedStatement stmt = conn.prepareStatement(
                     "SELECT * FROM tbl_shop_order ORDER BY created_at DESC");
                  ResultSet rs = stmt.executeQuery()) {
@@ -58,7 +59,7 @@ public class ShopOrderDAO {
                 "SUM(status IN ('PAID','REFUNDING')) paid_orders," +
                 "COALESCE(SUM(CASE WHEN status IN ('PAID','REFUNDING') THEN total_amount ELSE 0 END),0) sales_amount," +
                 "SUM(status='REFUNDED') refunded_orders FROM tbl_shop_order";
-        try (Connection conn = DBUtil.getConnection()) {
+        try (Connection conn = LocalTimeConnection.getConnection()) {
             try (PreparedStatement stmt = conn.prepareStatement(sql); ResultSet rs = stmt.executeQuery()) {
                 rs.next(); java.util.Map<String,Object> result = new java.util.LinkedHashMap<>();
                 result.put("totalOrders", rs.getLong("total_orders"));
@@ -80,7 +81,7 @@ public class ShopOrderDAO {
     }
 
     public ShopOrder findById(long orderId) throws SQLException {
-        try (Connection conn = DBUtil.getConnection()) {
+        try (Connection conn = LocalTimeConnection.getConnection()) {
             return findById(conn, orderId, false);
         }
     }

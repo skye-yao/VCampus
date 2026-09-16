@@ -4,6 +4,7 @@ import enums.StudentChangeStatus;
 import util.DBUtil;
 import java.sql.*;
 import java.util.*;
+import util.LocalTimeConnection;
 @SuppressWarnings( {
     "SqlNoDataSourceInspection", "SqlResolve"
 }
@@ -22,7 +23,7 @@ import java.util.*;
         }
     }
     public TeacherChangeRequest findById(long id)throws SQLException {
-        try(Connection c=DBUtil.getConnection()) {
+        try(Connection c=LocalTimeConnection.getConnection()) {
             return findById(c,id);
         }
     }
@@ -45,7 +46,7 @@ import java.util.*;
     }
     /** 详情页审核进度使用的最近一次申请摘要，只读取已有记录。 */
     public TeacherChangeRequest findLatestByTeacherId(String id)throws SQLException {
-        try(Connection c=DBUtil.getConnection();PreparedStatement p=c.prepareStatement(
+        try(Connection c=LocalTimeConnection.getConnection();PreparedStatement p=c.prepareStatement(
                 "SELECT * FROM tblTeacherChangeRequest WHERE teacherId=? ORDER BY submitTime DESC, requestId DESC LIMIT 1")) {
             p.setString(1,id);
             try(ResultSet r=p.executeQuery()) { return r.next()?map(r):null; }
@@ -65,7 +66,7 @@ import java.util.*;
                 "ORDER BY r.submitTime DESC", null);
     }
     public TeacherChangeRequest findPendingByTeacherId(String id)throws SQLException {
-        try(Connection c=DBUtil.getConnection()) {
+        try(Connection c=LocalTimeConnection.getConnection()) {
             return findPendingByTeacherId(c,id);
         }
     }
@@ -82,7 +83,7 @@ import java.util.*;
     }
     private List<TeacherChangeRequest> list(String q,String a)throws SQLException {
         List<TeacherChangeRequest>o=new ArrayList<>();
-        try(Connection c=DBUtil.getConnection();PreparedStatement p=c.prepareStatement(q)) {
+        try(Connection c=LocalTimeConnection.getConnection();PreparedStatement p=c.prepareStatement(q)) {
             if(a!=null)p.setString(1,a);
             try(ResultSet r=p.executeQuery()) {
                 while(r.next()) {
@@ -104,7 +105,7 @@ import java.util.*;
         }
     }
     public boolean cancel(long id,String sid)throws SQLException {
-        try(Connection c=DBUtil.getConnection()){return cancel(c,id,sid);}
+        try(Connection c=LocalTimeConnection.getConnection()){return cancel(c,id,sid);}
     }
     public boolean cancel(Connection c,long id,String sid)throws SQLException {
         try(PreparedStatement p=c.prepareStatement("UPDATE tblTeacherChangeRequest SET status='CANCELLED' WHERE requestId=? AND teacherId=? AND status='PENDING'")) {

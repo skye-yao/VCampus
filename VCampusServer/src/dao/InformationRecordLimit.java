@@ -4,6 +4,7 @@ import java.sql.*;
 import java.util.Map;
 import util.DBUtil;
 import util.InformationRules;
+import util.LocalTimeConnection;
 
 /** Serialize capacity checks with insertion on the owner's database row. */
 public final class InformationRecordLimit {
@@ -15,7 +16,7 @@ public final class InformationRecordLimit {
         "tblTeacherFamilyMember", new Spec("tblTeacher", "teacherId", InformationRules.TEACHER_FAMILY, "社会关系"));
     @FunctionalInterface public interface Insert { boolean run(Connection c) throws SQLException; }
     public static boolean insert(String table, String id, Insert insert) throws SQLException {
-        try (Connection c = DBUtil.getConnection()) {
+        try (Connection c = LocalTimeConnection.getConnection()) {
             c.setAutoCommit(false);
             try { check(c, table, id); boolean result = insert.run(c); c.commit(); return result; }
             catch (SQLException | RuntimeException e) { c.rollback(); throw e; }

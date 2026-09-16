@@ -10,6 +10,7 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
+import util.LocalTimeConnection;
 
 /**
  * 图书书评数据访问对象 (BookReviewDAO)
@@ -36,7 +37,7 @@ public class BookReviewDAO {
         ResultSet rs = null;
 
         try {
-            conn = DBUtil.getConnection();
+            conn = LocalTimeConnection.getConnection();
             stmt = conn.prepareStatement(sql);
             stmt.setInt(1, id);
 
@@ -76,7 +77,7 @@ public class BookReviewDAO {
         List<BookReview> reviews = new ArrayList<>();
 
         try {
-            conn = DBUtil.getConnection();
+            conn = LocalTimeConnection.getConnection();
             stmt = conn.prepareStatement(sql);
             stmt.setInt(1, bookId);
 
@@ -116,7 +117,7 @@ public class BookReviewDAO {
         List<BookReview> reviews = new ArrayList<>();
 
         try {
-            conn = DBUtil.getConnection();
+            conn = LocalTimeConnection.getConnection();
             stmt = conn.prepareStatement(sql);
             stmt.setString(1, userId);
 
@@ -152,7 +153,7 @@ public class BookReviewDAO {
         PreparedStatement stmt = null;
 
         try {
-            conn = DBUtil.getConnection();
+            conn = LocalTimeConnection.getConnection();
             stmt = conn.prepareStatement(sql);
 
             stmt.setString(1, review.getUserId());
@@ -187,7 +188,7 @@ public class BookReviewDAO {
         PreparedStatement stmt = null;
 
         try {
-            conn = DBUtil.getConnection();
+            conn = LocalTimeConnection.getConnection();
             stmt = conn.prepareStatement(sql);
             stmt.setInt(1, id);
 

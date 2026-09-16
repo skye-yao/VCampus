@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import java.sql.*;
+import util.LocalTimeConnection;
 
 /** 整单退款申请数据访问对象。 */
 public class ShopRefundDAO {
@@ -30,7 +31,7 @@ public class ShopRefundDAO {
     }
 
     public List<ShopRefund> findAll() throws SQLException {
-        try (Connection conn = util.DBUtil.getConnection();
+        try (Connection conn = util.LocalTimeConnection.getConnection();
              PreparedStatement stmt = conn.prepareStatement("SELECT * FROM tbl_shop_refund ORDER BY refund_id DESC");
              ResultSet rs = stmt.executeQuery()) {
             List<ShopRefund> result = new ArrayList<>();

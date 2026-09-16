@@ -9,6 +9,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import util.LocalTimeConnection;
 
 /**
  * 罚款记录数据访问对象 (FineRecordDAO)
@@ -17,7 +18,7 @@ import java.util.List;
  */
 public class FineRecordDAO {
     private final BookDAO.ConnectionFactory connections;
-    public FineRecordDAO() { this(DBUtil::getConnection); }
+    public FineRecordDAO() { this(LocalTimeConnection::getConnection); }
     FineRecordDAO(BookDAO.ConnectionFactory connections) { this.connections=connections; }
     private static final String SELECT_FINE = "SELECT f.*,CASE WHEN f.status=0 AND f.amount>0 AND (f.borrowId IS NULL " +
             "OR r.returnTime IS NOT NULL OR (COALESCE(r.bookPrice,b.price)>0 AND EXISTS(SELECT 1 FROM tblLossRecord l " +

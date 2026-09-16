@@ -1,14 +1,15 @@
 package dao;
 import entity.Teacher; import util.DBUtil; import java.lang.reflect.*; import java.sql.*; import java.util.*;
+import util.LocalTimeConnection;
 @SuppressWarnings({"SqlNoDataSourceInspection","SqlResolve"})
 public class TeacherDAO {
  public static final List<String> COLUMNS=List.of("teacherId","UID","name","politicalStatus","nationality","gender","idType","idNumber","idIssueDate","birthDate","nativePlace","householdType","birthPlace","sourcePlace","registeredResidence","partyMember","partyJoinDate","healthStatus","employed","employmentStatus","campus","college","department","title","position","education","employmentStartDate","telephone","mobile","email","qq","wechat","officeAddress","emergencyContact","emergencyPhone");
  public Teacher findByUID(String v)throws SQLException{return one("SELECT * FROM tblTeacher WHERE UID=?",v);}
  public Teacher findByTeacherId(String v)throws SQLException{return one("SELECT * FROM tblTeacher WHERE teacherId=?",v);}
- private Teacher one(String sql,String v)throws SQLException{try(Connection c=DBUtil.getConnection();PreparedStatement p=c.prepareStatement(sql)){p.setString(1,v);try(ResultSet r=p.executeQuery()){return r.next()?map(r):null;}}}
+ private Teacher one(String sql,String v)throws SQLException{try(Connection c=LocalTimeConnection.getConnection();PreparedStatement p=c.prepareStatement(sql)){p.setString(1,v);try(ResultSet r=p.executeQuery()){return r.next()?map(r):null;}}}
  public Teacher lockByTeacherId(Connection c,String id)throws SQLException{try(PreparedStatement p=c.prepareStatement("SELECT * FROM tblTeacher WHERE teacherId=? FOR UPDATE")){p.setString(1,id);try(ResultSet r=p.executeQuery()){return r.next()?map(r):null;}}}
- public List<Teacher> findAll()throws SQLException{List<Teacher> o=new ArrayList<>();String sql="SELECT t.* FROM tblTeacher t WHERE EXISTS (SELECT 1 FROM tbl_user u WHERE (u.UID = t.UID OR u.UID = t.teacherId) AND (u.status IN ('ACTIVE', 'FROZEN') OR u.status IS NULL)) ORDER BY t.teacherId";try(Connection c=DBUtil.getConnection();PreparedStatement p=c.prepareStatement(sql);ResultSet r=p.executeQuery()){while(r.next())o.add(map(r));}return o;}
- public boolean insert(Teacher t)throws SQLException{String cols=String.join(",",COLUMNS),qs=String.join(",",Collections.nCopies(COLUMNS.size(),"?"));try(Connection c=DBUtil.getConnection();PreparedStatement p=c.prepareStatement("INSERT INTO tblTeacher("+cols+")VALUES("+qs+")")){bind(p,t,COLUMNS);return p.executeUpdate()==1;}}
+ public List<Teacher> findAll()throws SQLException{List<Teacher> o=new ArrayList<>();String sql="SELECT t.* FROM tblTeacher t WHERE EXISTS (SELECT 1 FROM tbl_user u WHERE (u.UID = t.UID OR u.UID = t.teacherId) AND (u.status IN ('ACTIVE', 'FROZEN') OR u.status IS NULL)) ORDER BY t.teacherId";try(Connection c=LocalTimeConnection.getConnection();PreparedStatement p=c.prepareStatement(sql);ResultSet r=p.executeQuery()){while(r.next())o.add(map(r));}return o;}
+ public boolean insert(Teacher t)throws SQLException{String cols=String.join(",",COLUMNS),qs=String.join(",",Collections.nCopies(COLUMNS.size(),"?"));try(Connection c=LocalTimeConnection.getConnection();PreparedStatement p=c.prepareStatement("INSERT INTO tblTeacher("+cols+")VALUES("+qs+")")){bind(p,t,COLUMNS);return p.executeUpdate()==1;}}
  public String fieldValueAsString(Teacher teacher,String field)throws SQLException {
   try {Field f=Teacher.class.getDeclaredField(field);f.setAccessible(true);Object value=f.get(teacher);return value==null?"":String.valueOf(value).trim();}
   catch(ReflectiveOperationException e){throw new SQLException("字段不存在: "+field,e);}
@@ -17,7 +18,7 @@ public class TeacherDAO {
   Object converted=convert(field,value);return converted==null?"":String.valueOf(converted).trim();
  }
  public boolean updateIfUnchanged(Teacher updated,Teacher original)throws SQLException {
-  try(Connection c=DBUtil.getConnection()) {
+  try(Connection c=LocalTimeConnection.getConnection()) {
    c.setAutoCommit(false);
    try {
     Teacher current=lockByTeacherId(c,updated.getTeacherId());

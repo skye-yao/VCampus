@@ -10,6 +10,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
+import util.LocalTimeConnection;
 
 /**
  * 图书数据访问对象
@@ -21,7 +22,7 @@ public class BookDAO {
     interface ConnectionFactory { Connection open() throws SQLException; }
     private final ConnectionFactory connections;
 
-    public BookDAO() { this(DBUtil::getConnection); }
+    public BookDAO() { this(LocalTimeConnection::getConnection); }
     BookDAO(ConnectionFactory connections) { this.connections = connections; }
 
     private boolean lockBook(Connection conn, int bookId) throws SQLException {

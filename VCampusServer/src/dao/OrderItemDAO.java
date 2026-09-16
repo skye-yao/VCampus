@@ -6,6 +6,7 @@ import util.DBUtil;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
+import util.LocalTimeConnection;
 
 /** 订单明细数据访问对象。 */
 public class OrderItemDAO {
@@ -25,7 +26,7 @@ public class OrderItemDAO {
     }
 
     public List<OrderItem> findByOrderId(long orderId) throws SQLException {
-        try (Connection conn = DBUtil.getConnection()) {
+        try (Connection conn = LocalTimeConnection.getConnection()) {
             return findByOrderId(conn, orderId);
         }
     }

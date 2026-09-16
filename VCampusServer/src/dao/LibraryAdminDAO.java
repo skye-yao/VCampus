@@ -3,11 +3,12 @@ package dao;
 import java.sql.*;
 import java.util.*;
 import util.DBUtil;
+import util.LocalTimeConnection;
 
 /** 管理员只读业务名单，查询类型固定，不接受客户端 SQL。 */
 public class LibraryAdminDAO {
     private final BookDAO.ConnectionFactory connections;
-    public LibraryAdminDAO() { this(DBUtil::getConnection); }
+    public LibraryAdminDAO() { this(LocalTimeConnection::getConnection); }
     LibraryAdminDAO(BookDAO.ConnectionFactory connections) { this.connections=connections; }
     public List<Map<String,String>> findRecords(String kind) throws SQLException {
         String sql;

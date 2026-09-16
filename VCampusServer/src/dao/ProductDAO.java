@@ -7,6 +7,7 @@ import util.DBUtil;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
+import util.LocalTimeConnection;
 
 /** 商品数据访问对象。 */
 public class ProductDAO {
@@ -27,7 +28,7 @@ public class ProductDAO {
         }
         sql.append(" ORDER BY product_id ASC");
 
-        try (Connection conn = DBUtil.getConnection();
+        try (Connection conn = LocalTimeConnection.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql.toString())) {
             for (int i = 0; i < params.size(); i++) {
                 stmt.setObject(i + 1, params.get(i));
@@ -41,7 +42,7 @@ public class ProductDAO {
     }
 
     public Product findById(long productId) throws SQLException {
-        try (Connection conn = DBUtil.getConnection()) {
+        try (Connection conn = LocalTimeConnection.getConnection()) {
             return findById(conn, productId, false);
         }
     }
@@ -59,7 +60,7 @@ public class ProductDAO {
     public long insert(Product product) throws SQLException {
         String sql = "INSERT INTO tbl_product " +
                 "(product_name, description, category, price, stock, status) VALUES (?, ?, ?, ?, ?, ?)";
-        try (Connection conn = DBUtil.getConnection();
+        try (Connection conn = LocalTimeConnection.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             stmt.setString(1, product.getProductName());
             stmt.setString(2, product.getDescription());
@@ -97,7 +98,7 @@ public class ProductDAO {
     }
 
     public boolean update(Product product) throws SQLException {
-        try (Connection conn = DBUtil.getConnection()) {
+        try (Connection conn = LocalTimeConnection.getConnection()) {
             return update(conn, product);
         }
     }
@@ -127,7 +128,7 @@ public class ProductDAO {
     }
 
     public boolean changeStatus(long productId, ProductStatus status, int expectedVersion) throws SQLException {
-        try (Connection conn = DBUtil.getConnection()) {
+        try (Connection conn = LocalTimeConnection.getConnection()) {
             return changeStatus(conn, productId, status, expectedVersion);
         }
     }
@@ -143,7 +144,7 @@ public class ProductDAO {
     }
 
     public boolean updateStock(long productId, int stock, int expectedVersion) throws SQLException {
-        try (Connection conn = DBUtil.getConnection()) {
+        try (Connection conn = LocalTimeConnection.getConnection()) {
             return updateStock(conn, productId, stock, expectedVersion);
         }
     }

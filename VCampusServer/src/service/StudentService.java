@@ -15,6 +15,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import protocol.LockRequest;
 import session.UserSession;
+import util.LocalTimeConnection;
 public class StudentService implements IStudentService {
     @Override
     public void authorizeLock(UserSession user, LockRequest proof) throws SQLException {
@@ -106,7 +107,7 @@ public class StudentService implements IStudentService {
         if (request == null || request.getItems() == null || request.getItems().isEmpty()) {
             throw new IllegalArgumentException("修改项不能为空");
         }
-        try (Connection connection = DBUtil.getConnection()) {
+        try (Connection connection = LocalTimeConnection.getConnection()) {
             connection.setAutoCommit(false);
             try {
                 Student student = students.lockByUID(connection, UID);
@@ -132,7 +133,7 @@ public class StudentService implements IStudentService {
         if (result != StudentChangeStatus.APPROVED && result != StudentChangeStatus.REJECTED) {
             throw new IllegalArgumentException("审核结果无效");
         }
-        try (Connection connection = DBUtil.getConnection()) {
+        try (Connection connection = LocalTimeConnection.getConnection()) {
             connection.setAutoCommit(false);
             try {
                 StudentChangeRequest request = requests.findByIdForUpdate(connection, requestId);
@@ -180,7 +181,7 @@ public class StudentService implements IStudentService {
     public String recordStudentId(String table,String column,long id)throws SQLException {
         if(!Set.of("tblStudentAward:awardId","tblStudentAid:aidId").contains(table+":"+column))
             throw new IllegalArgumentException("记录类型无效");
-        try(Connection c=DBUtil.getConnection();java.sql.PreparedStatement p=c.prepareStatement(
+        try(Connection c=LocalTimeConnection.getConnection();java.sql.PreparedStatement p=c.prepareStatement(
                 "SELECT studentId FROM "+table+" WHERE "+column+"=?")) {
             p.setLong(1,id);
             try(java.sql.ResultSet r=p.executeQuery()) {
