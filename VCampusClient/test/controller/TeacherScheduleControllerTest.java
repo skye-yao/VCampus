@@ -39,10 +39,12 @@ import service.TeacherCourseService;
 /**
  * 无 JavaFX 工具包依赖的教师周课表页与课次详情弹窗测试。
  *
- * <p>注入假服务、{@code Runnable::run} 的 FX 执行器与 {@code null} 的 FXML 节点：周导航的边界、
- * “回到本周”的可空判定、快速切周只接收最后结果、卡片到详情的传递，以及 {@code unload()} 之后在途
- * 响应被丢弃，全部在没有真实控件的环境下断言。卡片集合由控制器在渲染时收集（节点为 null 时也照常
- * 计算），因此“点的是哪一张”可以被真的验证，而不是只验证一个静态文案函数。
+ * <p>注入假服务、{@code Runnable::run} 的 FX 执行器与 {@code null} 的 FXML 节点：周次控件的取值范围
+ * （由响应决定）、选周请求、快速切周只接收最后结果、“回到本周”的可空判定、卡片到详情的传递，以及
+ * {@code unload()} 之后在途响应被丢弃，全部在没有真实控件的环境下断言。卡片集合由控制器在渲染时
+ * 收集（节点为 null 时也照常计算），因此“点的是哪一张”可以被真的验证，而不是只验证一个静态文案
+ * 函数。控件本身的几何（范围写进 Spinner、箭头方向、角标竖排）只有真实工具包能造出来，由
+ * {@code ui.TeacherCourseUiSmokeTest} 与 {@code ScheduleControllerTest} 覆盖。
  *
  * <p>两个新视图用 {@link DocumentBuilderFactory} 结构化校验（fx:id ↔ 控制器字段、onAction ↔ 真实
  * 方法、styleClass ↔ teacher-course.css 里的 `.选择器`、以及绝不出现只读的 {@code disabled}），
@@ -78,7 +80,7 @@ public final class TeacherScheduleControllerTest {
 
     public static void main(String[] args) throws Exception {
         controllerIsSafeWithoutNodes();
-        weekSelectionFollowsTheLoadedBoundaries();
+        weekSelectionRequestsExactlyThatWeek();
         backToCurrentWeekFollowsTheNullableCurrentWeek();
         loadFailuresRenderTheServerMessageOnlyWhenItIsBusinessFacing();
         onlyTheNewestWeekResponseIsRendered();
@@ -113,7 +115,7 @@ public final class TeacherScheduleControllerTest {
      * （范围断言见 {@link #weekSpinnerValueAndGridTextComeFromTheDto()}，箭头方向见
      * {@code ScheduleControllerTest#weekSpinnerArrowsRunBackwards}），这里钉的是选周这条路径。
      */
-    private static void weekSelectionFollowsTheLoadedBoundaries() {
+    private static void weekSelectionRequestsExactlyThatWeek() {
         ControlledService service = new ControlledService();
         service.terms = List.of(term(ACADEMIC_YEAR, SPRING));
         TeacherScheduleController controller = controller(service);
