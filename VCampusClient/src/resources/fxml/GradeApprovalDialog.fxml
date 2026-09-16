@@ -33,7 +33,9 @@
                         <Label styleClass="course-approval-dialog-header" text="学生成绩" />
                         <VBox fx:id="itemRows" spacing="4.0" />
                         <Separator />
-                        <Label styleClass="course-approval-dialog-header" text="更正比较" />
+                        <!-- 标题由控制器按批次真实性质设置：只有真的带更正原因的那一批才叫「更正比较」，
+                             驳回重提是「版本差异」。这里的中性初值是默认值。 -->
+                        <Label fx:id="comparisonTitleLabel" styleClass="course-approval-dialog-header" text="版本差异" />
                         <VBox fx:id="comparisonRows" spacing="4.0" />
                         <Separator />
                         <Label styleClass="course-approval-dialog-header" text="审批信息" />

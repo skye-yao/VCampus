@@ -22,7 +22,9 @@ import dto.course.admin.schedule.ScheduleConflictSeverityDTO;
 import dto.course.teacher.TeacherAdjustmentOptionsDTO;
 import dto.course.teacher.TeacherAdjustmentPreviewDTO;
 import dto.course.teacher.TeacherAdjustmentTargetInputDTO;
+import dto.course.teacher.StartGradeRevisionRequestDTO;
 import dto.course.teacher.TeacherAdjustmentWriteDTO;
+import dto.course.teacher.TeacherGradeBookDTO;
 import dto.course.teacher.TeacherOfferingDTO;
 import dto.course.teacher.TeacherOperationResultDTO;
 import dto.course.teacher.TeacherPageDTO;
@@ -73,6 +75,7 @@ public final class MockTeacherCourseServiceTest {
         submitAddsAPendingRequestVisibleInQueries();
         withdrawIncrementsTheVersionAndChangesTheQuerySnapshot();
         adjustmentFailuresStayFailedFutures();
+        gradeRevisionsFollowTheServerGuardOrder();
         System.out.println("MockTeacherCourseServiceTest: PASS");
     }
 
@@ -530,6 +533,91 @@ public final class MockTeacherCourseServiceTest {
             require(error.getLatest() != null
                             && approvedId.equals(error.getLatest().getRequestId()),
                     "the conflict must carry the latest detail so the page can refresh");
+        }
+    }
+
+    /**
+     * 两个版本入口的守卫顺序与服务端逐条一致：没有工作副本 → 待审批批次 → 已打开草稿 →
+     * 来源批次与状态 → 期望版本。
+     *
+     * <p>顺序本身就是契约——它决定客户端先看到哪一句冲突。因此这里不但钉住每一句文案，还专门用
+     * 「旧版本 + 已打开草稿」「旧版本 + 待审批」这两种碰撞证明**版本排在最后**：如果 mock 又把版本
+     * 检查提前，这两种碰撞会立刻改成「版本已变化」，与真实服务说的不是一句话。
+     */
+    private static void gradeRevisionsFollowTheServerGuardOrder() {
+        MockTeacherCourseService service = new MockTeacherCourseService();
+        String emptyOffering = offeringByCode(service, ACADEMIC_YEAR, SPRING, "CS301-01")
+                .getOfferingId();
+        String draftOffering = fullRosterOfferingId(service);
+        String pendingOffering = offeringByCode(service, ACADEMIC_YEAR, AUTUMN, "CS352-01")
+                .getOfferingId();
+        String rejectedOffering = offeringByCode(service, ACADEMIC_YEAR, AUTUMN, "CS204-01")
+                .getOfferingId();
+
+        requireConflict("还没有成绩批次", () -> service.reopenRejectedGradeBook(
+                        revision(gradeOp(1), emptyOffering, "9601", 0, null)),
+                "a working copy that was never created cannot be reopened");
+        requireConflict("待审批", () -> service.beginGradeCorrection(
+                        revision(gradeOp(2), pendingOffering, "9601", 999, "实验分录入有误")),
+                "a pending batch must be refused before the stale revision is noticed");
+        requireConflict("已经打开", () -> service.reopenRejectedGradeBook(
+                        revision(gradeOp(3), draftOffering, "9601", 999, null)),
+                "an open draft must be refused before the stale revision is noticed");
+        requireConflict("不是该教学班最后一次提交", () -> service.reopenRejectedGradeBook(
+                        revision(gradeOp(4), rejectedOffering, "999999", 999, null)),
+                "a source batch that is not the latest submission must be named as such");
+        requireConflict("只有已通过的成绩批次可以发起更正", () -> service.beginGradeCorrection(
+                        revision(gradeOp(5), rejectedOffering, "9601", 999, "实验分录入有误")),
+                "a rejected batch cannot start a correction, whatever the revision says");
+        requireCode(MessageCode.BAD_REQUEST, () -> service.reopenRejectedGradeBook(
+                        revision(gradeOp(6), rejectedOffering, "9601", -1, null)),
+                "a negative expectedRevision must be a bad request, like the server's");
+
+        // 最后才让守卫全部通过：夹具被这一步改成草稿，因此它必须排在所有冲突断言之后。
+        TeacherGradeBookDTO reopened = service.reopenRejectedGradeBook(
+                revision(gradeOp(7), rejectedOffering, "9601", 5, null)).join().getValue();
+        require("DRAFT".equals(reopened.getState()) && reopened.isCanEdit()
+                        && "9601".equals(reopened.getBaseSubmissionId())
+                        && reopened.getCorrectionReason() == null,
+                "a rejected batch reopens as an editable RESUBMISSION draft, observed "
+                        + reopened.getState() + "/" + reopened.getBaseSubmissionId() + "/"
+                        + reopened.getCorrectionReason());
+    }
+
+    private static StartGradeRevisionRequestDTO revision(String operationId, String offeringId,
+            String sourceSubmissionId, long expectedRevision, String reason) {
+        return new StartGradeRevisionRequestDTO(operationId, offeringId, sourceSubmissionId,
+                expectedRevision, reason);
+    }
+
+    private static String gradeOp(int sequence) {
+        return String.format("60000000-0000-0000-0000-%012d", sequence);
+    }
+
+    /** CONFLICT 且文案里带指定片段：顺序错了（例如版本抢先）就会在这里被抓住。 */
+    private static void requireConflict(String fragment,
+            Supplier<CompletableFuture<?>> call, String message) {
+        CompletableFuture<?> future;
+        try {
+            future = call.get();
+        } catch (RuntimeException synchronous) {
+            throw new AssertionError(
+                    message + "; the mock must fail the future, not throw synchronously",
+                    synchronous);
+        }
+        try {
+            future.join();
+            throw new AssertionError(message + "; expected a conflict, got a result");
+        } catch (CompletionException failure) {
+            if (!(failure.getCause() instanceof TeacherCourseServiceException error)) {
+                throw new AssertionError(message + "; unexpected cause " + failure.getCause(),
+                        failure.getCause());
+            }
+            require(error.getCode() == MessageCode.CONFLICT,
+                    message + "; expected CONFLICT but was " + error.getCode());
+            require(error.getMessage() != null && error.getMessage().contains(fragment),
+                    message + "; expected the message to contain 「" + fragment + "」, saw "
+                            + error.getMessage());
         }
     }
 

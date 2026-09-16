@@ -49,6 +49,9 @@ import util.AlertUtil;
  * 可见的文本都由本类的纯函数生成，因此无需 JavaFX 运行时即可测试。
  */
 public final class GradeApprovalController {
+    /** 没有更正原因（驳回重提或普通批次）时「版本差异」这一节的标题。 */
+    static final String DEFAULT_COMPARISON_TITLE = "版本差异";
+
     private final AdminCourseService service;
     private final BiFunction<String, String, ButtonType> confirmation;
     private final BiConsumer<String, String> infoReporter;
@@ -432,7 +435,8 @@ public final class GradeApprovalController {
     }
 
     /**
-     * 更正比较：原批准版本、本次更正原因，以及本次真的改变了的学生及其旧/新值。
+     * 版本差异：基础批次（措辞跟着它的真实状态走）、本次提交的原因，以及本次真的改变了的学生及其
+     * 旧/新值。更正与驳回重提都走这一节——对一次重提，管理员最需要看到的正是“这次到底改了什么”。
      *
      * <p>这些值全部来自服务端从<b>两个批次各自的明细行</b>算出的比较（{@code correctionComparison}），
      * 客户端绝不拿教师当前可变草稿当历史值——草稿在他按下提交之后还会继续变。普通批次、历史批次与
@@ -442,18 +446,21 @@ public final class GradeApprovalController {
         GradeCorrectionComparisonDTO comparison =
                 detail == null ? null : detail.getCorrectionComparison();
         if (comparison == null) return List.of();
+        boolean correction = reasonOf(comparison) != null;
         List<String> lines = new ArrayList<>();
         if (detail.getBaseSubmissionId() != null) {
-            lines.add("原批准版本：v" + comparison.getBaseVersion()
+            // 措辞跟着基础批次真实的审批状态走：驳回重提的基础是被驳回的那一批，把它写成
+            // 「原批准版本」就是一句假话。
+            lines.add(baseLabel(comparison.getBaseStatus()) + "：v" + comparison.getBaseVersion()
                     + "（批次 " + detail.getBaseSubmissionId() + "）");
         }
-        if (comparison.getReason() != null) {
-            lines.add("更正原因：" + comparison.getReason());
+        if (correction) {
+            lines.add("更正原因：" + reasonOf(comparison));
         }
         List<GradeCorrectionChangeDTO> changes = comparison.getChanges();
         if (changes.isEmpty()) {
             // 例如只调整了权重方案：没有学生的分数动过，如实说明，而不是省略这一节。
-            lines.add("本次更正没有改变任何学生的成绩");
+            lines.add(correction ? "本次更正没有改变任何学生的成绩" : "本次提交没有改变任何学生的成绩");
             return List.copyOf(lines);
         }
         lines.add("改变的学生：" + changes.size() + " 人");
@@ -463,13 +470,43 @@ public final class GradeApprovalController {
         return List.copyOf(lines);
     }
 
+    /**
+     * 基础批次的措辞：只有真的通过过的那一批才叫「原批准版本」，被驳回的那一批如实叫「被驳回的
+     * 上次提交」，状态未知时用中性的「基础版本」——三种说法都不改数字。
+     */
+    static String baseLabel(ApprovalStatusDTO baseStatus) {
+        if (baseStatus == ApprovalStatusDTO.APPROVED) return "原批准版本";
+        if (baseStatus == ApprovalStatusDTO.REJECTED) return "被驳回的上次提交";
+        return "基础版本";
+    }
+
+    /**
+     * 版本差异这一节的标题：只有真的带更正原因的那一批才叫「更正比较」，驳回重提用中性的
+     * 「版本差异」——它比较的是两次提交，不是一次更正。没有比较对象时也返回中性标题。
+     */
+    static String comparisonTitle(GradeSubmissionDetailDTO detail) {
+        GradeCorrectionComparisonDTO comparison =
+                detail == null ? null : detail.getCorrectionComparison();
+        return reasonOf(comparison) == null ? DEFAULT_COMPARISON_TITLE : "更正比较";
+    }
+
+    /**
+     * 这一批是不是一次更正。更正原因只有更正批次才有（服务端要求更正必填、重提一律清空），因此
+     * 它就是客户端可用的判据，不需要再往 DTO 上加一个 kind 字段。
+     */
+    private static String reasonOf(GradeCorrectionComparisonDTO comparison) {
+        String reason = comparison == null ? null : comparison.getReason();
+        return reason == null || reason.isBlank() ? null : reason;
+    }
+
     /** 一名改变学生的旧/新值：总评与真的动过的组成分；占位符与成绩表口径一致。 */
     static String changeLine(GradeCorrectionChangeDTO change) {
         if (change == null) return "";
         String name = orDash(change.getStudentName()) + "（" + orDash(change.getStudentUid()) + "）";
         if (change.isAdded()) {
+            // 补录方向没有“旧值”可谈，更没有权重方案可言：只说这一次带进来的分数。
             return name + "　补录进本次批次：总评 " + scoreText(change.getCurrent().getScore())
-                    + "　" + componentChanges(change);
+                    + "　" + enteredComponents(change.getCurrent());
         }
         if (change.isRemoved()) {
             return name + "　本次批次不再收录：原总评 "
@@ -497,6 +534,26 @@ public final class GradeApprovalController {
                 after == null ? null : after.getFinaltermScore());
         if (moved.isEmpty()) return "组成分未变（总评变化来自权重方案）";
         return "组成分 " + String.join("　", moved);
+    }
+
+    /**
+     * 补录方向的组成分：只列已经录入的那些，一个都没录入时如实说“尚未录入”。
+     * 这里不能复用 {@link #componentChanges}——那是比较旧/新两次提交的，对一个刚进批次的学生会
+     * 得出“组成分未变（总评变化来自权重方案）”这种与事实相反的结论。
+     */
+    private static String enteredComponents(GradeSubmissionItemDTO current) {
+        List<String> entered = new ArrayList<>();
+        addEnteredComponent(entered, "平时", current == null ? null : current.getDailyScore());
+        addEnteredComponent(entered, "期中", current == null ? null : current.getMidtermScore());
+        addEnteredComponent(entered, "实验", current == null ? null : current.getExperimentScore());
+        addEnteredComponent(entered, "期末", current == null ? null : current.getFinaltermScore());
+        if (entered.isEmpty()) return "尚未录入任何组成分";
+        return "组成分 " + String.join("　", entered);
+    }
+
+    private static void addEnteredComponent(List<String> entered, String label, Double value) {
+        if (value == null) return;
+        entered.add(label + " " + scoreText(value));
     }
 
     private static void addComponentChange(List<String> moved, String label, Double before,

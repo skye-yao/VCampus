@@ -23,6 +23,7 @@ public final class GradeApprovalDialogController {
     @FXML private HBox metricCardBox;
     @FXML private VBox distributionRows;
     @FXML private VBox itemRows;
+    @FXML private Label comparisonTitleLabel;
     @FXML private VBox comparisonRows;
     @FXML private VBox detailBody;
 
@@ -86,11 +87,15 @@ public final class GradeApprovalDialogController {
     }
 
     /**
-     * 更正比较一节：普通批次没有比较对象，整节留空。文案与审批页的详情面板同源
+     * 版本差异一节：普通批次没有比较对象，整节留空。文案与审批页的详情面板同源
      * （{@link GradeApprovalController#correctionLines(GradeSubmissionDetailDTO)}），
-     * 同一份差异不会出现两种说法。
+     * 同一份差异不会出现两种说法。标题也如实：只有真的带更正原因的那一批才叫「更正比较」，
+     * 驳回重提叫「版本差异」——它比较的是两次提交，不是一次更正。
      */
     private void renderComparison(GradeSubmissionDetailDTO value) {
+        if (comparisonTitleLabel != null) {
+            comparisonTitleLabel.setText(comparisonTitle(value));
+        }
         if (comparisonRows == null) return;
         comparisonRows.getChildren().clear();
         for (String line : comparisonLines(value)) {
@@ -99,6 +104,14 @@ public final class GradeApprovalDialogController {
             label.setWrapText(true);
             comparisonRows.getChildren().add(label);
         }
+    }
+
+    /**
+     * 这一节的标题：完全复用审批页的纯文本函数（{@link GradeApprovalController#comparisonTitle}），
+     * 因此同一个批次在两处不会出现两种叫法。
+     */
+    static String comparisonTitle(GradeSubmissionDetailDTO detail) {
+        return GradeApprovalController.comparisonTitle(detail);
     }
 
     /** 弹窗标题行。 */

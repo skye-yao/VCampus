@@ -821,8 +821,13 @@ public final class MockTeacherCourseService implements TeacherCourseService {
     }
 
     /**
-     * 两个版本入口共用一条写路径：校验 operationId → 幂等重放 → 教学班 → 版本 → 状态 → 来源批次，
-     * 然后重开工作副本。校验顺序与真实服务一致，客户端因此能在本地看到同一批冲突文案。
+     * 两个版本入口共用一条写路径：请求体 → operationId → 幂等重放 → 教学班，然后按
+     * <b>没有工作副本 → 待审批批次 → 已打开草稿 → 来源批次与状态 → 期望版本</b>的守卫顺序重开工作副本。
+     *
+     * <p>这个顺序与真实服务的 {@code startRevisionTransaction} 逐条一致，冲突文案也逐字一致，因此客户端
+     * 在本地看到的拒绝理由就是服务端会给的那一句。顺序本身是有意义的：守卫是「为什么不能开始这次版本
+     * 变更」的优先级，版本排在最后——客户端拿着旧版本撞上一个已经打开的草稿时，服务端说「草稿已经打开」，
+     * mock 也必须这么说，否则任何钉住冲突文案的无工具包测试都会钉住一句与服务端无关的假话。
      *
      * <p>mock 的工作副本只有一个分数集合（提交时写进去的那一份），所以“从冻结批次重建”在这里就是
      * “保持原样”——快照复制本身属于服务端语义，由服务端的真实库测试覆盖。
@@ -838,6 +843,9 @@ public final class MockTeacherCourseService implements TeacherCourseService {
             String offeringId = requiredDecimal(request.getOfferingId(), "offeringId");
             String sourceSubmissionId = requiredDecimal(request.getSourceSubmissionId(),
                     "sourceSubmissionId");
+            if (request.getExpectedRevision() < 0) {
+                throw badRequest("expectedRevision 不能为负数");
+            }
             String reason = blankToNull(request.getReason());
             if (correction && reason == null) throw badRequest("更正原因不能为空");
             if (reason != null && reason.length() > GRADE_MAX_REASON) {
@@ -857,11 +865,15 @@ public final class MockTeacherCourseService implements TeacherCourseService {
 
             String id = requireGradeOffering(offeringId);
             MockGradeBook book = gradeBooks.get(id);
-            if (book == null || book.revision() != request.getExpectedRevision()) {
-                throw gradeConflict("成绩草稿版本已变化，请重新加载后重试", snapshotOf(id));
+            // 守卫顺序与服务端逐条一致（pending → 已打开草稿 → 来源批次与状态 → 版本），
+            // 因此本地看到的冲突文案就是服务端会给的那一句。版本放在最后：客户端拿着旧版本
+            // 撞上一个已经打开的草稿时，服务端说的是「草稿已经打开」而不是「版本已变化」。
+            if (book == null) {
+                // 没有工作副本就没有任何批次可复制：虚拟草稿本来就可以直接编辑，不需要“重开”。
+                throw gradeConflict("该教学班还没有成绩批次，不能重开或发起更正", snapshotOf(id));
             }
             if (GRADE_STATE_PENDING.equals(book.state())) {
-                throw gradeConflict("该教学班已有待审批的成绩批次，不能开始新的版本", snapshotOf(id));
+                throw gradeConflict("该教学班已有待审批的成绩批次，请先等待审批结果", snapshotOf(id));
             }
             // 已打开的普通草稿必须先提交或丢弃：草稿只有一份，第二版不能把教师正在改的内容顶掉。
             if (GRADE_STATE_DRAFT.equals(book.state())) {
@@ -869,12 +881,16 @@ public final class MockTeacherCourseService implements TeacherCourseService {
             }
             if (book.lastSubmissionId() == null
                     || !book.lastSubmissionId().equals(sourceSubmissionId)) {
-                throw gradeConflict("来源批次不是该教学班最后一次提交", snapshotOf(id));
+                throw gradeConflict("来源批次不是该教学班最后一次提交，请重新加载后重试",
+                        snapshotOf(id));
             }
             String required = correction ? GRADE_STATE_APPROVED : GRADE_STATE_REJECTED;
             if (!required.equals(book.state())) {
                 throw gradeConflict(correction ? "只有已通过的成绩批次可以发起更正"
                         : "只有被驳回的成绩批次可以重新编辑", snapshotOf(id));
+            }
+            if (book.revision() != request.getExpectedRevision()) {
+                throw gradeConflict("成绩草稿版本已变化，请重新加载后重试", snapshotOf(id));
             }
             book.reopen(sourceSubmissionId, correction ? reason : null);
             TeacherOperationResultDTO<TeacherGradeBookDTO> result = new TeacherOperationResultDTO<>(

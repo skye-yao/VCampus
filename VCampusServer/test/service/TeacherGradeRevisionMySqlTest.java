@@ -7,6 +7,8 @@ import dao.TeacherGradeAuditDAO;
 import dao.TeacherGradeBookDAO;
 import dto.course.admin.approval.ApprovalDecisionRequestDTO;
 import dto.course.admin.approval.ApprovalStatusDTO;
+import dto.course.admin.approval.GradeCorrectionChangeDTO;
+import dto.course.admin.approval.GradeCorrectionComparisonDTO;
 import dto.course.admin.approval.GradeSubmissionDetailDTO;
 import dto.course.admin.result.AdminOperationResultDTO;
 import dto.course.teacher.GradeBookContentDTO;
@@ -639,6 +641,67 @@ public final class TeacherGradeRevisionMySqlTest {
                 "the students still enrolled keep the frozen v1 scores");
         require("75.00".equals(published(H1)),
                 "the roster churn alone never touches the published grade");
+
+        // 管理员看到的那一份比较：把这一版补录进去的学生真的送进批次，再说比较读到了什么。
+        // 补录方向（基础批次没有他）与退课方向（本次批次不再收录他）是这条查询真正的两个边界，
+        // 因此必须走完整条提交路径，而不是在一份手写的 DTO 上断言文字。
+        GradeSubmissionDetailDTO approvalDetail = detailOf(submitCorrection(service, corrected));
+        GradeCorrectionComparisonDTO comparison = approvalDetail.getCorrectionComparison();
+        require(comparison != null, "the correction batch must carry a comparison");
+        require(comparison.getBaseVersion() == 1,
+                "the comparison must name the base batch's version, observed "
+                        + comparison.getBaseVersion());
+        require(ApprovalStatusDTO.APPROVED == comparison.getBaseStatus(),
+                "the comparison must carry the base batch's own status, observed "
+                        + comparison.getBaseStatus());
+        require("补录新生成绩".equals(comparison.getReason()),
+                "the comparison must carry the batch's own correction reason, observed "
+                        + comparison.getReason());
+
+        GradeCorrectionChangeDTO added = null;
+        GradeCorrectionChangeDTO removed = null;
+        boolean unchangedListed = false;
+        for (GradeCorrectionChangeDTO change : comparison.getChanges()) {
+            if (change.isAdded()) added = change;
+            if (change.isRemoved()) removed = change;
+            if (change.getCurrent() != null
+                    && Long.toString(H1).equals(change.getCurrent().getEnrollmentId())) {
+                unchangedListed = true;
+            }
+        }
+        require(!unchangedListed,
+                "a student whose batch values did not move must not be listed at all");
+        require(added != null && removed != null && comparison.getChanges().size() == 2,
+                "exactly one back-filled student and one dropped student must be reported "
+                        + "(observed " + comparison.getChanges().size() + ")");
+        require(added.getPrevious() == null
+                        && Long.toString(H_ADDED).equals(added.getCurrent().getEnrollmentId())
+                        && added.getCurrent().getExperimentScore() != null
+                        && added.getCurrent().getExperimentScore() == 88.0,
+                "a back-filled student has no previous side and keeps the scores just entered");
+        require(removed.getCurrent() == null
+                        && Long.toString(H_DROPPED)
+                                .equals(removed.getPrevious().getEnrollmentId())
+                        && removed.getPrevious().getScore() != null,
+                "a dropped student has no current side and keeps the frozen v1 total");
+    }
+
+    /**
+     * 把更正草稿补齐后提交成 v2：补录进来的学生必须先有分数，否则提交会以“必须补齐所有启用组成的
+     * 成绩”被拒——那正是这条路径上补录与提交之间的关系。
+     *
+     * <p>操作号取 50/51：幂等日志以 {@code (teacher_uid, operation_id)} 为主键，同一个 uid 在一个
+     * 教学班里复用编号会让后来的调用直接重放前一次的结果，而不是真的执行。
+     */
+    private static long submitCorrection(TeacherGradeBookService service,
+                                         TeacherGradeBookDTO corrected) throws Exception {
+        List<GradeRowInputDTO> rows = List.of(row(H1, "90.00", "80.00", "70.00", "60.00"),
+                row(H_ADDED, "88.00", "88.00", "88.00", "88.00"));
+        TeacherGradeBookDTO saved = service.saveDraft(TEACHER,
+                request(op(50), OFF_ROSTER, corrected.getRevision(), corrected.getRosterDigest(),
+                        completeScheme(), rows)).getValue();
+        return Long.parseLong(submit(service, op(51), OFF_ROSTER, saved.getRevision(),
+                completeScheme(), rows).getLastSubmissionId());
     }
 
     // ------------------------------------------------------------ two teachers race
@@ -1166,6 +1229,16 @@ public final class TeacherGradeRevisionMySqlTest {
             throws Exception {
         return service.submitGradeBook(TEACHER, request(operationId, offeringId, expectedRevision,
                 currentDigest(offeringId), scheme, rows)).getValue();
+    }
+
+    /**
+     * 只读地读一份批次详情，走的是审批页真正走的那条路（{@code getGradeSubmission} → {@code detail}）：
+     * 比较就是在这里被算出来的，所以它必须能在真实库上被读到，而不是只存在于构造器签名里。
+     */
+    private static GradeSubmissionDetailDTO detailOf(long submissionId) throws Exception {
+        GradeApprovalService approvals = new GradeApprovalService(new GradeApprovalDAO(),
+                new AdminCourseOperationDAO(), CLOCK);
+        return approvals.getGradeSubmission(Long.toString(submissionId));
     }
 
     private static AdminOperationResultDTO<GradeSubmissionDetailDTO> review(boolean approved,

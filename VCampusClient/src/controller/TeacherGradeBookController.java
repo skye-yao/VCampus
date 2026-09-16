@@ -178,6 +178,12 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
     /** 打开更正表单的一方；默认弹窗口，测试注入替身（与课表页的弹窗打开方式一致）。 */
     private Consumer<Row> correctionOpener = this::openCorrectionDialog;
     /**
+     * 重新编辑的确认：<b>不与</b>{@link #confirmation}共用。那一个的标题是「未保存的成绩」，而重开
+     * 只出现在只读的被驳回批次上——那一刻证明得了「没有任何未保存的成绩」，用一个说自己有未保存内容的
+     * 标题去问要不要重建草稿，是标题在撒谎。这里给它自己的标题。
+     */
+    private Function<String, Boolean> reopenConfirmation = TeacherGradeBookController::confirmReopen;
+    /**
      * 状态提示的文本：本类的唯一事实来源（测试经 {@link #feedbackText()} 读取）。
      *
      * <p>只经 {@link #setFeedback} 写入——它同时推进 {@link #feedbackRevision}，渲染因此能区分
@@ -200,6 +206,14 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
     private String errorText;
     private String pendingSaveOperationId;
     private String pendingSubmitOperationId;
+    /**
+     * 重新编辑的幂等 ID：与保存/提交同一套语义——只在第一次真正发请求时生成，失败后重试复用同一个。
+     *
+     * <p>复用是必要的：服务端已经打开了草稿但响应在网络上丢了时，换一个新 ID 再按一次只会拿到
+     * 「成绩草稿已经打开」的冲突，而这个操作其实早就成功了；同一个 ID 换回来的是那次成功的重放。
+     * 重新加载、切换教学班或离开页面都会作废它（页面状态变了，这一次意图不再成立）。
+     */
+    private String pendingReopenOperationId;
     private long generation;
     /** 当前打开着编辑器的单元格；键盘事件据此决定“交给编辑器”还是“由表格处理”。 */
     private ScoreEditCell activeCell;
@@ -306,6 +320,11 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
     /** 生产路径的确认对话框：在 FX 线程弹模态框，等待用户选择。 */
     private static boolean confirm(String message) {
         return AlertUtil.showConfirm("未保存的成绩", message) == ButtonType.OK;
+    }
+
+    /** 重新编辑的确认框：标题就是它正在问的那件事。 */
+    private static boolean confirmReopen(String message) {
+        return AlertUtil.showConfirm("重新编辑成绩表", message) == ButtonType.OK;
     }
 
     @FXML
@@ -425,6 +444,7 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
         this.model = null;
         this.pendingSaveOperationId = null;
         this.pendingSubmitOperationId = null;
+        this.pendingReopenOperationId = null;
         this.confirmingSubmit = false;
         this.reopening = false;
         // 选中行属于上一个班：新班的更正入口必须等到它自己的表格选中了人才可用。
@@ -631,6 +651,8 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
         reopening = false;
         // 行对象会被整份换掉，旧选中行不再属于这张表。
         selectedRow = null;
+        // 重新加载拿到的是新快照：这条路走完，之前那次重开的意图与它的幂等 ID 都不再成立。
+        pendingReopenOperationId = null;
         render();
         service.getGradeBook(offeringId).whenComplete((book, failure) -> fxExecutor.accept(() -> {
             if (!isCurrent(current)) return;
@@ -814,10 +836,13 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
 
     void reopenRejected() {
         if (!canReopenRejected()) return;
-        if (!confirmation.apply(REOPEN_PROMPT_TEXT)) return;
-        String operationId = UUID.randomUUID().toString();
-        StartGradeRevisionRequestDTO request = new StartGradeRevisionRequestDTO(operationId,
-                offeringId, model.lastSubmissionId(), model.revision(), null);
+        if (!reopenConfirmation.apply(REOPEN_PROMPT_TEXT)) return;
+        if (pendingReopenOperationId == null) {
+            pendingReopenOperationId = UUID.randomUUID().toString();
+        }
+        StartGradeRevisionRequestDTO request = new StartGradeRevisionRequestDTO(
+                pendingReopenOperationId, offeringId, model.lastSubmissionId(), model.revision(),
+                null);
         reopening = true;
         loading = false;
         setFeedback(REOPENING_TEXT);
@@ -839,6 +864,7 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
                     // 重开之后草稿是新的一份：上一次流程的幂等 ID 一律作废。
                     pendingSaveOperationId = null;
                     pendingSubmitOperationId = null;
+                    pendingReopenOperationId = null;
                     setFeedback(REOPEN_SUCCESS_TEXT);
                     errorText = null;
                     render();
@@ -966,6 +992,15 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
     /** 打开更正表单的一方；null 表示回到真实的弹窗口（见 {@link #openCorrectionDialog(Row)}）。 */
     void setCorrectionOpener(Consumer<Row> opener) {
         this.correctionOpener = opener == null ? this::openCorrectionDialog : opener;
+    }
+
+    /**
+     * 重新编辑的确认：消息 → 是否同意；null 表示回到真实的「重新编辑成绩表」对话框。
+     * 它与离开/重新加载那个确认刻意分开，理由见 {@link #reopenConfirmation}。
+     */
+    void setReopenConfirmation(Function<String, Boolean> confirmation) {
+        this.reopenConfirmation = confirmation == null
+                ? TeacherGradeBookController::confirmReopen : confirmation;
     }
 
     // ------------------------------------------------------------------ 编辑
@@ -1747,6 +1782,10 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
 
     String pendingSubmitOperationId() {
         return pendingSubmitOperationId;
+    }
+
+    String pendingReopenOperationId() {
+        return pendingReopenOperationId;
     }
 
     List<Row> rows() {

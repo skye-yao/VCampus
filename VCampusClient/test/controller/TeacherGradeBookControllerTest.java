@@ -65,8 +65,12 @@ public final class TeacherGradeBookControllerTest {
      * 两个教学班，冒烟测试逐条钉住了这两个列表），所以这里由假服务直接给出这份快照。
      */
     private static final String APPROVED_OFFERING = "9007199254740901";
-    private static final String APPROVED_BATCH = "9601";
+    /** 刻意不等于被驳回夹具的批次号（{@code MockTeacherCourseService} 用的是 "9601"）：两者相同会让
+     *  “重开不改变最后一次批次”的断言退化成同一个字符串比两次，从而永远为真。 */
+    private static final String APPROVED_BATCH = "9701";
     private static final String APPROVED_ENROLLMENT = "9001";
+    /** 被驳回夹具那一次提交的批次号，与 {@code MockTeacherCourseService.GRADE_SUBMISSION_ID} 一致。 */
+    private static final String REJECTED_BATCH = "9601";
     /** 与 MockTeacherCourseService 的已驳回夹具一致：只读提示里应出现这句话。 */
     private static final String REJECTED_REVIEW_COMMENT = "总分与平时分不一致，请核对后重新提交";
     private static final String GRADE_VIEW = "/resources/fxml/TeacherGradeView.fxml";
@@ -90,6 +94,7 @@ public final class TeacherGradeBookControllerTest {
         releasedPageIgnoresLateResponses();
         readOnlyBookShowsTheReviewStateAndBlocksWrites();
         rejectedBookOffersTheExplicitReopenEntry();
+        aFailedReopenRetriesWithTheSameOperationId();
         pendingBookOffersNoEditableVersionEntry();
         approvedBookIsReachableOnlyThroughTheCorrectionEntry();
         theCorrectionEntryCarriesTheProposedScoresThroughTheOrdinarySave();
@@ -553,10 +558,17 @@ public final class TeacherGradeBookControllerTest {
      * 承诺“未保存的修改都会保留”会是一句与服务器行为矛盾的话。
      */
     private static void rejectedBookOffersTheExplicitReopenEntry() {
-        List<String> asked = new ArrayList<>();
+        List<String> leaveAsks = new ArrayList<>();
+        List<String> reopenAsks = new ArrayList<>();
         RecordingService declining = new RecordingService();
-        TeacherGradeBookController cancelled = controller(declining, message -> {
-            asked.add(message);
+        TeacherGradeBookController cancelled =
+                new TeacherGradeBookController(declining, Runnable::run, message -> {
+                    leaveAsks.add(message);
+                    return false;
+                });
+        // 重新编辑有自己的确认框：标题是它正在问的那件事，不能借用「未保存的成绩」。
+        cancelled.setReopenConfirmation(message -> {
+            reopenAsks.add(message);
             return false;
         });
         cancelled.showOffering(REJECTED_OFFERING);
@@ -566,7 +578,11 @@ public final class TeacherGradeBookControllerTest {
 
         cancelled.reopenRejected();
 
-        require(asked.size() == 1, "重新编辑必须先问一次，收到 " + asked);
+        require(reopenAsks.size() == 1 && leaveAsks.isEmpty(),
+                "重新编辑必须走它自己的确认框，而不是离开/重新加载那一个，收到 "
+                        + reopenAsks + "/" + leaveAsks);
+        require(cancelled.pendingReopenOperationId() == null,
+                "在确认框上取消不能消耗任何 operationId");
         require(declining.reopens.isEmpty(), "在确认框上取消不能发出任何请求");
         require("REJECTED".equals(cancelled.model().state()) && !cancelled.dirty(),
                 "取消之后批次状态与编辑内容都不能变，收到 " + cancelled.model().state());
@@ -580,8 +596,9 @@ public final class TeacherGradeBookControllerTest {
         TeacherGradeBookController controller = controller(service, message -> true);
         controller.showOffering(REJECTED_OFFERING);
         int revisionBefore = controller.model().revision();
-        String batchBefore = controller.model().lastSubmissionId();
-        require(batchBefore != null, "已驳回的夹具必须带着它那一批的批次号");
+        require(REJECTED_BATCH.equals(controller.model().lastSubmissionId()),
+                "已驳回的夹具必须带着它那一批的批次号，收到 "
+                        + controller.model().lastSubmissionId());
 
         controller.reopenRejected();
 
@@ -589,7 +606,7 @@ public final class TeacherGradeBookControllerTest {
                 "确认后必须恰好发一次重开请求，收到 " + service.reopens.size());
         StartGradeRevisionRequestDTO request = service.reopens.get(0);
         require(REJECTED_OFFERING.equals(request.getOfferingId())
-                        && batchBefore.equals(request.getSourceSubmissionId())
+                        && REJECTED_BATCH.equals(request.getSourceSubmissionId())
                         && request.getExpectedRevision() == revisionBefore,
                 "重开请求必须指向本班最后一次被驳回的批次与当前版本，收到 "
                         + request.getOfferingId() + "/" + request.getSourceSubmissionId() + "/"
@@ -598,14 +615,51 @@ public final class TeacherGradeBookControllerTest {
 
         require("DRAFT".equals(controller.model().state()) && controller.model().canEdit(),
                 "重开之后必须回到可编辑的草稿，收到 " + controller.model().state());
-        require(APPROVED_BATCH.equals(controller.model().lastSubmissionId())
-                        || batchBefore.equals(controller.model().lastSubmissionId()),
-                "重开不改变最后一次批次");
+        // 只认那个字面量：写成 `A.equals(x) || B.equals(x)` 而两个常量恰好相同，就等于什么都没断言。
+        require(REJECTED_BATCH.equals(controller.model().lastSubmissionId()),
+                "重开不改变最后一次批次，收到 " + controller.model().lastSubmissionId());
         require(!controller.canReopenRejected(), "已经重开的草稿不能再重开");
+        require(controller.pendingReopenOperationId() == null,
+                "重开成功之后这一次意图的 operationId 必须作废");
         require(controller.feedbackText() != null
                         && controller.feedbackText().contains("重新提交"),
                 "重开成功必须给出反馈，收到 " + controller.feedbackText());
         require(!controller.dirty(), "重开本身不是未保存的修改");
+    }
+
+    /**
+     * 重开失败之后重试必须复用同一个 operationId：服务端可能已经打开了草稿，只是响应在网络上丢了，
+     * 换一个新 ID 再按一次只会拿到「成绩草稿已经打开」的冲突——而这操作其实早就成功了。
+     */
+    private static void aFailedReopenRetriesWithTheSameOperationId() {
+        RecordingService service = new RecordingService();
+        service.reopenFailure = new TeacherCourseServiceException(MessageCode.ERROR, "连接中断");
+        TeacherGradeBookController controller = controller(service, message -> true);
+        controller.showOffering(REJECTED_OFFERING);
+
+        controller.reopenRejected();
+
+        require(service.reopens.size() == 1, "第一次确认必须发出一次请求");
+        String first = service.reopens.get(0).getOperationId();
+        require(first != null && first.equals(controller.pendingReopenOperationId()),
+                "在途重开的 operationId 必须是这一次确认里生成的那一个");
+        require("REJECTED".equals(controller.model().state()),
+                "重开失败不能改变批次状态，收到 " + controller.model().state());
+        require(controller.feedbackText() != null && controller.feedbackText().contains("重试"),
+                "重开失败必须给出可重试的反馈，收到 " + controller.feedbackText());
+
+        controller.reopenRejected();
+
+        require(service.reopens.size() == 2
+                        && first.equals(service.reopens.get(1).getOperationId()),
+                "原样重试必须复用同一个 operationId，收到 "
+                        + service.reopens.get(1).getOperationId());
+
+        service.reopenFailure = null;
+        controller.reopenRejected();
+        require("DRAFT".equals(controller.model().state()) && controller.pendingReopenOperationId()
+                        == null,
+                "成功之后这一次意图的 operationId 必须作废");
     }
 
     /** 待审核只读：两个版本入口一个都不出现，而且调用它们真的发不出任何请求。 */
@@ -856,9 +910,16 @@ public final class TeacherGradeBookControllerTest {
 
     // ------------------------------------------------------------------ 辅助
 
+    /**
+     * 无工具包的控制器：确认函数注入固定回答。重新编辑有自己的确认框（标题不同），这里一并注入
+     * 同一个回答——生产路径上它是 {@code AlertUtil} 的「重新编辑成绩表」，在测试里弹不出来。
+     */
     private static TeacherGradeBookController controller(TeacherCourseService service,
             java.util.function.Function<String, Boolean> confirmation) {
-        return new TeacherGradeBookController(service, Runnable::run, confirmation);
+        TeacherGradeBookController controller =
+                new TeacherGradeBookController(service, Runnable::run, confirmation);
+        controller.setReopenConfirmation(confirmation);
+        return controller;
     }
 
     /** 把这个夹具的权重配齐成 30/20/20/30（等价于界面上依次输入百分比）。 */
@@ -1026,6 +1087,8 @@ public final class TeacherGradeBookControllerTest {
                 submitResponses = new ArrayDeque<>();
         private CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> heldSubmit;
         private RuntimeException saveFailure;
+        /** 注入一次重开失败：服务端可能已经开好了草稿，只是响应没回来。 */
+        private RuntimeException reopenFailure;
         private CompletableFuture<TeacherGradeBookDTO> pendingBook;
         /** 已通过批次的代码内快照；mock 的成绩夹具没有这一种状态（见 APPROVED_OFFERING 的说明）。 */
         private TeacherGradeBookDTO approvedBook;
@@ -1095,6 +1158,7 @@ public final class TeacherGradeBookControllerTest {
         public CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>>
                 reopenRejectedGradeBook(StartGradeRevisionRequestDTO request) {
             reopens.add(request);
+            if (reopenFailure != null) return failed(reopenFailure);
             return delegate.reopenRejectedGradeBook(request);
         }
 

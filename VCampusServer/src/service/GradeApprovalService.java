@@ -446,7 +446,10 @@ public class GradeApprovalService {
                 changes.add(new GradeCorrectionChangeDTO(mapItem(before), null));
             }
         }
-        return new GradeCorrectionComparisonDTO(base.version(), row.correctionReason(), changes);
+        // The base's own status travels with the comparison: a resubmission after a rejection is
+        // based on a batch that was never approved, and the admin surface must be able to say so.
+        return new GradeCorrectionComparisonDTO(base.version(), base.status(),
+                row.correctionReason(), changes);
     }
 
     /**
