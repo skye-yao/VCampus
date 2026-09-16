@@ -68,6 +68,8 @@ public class ShopController {
 
     @FXML private TextField keywordField;
     @FXML private ComboBox<String> categoryCombo;
+    @FXML private TextField adminKeywordField;
+    @FXML private ComboBox<String> adminCategoryFilter;
     @FXML private Spinner<Integer> productQuantitySpinner;
     @FXML private Label productQuantityLabel;
     @FXML private Button addCartButton;
@@ -151,6 +153,8 @@ public class ShopController {
     private boolean imageUploadInProgress;
     /** “重置”会同时改动关键字和分类，期间抑制分类监听的重复查询。 */
     private boolean suppressProductFilterRefresh;
+    /** 后台筛选重置时抑制分类监听的重复查询。 */
+    private boolean suppressAdminFilterRefresh;
     /** 商品中心缩略图缓存：商品编号 -> 已解码的小图，避免每次切换视图都重新请求。 */
     private final Map<Long, Image> productThumbnails = new HashMap<>();
     /** 已确认没有图片的商品，用于显示“暂无图片”占位。 */
@@ -176,6 +180,15 @@ public class ShopController {
                 });
         adminCategoryField.setItems(FXCollections.observableArrayList(
                 "文具", "教材资料", "校园纪念品", "生活用品", "食品"));
+        // 商品后台的筛选与商品中心相互独立：商品维护与库存管理共用这一套。
+        adminCategoryFilter.setItems(FXCollections.observableArrayList(
+                "全部分类", "文具", "教材资料", "校园纪念品", "生活用品", "食品"));
+        adminCategoryFilter.getSelectionModel().selectFirst();
+        adminCategoryFilter.getSelectionModel().selectedItemProperty().addListener(
+                (observable, oldValue, selected) -> {
+                    if (selected == null || suppressAdminFilterRefresh) return;
+                    refreshAdminProducts();
+                });
         productQuantitySpinner.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(1, 99, 1));
 
         boolean admin = isAdmin();
@@ -199,7 +212,7 @@ public class ShopController {
                         selected == null || selected.getStock() == null ? "" : String.valueOf(selected.getStock())));
         applyProductView();
         refreshProducts();
-        if (admin) refreshAdminDashboard();
+        if (admin) { refreshAdminProducts(); refreshAdminDashboard(); }
         else { refreshCart(); refreshOrders(); }
     }
 
@@ -343,6 +356,22 @@ public class ShopController {
             suppressProductFilterRefresh = false;
         }
         refreshProducts();
+    }
+
+    @FXML
+    private void handleAdminSearch() { refreshAdminProducts(); }
+
+    /** 重置商品后台的筛选条件，只刷新一次。 */
+    @FXML
+    private void handleAdminResetFilters() {
+        suppressAdminFilterRefresh = true;
+        try {
+            adminKeywordField.clear();
+            adminCategoryFilter.getSelectionModel().selectFirst();
+        } finally {
+            suppressAdminFilterRefresh = false;
+        }
+        refreshAdminProducts();
     }
 
     @FXML
@@ -883,7 +912,7 @@ public class ShopController {
         Message request = productRequest(MessageType.SHOP_PRODUCT_CREATE, input);
         Runnable afterCreate = () -> {
             AlertUtil.showInfo("商品管理", "商品新增成功，已默认上架");
-            refreshProducts();
+            refreshAllProductViews();
             refreshOperationLogs();
         };
         if (selectedImage[0] == null) send(request, response -> afterCreate.run());
@@ -936,7 +965,7 @@ public class ShopController {
                 while (cause instanceof CompletionException && cause.getCause() != null) cause = cause.getCause();
                 if (requestStarted.get()) {
                     AlertUtil.showWarning("商品图片", "上传结果尚未确认。请先刷新商品列表和操作日志，确认是否已经保存，再决定是否重试。\n原因：" + cause.getMessage());
-                    refreshProducts();
+                    refreshAllProductViews();
                     refreshOperationLogs();
                 } else {
                     AlertUtil.showError("商品图片", "读取图片失败：" + cause.getMessage());
@@ -968,7 +997,7 @@ public class ShopController {
         request.putData("version", selected.getVersion());
         sendImageRequest(request, file, () -> {
             AlertUtil.showInfo("商品图片", "商品图片已更新");
-            refreshProducts();
+            refreshAllProductViews();
             refreshOperationLogs();
         }, () -> loadAdminProductPreview(selected));
     }
@@ -1014,7 +1043,7 @@ public class ShopController {
         Message request = productRequest(MessageType.SHOP_PRODUCT_UPDATE, input);
         send(request, response -> {
             AlertUtil.showInfo("商品管理", "商品信息已更新");
-            refreshProducts();
+            refreshAllProductViews();
             refreshOperationLogs();
         });
     }
@@ -1033,7 +1062,7 @@ public class ShopController {
         request.putData("status", target.getCode());
         request.putData("version", selected.getVersion());
         send(request, response -> {
-            refreshProducts();
+            refreshAllProductViews();
             refreshOperationLogs();
         });
     }
@@ -1054,7 +1083,7 @@ public class ShopController {
             request.putData("version", selected.getVersion());
             send(request, response -> {
                 AlertUtil.showInfo("库存管理", "库存调整成功");
-                refreshProducts();
+                refreshAllProductViews();
                 refreshOperationLogs();
             });
         } catch (NumberFormatException e) {
@@ -1062,23 +1091,35 @@ public class ShopController {
         }
     }
 
+    /** 商品中心的列表：只影响商品中心与缩略图视图，与商品后台的筛选互不干扰。 */
     private void refreshProducts() {
         Message request = request(MessageType.SHOP_PRODUCT_LIST);
         request.putData("keyword", keywordField == null ? "" : keywordField.getText());
         String category = categoryCombo == null ? "" : categoryCombo.getValue();
         request.putData("category", "全部分类".equals(category) ? "" : category);
         send(request, response -> {
-            Product previous = adminProductTable.getSelectionModel().getSelectedItem();
-            Long selectedId = previous == null ? null : previous.getProductId();
             Product[] products = gson.fromJson(gson.toJson((Object) response.getData("products")), Product[].class);
             productTable.setItems(FXCollections.observableArrayList(products));
-            adminProductTable.setItems(FXCollections.observableArrayList(products));
-            inventoryProductTable.setItems(FXCollections.observableArrayList(products));
             // 商品数据可能已变化（例如管理员换了图），缩略图缓存随之失效并重绘。
             currentProducts = List.of(products);
             productThumbnails.clear();
             productThumbnailsMissing.clear();
             if (isGalleryVisible()) renderProductGallery();
+        });
+    }
+
+    /** 商品维护与库存管理共用的列表：使用后台自己的筛选条件。 */
+    private void refreshAdminProducts() {
+        Message request = request(MessageType.SHOP_PRODUCT_LIST);
+        request.putData("keyword", adminKeywordField == null ? "" : adminKeywordField.getText());
+        String category = adminCategoryFilter == null ? "" : adminCategoryFilter.getValue();
+        request.putData("category", "全部分类".equals(category) ? "" : category);
+        send(request, response -> {
+            Product previous = adminProductTable.getSelectionModel().getSelectedItem();
+            Long selectedId = previous == null ? null : previous.getProductId();
+            Product[] products = gson.fromJson(gson.toJson((Object) response.getData("products")), Product[].class);
+            adminProductTable.setItems(FXCollections.observableArrayList(products));
+            inventoryProductTable.setItems(FXCollections.observableArrayList(products));
             if (selectedId != null) {
                 for (Product product : products) {
                     if (selectedId.equals(product.getProductId())) {
@@ -1088,6 +1129,12 @@ public class ShopController {
                 }
             }
         });
+    }
+
+    /** 管理员改动商品之后，商品中心与后台两个视图都要刷新。 */
+    private void refreshAllProductViews() {
+        refreshProducts();
+        refreshAdminProducts();
     }
 
     /** 商品中心当前的展示方式：true 表示缩略图，false 表示列表。 */
@@ -1321,7 +1368,7 @@ public class ShopController {
         request.putData("comment", comment.get()); request.putData("requestId", UUID.randomUUID().toString());
         send(request, response -> {
             AlertUtil.showInfo("退款审核", approved ? "退款已原路退回校园银行账户" : "退款申请已拒绝");
-            refreshAdminDashboard(); refreshProducts();
+            refreshAdminDashboard(); refreshAllProductViews();
         });
     }
 

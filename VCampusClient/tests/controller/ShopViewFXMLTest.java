@@ -42,8 +42,32 @@ public class ShopViewFXMLTest {
                 throw new AssertionError("重置按钮未连接处理方法");
             }
             ShopController.class.getDeclaredMethod("handleResetProductFilters");
+
+            // 商品后台的独立筛选控件，与商品中心互不影响。
+            Element adminKeyword = requireId(document, "adminKeywordField");
+            if (!"#handleAdminSearch".equals(adminKeyword.getAttribute("onAction"))) {
+                throw new AssertionError("后台关键字框未连接回车查询");
+            }
+            requireId(document, "adminCategoryFilter");
+            if (!hasOnAction(document, "#handleAdminSearch")) {
+                throw new AssertionError("后台查询按钮未连接处理方法");
+            }
+            if (!hasOnAction(document, "#handleAdminResetFilters")) {
+                throw new AssertionError("后台重置按钮未连接处理方法");
+            }
+            ShopController.class.getDeclaredMethod("handleAdminSearch");
+            ShopController.class.getDeclaredMethod("handleAdminResetFilters");
         }
         System.out.println("ShopViewFXMLTest PASS");
+    }
+
+    private static boolean hasOnAction(Document document, String action) {
+        NodeList nodes = document.getElementsByTagName("*");
+        for (int i = 0; i < nodes.getLength(); i++) {
+            Element element = (Element) nodes.item(i);
+            if (action.equals(element.getAttribute("onAction"))) return true;
+        }
+        return false;
     }
 
     private static Element requireId(Document document, String id) {

@@ -117,14 +117,20 @@
                             <Tab text="商品维护">
                                 <BorderPane>
                                     <top>
-                                        <HBox alignment="CENTER_RIGHT" spacing="10" styleClass="shop-actionbar">
-                                            <padding><Insets bottom="12" left="18" right="18" top="14"/></padding>
-                                            <Label styleClass="hint-text" text="选择商品后可修改基本信息或调整上下架状态"/>
-                                            <Region HBox.hgrow="ALWAYS"/>
-                                            <Label fx:id="shopUploadStatusLabel" styleClass="hint-text" text=""/>
-                                            <Button fx:id="createProductButton" onAction="#handleOpenCreateProduct" styleClass="btn-primary" text="新增商品"/>
-                                        </HBox>
-                                    </top>
+                            <VBox spacing="8" styleClass="shop-toolbar">
+                                <padding><Insets bottom="12" left="18" right="18" top="14"/></padding>
+                                <HBox alignment="CENTER_LEFT" spacing="10">
+                                    <TextField fx:id="adminKeywordField" onAction="#handleAdminSearch" prefWidth="190" promptText="搜索商品名称" styleClass="form-control"/>
+                                    <ComboBox fx:id="adminCategoryFilter" prefWidth="140" styleClass="form-control"/>
+                                    <Button minWidth="72" onAction="#handleAdminSearch" styleClass="btn-secondary" text="查询"/>
+                                    <Button minWidth="72" onAction="#handleAdminResetFilters" styleClass="btn-secondary" text="重置"/>
+                                    <Region HBox.hgrow="ALWAYS"/>
+                                    <Label fx:id="shopUploadStatusLabel" styleClass="hint-text" text=""/>
+                                    <Button fx:id="createProductButton" onAction="#handleOpenCreateProduct" styleClass="btn-primary" text="新增商品"/>
+                                </HBox>
+                                <Label styleClass="hint-text" text="选择商品后可修改基本信息或调整上下架状态；库存管理沿用这里的筛选条件"/>
+                            </VBox>
+                        </top>
                                     <center>
                                       <SplitPane dividerPositions="0.66">
                                         <items>

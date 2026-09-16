@@ -527,6 +527,20 @@ VALUES
 (12,'USB桌面小风扇','宿舍桌面静音三档小风扇','生活用品',49.00,32,'ON_SALE')
 ON DUPLICATE KEY UPDATE `product_name`=VALUES(`product_name`);
 
+-- 食品分类的三件商品：同名商品已存在时跳过，不指定主键，不会覆盖已有商品。
+INSERT INTO `tbl_product` (`product_name`,`description`,`category`,`price`,`stock`,`status`)
+SELECT '全脂纯牛奶（250ml×12盒）', '250ml×12盒装。配料为生牛乳，蛋白质≥3.2g/100ml，口感醇厚，适合早餐饮用。保质期6个月，生产日期见包装喷码，未开封常温避光保存，开封后需冷藏并尽快喝完。', '食品', 45.00, 60, 'ON_SALE'
+FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `tbl_product` WHERE `product_name`='全脂纯牛奶（250ml×12盒）');
+
+INSERT INTO `tbl_product` (`product_name`,`description`,`category`,`price`,`stock`,`status`)
+SELECT '原味黄油饼干（200g袋装）', '200g袋装，内含独立小包装。由小麦粉、黄油、鸡蛋制成，奶香浓郁、口感酥脆，适合课间加餐。保质期9个月，生产日期见包装喷码，开封后密封保存。含小麦、乳制品和蛋类。', '食品', 12.50, 80, 'ON_SALE'
+FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `tbl_product` WHERE `product_name`='原味黄油饼干（200g袋装）');
+
+INSERT INTO `tbl_product` (`product_name`,`description`,`category`,`price`,`stock`,`status`)
+SELECT '可乐汽水（330ml×6罐）', '330ml×6罐一提，含气碳酸饮料。经典口味，冰镇后更清爽，适合聚餐或运动后饮用。保质期12个月，生产日期见包装喷码，常温避光保存，开封后尽快饮用。含糖，请适量饮用。', '食品', 18.00, 70, 'ON_SALE'
+FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `tbl_product` WHERE `product_name`='可乐汽水（330ml×6罐）');
+
+
 -- ==================== 校园银行模块（基础版） ====================
 CREATE TABLE IF NOT EXISTS `tbl_bank_account` (
     `account_id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '虚拟账户主键',
