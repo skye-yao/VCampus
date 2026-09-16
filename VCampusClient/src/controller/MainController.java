@@ -55,10 +55,12 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.prefs.Preferences;
 
 public class MainController {
 
     private static final Set<String> SHOWN_REJECTED_REQUESTS = ConcurrentHashMap.newKeySet();
+    private static final Preferences NOTICE_PREFERENCES = Preferences.userNodeForPackage(MainController.class);
 
     static final String ADMIN_COURSE_VIEW = "/resources/fxml/AdminCourseManagementView.fxml";
     static final String STUDENT_COURSE_VIEW = "/resources/fxml/CourseManagementView.fxml";
@@ -463,25 +465,31 @@ public class MainController {
 
         Message studentRequest = new Message(MessageType.STUDENT_REVIEW_LIST, "student", "listPendingRequests");
         SocketClient.getInstance().sendAsync(studentRequest).thenAccept(response -> Platform.runLater(() -> {
-            if (libraryBorrowNoticeLabel != null) {
-                long count = pendingReviewCount(response);
-                libraryBorrowNoticeLabel.setText(count < 0 ? "学生信息审核待办加载失败" : "你有 " + count + " 条学生信息待审核");
-            }
+            long count = pendingReviewCount(response);
+            updateReviewNotice(noticeItemOne, libraryBorrowNoticeLabel, count, "学生");
         })).exceptionally(error -> {
-            Platform.runLater(() -> libraryBorrowNoticeLabel.setText("学生信息审核待办加载失败"));
+            Platform.runLater(() -> updateReviewNotice(
+                    noticeItemOne, libraryBorrowNoticeLabel, -1, "学生"));
             return null;
         });
 
         Message teacherRequest = new Message(MessageType.TEACHER_REVIEW_LIST, "teacher", "reviews");
         SocketClient.getInstance().sendAsync(teacherRequest).thenAccept(response -> Platform.runLater(() -> {
-            if (libraryReservationNoticeLabel != null) {
-                long count = pendingReviewCount(response);
-                libraryReservationNoticeLabel.setText(count < 0 ? "教师信息审核待办加载失败" : "你有 " + count + " 条教师信息待审核");
-            }
+            long count = pendingReviewCount(response);
+            updateReviewNotice(noticeItemTwo, libraryReservationNoticeLabel, count, "教师");
         })).exceptionally(error -> {
-            Platform.runLater(() -> libraryReservationNoticeLabel.setText("教师信息审核待办加载失败"));
+            Platform.runLater(() -> updateReviewNotice(
+                    noticeItemTwo, libraryReservationNoticeLabel, -1, "教师"));
             return null;
         });
+    }
+
+    private void updateReviewNotice(HBox item, Label label, long count, String applicantType) {
+        setManagedVisible(item, count != 0);
+        if (label == null || count == 0) return;
+        label.setText(count < 0
+                ? applicantType + "信息审核待办加载失败"
+                : "你有 " + count + " 条" + applicantType + "信息待审核");
     }
 
     private long pendingReviewCount(Message response) {
@@ -1069,12 +1077,19 @@ public class MainController {
         String token = ClientSession.getInstance().getToken();
         if (token == null || token.isBlank()) return;
 
-        String noticeKey = token + ":" + applicantType + ":" + String.valueOf(requestId);
+        String username = ClientSession.getInstance().getUsername();
+        if (username == null || username.isBlank()) return;
+
+        String noticeKey = "rejected." + applicantType + "." + username + "." + String.valueOf(requestId);
+        if (NOTICE_PREFERENCES.getBoolean(noticeKey, false)) return;
         if (!SHOWN_REJECTED_REQUESTS.add(noticeKey)) return;
 
         Platform.runLater(() -> {
             if (Objects.equals(token, ClientSession.getInstance().getToken())) {
+                NOTICE_PREFERENCES.putBoolean(noticeKey, true);
                 warningReporter.accept("审核信息提醒", "审核信息被退回，请重新修改");
+            } else {
+                SHOWN_REJECTED_REQUESTS.remove(noticeKey);
             }
         });
     }
