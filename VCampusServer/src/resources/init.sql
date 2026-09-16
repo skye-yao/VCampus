@@ -509,27 +509,42 @@ CREATE TABLE IF NOT EXISTS `tbl_shop_operation_log` (
     CONSTRAINT `fk_shop_log_operator` FOREIGN KEY (`operator_id`) REFERENCES `tbl_user` (`UID`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='商店后台操作日志表';
 
--- 商店演示商品。重复执行脚本不会重复插入。
+-- 商店演示商品。重复执行脚本不会重复插入；价格、分类和库存与课程演示库保持一致
+-- （库存是演示订单成交并扣减之后的数值）。
 INSERT INTO `tbl_product`
 (`product_id`,`product_name`,`description`,`category`,`price`,`stock`,`status`)
 VALUES
 (1,'东大纪念笔记本','校园主题硬壳笔记本','校园纪念品',18.80,60,'ON_SALE'),
 (2,'黑色中性笔套装','0.5mm黑色中性笔，5支装','文具',9.90,120,'ON_SALE'),
 (3,'Java程序设计参考书','适合课程实训的Java基础参考资料','教材资料',56.00,30,'ON_SALE'),
-(4,'校园帆布袋','简洁耐用的校园纪念帆布袋','生活用品',29.90,45,'ON_SALE'),
-(5,'东大校徽徽章','金属烤漆校园纪念徽章','校园纪念品',12.00,80,'ON_SALE'),
+(4,'校园帆布袋','简洁耐用的校园纪念帆布袋','校园纪念品',29.90,44,'ON_SALE'),
+(5,'东大校徽徽章','金属烤漆校园纪念徽章','校园纪念品',12.00,81,'ON_SALE'),
 (6,'A4横线活页本','80页可替换内芯课堂笔记本','文具',15.50,75,'ON_SALE'),
-(7,'数据结构课程辅导书','包含基础算法讲解和课程练习','教材资料',48.00,35,'ON_SALE'),
-(8,'便携折叠雨伞','校园生活便携晴雨两用伞','生活用品',39.90,40,'ON_SALE'),
-(9,'校园马克杯','陶瓷校园建筑图案马克杯','校园纪念品',32.00,50,'ON_SALE'),
-(10,'荧光笔六色套装','适合教材标记的柔和色荧光笔','文具',16.80,90,'ON_SALE'),
+(7,'数据结构课程辅导书','包含基础算法讲解和课程练习','教材资料',48.00,37,'ON_SALE'),
+(8,'便携折叠雨伞','校园生活便携晴雨两用伞','生活用品',39.90,39,'ON_SALE'),
+(9,'校园马克杯','陶瓷校园建筑图案马克杯','生活用品',32.00,50,'ON_SALE'),
+(10,'荧光笔六色套装','适合教材标记的柔和色荧光笔','文具',16.80,86,'ON_SALE'),
 (11,'计算机网络实验指导','配套网络课程实验与复习','教材资料',42.00,28,'ON_SALE'),
-(12,'USB桌面小风扇','宿舍桌面静音三档小风扇','生活用品',49.00,32,'ON_SALE')
+(12,'USB桌面小风扇','宿舍桌面静音三档小风扇','生活用品',48.00,28,'ON_SALE')
 ON DUPLICATE KEY UPDATE `product_name`=VALUES(`product_name`);
 
 -- 商品图片不在本文件里：图片以二进制存在 tbl_product_image，体积较大，
 -- 单独放在 seed/seed-product-images.sql（按商品名匹配，可重复执行）。
 -- 商店演示订单与对应银行流水见 seed/seed-shop-demo-orders.sql。
+
+-- 演示库中另行上架的三种日用品：商店历史订单和后台日志会引用它们；
+-- 同名商品已存在时跳过，不指定主键，不会覆盖已有商品。
+INSERT INTO `tbl_product` (`product_name`,`description`,`category`,`price`,`stock`,`status`)
+SELECT '便携折叠雨伞2', '校园生活便携晴雨两用伞', '生活用品', 39.90, 17, 'OFF_SALE'
+FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `tbl_product` WHERE `product_name`='便携折叠雨伞2');
+
+INSERT INTO `tbl_product` (`product_name`,`description`,`category`,`price`,`stock`,`status`)
+SELECT '牙刷', '软毛牙刷，独立包装，刷毛柔韧，适合日常清洁。', '生活用品', 15.00, 29, 'ON_SALE'
+FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `tbl_product` WHERE `product_name`='牙刷');
+
+INSERT INTO `tbl_product` (`product_name`,`description`,`category`,`price`,`stock`,`status`)
+SELECT '牙膏', '薄荷香型牙膏，清洁口腔、清新口气，适合学生宿舍日常使用。', '生活用品', 10.00, 20, 'ON_SALE'
+FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `tbl_product` WHERE `product_name`='牙膏');
 
 -- 食品分类的三件商品：同名商品已存在时跳过，不指定主键，不会覆盖已有商品。
 INSERT INTO `tbl_product` (`product_name`,`description`,`category`,`price`,`stock`,`status`)
@@ -726,6 +741,787 @@ SET t.`counterparty_user_id`=u.`UID`
 WHERE t.`counterparty_user_id` IS NULL
   AND t.`transaction_type` IN
       ('TUITION_PAYMENT','SHOP_PAYMENT','SHOP_REFUND','REIMBURSEMENT');
+
+-- ==================== 商店与银行演示业务数据 ====================
+-- 下面的订单、退款、后台日志、商品评价、购物车、资金流水、报销和账单，
+-- 全部取自课程演示库 virtual_campus（2026-09-16 的快照），
+-- 目的是让“克隆仓库 + 只跑 init.sql”的新环境也能看到与演示时一致的商店、银行记录。
+-- 三条约定：
+--   1) 只有商店业务表和银行资金流水都还是空库时才会导入，已经用过的数据库原样保留；
+--   2) 商品、订单一律用业务编号（商品名称、订单号、流水号）关联，不依赖自增主键，
+--      因此新库的自增编号与演示库不同也能正确挂上关系；
+--   3) 每条语句都带 ON DUPLICATE KEY UPDATE，重复执行不会产生重复记录。
+
+SET @seed_demo_shop = (SELECT CASE WHEN
+    (SELECT COUNT(*) FROM `tbl_shop_order`) = 0
+    AND (SELECT COUNT(*) FROM `tbl_shop_refund`) = 0
+    AND (SELECT COUNT(*) FROM `tbl_shop_operation_log`) = 0
+    AND (SELECT COUNT(*) FROM `tbl_product_review`) = 0
+    THEN 1 ELSE 0 END);
+
+SET @seed_demo_bank = (SELECT CASE WHEN
+    (SELECT COUNT(*) FROM `tbl_bank_transaction`
+     WHERE `transaction_type` NOT IN ('INITIAL_BALANCE','ACCOUNT_RECHARGE')) = 0
+    THEN 1 ELSE 0 END);
+
+-- 1. 商店订单：12 笔，覆盖已支付、已取消、已过期、已退款四种状态
+INSERT INTO `tbl_shop_order`
+(`order_no`,`user_id`,`total_amount`,`status`,`payment_transaction_no`,
+ `expires_at`,`paid_at`,`cancelled_at`,`version`,`created_at`,`updated_at`)
+SELECT 'SO202609021044243027EA','213242789',253.90,'REFUNDED','BT2026090210460545446757','2026-09-02 11:14:24','2026-09-02 10:46:05',NULL,3,'2026-09-02 10:44:24','2026-09-02 11:46:39'
+FROM DUAL WHERE @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `order_no`=VALUES(`order_no`);
+INSERT INTO `tbl_shop_order`
+(`order_no`,`user_id`,`total_amount`,`status`,`payment_transaction_no`,
+ `expires_at`,`paid_at`,`cancelled_at`,`version`,`created_at`,`updated_at`)
+SELECT 'SO202609021057407F5733','213242789',15.50,'CANCELLED',NULL,'2026-09-02 11:27:40',NULL,'2026-09-02 10:58:02',1,'2026-09-02 10:57:40','2026-09-02 10:58:02'
+FROM DUAL WHERE @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `order_no`=VALUES(`order_no`);
+INSERT INTO `tbl_shop_order`
+(`order_no`,`user_id`,`total_amount`,`status`,`payment_transaction_no`,
+ `expires_at`,`paid_at`,`cancelled_at`,`version`,`created_at`,`updated_at`)
+SELECT 'SO202609021144429CBB40','213242789',90.30,'PAID','BT20260902114454A2A6BFEA','2026-09-02 12:14:42','2026-09-02 11:44:54',NULL,1,'2026-09-02 11:44:42','2026-09-02 11:44:54'
+FROM DUAL WHERE @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `order_no`=VALUES(`order_no`);
+INSERT INTO `tbl_shop_order`
+(`order_no`,`user_id`,`total_amount`,`status`,`payment_transaction_no`,
+ `expires_at`,`paid_at`,`cancelled_at`,`version`,`created_at`,`updated_at`)
+SELECT 'SO202609021148478C83C2','213242789',39.90,'PAID','BT20260902114859D00271CC','2026-09-02 12:18:47','2026-09-02 11:48:59',NULL,4,'2026-09-02 11:48:47','2026-09-02 13:31:45'
+FROM DUAL WHERE @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `order_no`=VALUES(`order_no`);
+INSERT INTO `tbl_shop_order`
+(`order_no`,`user_id`,`total_amount`,`status`,`payment_transaction_no`,
+ `expires_at`,`paid_at`,`cancelled_at`,`version`,`created_at`,`updated_at`)
+SELECT 'SO202609021151259FF74F','213242789',837.90,'EXPIRED',NULL,'2026-09-02 12:21:25',NULL,NULL,1,'2026-09-02 11:51:25','2026-09-02 17:04:00'
+FROM DUAL WHERE @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `order_no`=VALUES(`order_no`);
+INSERT INTO `tbl_shop_order`
+(`order_no`,`user_id`,`total_amount`,`status`,`payment_transaction_no`,
+ `expires_at`,`paid_at`,`cancelled_at`,`version`,`created_at`,`updated_at`)
+SELECT 'SO2026090216545044CCDB','213242789',15.00,'PAID','BT20260902171132EFE33960','2026-09-02 17:24:50','2026-09-02 17:11:32',NULL,1,'2026-09-02 16:54:50','2026-09-02 17:11:32'
+FROM DUAL WHERE @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `order_no`=VALUES(`order_no`);
+INSERT INTO `tbl_shop_order`
+(`order_no`,`user_id`,`total_amount`,`status`,`payment_transaction_no`,
+ `expires_at`,`paid_at`,`cancelled_at`,`version`,`created_at`,`updated_at`)
+SELECT 'SO20260902171212AFDFFF','teacher01',29.90,'PAID','BT20260902171414529E7FFE','2026-09-02 17:42:12','2026-09-02 17:14:14',NULL,1,'2026-09-02 17:12:12','2026-09-02 17:14:14'
+FROM DUAL WHERE @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `order_no`=VALUES(`order_no`);
+INSERT INTO `tbl_shop_order`
+(`order_no`,`user_id`,`total_amount`,`status`,`payment_transaction_no`,
+ `expires_at`,`paid_at`,`cancelled_at`,`version`,`created_at`,`updated_at`)
+SELECT 'SO202609021714321DA6AF','teacher01',48.00,'EXPIRED',NULL,'2026-09-02 17:44:32',NULL,NULL,1,'2026-09-02 17:14:32','2026-09-02 17:44:33'
+FROM DUAL WHERE @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `order_no`=VALUES(`order_no`);
+INSERT INTO `tbl_shop_order`
+(`order_no`,`user_id`,`total_amount`,`status`,`payment_transaction_no`,
+ `expires_at`,`paid_at`,`cancelled_at`,`version`,`created_at`,`updated_at`)
+SELECT 'SO2026090218075548C676','teacher01',192.00,'PAID','BT202609021808059F2BC247','2026-09-02 18:37:55','2026-09-02 18:08:05',NULL,1,'2026-09-02 18:07:55','2026-09-02 18:08:05'
+FROM DUAL WHERE @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `order_no`=VALUES(`order_no`);
+INSERT INTO `tbl_shop_order`
+(`order_no`,`user_id`,`total_amount`,`status`,`payment_transaction_no`,
+ `expires_at`,`paid_at`,`cancelled_at`,`version`,`created_at`,`updated_at`)
+SELECT 'SO20260911165437406535','213242790',12.00,'PAID','BT20260911165446222006AA','2026-09-11 17:24:37','2026-09-11 16:54:46',NULL,1,'2026-09-11 16:54:37','2026-09-11 16:54:46'
+FROM DUAL WHERE @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `order_no`=VALUES(`order_no`);
+INSERT INTO `tbl_shop_order`
+(`order_no`,`user_id`,`total_amount`,`status`,`payment_transaction_no`,
+ `expires_at`,`paid_at`,`cancelled_at`,`version`,`created_at`,`updated_at`)
+SELECT 'SO20260916092548115DFA','213242789',128.00,'REFUNDED','BT202609160926101B51F4B3','2026-09-16 09:55:48','2026-09-16 09:26:10',NULL,3,'2026-09-16 09:25:48','2026-09-16 09:46:25'
+FROM DUAL WHERE @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `order_no`=VALUES(`order_no`);
+INSERT INTO `tbl_shop_order`
+(`order_no`,`user_id`,`total_amount`,`status`,`payment_transaction_no`,
+ `expires_at`,`paid_at`,`cancelled_at`,`version`,`created_at`,`updated_at`)
+SELECT 'SO20260916115437B83C03','213242790',16.80,'PAID','BT20260916115445913F8FFF','2026-09-16 12:24:37','2026-09-16 11:54:45',NULL,1,'2026-09-16 11:54:37','2026-09-16 11:54:45'
+FROM DUAL WHERE @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `order_no`=VALUES(`order_no`);
+
+-- 2. 订单明细：订单用订单号关联，商品用商品名称关联
+INSERT INTO `tbl_order_item`
+(`order_item_id`,`order_id`,`product_id`,`product_name_snapshot`,`unit_price`,`quantity`,`subtotal`)
+SELECT 1,o.`order_id`,p.`product_id`,'校园帆布袋',29.90,1,29.90
+FROM `tbl_shop_order` o
+JOIN `tbl_product` p ON p.`product_name` = '校园帆布袋'
+WHERE o.`order_no` = 'SO202609021044243027EA' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `quantity`=VALUES(`quantity`);
+INSERT INTO `tbl_order_item`
+(`order_item_id`,`order_id`,`product_id`,`product_name_snapshot`,`unit_price`,`quantity`,`subtotal`)
+SELECT 2,o.`order_id`,p.`product_id`,'Java程序设计参考书',56.00,4,224.00
+FROM `tbl_shop_order` o
+JOIN `tbl_product` p ON p.`product_name` = 'Java程序设计参考书'
+WHERE o.`order_no` = 'SO202609021044243027EA' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `quantity`=VALUES(`quantity`);
+INSERT INTO `tbl_order_item`
+(`order_item_id`,`order_id`,`product_id`,`product_name_snapshot`,`unit_price`,`quantity`,`subtotal`)
+SELECT 3,o.`order_id`,p.`product_id`,'A4横线活页本',15.50,1,15.50
+FROM `tbl_shop_order` o
+JOIN `tbl_product` p ON p.`product_name` = 'A4横线活页本'
+WHERE o.`order_no` = 'SO202609021057407F5733' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `quantity`=VALUES(`quantity`);
+INSERT INTO `tbl_order_item`
+(`order_item_id`,`order_id`,`product_id`,`product_name_snapshot`,`unit_price`,`quantity`,`subtotal`)
+SELECT 4,o.`order_id`,p.`product_id`,'荧光笔六色套装',16.80,3,50.40
+FROM `tbl_shop_order` o
+JOIN `tbl_product` p ON p.`product_name` = '荧光笔六色套装'
+WHERE o.`order_no` = 'SO202609021144429CBB40' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `quantity`=VALUES(`quantity`);
+INSERT INTO `tbl_order_item`
+(`order_item_id`,`order_id`,`product_id`,`product_name_snapshot`,`unit_price`,`quantity`,`subtotal`)
+SELECT 5,o.`order_id`,p.`product_id`,'便携折叠雨伞',39.90,1,39.90
+FROM `tbl_shop_order` o
+JOIN `tbl_product` p ON p.`product_name` = '便携折叠雨伞'
+WHERE o.`order_no` = 'SO202609021144429CBB40' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `quantity`=VALUES(`quantity`);
+INSERT INTO `tbl_order_item`
+(`order_item_id`,`order_id`,`product_id`,`product_name_snapshot`,`unit_price`,`quantity`,`subtotal`)
+SELECT 6,o.`order_id`,p.`product_id`,'便携折叠雨伞',39.90,1,39.90
+FROM `tbl_shop_order` o
+JOIN `tbl_product` p ON p.`product_name` = '便携折叠雨伞'
+WHERE o.`order_no` = 'SO202609021148478C83C2' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `quantity`=VALUES(`quantity`);
+INSERT INTO `tbl_order_item`
+(`order_item_id`,`order_id`,`product_id`,`product_name_snapshot`,`unit_price`,`quantity`,`subtotal`)
+SELECT 7,o.`order_id`,p.`product_id`,'便携折叠雨伞',39.90,21,837.90
+FROM `tbl_shop_order` o
+JOIN `tbl_product` p ON p.`product_name` = '便携折叠雨伞'
+WHERE o.`order_no` = 'SO202609021151259FF74F' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `quantity`=VALUES(`quantity`);
+INSERT INTO `tbl_order_item`
+(`order_item_id`,`order_id`,`product_id`,`product_name_snapshot`,`unit_price`,`quantity`,`subtotal`)
+SELECT 8,o.`order_id`,p.`product_id`,'牙刷',15.00,1,15.00
+FROM `tbl_shop_order` o
+JOIN `tbl_product` p ON p.`product_name` = '牙刷'
+WHERE o.`order_no` = 'SO2026090216545044CCDB' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `quantity`=VALUES(`quantity`);
+INSERT INTO `tbl_order_item`
+(`order_item_id`,`order_id`,`product_id`,`product_name_snapshot`,`unit_price`,`quantity`,`subtotal`)
+SELECT 9,o.`order_id`,p.`product_id`,'校园帆布袋',29.90,1,29.90
+FROM `tbl_shop_order` o
+JOIN `tbl_product` p ON p.`product_name` = '校园帆布袋'
+WHERE o.`order_no` = 'SO20260902171212AFDFFF' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `quantity`=VALUES(`quantity`);
+INSERT INTO `tbl_order_item`
+(`order_item_id`,`order_id`,`product_id`,`product_name_snapshot`,`unit_price`,`quantity`,`subtotal`)
+SELECT 10,o.`order_id`,p.`product_id`,'USB桌面小风扇',48.00,1,48.00
+FROM `tbl_shop_order` o
+JOIN `tbl_product` p ON p.`product_name` = 'USB桌面小风扇'
+WHERE o.`order_no` = 'SO202609021714321DA6AF' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `quantity`=VALUES(`quantity`);
+INSERT INTO `tbl_order_item`
+(`order_item_id`,`order_id`,`product_id`,`product_name_snapshot`,`unit_price`,`quantity`,`subtotal`)
+SELECT 11,o.`order_id`,p.`product_id`,'USB桌面小风扇',48.00,4,192.00
+FROM `tbl_shop_order` o
+JOIN `tbl_product` p ON p.`product_name` = 'USB桌面小风扇'
+WHERE o.`order_no` = 'SO2026090218075548C676' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `quantity`=VALUES(`quantity`);
+INSERT INTO `tbl_order_item`
+(`order_item_id`,`order_id`,`product_id`,`product_name_snapshot`,`unit_price`,`quantity`,`subtotal`)
+SELECT 12,o.`order_id`,p.`product_id`,'东大校徽徽章',12.00,1,12.00
+FROM `tbl_shop_order` o
+JOIN `tbl_product` p ON p.`product_name` = '东大校徽徽章'
+WHERE o.`order_no` = 'SO20260911165437406535' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `quantity`=VALUES(`quantity`);
+INSERT INTO `tbl_order_item`
+(`order_item_id`,`order_id`,`product_id`,`product_name_snapshot`,`unit_price`,`quantity`,`subtotal`)
+SELECT 13,o.`order_id`,p.`product_id`,'校园马克杯',32.00,4,128.00
+FROM `tbl_shop_order` o
+JOIN `tbl_product` p ON p.`product_name` = '校园马克杯'
+WHERE o.`order_no` = 'SO20260916092548115DFA' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `quantity`=VALUES(`quantity`);
+INSERT INTO `tbl_order_item`
+(`order_item_id`,`order_id`,`product_id`,`product_name_snapshot`,`unit_price`,`quantity`,`subtotal`)
+SELECT 14,o.`order_id`,p.`product_id`,'荧光笔六色套装',16.80,1,16.80
+FROM `tbl_shop_order` o
+JOIN `tbl_product` p ON p.`product_name` = '荧光笔六色套装'
+WHERE o.`order_no` = 'SO20260916115437B83C03' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `quantity`=VALUES(`quantity`);
+
+-- 3. 退款申请：一笔已同意退款的订单
+INSERT INTO `tbl_shop_refund`
+(`refund_id`,`refund_no`,`order_id`,`user_id`,`refund_amount`,`reason`,`status`,
+ `original_transaction_no`,`previous_order_status`,`refund_transaction_no`,`reviewer_id`,
+ `review_comment`,`requested_at`,`reviewed_at`)
+SELECT 1,'RF20260902105823075FB2',o.`order_id`,'213242789',253.90,'质量差','SUCCESS','BT2026090210460545446757','PAID','BT202609021146395681E2B7','admin','同意','2026-09-02 10:58:23','2026-09-02 11:46:39'
+FROM `tbl_shop_order` o
+WHERE o.`order_no` = 'SO202609021044243027EA' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `refund_no`=VALUES(`refund_no`);
+INSERT INTO `tbl_shop_refund`
+(`refund_id`,`refund_no`,`order_id`,`user_id`,`refund_amount`,`reason`,`status`,
+ `original_transaction_no`,`previous_order_status`,`refund_transaction_no`,`reviewer_id`,
+ `review_comment`,`requested_at`,`reviewed_at`)
+SELECT 2,'RF20260916094535EB1588',o.`order_id`,'213242789',128.00,'质量差','SUCCESS','BT202609160926101B51F4B3','PAID','BT2026091609462525B6DC93','admin','同意','2026-09-16 09:45:35','2026-09-16 09:46:25'
+FROM `tbl_shop_order` o
+WHERE o.`order_no` = 'SO20260916092548115DFA' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `refund_no`=VALUES(`refund_no`);
+
+-- 4. 商店后台操作日志：改价、改库存、上下架、换图和退款审核的留痕
+INSERT INTO `tbl_shop_operation_log`
+(`log_id`,`operator_id`,`action`,`target_type`,`target_id`,`before_data`,`after_data`,`reason`,`created_at`)
+SELECT 1,'admin','PRODUCT_STOCK_UPDATE','PRODUCT',p.`product_id`,'stock=80','stock=82','调整商品库存','2026-09-07 22:08:07'
+FROM `tbl_product` p
+WHERE p.`product_name` = '东大校徽徽章' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `log_id`=VALUES(`log_id`);
+INSERT INTO `tbl_shop_operation_log`
+(`log_id`,`operator_id`,`action`,`target_type`,`target_id`,`before_data`,`after_data`,`reason`,`created_at`)
+SELECT 2,'admin','PRODUCT_STOCK_UPDATE','PRODUCT',p.`product_id`,'stock=36','stock=37','调整商品库存','2026-09-07 22:24:14'
+FROM `tbl_product` p
+WHERE p.`product_name` = '数据结构课程辅导书' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `log_id`=VALUES(`log_id`);
+INSERT INTO `tbl_shop_operation_log`
+(`log_id`,`operator_id`,`action`,`target_type`,`target_id`,`before_data`,`after_data`,`reason`,`created_at`)
+SELECT 11,'admin','PRODUCT_IMAGE_UPDATE','PRODUCT',p.`product_id`,'image=none','image=image/png','更换商品图片','2026-09-14 15:35:18'
+FROM `tbl_product` p
+WHERE p.`product_name` = '东大纪念笔记本' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `log_id`=VALUES(`log_id`);
+INSERT INTO `tbl_shop_operation_log`
+(`log_id`,`operator_id`,`action`,`target_type`,`target_id`,`before_data`,`after_data`,`reason`,`created_at`)
+SELECT 12,'admin','PRODUCT_IMAGE_UPDATE','PRODUCT',p.`product_id`,'image=none','image=image/png','更换商品图片','2026-09-14 15:35:29'
+FROM `tbl_product` p
+WHERE p.`product_name` = '黑色中性笔套装' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `log_id`=VALUES(`log_id`);
+INSERT INTO `tbl_shop_operation_log`
+(`log_id`,`operator_id`,`action`,`target_type`,`target_id`,`before_data`,`after_data`,`reason`,`created_at`)
+SELECT 13,'admin','PRODUCT_IMAGE_UPDATE','PRODUCT',p.`product_id`,'image=none','image=image/png','更换商品图片','2026-09-14 15:40:03'
+FROM `tbl_product` p
+WHERE p.`product_name` = 'Java程序设计参考书' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `log_id`=VALUES(`log_id`);
+INSERT INTO `tbl_shop_operation_log`
+(`log_id`,`operator_id`,`action`,`target_type`,`target_id`,`before_data`,`after_data`,`reason`,`created_at`)
+SELECT 14,'admin','PRODUCT_IMAGE_UPDATE','PRODUCT',p.`product_id`,'image=none','image=image/png','更换商品图片','2026-09-14 15:40:19'
+FROM `tbl_product` p
+WHERE p.`product_name` = '校园帆布袋' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `log_id`=VALUES(`log_id`);
+INSERT INTO `tbl_shop_operation_log`
+(`log_id`,`operator_id`,`action`,`target_type`,`target_id`,`before_data`,`after_data`,`reason`,`created_at`)
+SELECT 15,'admin','PRODUCT_IMAGE_UPDATE','PRODUCT',p.`product_id`,'image=none','image=image/png','更换商品图片','2026-09-14 15:40:38'
+FROM `tbl_product` p
+WHERE p.`product_name` = '东大校徽徽章' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `log_id`=VALUES(`log_id`);
+INSERT INTO `tbl_shop_operation_log`
+(`log_id`,`operator_id`,`action`,`target_type`,`target_id`,`before_data`,`after_data`,`reason`,`created_at`)
+SELECT 16,'admin','PRODUCT_IMAGE_UPDATE','PRODUCT',p.`product_id`,'image=none','image=image/png','更换商品图片','2026-09-14 15:40:51'
+FROM `tbl_product` p
+WHERE p.`product_name` = 'A4横线活页本' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `log_id`=VALUES(`log_id`);
+INSERT INTO `tbl_shop_operation_log`
+(`log_id`,`operator_id`,`action`,`target_type`,`target_id`,`before_data`,`after_data`,`reason`,`created_at`)
+SELECT 17,'admin','PRODUCT_IMAGE_UPDATE','PRODUCT',p.`product_id`,'image=none','image=image/png','更换商品图片','2026-09-14 15:41:09'
+FROM `tbl_product` p
+WHERE p.`product_name` = '数据结构课程辅导书' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `log_id`=VALUES(`log_id`);
+INSERT INTO `tbl_shop_operation_log`
+(`log_id`,`operator_id`,`action`,`target_type`,`target_id`,`before_data`,`after_data`,`reason`,`created_at`)
+SELECT 18,'admin','PRODUCT_IMAGE_UPDATE','PRODUCT',p.`product_id`,'image=none','image=image/png','更换商品图片','2026-09-14 15:41:21'
+FROM `tbl_product` p
+WHERE p.`product_name` = '便携折叠雨伞' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `log_id`=VALUES(`log_id`);
+INSERT INTO `tbl_shop_operation_log`
+(`log_id`,`operator_id`,`action`,`target_type`,`target_id`,`before_data`,`after_data`,`reason`,`created_at`)
+SELECT 19,'admin','PRODUCT_UPDATE','PRODUCT',p.`product_id`,'name=校园帆布袋,category=生活用品,price=29.90,stock=44,status=ON_SALE,version=7','name=校园帆布袋,category=校园纪念品,price=29.9,stock=44,status=ON_SALE,version=7','修改商品基本信息','2026-09-14 15:41:41'
+FROM `tbl_product` p
+WHERE p.`product_name` = '校园帆布袋' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `log_id`=VALUES(`log_id`);
+INSERT INTO `tbl_shop_operation_log`
+(`log_id`,`operator_id`,`action`,`target_type`,`target_id`,`before_data`,`after_data`,`reason`,`created_at`)
+SELECT 20,'admin','PRODUCT_UPDATE','PRODUCT',p.`product_id`,'name=校园马克杯,category=校园纪念品,price=32.00,stock=50,status=ON_SALE,version=9','name=校园马克杯,category=生活用品,price=32.0,stock=50,status=ON_SALE,version=9','修改商品基本信息','2026-09-14 15:41:56'
+FROM `tbl_product` p
+WHERE p.`product_name` = '校园马克杯' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `log_id`=VALUES(`log_id`);
+INSERT INTO `tbl_shop_operation_log`
+(`log_id`,`operator_id`,`action`,`target_type`,`target_id`,`before_data`,`after_data`,`reason`,`created_at`)
+SELECT 21,'admin','PRODUCT_IMAGE_UPDATE','PRODUCT',p.`product_id`,'image=none','image=image/png','更换商品图片','2026-09-14 15:42:13'
+FROM `tbl_product` p
+WHERE p.`product_name` = '校园马克杯' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `log_id`=VALUES(`log_id`);
+INSERT INTO `tbl_shop_operation_log`
+(`log_id`,`operator_id`,`action`,`target_type`,`target_id`,`before_data`,`after_data`,`reason`,`created_at`)
+SELECT 22,'admin','PRODUCT_IMAGE_UPDATE','PRODUCT',p.`product_id`,'image=none','image=image/png','更换商品图片','2026-09-14 15:42:37'
+FROM `tbl_product` p
+WHERE p.`product_name` = '荧光笔六色套装' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `log_id`=VALUES(`log_id`);
+INSERT INTO `tbl_shop_operation_log`
+(`log_id`,`operator_id`,`action`,`target_type`,`target_id`,`before_data`,`after_data`,`reason`,`created_at`)
+SELECT 23,'admin','PRODUCT_IMAGE_UPDATE','PRODUCT',p.`product_id`,'image=none','image=image/png','更换商品图片','2026-09-14 15:42:47'
+FROM `tbl_product` p
+WHERE p.`product_name` = '计算机网络实验指导' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `log_id`=VALUES(`log_id`);
+INSERT INTO `tbl_shop_operation_log`
+(`log_id`,`operator_id`,`action`,`target_type`,`target_id`,`before_data`,`after_data`,`reason`,`created_at`)
+SELECT 24,'admin','PRODUCT_IMAGE_UPDATE','PRODUCT',p.`product_id`,'image=none','image=image/png','更换商品图片','2026-09-14 15:43:02'
+FROM `tbl_product` p
+WHERE p.`product_name` = 'USB桌面小风扇' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `log_id`=VALUES(`log_id`);
+INSERT INTO `tbl_shop_operation_log`
+(`log_id`,`operator_id`,`action`,`target_type`,`target_id`,`before_data`,`after_data`,`reason`,`created_at`)
+SELECT 25,'admin','PRODUCT_STATUS_CHANGE','PRODUCT',p.`product_id`,'status=ON_SALE','status=OFF_SALE','下架商品','2026-09-14 15:43:06'
+FROM `tbl_product` p
+WHERE p.`product_name` = '便携折叠雨伞2' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `log_id`=VALUES(`log_id`);
+INSERT INTO `tbl_shop_operation_log`
+(`log_id`,`operator_id`,`action`,`target_type`,`target_id`,`before_data`,`after_data`,`reason`,`created_at`)
+SELECT 26,'admin','PRODUCT_UPDATE','PRODUCT',p.`product_id`,'name=牙刷,category=生活用品,price=15.00,stock=29,status=ON_SALE,version=1','name=牙刷,category=生活用品,price=15.0,stock=29,status=ON_SALE,version=1','修改商品基本信息','2026-09-14 15:43:09'
+FROM `tbl_product` p
+WHERE p.`product_name` = '牙刷' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `log_id`=VALUES(`log_id`);
+INSERT INTO `tbl_shop_operation_log`
+(`log_id`,`operator_id`,`action`,`target_type`,`target_id`,`before_data`,`after_data`,`reason`,`created_at`)
+SELECT 27,'admin','PRODUCT_IMAGE_UPDATE','PRODUCT',p.`product_id`,'image=none','image=image/png','更换商品图片','2026-09-14 15:43:19'
+FROM `tbl_product` p
+WHERE p.`product_name` = '牙刷' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `log_id`=VALUES(`log_id`);
+INSERT INTO `tbl_shop_operation_log`
+(`log_id`,`operator_id`,`action`,`target_type`,`target_id`,`before_data`,`after_data`,`reason`,`created_at`)
+SELECT 28,'admin','PRODUCT_IMAGE_UPDATE','PRODUCT',p.`product_id`,'image=none','image=image/png','更换商品图片','2026-09-14 15:43:34'
+FROM `tbl_product` p
+WHERE p.`product_name` = '牙膏' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `log_id`=VALUES(`log_id`);
+INSERT INTO `tbl_shop_operation_log`
+(`log_id`,`operator_id`,`action`,`target_type`,`target_id`,`before_data`,`after_data`,`reason`,`created_at`)
+SELECT 29,'admin','REFUND_APPROVE','REFUND',r.`refund_id`,'status=APPLIED,orderStatus=REFUNDING','status=SUCCESS,orderStatus=REFUNDED','同意','2026-09-16 09:46:25'
+FROM `tbl_shop_refund` r
+WHERE r.`refund_no` = 'RF20260916094535EB1588' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `log_id`=VALUES(`log_id`);
+INSERT INTO `tbl_shop_operation_log`
+(`log_id`,`operator_id`,`action`,`target_type`,`target_id`,`before_data`,`after_data`,`reason`,`created_at`)
+SELECT 31,'admin','PRODUCT_IMAGE_UPDATE','PRODUCT',p.`product_id`,'image=none','image=image/png','更换商品图片','2026-09-16 13:51:04'
+FROM `tbl_product` p
+WHERE p.`product_name` = '全脂纯牛奶（250ml×12盒）' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `log_id`=VALUES(`log_id`);
+INSERT INTO `tbl_shop_operation_log`
+(`log_id`,`operator_id`,`action`,`target_type`,`target_id`,`before_data`,`after_data`,`reason`,`created_at`)
+SELECT 32,'admin1','PRODUCT_IMAGE_UPDATE','PRODUCT',p.`product_id`,'image=none','image=image/png','更换商品图片','2026-09-16 13:52:03'
+FROM `tbl_product` p
+WHERE p.`product_name` = '原味黄油饼干（200g袋装）' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `log_id`=VALUES(`log_id`);
+INSERT INTO `tbl_shop_operation_log`
+(`log_id`,`operator_id`,`action`,`target_type`,`target_id`,`before_data`,`after_data`,`reason`,`created_at`)
+SELECT 33,'admin1','PRODUCT_IMAGE_UPDATE','PRODUCT',p.`product_id`,'image=none','image=image/png','更换商品图片','2026-09-16 13:52:21'
+FROM `tbl_product` p
+WHERE p.`product_name` = '可乐汽水（330ml×6罐）' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `log_id`=VALUES(`log_id`);
+
+-- 5. 商品评价：已购买用户的评价（一卡通号在查询时由服务端脱敏）
+INSERT INTO `tbl_product_review` (`product_id`,`user_id`,`rating`,`content`,`created_at`)
+SELECT p.`product_id`,'213242789',5,'不错','2026-09-16 11:53:07'
+FROM `tbl_product` p
+WHERE p.`product_name` = '荧光笔六色套装' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `rating`=VALUES(`rating`);
+
+-- 6. 购物车：演示库中留下的几件待结算商品
+INSERT INTO `tbl_cart_item` (`user_id`,`product_id`,`quantity`,`created_at`)
+SELECT '213242789',p.`product_id`,1,'2026-09-02 11:47:58'
+FROM `tbl_product` p
+WHERE p.`product_name` = '计算机网络实验指导' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `quantity`=VALUES(`quantity`);
+INSERT INTO `tbl_cart_item` (`user_id`,`product_id`,`quantity`,`created_at`)
+SELECT 'teacher01',p.`product_id`,1,'2026-09-02 18:10:15'
+FROM `tbl_product` p
+WHERE p.`product_name` = '校园帆布袋' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `quantity`=VALUES(`quantity`);
+INSERT INTO `tbl_cart_item` (`user_id`,`product_id`,`quantity`,`created_at`)
+SELECT 'teacher01',p.`product_id`,1,'2026-09-02 18:10:39'
+FROM `tbl_product` p
+WHERE p.`product_name` = 'A4横线活页本' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `quantity`=VALUES(`quantity`);
+INSERT INTO `tbl_cart_item` (`user_id`,`product_id`,`quantity`,`created_at`)
+SELECT '213242789',p.`product_id`,1,'2026-09-16 09:25:41'
+FROM `tbl_product` p
+WHERE p.`product_name` = '校园帆布袋' AND @seed_demo_shop = 1
+ON DUPLICATE KEY UPDATE `quantity`=VALUES(`quantity`);
+
+-- 7. 银行资金流水：商店支付与退款、转账、报销、学费缴纳（开户流水已在上面的银行模块生成）
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BT2026090210460545446757',a.`account_id`,'admin','SHOP_PAYMENT',-253.90,9746.10,o.`order_id`,'26b12458-16db-45ab-aa89-2843cd8145c5','校园商店订单支付','2026-09-02 10:46:05'
+FROM `tbl_bank_account` a
+LEFT JOIN `tbl_shop_order` o ON o.`order_no` = 'SO202609021044243027EA'
+WHERE a.`user_id` = '213242789' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BT20260902114454A2A6BFEA',a.`account_id`,'admin','SHOP_PAYMENT',-90.30,9655.80,o.`order_id`,'e1c2200e-5879-4e76-95a4-5d0919dc83cf','校园商店订单支付','2026-09-02 11:44:54'
+FROM `tbl_bank_account` a
+LEFT JOIN `tbl_shop_order` o ON o.`order_no` = 'SO202609021144429CBB40'
+WHERE a.`user_id` = '213242789' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BT202609021146395681E2B7',a.`account_id`,'admin','SHOP_REFUND',253.90,9909.70,o.`order_id`,'ddf2b6f4-8791-47d7-b3b0-9db1a1fe7a99','校园商店订单退款','2026-09-02 11:46:39'
+FROM `tbl_bank_account` a
+LEFT JOIN `tbl_shop_order` o ON o.`order_no` = 'SO202609021044243027EA'
+WHERE a.`user_id` = '213242789' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BT20260902114859D00271CC',a.`account_id`,'admin','SHOP_PAYMENT',-39.90,9869.80,o.`order_id`,'db502736-6585-4949-bd53-2c897d4bd8cf','校园商店订单支付','2026-09-02 11:48:59'
+FROM `tbl_bank_account` a
+LEFT JOIN `tbl_shop_order` o ON o.`order_no` = 'SO202609021148478C83C2'
+WHERE a.`user_id` = '213242789' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BT20260902171132EFE33960',a.`account_id`,'admin','SHOP_PAYMENT',-15.00,9854.80,o.`order_id`,'0729ceff-8e72-4e6e-8d8f-719253256759','校园商店订单支付','2026-09-02 17:11:32'
+FROM `tbl_bank_account` a
+LEFT JOIN `tbl_shop_order` o ON o.`order_no` = 'SO2026090216545044CCDB'
+WHERE a.`user_id` = '213242789' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BT20260902171414529E7FFE',a.`account_id`,'admin','SHOP_PAYMENT',-29.90,7970.10,o.`order_id`,'095e38c6-cda0-4db1-aaa6-10c1db5f38d3','校园商店订单支付','2026-09-02 17:14:14'
+FROM `tbl_bank_account` a
+LEFT JOIN `tbl_shop_order` o ON o.`order_no` = 'SO20260902171212AFDFFF'
+WHERE a.`user_id` = 'teacher01' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BT20260902171701112E43C4',a.`account_id`,'admin','REIMBURSEMENT',1100.00,9070.10,NULL,'REIMB-1','报销入账：科研','2026-09-02 17:17:01'
+FROM `tbl_bank_account` a
+WHERE a.`user_id` = 'teacher01' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BT20260902171806161E019C',a.`account_id`,'teacher01','TRANSFER_OUT',-100.00,49900.00,NULL,'cc7c3ef8-44fe-4589-bdb4-2c73141c5e8a','转账给 teacher01','2026-09-02 17:18:06'
+FROM `tbl_bank_account` a
+WHERE a.`user_id` = 'admin' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BT20260902171806CE4FD6DB',a.`account_id`,'admin','TRANSFER_IN',100.00,9170.10,NULL,NULL,'收到 admin 的转账','2026-09-02 17:18:06'
+FROM `tbl_bank_account` a
+WHERE a.`user_id` = 'teacher01' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BT20260902173219FD286FF4',a.`account_id`,'admin','REIMBURSEMENT',270.00,9440.10,NULL,'REIMB-2','报销入账：科研','2026-09-02 17:32:19'
+FROM `tbl_bank_account` a
+WHERE a.`user_id` = 'teacher01' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BFREIMB1OUT',a.`account_id`,'teacher01','REIMBURSEMENT_PAYOUT',-1100.00,48800.00,NULL,'REIMB-1-OUT','向 teacher01 支付报销款：科研','2026-09-02 18:02:33'
+FROM `tbl_bank_account` a
+WHERE a.`user_id` = 'admin' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BFREIMB2OUT',a.`account_id`,'teacher01','REIMBURSEMENT_PAYOUT',-270.00,48530.00,NULL,'REIMB-2-OUT','向 teacher01 支付报销款：科研','2026-09-02 18:02:33'
+FROM `tbl_bank_account` a
+WHERE a.`user_id` = 'admin' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BFSHOP2IN',a.`account_id`,'213242789','SHOP_INCOME',253.90,48783.90,o.`order_id`,'SHOP-2-IN','校园商店历史订单收入补记','2026-09-02 18:02:33'
+FROM `tbl_bank_account` a
+LEFT JOIN `tbl_shop_order` o ON o.`order_no` = 'SO202609021044243027EA'
+WHERE a.`user_id` = 'admin' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BFSHOP2REFUNDOUT',a.`account_id`,'213242789','SHOP_REFUND_PAYOUT',-253.90,48530.00,o.`order_id`,'SHOP-2-REFUND-OUT','校园商店历史退款支出补记','2026-09-02 18:02:33'
+FROM `tbl_bank_account` a
+LEFT JOIN `tbl_shop_order` o ON o.`order_no` = 'SO202609021044243027EA'
+WHERE a.`user_id` = 'admin' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BFSHOP4IN',a.`account_id`,'213242789','SHOP_INCOME',90.30,48620.30,o.`order_id`,'SHOP-4-IN','校园商店历史订单收入补记','2026-09-02 18:02:33'
+FROM `tbl_bank_account` a
+LEFT JOIN `tbl_shop_order` o ON o.`order_no` = 'SO202609021144429CBB40'
+WHERE a.`user_id` = 'admin' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BFSHOP5IN',a.`account_id`,'213242789','SHOP_INCOME',39.90,48660.20,o.`order_id`,'SHOP-5-IN','校园商店历史订单收入补记','2026-09-02 18:02:33'
+FROM `tbl_bank_account` a
+LEFT JOIN `tbl_shop_order` o ON o.`order_no` = 'SO202609021148478C83C2'
+WHERE a.`user_id` = 'admin' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BFSHOP7IN',a.`account_id`,'213242789','SHOP_INCOME',15.00,48675.20,o.`order_id`,'SHOP-7-IN','校园商店历史订单收入补记','2026-09-02 18:02:33'
+FROM `tbl_bank_account` a
+LEFT JOIN `tbl_shop_order` o ON o.`order_no` = 'SO2026090216545044CCDB'
+WHERE a.`user_id` = 'admin' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BFSHOP8IN',a.`account_id`,'teacher01','SHOP_INCOME',29.90,48705.10,o.`order_id`,'SHOP-8-IN','校园商店历史订单收入补记','2026-09-02 18:02:33'
+FROM `tbl_bank_account` a
+LEFT JOIN `tbl_shop_order` o ON o.`order_no` = 'SO20260902171212AFDFFF'
+WHERE a.`user_id` = 'admin' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BT202609021808059F2BC247',a.`account_id`,'admin','SHOP_PAYMENT',-192.00,9248.10,o.`order_id`,'e05c5a5b-a816-400a-a914-d48e56e50db7','校园商店订单支付','2026-09-02 18:08:05'
+FROM `tbl_bank_account` a
+LEFT JOIN `tbl_shop_order` o ON o.`order_no` = 'SO2026090218075548C676'
+WHERE a.`user_id` = 'teacher01' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BT20260902180805BB7DF81B',a.`account_id`,'teacher01','SHOP_INCOME',192.00,48897.10,o.`order_id`,NULL,'校园商店订单收入','2026-09-02 18:08:05'
+FROM `tbl_bank_account` a
+LEFT JOIN `tbl_shop_order` o ON o.`order_no` = 'SO2026090218075548C676'
+WHERE a.`user_id` = 'admin' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BT20260902180934D796F62B',a.`account_id`,'teacher01','REIMBURSEMENT_PAYOUT',-140.00,48757.10,NULL,'REIMB-3-OUT','向 teacher01 支付报销款：科研','2026-09-02 18:09:34'
+FROM `tbl_bank_account` a
+WHERE a.`user_id` = 'admin' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BT202609021809341B5B8A17',a.`account_id`,'admin','REIMBURSEMENT',140.00,9388.10,NULL,'REIMB-3-IN','校园财务报销入账：科研','2026-09-02 18:09:34'
+FROM `tbl_bank_account` a
+WHERE a.`user_id` = 'teacher01' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BT20260907221454C10AAD47',a.`account_id`,'213242789','REIMBURSEMENT_PAYOUT',-100.00,48657.10,NULL,'REIMB-4-OUT','向 213242789 支付报销款：科研','2026-09-07 22:14:54'
+FROM `tbl_bank_account` a
+WHERE a.`user_id` = 'admin' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BT20260907221454BDAA1688',a.`account_id`,'admin','REIMBURSEMENT',100.00,9954.80,NULL,'REIMB-4-IN','校园财务报销入账：科研','2026-09-07 22:14:54'
+FROM `tbl_bank_account` a
+WHERE a.`user_id` = '213242789' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BT20260907230416D6B73642',a.`account_id`,'admin','TUITION_PAYMENT',-1200.00,8754.80,NULL,'119f23cd-6dd0-4906-a35e-cd25ce4320de','2026学年住宿费','2026-09-07 23:04:16'
+FROM `tbl_bank_account` a
+WHERE a.`user_id` = '213242789' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BT20260907230416B0B0CCD3',a.`account_id`,'213242789','CAMPUS_FEE_INCOME',1200.00,49857.10,NULL,NULL,'收到 213242789 缴纳：2026学年住宿费','2026-09-07 23:04:16'
+FROM `tbl_bank_account` a
+WHERE a.`user_id` = 'admin' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BT20260911164458D440E048',a.`account_id`,'213242790','TRANSFER_OUT',-500.00,49357.10,NULL,'22029d7b-6cd4-4750-a48d-60c5084b00f2','奖学金；转给 213242790（历史批量转账明细）','2026-09-11 16:44:58'
+FROM `tbl_bank_account` a
+WHERE a.`user_id` = 'admin' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BT202609111644580C7AB12A',a.`account_id`,'admin','TRANSFER_IN',500.00,10500.00,NULL,NULL,'奖学金（批次BT20260911164458D440E048）','2026-09-11 16:44:58'
+FROM `tbl_bank_account` a
+WHERE a.`user_id` = '213242790' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BT20260911164458A8CAF6C1',a.`account_id`,'admin','TRANSFER_IN',500.00,10500.00,NULL,NULL,'奖学金（批次BT20260911164458D440E048）','2026-09-11 16:44:58'
+FROM `tbl_bank_account` a
+WHERE a.`user_id` = '213242792' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BT20260911164458HIST0002',a.`account_id`,'213242792','TRANSFER_OUT',-500.00,48857.10,NULL,NULL,'奖学金；转给 213242792（历史批量转账明细）','2026-09-11 16:44:58'
+FROM `tbl_bank_account` a
+WHERE a.`user_id` = 'admin' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BT20260911165446222006AA',a.`account_id`,'admin','SHOP_PAYMENT',-12.00,10488.00,o.`order_id`,'d29b39e2-c38e-4e72-a7f9-f084b1657d0b','校园商店订单支付','2026-09-11 16:54:46'
+FROM `tbl_bank_account` a
+LEFT JOIN `tbl_shop_order` o ON o.`order_no` = 'SO20260911165437406535'
+WHERE a.`user_id` = '213242790' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BT20260911165446FAD0A57D',a.`account_id`,'213242790','SHOP_INCOME',12.00,48869.10,o.`order_id`,NULL,'校园商店订单收入','2026-09-11 16:54:46'
+FROM `tbl_bank_account` a
+LEFT JOIN `tbl_shop_order` o ON o.`order_no` = 'SO20260911165437406535'
+WHERE a.`user_id` = 'admin' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BT202609160926101B51F4B3',a.`account_id`,'admin','SHOP_PAYMENT',-128.00,8626.80,o.`order_id`,'5f1927f8-fa7a-423c-986b-ea669b552bfc','校园商店订单支付','2026-09-16 09:26:10'
+FROM `tbl_bank_account` a
+LEFT JOIN `tbl_shop_order` o ON o.`order_no` = 'SO20260916092548115DFA'
+WHERE a.`user_id` = '213242789' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BT2026091609261053BC073A',a.`account_id`,'213242789','SHOP_INCOME',128.00,48997.10,o.`order_id`,NULL,'校园商店订单收入','2026-09-16 09:26:10'
+FROM `tbl_bank_account` a
+LEFT JOIN `tbl_shop_order` o ON o.`order_no` = 'SO20260916092548115DFA'
+WHERE a.`user_id` = 'admin' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BT20260916094625EF8AC431',a.`account_id`,'213242789','SHOP_REFUND_PAYOUT',-128.00,48869.10,o.`order_id`,NULL,'校园商店退款支出','2026-09-16 09:46:25'
+FROM `tbl_bank_account` a
+LEFT JOIN `tbl_shop_order` o ON o.`order_no` = 'SO20260916092548115DFA'
+WHERE a.`user_id` = 'admin' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BT2026091609462525B6DC93',a.`account_id`,'admin','SHOP_REFUND',128.00,8754.80,o.`order_id`,'0ce18130-46bd-44df-8374-55157c82c6be','校园商店订单退款','2026-09-16 09:46:25'
+FROM `tbl_bank_account` a
+LEFT JOIN `tbl_shop_order` o ON o.`order_no` = 'SO20260916092548115DFA'
+WHERE a.`user_id` = '213242789' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BT20260916115445913F8FFF',a.`account_id`,'admin','SHOP_PAYMENT',-16.80,10471.20,o.`order_id`,'a77491ca-109d-4dc7-ac26-e0512356d504','校园商店订单支付','2026-09-16 11:54:45'
+FROM `tbl_bank_account` a
+LEFT JOIN `tbl_shop_order` o ON o.`order_no` = 'SO20260916115437B83C03'
+WHERE a.`user_id` = '213242790' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BT20260916115445574413ED',a.`account_id`,'213242790','SHOP_INCOME',16.80,48885.90,o.`order_id`,NULL,'校园商店订单收入','2026-09-16 11:54:45'
+FROM `tbl_bank_account` a
+LEFT JOIN `tbl_shop_order` o ON o.`order_no` = 'SO20260916115437B83C03'
+WHERE a.`user_id` = 'admin' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BT202609161321256791E8C1',a.`account_id`,'teacher01','TRANSFER_OUT',-500.00,48385.90,NULL,'aa0954ec-6478-4b73-870f-c160444109b2-0','讲座酬金（操作人 admin1）；转给 teacher01','2026-09-16 13:21:25'
+FROM `tbl_bank_account` a
+WHERE a.`user_id` = 'admin' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+INSERT INTO `tbl_bank_transaction`
+(`transaction_no`,`account_id`,`counterparty_user_id`,`transaction_type`,`amount`,
+ `balance_after`,`related_order_id`,`request_id`,`remark`,`created_at`)
+SELECT 'BT202609161321251081575B',a.`account_id`,'admin','TRANSFER_IN',500.00,9888.10,NULL,NULL,'讲座酬金（操作人 admin1）（批次BT202609161321256791E8C1）','2026-09-16 13:21:25'
+FROM `tbl_bank_account` a
+WHERE a.`user_id` = 'teacher01' AND @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `transaction_no`=VALUES(`transaction_no`);
+
+-- 8. 财务报销与账单状态：4 笔已通过的报销、1 张已缴清的住宿费
+INSERT INTO `tbl_finance_reimbursement`
+(`reimbursement_id`,`applicant_id`,`title`,`amount`,`reason`,`status`,`reviewer_id`,
+ `review_comment`,`payment_transaction_no`,`created_at`,`reviewed_at`)
+SELECT 1,'teacher01','科研',1100.00,'科研','APPROVED','admin','同意','BT20260902171701112E43C4','2026-09-02 17:15:18','2026-09-02 17:17:01'
+FROM DUAL WHERE @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `reimbursement_id`=VALUES(`reimbursement_id`);
+INSERT INTO `tbl_finance_reimbursement`
+(`reimbursement_id`,`applicant_id`,`title`,`amount`,`reason`,`status`,`reviewer_id`,
+ `review_comment`,`payment_transaction_no`,`created_at`,`reviewed_at`)
+SELECT 2,'teacher01','科研',270.00,'科研','APPROVED','admin','同意','BT20260902173219FD286FF4','2026-09-02 17:31:10','2026-09-02 17:32:19'
+FROM DUAL WHERE @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `reimbursement_id`=VALUES(`reimbursement_id`);
+INSERT INTO `tbl_finance_reimbursement`
+(`reimbursement_id`,`applicant_id`,`title`,`amount`,`reason`,`status`,`reviewer_id`,
+ `review_comment`,`payment_transaction_no`,`created_at`,`reviewed_at`)
+SELECT 3,'teacher01','科研',140.00,'科研','APPROVED','admin','','BT202609021809341B5B8A17','2026-09-02 18:08:52','2026-09-02 18:09:34'
+FROM DUAL WHERE @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `reimbursement_id`=VALUES(`reimbursement_id`);
+INSERT INTO `tbl_finance_reimbursement`
+(`reimbursement_id`,`applicant_id`,`title`,`amount`,`reason`,`status`,`reviewer_id`,
+ `review_comment`,`payment_transaction_no`,`created_at`,`reviewed_at`)
+SELECT 4,'213242789','科研',100.00,'科研','APPROVED','admin','通过','BT20260907221454BDAA1688','2026-09-07 22:14:17','2026-09-07 22:14:54'
+FROM DUAL WHERE @seed_demo_bank = 1
+ON DUPLICATE KEY UPDATE `reimbursement_id`=VALUES(`reimbursement_id`);
+
+UPDATE `tbl_finance_bill` SET `status`='PAID', `payment_transaction_no`='BT20260907230416D6B73642', `paid_at`='2026-09-07 23:04:16'
+WHERE `user_id`='213242789' AND `bill_type`='ACCOMMODATION' AND @seed_demo_bank = 1;
+
+-- 9. 账户余额收尾：让余额与上面的流水最后一笔 balance_after 对齐，并同步用户表镜像字段
+UPDATE `tbl_bank_account` SET `balance`=8754.80, `version`=`version`+1
+WHERE `user_id`='213242789' AND @seed_demo_bank = 1;
+UPDATE `tbl_bank_account` SET `balance`=9888.10, `version`=`version`+1
+WHERE `user_id`='teacher01' AND @seed_demo_bank = 1;
+UPDATE `tbl_bank_account` SET `balance`=48385.90, `version`=`version`+1
+WHERE `user_id`='admin' AND @seed_demo_bank = 1;
+UPDATE `tbl_bank_account` SET `balance`=10471.20, `version`=`version`+1
+WHERE `user_id`='213242790' AND @seed_demo_bank = 1;
+UPDATE `tbl_bank_account` SET `balance`=10000.00, `version`=`version`+1
+WHERE `user_id`='213242791' AND @seed_demo_bank = 1;
+UPDATE `tbl_bank_account` SET `balance`=10500.00, `version`=`version`+1
+WHERE `user_id`='213242792' AND @seed_demo_bank = 1;
+UPDATE `tbl_bank_account` SET `balance`=10000.00, `version`=`version`+1
+WHERE `user_id`='213242793' AND @seed_demo_bank = 1;
+UPDATE `tbl_bank_account` SET `balance`=10000.00, `version`=`version`+1
+WHERE `user_id`='213242794' AND @seed_demo_bank = 1;
+UPDATE `tbl_bank_account` SET `balance`=10000.00, `version`=`version`+1
+WHERE `user_id`='223242801' AND @seed_demo_bank = 1;
+UPDATE `tbl_bank_account` SET `balance`=10000.00, `version`=`version`+1
+WHERE `user_id`='223242802' AND @seed_demo_bank = 1;
+UPDATE `tbl_bank_account` SET `balance`=10000.00, `version`=`version`+1
+WHERE `user_id`='233242815' AND @seed_demo_bank = 1;
+UPDATE `tbl_bank_account` SET `balance`=10000.00, `version`=`version`+1
+WHERE `user_id`='admin1' AND @seed_demo_bank = 1;
+UPDATE `tbl_bank_account` SET `balance`=10000.00, `version`=`version`+1
+WHERE `user_id`='admin2' AND @seed_demo_bank = 1;
+UPDATE `tbl_bank_account` SET `balance`=10000.00, `version`=`version`+1
+WHERE `user_id`='admin3' AND @seed_demo_bank = 1;
+UPDATE `tbl_bank_account` SET `balance`=10000.00, `version`=`version`+1
+WHERE `user_id`='admin4' AND @seed_demo_bank = 1;
+UPDATE `tbl_bank_account` SET `balance`=10000.00, `version`=`version`+1
+WHERE `user_id`='teacher02' AND @seed_demo_bank = 1;
+UPDATE `tbl_bank_account` SET `balance`=10000.00, `version`=`version`+1
+WHERE `user_id`='teacher03' AND @seed_demo_bank = 1;
+UPDATE `tbl_bank_account` SET `balance`=10000.00, `version`=`version`+1
+WHERE `user_id`='teacher04' AND @seed_demo_bank = 1;
+UPDATE `tbl_bank_account` SET `balance`=10000.00, `version`=`version`+1
+WHERE `user_id`='teacher05' AND @seed_demo_bank = 1;
+UPDATE `tbl_bank_account` SET `balance`=10000.00, `version`=`version`+1
+WHERE `user_id`='teacher06' AND @seed_demo_bank = 1;
+UPDATE `tbl_bank_account` SET `balance`=10000.00, `version`=`version`+1
+WHERE `user_id`='teacher07' AND @seed_demo_bank = 1;
+UPDATE `tbl_bank_account` SET `balance`=10000.00, `version`=`version`+1
+WHERE `user_id`='teacher08' AND @seed_demo_bank = 1;
+UPDATE `tbl_bank_account` SET `balance`=10000.00, `version`=`version`+1
+WHERE `user_id`='teacher09' AND @seed_demo_bank = 1;
+UPDATE `tbl_bank_account` SET `balance`=10000.00, `version`=`version`+1
+WHERE `user_id`='teacher10' AND @seed_demo_bank = 1;
+UPDATE `tbl_bank_account` SET `balance`=10000.00, `version`=`version`+1
+WHERE `user_id`='teacher11' AND @seed_demo_bank = 1;
+
+UPDATE `tbl_user` u
+JOIN `tbl_bank_account` b ON b.`user_id` = u.`UID`
+SET u.`balance` = b.`balance`
+WHERE @seed_demo_bank = 1;
+
+-- ==================== 商店与银行演示业务数据结束 ====================
 
 -- ==================== 虚拟校园 AI 助手模块 ====================
 
