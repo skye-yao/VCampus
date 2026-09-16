@@ -125,6 +125,7 @@ public final class TeacherGradeImportController {
      */
     static final String GRADE_EXPORT_FILENAME = "学生成绩.xlsx";
     static final String GRADE_EXPORT_SUCCESS_TEXT = "学生成绩已保存到：";
+    static final String GRADE_EXPORT_FAILURE_TEXT = "成绩导出失败，请重试";
 
     /** 文件指纹与解析等待的后台线程池；FX 线程只负责选文件与触碰控件。 */
     private static final ExecutorService BACKGROUND = Executors.newCachedThreadPool(runnable -> {
@@ -314,7 +315,7 @@ public final class TeacherGradeImportController {
                 () -> service.requestGradeTemplate(offeringId), TEMPLATE_FILENAME);
         download.whenComplete((saved, failure) -> fxExecutor.accept(() -> {
             if (current != downloadGeneration) return;
-            reportDownload(saved, failure, TEMPLATE_SUCCESS_TEXT);
+            reportDownload(saved, failure, TEMPLATE_SUCCESS_TEXT, DOWNLOAD_FAILURE_TEXT);
         }));
     }
 
@@ -332,14 +333,15 @@ public final class TeacherGradeImportController {
                 () -> service.requestRosterExport(offeringId, query, enrollmentStatus),
                 EXPORT_FILENAME).whenComplete((saved, failure) -> fxExecutor.accept(() -> {
                     if (current != downloadGeneration) return;
-                    reportDownload(saved, failure, ROSTER_SUCCESS_TEXT);
+                    reportDownload(saved, failure, ROSTER_SUCCESS_TEXT, DOWNLOAD_FAILURE_TEXT);
                 }));
     }
 
     /**
      * 导出成绩：成绩录入页的入口，服务端取**已保存的草稿**（名单 + 四项成绩 + 总评 + 绩点），
-     * 未填写的成绩在文件里是 0。与 {@link #exportRoster} 各走各的动作与文案，但那一条下载通道
-     * （选文件 → 覆盖确认 → 票据 → 后台传输）完全共用，提示照旧进本页的反馈区。
+     * 未填写的成绩在文件里是 0。与 {@link #exportRoster} 各走各的动作与文案（成功与失败两句都是
+     * 本页自己的常量），但那一条下载通道（选文件 → 覆盖确认 → 票据 → 后台传输）完全共用，
+     * 提示照旧进本页的反馈区。
      */
     CompletableFuture<Path> exportGrades(String offeringId) {
         if (offeringId == null || offeringId.isBlank()) {
@@ -350,20 +352,25 @@ public final class TeacherGradeImportController {
                 () -> service.requestGradeExport(offeringId), GRADE_EXPORT_FILENAME)
                 .whenComplete((saved, failure) -> fxExecutor.accept(() -> {
                     if (current != downloadGeneration) return;
-                    reportDownload(saved, failure, GRADE_EXPORT_SUCCESS_TEXT);
+                    reportDownload(saved, failure, GRADE_EXPORT_SUCCESS_TEXT,
+                            GRADE_EXPORT_FAILURE_TEXT);
                 }));
     }
 
     /**
      * 下载后的统一提示：取消（null）不提示，成功给保存路径，失败给可重试的说明。
      *
+     * <p>{@code failureFallback} 由入口自己给：每个入口说自己那一件事失败了（模板/名单/成绩各一份），
+     * 服务端的业务拒绝文案仍然原样优先显示。
+     *
      * <p>页面已经卸下（{@link #release()}）时一个界面字段都不写：宿主是刻意保留的（同一个控制器
      * 反复进出工作台），所以「宿主还在」不等于「页面还在」。代际那半句由调用方把关。
      */
-    private void reportDownload(Path saved, Throwable failure, String successPrefix) {
+    private void reportDownload(Path saved, Throwable failure, String successPrefix,
+            String failureFallback) {
         if (host == null || !active) return;
         if (failure != null) {
-            host.feedback(failureText(failure, DOWNLOAD_FAILURE_TEXT));
+            host.feedback(failureText(failure, failureFallback));
             return;
         }
         if (saved == null) return;
@@ -374,8 +381,8 @@ public final class TeacherGradeImportController {
      * 下载票据到用户选定的文件：<b>FileChooser 与覆盖确认都在 FX 线程</b>（调用方的处理器里），
      * 之后的票据申请与文件传输都在后台。返回保存到的路径，用户取消时为 null。
      *
-     * <p>两个下载入口（成绩模板、名单导出）共用这一条路：覆盖策略只有一处实现，不会一边问
-     * 「要不要覆盖」另一边默默替换。
+     * <p>三个下载入口（成绩模板、名单导出、导出成绩）共用这一条路：覆盖策略只有一处实现，
+     * 不会一边问「要不要覆盖」另一边默默替换。
      */
     static CompletableFuture<Path> downloadTicketToFile(FileDialogs dialogs,
             TeacherFileTransport transport, Function<String, Boolean> confirmation,

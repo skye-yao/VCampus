@@ -54,9 +54,10 @@ import java.util.zip.ZipOutputStream;
  *   <li><b>解析</b>上传的工作簿：中文姓名、前导零学号（{@code DataFormatter} 文本而不是数字转换）、
  *       缺列、空白、0/100/小数、重复学号、公式（拒绝整份文件）、错误表头、损坏文件、超限压缩内容
  *       与超过 5000 行。</li>
- *   <li><b>生成</b>成绩模板与名单导出：用 POI 重新打开生成的文件，核对表头文字、文本格式/加粗样式与
- *       行数；模板第二张说明表写教学班、权重与禁用项。</li>
- *   <li><b>下载票据</b>：Handler 的两个新动作只回票据不回文件字节，且**先校验归属再生成文件**——
+ *   <li><b>生成</b>成绩模板、名单导出与成绩导出：用 POI 重新打开生成的文件，核对表头文字、
+ *       文本格式/加粗样式与行数；模板第二张说明表写教学班、权重与禁用项；成绩导出核对列序、
+ *       未填写写 0，以及总评/绩点是照抄成绩行的值（页面显示「—」的行就是 0/0）。</li>
+ *   <li><b>下载票据</b>：Handler 的三个下载动作只回票据不回文件字节，且**先校验归属再生成文件**——
  *       归属被拒时既没有票据，也没有任何文件落到临时目录（这是 Task 1 评审带过来的要求）。</li>
  * </ol>
  *
@@ -433,8 +434,9 @@ public final class TeacherSpreadsheetServiceTest {
     }
 
     /**
-     * 成绩导出：九列的列序逐字钉住，未填写的成绩写 0，总评/绩点按写进文件的那四个数算（与页面同一份
-     * 规则），专业来自名单、不在名单里的行留占位符，超限报错不截断。
+     * 成绩导出：九列的列序逐字钉住，未填写的成绩写 0；总评/绩点**照抄**成绩行自己的值（与页面同一份
+     * 事实，本类不重算），因此页面显示「—」的行在文件里也是 0/0，禁用项缺分不算缺；专业来自名单、
+     * 不在名单里的行留占位符，超限报错不截断。
      */
     private static void verifyGradeExport(TeacherSpreadsheetService service) {
         Path target = tempDirectory.resolve("grades.xlsx");
@@ -484,9 +486,9 @@ public final class TeacherSpreadsheetServiceTest {
             require(score(missing, 3) == 100d && score(missing, 4) == 100d
                             && score(missing, 5) == 0d && score(missing, 6) == 100d,
                     "an unfilled grade must be written as 0, saw " + scoresOf(missing));
-            require(score(missing, 7) == 80d && score(missing, 8) == 3d,
-                    "总评/绩点 must be computed from the numbers in this file (缺项写 0), saw "
-                            + score(missing, 7) + "/" + score(missing, 8));
+            require(score(missing, 7) == 0d && score(missing, 8) == 0d,
+                    "a row the page shows as 「—」 (缺一个启用项) must export 0/0, not a total"
+                            + " computed from the zero-filled cells, saw " + scoresOf(missing));
             require("—".equals(text(missing.getCell(2))),
                     "a student without a major must show the placeholder, saw "
                             + text(missing.getCell(2)));
@@ -507,10 +509,14 @@ public final class TeacherSpreadsheetServiceTest {
             oversized.add(new TeacherGradeRowDTO(String.valueOf(3000 + i), "0001" + i, "学生" + i,
                     null, null, null, false, List.of()));
         }
-        // 权重还没配齐（草稿方案合计不到 10000，页面上的总评是占位符）：四项成绩照常导出，
-        // 总评与绩点写 0——文件里不留算不出来的数。
+        // 权重还没配齐（草稿方案合计不到 10000）：服务端算不出总评，行里因此是 null。四项成绩照常
+        // 导出，总评与绩点写 0——页面显示占位符的行，文件里同样是 0。
         Path unconfigured = tempDirectory.resolve("grades-without-weights.xlsx");
-        service.writeGrades(unconfigured, gradeBookWithScheme(scoredScheme(0, 0, 0, 0)), List.of(
+        service.writeGrades(unconfigured, gradeBookWith(scoredScheme(0, 0, 0, 0),
+                new TeacherGradeRowDTO("1001", "000123", "张三",
+                        new GradeScoresDTO(new BigDecimal("90"), new BigDecimal("80"),
+                                new BigDecimal("70"), new BigDecimal("60")),
+                        null, null, false, List.of())), List.of(
                 roster("1001", "000123", "张三", "ENROLLED")));
         try (Workbook workbook = WorkbookFactory.create(unconfigured.toFile())) {
             Row row = workbook.getSheetAt(0).getRow(1);
@@ -519,6 +525,28 @@ public final class TeacherSpreadsheetServiceTest {
                             + scoresOf(row));
             require(score(row, 7) == 0d && score(row, 8) == 0d,
                     "without a configured weight the 总评/绩点 must be 0, saw " + scoresOf(row));
+        } catch (IOException failure) {
+            throw new UncheckedIOException(failure);
+        }
+
+        // 禁用的组成不是“缺分”：实验关掉之后，其余启用项填齐的行照样有总评/绩点，照原样导出；
+        // 实验那一格仍然写 0（四个成绩列都在，未填写就是 0）。
+        Path disabledComponent = tempDirectory.resolve("grades-with-disabled-component.xlsx");
+        service.writeGrades(disabledComponent, gradeBookWith(disabledExperimentScheme(),
+                new TeacherGradeRowDTO("1001", "000123", "张三",
+                        new GradeScoresDTO(new BigDecimal("90"), new BigDecimal("80"), null,
+                                new BigDecimal("100")),
+                        new BigDecimal("93.00"), new BigDecimal("4.5"), true, List.of())),
+                List.of(roster("1001", "000123", "张三", "ENROLLED")));
+        try (Workbook workbook = WorkbookFactory.create(disabledComponent.toFile())) {
+            Row row = workbook.getSheetAt(0).getRow(1);
+            require(score(row, 3) == 90d && score(row, 4) == 80d && score(row, 5) == 0d
+                            && score(row, 6) == 100d,
+                    "a disabled component must still export its (empty) column as 0, saw "
+                            + scoresOf(row));
+            require(score(row, 7) == 93d && score(row, 8) == 4.5d,
+                    "a row that is complete over the ENABLED components must keep its real"
+                            + " 总评/绩点, saw " + scoresOf(row));
         } catch (IOException failure) {
             throw new UncheckedIOException(failure);
         }
@@ -745,11 +773,23 @@ public final class TeacherSpreadsheetServiceTest {
                 new GradeComponentDTO(GradeComponentCodeDTO.FINALTERM, true, finalterm)));
     }
 
-    /** 成绩导出用的成绩表换一个方案（行不变）：用来验证「权重未配齐」那一条分支。 */
-    private static TeacherGradeBookDTO gradeBookWithScheme(GradeSchemeDTO scheme) {
-        TeacherGradeBookDTO scored = scoredGradeBook();
-        return new TeacherGradeBookDTO(OFFERING_ID, 4, DIGEST, "DRAFT", scheme,
-                List.of(scored.getRows().get(0)), null, null, true, null, false);
+    /** 实验禁用（权重 0）：它缺分不算“没填齐”，其余三项照旧配齐。 */
+    private static GradeSchemeDTO disabledExperimentScheme() {
+        return new GradeSchemeDTO(List.of(
+                new GradeComponentDTO(GradeComponentCodeDTO.DAILY, true, 3000),
+                new GradeComponentDTO(GradeComponentCodeDTO.MIDTERM, true, 2000),
+                new GradeComponentDTO(GradeComponentCodeDTO.EXPERIMENT, false, 0),
+                new GradeComponentDTO(GradeComponentCodeDTO.FINALTERM, true, 5000)));
+    }
+
+    /**
+     * 一份成绩表：方案与行都由调用方给。行里的总评/绩点照抄服务端算出来的那份值——导出不再自己算，
+     * 所以夹具必须与服务端同形（算不出来的组合就是 null）。
+     */
+    private static TeacherGradeBookDTO gradeBookWith(GradeSchemeDTO scheme,
+                                                     TeacherGradeRowDTO... rows) {
+        return new TeacherGradeBookDTO(OFFERING_ID, 4, DIGEST, "DRAFT", scheme, List.of(rows),
+                null, null, true, null, false);
     }
 
     /** 数值单元格的值；缺失单元格返回 -1（不会与合法分数混淆）。 */

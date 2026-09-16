@@ -1021,8 +1021,10 @@ public final class TeacherGradeImportControllerTest {
                 "成绩导出默认的文件名必须是 学生成绩.xlsx，收到 " + dialogs.lastSuggestedFileName);
         require("学生成绩.xlsx".equals(TeacherGradeImportController.GRADE_EXPORT_FILENAME)
                         && "学生成绩已保存到：".equals(
-                                TeacherGradeImportController.GRADE_EXPORT_SUCCESS_TEXT),
-                "成绩导出的文件名与成功文案必须是本页独立常量");
+                                TeacherGradeImportController.GRADE_EXPORT_SUCCESS_TEXT)
+                        && "成绩导出失败，请重试".equals(
+                                TeacherGradeImportController.GRADE_EXPORT_FAILURE_TEXT),
+                "成绩导出的文件名、成功与失败文案都必须是本页独立常量");
         require("学生名单.xlsx".equals(TeacherGradeImportController.EXPORT_FILENAME)
                         && "学生名单已保存到：".equals(
                                 TeacherGradeImportController.ROSTER_SUCCESS_TEXT),
@@ -1033,6 +1035,20 @@ public final class TeacherGradeImportControllerTest {
         require(controller.feedbackText()
                         .equals(TeacherGradeImportController.GRADE_EXPORT_SUCCESS_TEXT + target),
                 "成功提示必须写明保存位置，收到 " + controller.feedbackText());
+
+        // 失败那一半同样用本页文案：票据申请被拒绝时显示成绩导出的失败说明（不是通用的下载失败）。
+        // 服务端给出的业务原因仍然优先显示（这里给的是一个通用失败，所以落到兜底文案上）。
+        ImportService failing = new ImportService();
+        failing.gradeExportFailure = new TeacherCourseServiceException(MessageCode.ERROR,
+                "教师课程服务暂不可用");
+        TeacherGradeBookController failingController =
+                controller(failing, new FakeTransport(), new FakeDialogs(target));
+        failingController.showOffering(OFFERING);
+        failingController.handleExportGrades(null);
+        waitUntil(() -> failingController.feedbackText() != null, "导出失败必须给出反馈");
+        require(TeacherGradeImportController.GRADE_EXPORT_FAILURE_TEXT
+                        .equals(failingController.feedbackText()),
+                "失败提示必须用本页自己的文案，收到 " + failingController.feedbackText());
     }
 
     /**
@@ -1548,6 +1564,8 @@ public final class TeacherGradeImportControllerTest {
         private final List<String[]> exports = new ArrayList<>();
         /** 成绩导出（成绩录入页的「导出成绩」）申请过票据的教学班。 */
         private final List<String> gradeExports = new ArrayList<>();
+        /** 非空时 requestGradeExport 失败：用来验证成绩导出失败时用的是本页自己的文案。 */
+        private RuntimeException gradeExportFailure;
         private List<String> ticketOrder = new ArrayList<>();
         private TeacherFileUploadRequestDTO upload;
         private PreviewGradeImportRequestDTO previewRequest;
@@ -1643,6 +1661,11 @@ public final class TeacherGradeImportControllerTest {
         @Override
         public CompletableFuture<TeacherFileTicketDTO> requestGradeExport(String offeringId) {
             gradeExports.add(offeringId);
+            if (gradeExportFailure != null) {
+                CompletableFuture<TeacherFileTicketDTO> failed = new CompletableFuture<>();
+                failed.completeExceptionally(gradeExportFailure);
+                return failed;
+            }
             return CompletableFuture.completedFuture(ticketDto());
         }
 

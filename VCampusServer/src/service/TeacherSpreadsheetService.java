@@ -1,10 +1,7 @@
 package service;
 
-import course.grade.GradeCalculator;
-import course.grade.GradePointScale;
 import dto.course.teacher.GradeComponentCodeDTO;
 import dto.course.teacher.GradeComponentDTO;
-import dto.course.teacher.GradeSchemeDTO;
 import dto.course.teacher.GradeScoresDTO;
 import dto.course.teacher.TeacherGradeBookDTO;
 import dto.course.teacher.TeacherGradeRowDTO;
@@ -257,10 +254,14 @@ public final class TeacherSpreadsheetService {
      *
      * <p>列序固定为 {@link #GRADE_HEADERS}，学号是文本单元格（前导零必须保留），六个数字列是
      * 数值单元格（拿到文件就能直接求和）。<b>未填写的成绩一律写 0</b>：这份文件是拿来直接算的，
-     * 留空白会让人分不清“还没录”和“丢了”。总评与绩点因此按同一份规则对**文件里的**那四个数计算
-     * （{@link GradeCalculator} / {@link GradePointScale}，与页面「总评」「绩点」两列同一口径）：
-     * 分数填齐的行与页面完全一致，残缺行给出的是这份文件自己算得出来的数。权重还没配齐、
-     * 或库里存着算不出来的分数时，该行总评与绩点写 0——一行的问题不能让整份导出失败。
+     * 留空白会让人分不清“还没录”和“丢了”。
+     *
+     * <p><b>总评与绩点不在这里重算</b>，直接用成绩行自己带的两个值
+     * （{@link TeacherGradeRowDTO#getTotalScore()}／{@link TeacherGradeRowDTO#getGradePoint()}）——
+     * 它们与页面「总评」「绩点」两列是同一份事实，因此文件与界面不可能对同一行给出不同的结论。
+     * 只有“整个启用项都填齐”的行才带着这两个值（禁用项缺分不算缺，{@code GradeCalculator} 会跳过它），
+     * 其余情况服务端给的就是 null，这里写 0：分数没填全就不凭空造一个总评出来，页面显示「—」的行
+     * 在文件里也是 0。权重未配齐同理（服务端本来就算不出总评）。
      *
      * <p>行集合与总评口径都来自 {@code gradeBook}（与页面同一张表）；{@code roster} 只贡献专业，
      * 不在名单里的行专业留占位符（与名单导出同一个约定）。
@@ -277,7 +278,7 @@ public final class TeacherSpreadsheetService {
         List<TeacherGradeRowDTO> rows = gradeBook.getRows();
         if (rows.size() > MAX_ROWS) {
             throw new IllegalArgumentException(
-                    "名单超过 " + MAX_ROWS + " 行，无法写出工作簿，请缩小筛选范围后重试");
+                    "成绩表超过 " + MAX_ROWS + " 行，无法导出成绩，请先拆分教学班");
         }
         Map<String, String> majors = majorsByEnrollmentId(roster);
         try (Workbook workbook = new XSSFWorkbook()) {
@@ -304,9 +305,8 @@ public final class TeacherSpreadsheetService {
                 row.createCell(4).setCellValue(scoreValue(scores.getMidtermScore()));
                 row.createCell(5).setCellValue(scoreValue(scores.getExperimentScore()));
                 row.createCell(6).setCellValue(scoreValue(scores.getFinaltermScore()));
-                BigDecimal total = totalOf(gradeBook.getScheme(), scores);
-                row.createCell(7).setCellValue(scoreValue(total));
-                row.createCell(8).setCellValue(scoreValue(gradePointOf(total)));
+                row.createCell(7).setCellValue(scoreValue(student.getTotalScore()));
+                row.createCell(8).setCellValue(scoreValue(student.getGradePoint()));
             }
             int[] widths = {16, 20, 24, 12, 12, 12, 12, 10, 8};
             for (int column = 0; column < widths.length; column++) {
@@ -329,7 +329,7 @@ public final class TeacherSpreadsheetService {
         return majors;
     }
 
-    /** 未填写的成绩一律写 0：导出的四个成绩列里不出现空白。 */
+    /** 未填写的成绩一律写 0：导出的四个成绩列里不出现空白（禁用项没有分数也写 0）。 */
     private static GradeScoresDTO zeroFilled(GradeScoresDTO scores) {
         if (scores == null) {
             return new GradeScoresDTO(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
@@ -343,27 +343,12 @@ public final class TeacherSpreadsheetService {
         return score == null ? BigDecimal.ZERO : score;
     }
 
-    /** 总评：与页面同一份规则；权重未配齐或分数算不出来时写 0（导出的每一格都是确定的数）。 */
-    private static BigDecimal totalOf(GradeSchemeDTO scheme, GradeScoresDTO scores) {
-        try {
-            BigDecimal total = GradeCalculator.total(scheme, scores);
-            return total == null ? BigDecimal.ZERO : total;
-        } catch (IllegalArgumentException broken) {
-            return BigDecimal.ZERO;
-        }
-    }
-
-    /** 绩点：与页面同一张表；没有总评就没有绩点，写 0（{@link GradePointScale} 对 null 直接拒绝）。 */
-    private static BigDecimal gradePointOf(BigDecimal total) {
-        if (total == null) return BigDecimal.ZERO;
-        try {
-            return GradePointScale.gradePointFor(total);
-        } catch (IllegalArgumentException unavailable) {
-            return BigDecimal.ZERO;
-        }
-    }
-
-    /** 数字单元格的取值：null 与 0 等价（未填写已经在上游补成 0，这里是第二道防线）。 */
+    /**
+     * 数字单元格的取值：null（未填写，或服务端算不出总评/绩点）与 0 等价。
+     *
+     * <p>总评/绩点的 null 不是“缺数据”而是“还不到算的时候”：分数没填全、或权重没配齐时页面显示
+     * 占位符，文件里就写 0，两边说的是同一件事。
+     */
     private static double scoreValue(BigDecimal score) {
         return score == null ? 0d : score.doubleValue();
     }
