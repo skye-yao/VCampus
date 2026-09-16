@@ -91,13 +91,18 @@ public final class TeacherGradeImportControllerTest {
         missingIssueListKeepsTheConfirmClosed();
         confirmUsesTheLatestServerPreviewAndNeverSubmits();
         confirmConflictKeepsThePreviewAndTheEditingCopy();
+        correctionsAreRefusedWhileAConfirmIsInFlight();
+        cancellingOrLeavingIsRefusedWhileAConfirmIsInFlight();
+        anInFlightConfirmIsKeyedToItsOwnGeneration();
         leavingDuringImportCancelsTheTransferAndRestoresTheCopy();
+        decliningToLeaveKeepsTheImportPreview();
         leavingBeforeTheUploadIsDispatchedSpendsNoTicket();
         rapidCorrectionsAreCoalescedAndAlwaysUseTheFreshPreviewRevision();
         feedbackShowsCountsAndAbnormalNamesWithoutTheImportToken();
         downloadsChooseTheFileOnTheCallingThreadAndTransferInBackground();
         bottomBarFreezesTheSchemeAndSwapsItsButtons();
         exportFeedbackNeverLandsOnAnotherOffering();
+        downloadFeedbackNeverLandsOnAnotherOffering();
         mockPreviewRevisionsIncrementAndRejectStaleOnes();
         importViewsDeclareTheirControllerIdsHandlersAndStyles();
         System.out.println("TeacherGradeImportControllerTest: PASS");
@@ -512,6 +517,123 @@ public final class TeacherGradeImportControllerTest {
                 "冲突后取消同样要恢复到导入前的编辑副本");
     }
 
+    /**
+     * 在途确认不会被修正/排除偷走。
+     *
+     * <p>旧实现让确认与修订共用一个代际：教师确认之后、确认还在返程的时候打开异常明细再点一次
+     * 「修正」（或拨一下排除勾选框），那个修订就会把代际推走，在途确认的完成回调随之被丢弃
+     * （回调开头的 {@code current != generation} 直接 return）——{@code confirming} 再也没人清：
+     * 确认按钮永久不可用，{@code busy()} 永久为 true，保存草稿/提交成绩/重新加载一起被挡住，
+     * 唯一出口只剩「取消导入」；而服务端那边草稿可能已经写成。
+     *
+     * <p>这条用例先断言「拒绝派发修订」，再断言「确认落地之后状态确实落下来了」——前者是挡在门口，
+     * 后者是那个永久锁死的回归本身。
+     */
+    private static void correctionsAreRefusedWhileAConfirmIsInFlight() {
+        ImportService service = new ImportService();
+        TeacherGradeBookController controller = controller(service, new FakeDialogs());
+        controller.showOffering(OFFERING);
+        loadConfirmablePreview(service, controller);
+
+        CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> held =
+                beginHeldConfirm(service, controller);
+
+        // 弹窗里的「修正」与「排除」在确认在途期间被拒绝：一个修订都不能派发出去。
+        controller.importController().correct(11, GradeImportRowIssueDTO.FIELD_DAILY_SCORE, "90");
+        controller.importController().setExcluded(9, true);
+        require(service.revises.isEmpty(),
+                "确认在途期间不能派发修订，收到 " + service.revises.size() + " 个");
+        require(controller.importController().correctionCount() == 0,
+                "被拒绝的修正不能真的落进修正集合");
+        require(controller.importController().excludedRows().isEmpty(),
+                "被拒绝的排除不能真的改掉本地排除状态，收到 "
+                        + controller.importController().excludedRows());
+        require(TeacherGradeImportController.CONFIRMING_TEXT.equals(controller.feedbackText()),
+                "拒绝的原因要说给教师听，收到 " + controller.feedbackText());
+
+        // 确认落地：confirming 必须跟着落下，页面不能永久卡在「确认在途」。
+        held.complete(service.confirmResult);
+        settle(controller);
+        require(!controller.importController().confirming(), "确认完成之后 confirming 必须落下");
+        require(!controller.importController().busy(), "确认完成之后不能还停在忙状态");
+        require(!controller.importController().importing(), "确认成功之后必须退出导入态");
+        require(TeacherGradeImportController.CONFIRM_SUCCESS_TEXT.equals(controller.feedbackText()),
+                "确认成功的提示照常给，收到 " + controller.feedbackText());
+    }
+
+    /**
+     * 确认在途期间取消导入 / 返回 / 重新加载一律被拒绝。
+     *
+     * <p>这三条路的共同后果是 {@code abandonImport}：本地状态被收回去（含「已恢复导入前的编辑内容」
+     * 那句话），而那条写请求已经发出、可能已经在服务端写成草稿。界面与数据库互相矛盾比多等一瞬间
+     * 糟得多，所以这里什么都不动，只说明原因；等确认落地之后取消才重新可用（那时它是诚实的）。
+     */
+    private static void cancellingOrLeavingIsRefusedWhileAConfirmIsInFlight() {
+        ImportService service = new ImportService();
+        TeacherGradeBookController controller = controller(service, new FakeDialogs());
+        controller.showOffering(OFFERING);
+        loadConfirmablePreview(service, controller);
+
+        CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> held =
+                beginHeldConfirm(service, controller);
+
+        controller.importController().cancelImport();
+        require(controller.importController().importing(),
+                "确认在途期间取消导入必须被拒绝（预览不能被收回去）");
+        require(service.cancelledTokens.isEmpty(),
+                "被拒绝的取消不能把服务端预览令牌交还，收到 " + service.cancelledTokens);
+        require(TeacherGradeImportController.CONFIRMING_TEXT.equals(controller.feedbackText()),
+                "拒绝的原因要说给教师听，收到 " + controller.feedbackText());
+
+        require(!controller.requestLeave(), "确认在途时不允许离开页面");
+        require(controller.importController().importing()
+                        && controller.importController().preview() != null,
+                "被拒绝的返回不能丢掉预览");
+
+        controller.reload();
+        require(controller.importController().importing(),
+                "确认在途期间重新加载必须被拒绝（否则那条写请求的结果会丢在半路）");
+        require(TeacherGradeImportController.CONFIRMING_TEXT.equals(controller.feedbackText()),
+                "重新加载被拒绝时同样要说明原因，收到 " + controller.feedbackText());
+
+        held.complete(service.confirmResult);
+        settle(controller);
+        require(!controller.importController().importing(), "确认落地之后回到普通编辑");
+        require(!service.cancelledTokens.contains(TOKEN),
+                "确认落地之前没有任何一条路交还过服务端令牌，收到 " + service.cancelledTokens);
+    }
+
+    /**
+     * 确认只认自己的代际：别的东西（上传、修订）推进共享的 {@code generation} 不能把它偷走。
+     *
+     * <p>这是一条结构性的保险断言。现实里「确认在途时别的派发」已经被上一条用例挡在门外，
+     * 所以这里直接把共享代际往前推一格，模拟「以后有人加了一条在确认期间派发的路径」——那种情况下
+     * 确认也必须在自己的回调里正常落地，而不是把 {@code confirming} 永久留在 true。
+     */
+    private static void anInFlightConfirmIsKeyedToItsOwnGeneration() throws Exception {
+        ImportService service = new ImportService();
+        TeacherGradeBookController controller = controller(service, new FakeDialogs());
+        controller.showOffering(OFFERING);
+        loadConfirmablePreview(service, controller);
+
+        CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> held =
+                beginHeldConfirm(service, controller);
+        advanceSharedGeneration(controller.importController());
+
+        held.complete(service.confirmResult);
+        settle(controller);
+        require(!controller.importController().confirming(),
+                "共享代际前进不能丢掉在途确认的完成回调");
+        require(!controller.importController().importing(), "确认照常落地并退出导入态");
+    }
+
+    /** 直接推进导入编排的共享代际（白盒，仅用于上面那条结构性保险断言）。 */
+    private static void advanceSharedGeneration(TeacherGradeImportController imports) throws Exception {
+        Field field = TeacherGradeImportController.class.getDeclaredField("generation");
+        field.setAccessible(true);
+        field.setLong(imports, field.getLong(imports) + 1);
+    }
+
     /** 导入途中离开上传页：取消在途 Future（传输层据此关闭短连接）并恢复导入前的副本。 */
     private static void leavingDuringImportCancelsTheTransferAndRestoresTheCopy() {
         ImportService service = new ImportService();
@@ -538,6 +660,65 @@ public final class TeacherGradeImportControllerTest {
                 "离开上传页要恢复到导入前的编辑副本（含 dirty）");
         require(allowed == confirmationAnswer(),
                 "恢复之后是否允许离开由恢复出来的 dirty 状态决定");
+    }
+
+    /**
+     * 教师点「返回」又回答「取消，不离开」：预览与修正必须原封不动。
+     *
+     * <p>离开保护曾经无条件先 {@code cancelOnLeave()}：点一次返回就等于丢掉整个导入预览、已经做过
+     * 的修正与那份服务端候选，而教师完全可能只是点错了按钮——唯一的信号只有反馈行换成「已取消导入，
+     * 已恢复导入前的编辑内容」。没有预览时先取消仍然是对的（那只是关掉在途短连接，没有教师的临时
+     * 成果会丢），有预览时就必须先问清楚。
+     */
+    private static void decliningToLeaveKeepsTheImportPreview() {
+        ImportService service = new ImportService();
+        boolean[] leaveAnswer = {false};
+        TeacherGradeBookController controller = controller(service, new FakeTransport(),
+                new FakeDialogs(), message -> leaveAnswer[0]);
+        controller.showOffering(OFFERING);
+        Row row = controller.rows().get(0);
+
+        service.previewResponse = preview(1, candidateFor(controller, row.enrollmentId(),
+                        new GradeScoresDTO(new BigDecimal("60"), null, null, null)),
+                1, 1, List.of(issue(3, row.studentUid(), row.studentName(),
+                        GradeImportRowIssueDTO.FIELD_FINALTERM_SCORE, "abc",
+                        "期末成绩必须是 0-100 的数字")));
+        controller.importController().startImport();
+        settle(controller);
+        // 一处修正：服务端回一版零异常的预览，教师手上因此有「不离开就必须保住」的东西。
+        service.previewResponses.clear();
+        service.previewResponses.addLast(CompletableFuture.completedFuture(preview(2,
+                candidateFor(controller, row.enrollmentId(),
+                        new GradeScoresDTO(new BigDecimal("60"), null, null, null)),
+                1, 0, List.of())));
+        controller.importController().correct(3, GradeImportRowIssueDTO.FIELD_FINALTERM_SCORE, "91");
+        settle(controller);
+        require(controller.importController().correctionCount() == 1, "夹具必须留下一处修正");
+        require(controller.dirty(), "预览让页面处于未保存状态，返回必须问一次");
+
+        boolean allowed = controller.requestLeave();
+
+        require(!allowed, "答「取消，不离开」时 requestLeave 必须返回 false");
+        require(controller.importController().importing()
+                        && controller.importController().preview() != null,
+                "不离开就必须保住导入预览");
+        require(controller.importController().correctionCount() == 1,
+                "教师做过的修正不能被丢掉");
+        require(service.cancelledTokens.isEmpty(),
+                "还没确定要离开，就不该把服务端预览令牌交还，收到 " + service.cancelledTokens);
+        require(!TeacherGradeImportController.CANCEL_TEXT.equals(controller.feedbackText()),
+                "没离开就不能说「已取消导入，已恢复导入前的编辑内容」，收到 " + controller.feedbackText());
+
+        // 再点一次返回、这次答「确定离开」：照旧丢掉预览、恢复导入前的副本并交还令牌。
+        leaveAnswer[0] = true;
+        require(controller.requestLeave(), "答「确定离开」时照常离开");
+        require(!controller.importController().importing()
+                        && controller.importController().preview() == null,
+                "确定离开才丢掉预览");
+        require(service.cancelledTokens.equals(List.of(TOKEN)),
+                "确定离开才交还服务端预览令牌，收到 " + service.cancelledTokens);
+        require(TeacherGradeImportController.CANCEL_TEXT.equals(controller.feedbackText()),
+                "确定离开时如实说明已恢复导入前的编辑内容，收到 " + controller.feedbackText());
     }
 
     /**
@@ -841,6 +1022,51 @@ public final class TeacherGradeImportControllerTest {
     }
 
     /**
+     * 成绩表页的模板/名单下载：页面被复用（教学班 A 的下载还在途中，教师返回后打开 B）时，
+     * A 的那条提示绝不能写到 B 的反馈区上。
+     *
+     * <p>与详情页导出同一条规矩（那边叫 {@code exportGeneration}）：只判「是不是活动页面、有没有
+     * 教学班」拦不住它——{@code showOffering} 会把 {@code active} 与宿主都重新填回来。拦得住它的
+     * 只有一并前进的下载代际，因此离页（{@code release}/{@code cancelOnLeave}）必须把它推进一格。
+     */
+    private static void downloadFeedbackNeverLandsOnAnotherOffering() throws Exception {
+        ImportService service = new ImportService();
+        // 目标文件刻意不存在：覆盖确认是真实对话框（无工具包环境里不能弹），这条用例验证的是
+        // 「响应迟到」，不是覆盖确认。
+        FakeDialogs dialogs = FakeDialogs.savingTo(
+                Files.createTempDirectory("vcampus-grade-download").resolve("成绩模板.xlsx"));
+        FakeTransport transport = new FakeTransport();
+        transport.holdDownload = true;
+        TeacherGradeBookController controller = controller(service, transport, dialogs);
+        controller.showOffering(OFFERING);
+
+        controller.importController().downloadTemplate(OFFERING);
+        require(transport.downloadFuture != null, "模板下载必须真的开始传输");
+        CompletableFuture<Void> download = transport.downloadFuture;
+
+        // A 的下载还在途中：教师返回、工作台把同一个页面实例切到教学班 B。
+        controller.showOffering(OTHER_OFFERING);
+        require(controller.importController().active(), "页面已经重新挂到教学班 B 上");
+
+        download.complete(null);   // A 的模板这时候才落到目标文件上
+        // 续接可能落在后台线程上（thenComposeAsync 之后的那一段由完成 Future 的线程执行），给它
+        // 一个短暂的排空窗口再断言「始终没有写进去」——这是一条「不许发生」的断言，窗口是它固有的形状。
+        Thread.sleep(50);
+
+        require(controller.feedbackText() == null,
+                "A 的成绩模板不能把「已保存到」写到 B 的页面上，收到 " + controller.feedbackText());
+
+        // 反过来：同一个教学班上正常完成的下载必须照常给反馈（守卫不能把正常路径一起挡掉）。
+        FakeTransport plain = new FakeTransport();
+        TeacherGradeBookController alone = controller(service, plain, dialogs);
+        alone.showOffering(OFFERING);
+        alone.importController().downloadTemplate(OFFERING);
+        waitUntil(() -> alone.feedbackText() != null, "正常完成的模板下载必须给出反馈");
+        require(alone.feedbackText().contains("成绩模板已保存到"),
+                "正常路径必须照常提示保存位置，收到 " + alone.feedbackText());
+    }
+
+    /**
      * mock 的预览版本语义必须与真实服务一致（首次 1、每次修订严格加一、基版本不等就拒绝）——
      * 否则用 mock 驱动的界面路径永远看不到「基版本拿旧了」这类缺陷，测试只能靠脚本化响应假装。
      */
@@ -955,8 +1181,14 @@ public final class TeacherGradeImportControllerTest {
 
     private static TeacherGradeBookController controller(TeacherCourseService service,
             TeacherFileTransport transport, TeacherGradeImportController.FileDialogs dialogs) {
+        return controller(service, transport, dialogs, message -> confirmationAnswer());
+    }
+
+    private static TeacherGradeBookController controller(TeacherCourseService service,
+            TeacherFileTransport transport, TeacherGradeImportController.FileDialogs dialogs,
+            Function<String, Boolean> confirmation) {
         TeacherGradeBookController controller = new TeacherGradeBookController(service, transport,
-                Runnable::run, message -> confirmationAnswer(), dialogs);
+                Runnable::run, confirmation, dialogs);
         // 无工具包环境里不能真的建 JavaFX 弹窗节点；展示器换成记录器，弹窗自身的结构由
         // importViewsDeclareTheirControllerIdsHandlersAndStyles 断言。
         controller.importController().setFeedbackPresenter(preview -> { });
@@ -966,6 +1198,41 @@ public final class TeacherGradeImportControllerTest {
     /** 离开确认的固定回答：允许离开。 */
     private static boolean confirmationAnswer() {
         return true;
+    }
+
+    /** 一份「异常行都已明确排除」的预览：{@code confirmEnabled()} 为 true，可以直接确认导入。 */
+    private static void loadConfirmablePreview(ImportService service,
+            TeacherGradeBookController controller) {
+        service.previewResponse = preview(1, candidateFor(controller,
+                        controller.rows().get(0).enrollmentId(),
+                        new GradeScoresDTO(new BigDecimal("60"), null, null, null)),
+                5, 2, List.of(
+                        excludedIssue(9, "00009999", "陌生人",
+                                GradeImportRowIssueDTO.FIELD_STUDENT_UID, "00009999",
+                                "学号不在本教学班名单中"),
+                        excludedIssue(11, "00005678", "张三",
+                                GradeImportRowIssueDTO.FIELD_DAILY_SCORE, "abc",
+                                "平时成绩必须是 0-100 的数字")));
+        controller.importController().startImport();
+        settle(controller);
+        require(controller.importController().confirmEnabled(),
+                "夹具必须让确认可用（异常行都已明确排除）");
+    }
+
+    /** 派发一次挂起的确认导入，返回那条「还没回来」的 Future：确认在途的状态由此可以断言。 */
+    private static CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> beginHeldConfirm(
+            ImportService service, TeacherGradeBookController controller) {
+        CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> held =
+                new CompletableFuture<>();
+        service.heldConfirm = held;
+        service.confirmResult = new TeacherOperationResultDTO<>("op-held", "导入已保存到成绩草稿",
+                service.delegate.getGradeBook(OFFERING).join(), false);
+        controller.importController().confirmImport();
+        require(controller.importController().confirming(), "确认派发之后必须处于确认在途");
+        require(controller.importController().busy(), "确认在途时整页处于忙状态");
+        require(service.confirms.size() == 1,
+                "只应发出一次确认请求，收到 " + service.confirms.size());
+        return held;
     }
 
     /** 导入链在真实后台线程池里跑，测试必须等它落定。 */
@@ -1210,6 +1477,8 @@ public final class TeacherGradeImportControllerTest {
         private PreviewGradeImportRequestDTO previewRequest;
         private boolean uploadRequested;
         private CompletableFuture<TeacherFileTicketDTO> heldUploadTicket;
+        /** 挂起的确认请求：非空时 confirmGradeImport 返回它，用来观察「确认在途」的窗口。 */
+        private CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> heldConfirm;
 
         @Override
         public CompletableFuture<List<CourseTermDTO>> listTerms() {
@@ -1327,6 +1596,9 @@ public final class TeacherGradeImportControllerTest {
         public CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> confirmGradeImport(
                 ConfirmGradeImportRequestDTO request) {
             confirms.add(request);
+            if (heldConfirm != null) {
+                return heldConfirm;
+            }
             if (confirmFailure != null) {
                 CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> failed =
                         new CompletableFuture<>();

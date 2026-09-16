@@ -72,7 +72,7 @@ import util.AlertUtil;
  * 下载、预览与修订的等待都在后台线程，回到 FX 线程才触碰控件——与仓库里其它控制器一致，由调用方
  * 注入的 {@code fxExecutor} 决定“回到 FX 线程”的方式。
  *
- * <p>三条最容易做错的规则在这里落地：
+ * <p>四条最容易做错的规则在这里落地：
  * <ul>
  *   <li><b>取消恢复导入前的编辑副本</b>：{@link TeacherGradeImportController#cancelImport()} 用
  *       {@link GradeBookEditorModel#restore} 整体恢复，{@code dirty} 标志一起恢复；离开上传页
@@ -82,6 +82,8 @@ import util.AlertUtil;
  *   <li><b>确认按钮取最新服务端预览的有效性</b>：{@link #confirmEnabled()} 只看最近一次预览里
  *       还有没有**未被明确排除**的异常行（服务端 {@code blocked()} 的同一份事实），不看本地红框
  *       是否被敲掉，也不看会把已排除行算进去的 {@code errorRows}。</li>
+ *   <li><b>在途确认不会被偷走</b>：确认只认自己的代际 {@code confirmGeneration}，且在途期间修正/
+ *       排除/取消/离开一律被拒绝——见 {@link #confirming} 上写死的不变式。</li>
  * </ul>
  *
  * <p>确认导入只调用 {@code confirmGradeImport}：它是保存草稿，不是提交审批，本类里没有
@@ -105,6 +107,9 @@ public final class TeacherGradeImportController {
     static final String CONFIRM_FAILURE_TEXT = "导入保存失败，已保留预览，请重试";
     static final String CONFIRM_CONFLICT_PREFIX = "成绩表已被其他操作更新，导入预览已保留；请重新加载后再导入：";
     static final String CONFIRM_BLOCKED_TEXT = "还有未解决的异常行，请先修正或明确排除它们";
+    /** 异常明细弹窗的提示行：异常行已全部解决 / 还要继续修正或排除（见 {@link #hintText()}）。 */
+    static final String HINT_SOLVED_TEXT = "异常行已全部解决，可以回到成绩表确认导入。";
+    static final String HINT_PENDING_TEXT = "修正单元格或勾选排除后，服务端会重新校验；关闭本窗口不会取消导入。";
     static final String CANCEL_TEXT = "已取消导入，已恢复导入前的编辑内容";
     static final String NOT_IMPORTING_TEXT = "当前没有导入预览";
     static final String NO_ISSUE_CELL_TEXT = "预览期间只有服务端标记异常的单元格可以修改，其它格子请先取消导入";
@@ -173,6 +178,31 @@ public final class TeacherGradeImportController {
     private boolean importing;
     private boolean uploading;
     private boolean revising;
+    /**
+     * 确认请求是否在途。
+     *
+     * <p><b>不变式：{@code confirming} 只在「确认请求在途且这次导入仍然作数」时为 true，它永远不会
+     * 被留在 true 上。</b>留在 true 的代价是整个页面永久锁死：{@link #confirmEnabled()} 恒为 false
+     * （确认按钮永远不可用），{@link #busy()} 恒为 true（保存草稿/提交成绩/重新加载一起被挡住），
+     * 唯一的出口只剩「取消导入」。
+     *
+     * <p><b>确认有自己的代际 {@link #confirmGeneration}，不与 {@link #generation} 共享。</b>上传与
+     * 修订每派发一次都会推进 {@code generation}，而确认的完成回调里带着「我派发时的代际」才能落地。
+     * 共用一个计数器时，任何一次修订都能把在途确认的完成回调悄悄丢掉（回调开头的
+     * {@code current != generation} 直接 return），{@code confirming} 从此再也没人清。
+     *
+     * <p>能推进 {@code confirmGeneration} 的只有两处：确认自己派发（{@link #confirmImport()}），以及
+     * {@link #abandonImport}（取消/离开/页面卸下）。因此清除 {@code confirming} 的也只有两条路：
+     * 确认完成回调真正落地的那次（成功或失败），与 {@link #closeImportState()}（{@code abandonImport}
+     * 必经）。其余一切会改动导入状态的路径——修正、排除、取消导入、返回、重新加载——在
+     * {@code confirming} 期间一律拒绝执行（见 {@link #correct}、{@link #setExcluded}、
+     * {@link #cancelImport} 与 {@code TeacherGradeBookController#requestLeave}）。这样「确认在途」
+     * 这件事要么完成、要么被显式放弃，不会被第三只手偷走。
+     *
+     * <p>残余：页面被直接卸下（{@link #release()}，例如关窗）时确认仍在途，服务端可能已经把草稿写成。
+     * 那条路不向教师显示任何「已恢复」的文案（页面已经不在），重新进入时 {@code loadBook} 拿到的
+     * 就是服务端真实草稿，因此不会出现界面与数据库互相矛盾的说法。
+     */
     private boolean confirming;
     private boolean dialogOpen;
     private String feedbackText;
@@ -183,11 +213,20 @@ public final class TeacherGradeImportController {
      */
     private volatile long generation;
     /**
+     * 确认自己的代际：只由确认派发与 {@link #abandonImport} 推进，因此不可能被修订/上传的派发
+     * 顺手推走（见 {@link #confirming} 的注释）。
+     */
+    private long confirmGeneration;
+    /**
      * 修正/排除的状态版本：每次改动递增。派发修订时记下当时的版本，响应落地后若已经更大，
      * 就用刚拿到的 previewRevision 再冲刷一次——连续打字因此不会各自带着同一个基版本撞服务端。
      */
     private long correctionVersion;
-    /** 下载各自一条线：回调只在仍是最新一次下载时写提示。 */
+    /**
+     * 下载各自一条线：回调只在仍是最新一次下载时写提示。离开页面（{@link #release()}、
+     * {@link #cancelOnLeave()}）也要推进它：页面会被复用（离开教学班 A、再打开 B 时
+     * {@code active} 与宿主都会重新有值），只判「是不是活动页面」拦不住 A 的迟到下载。
+     */
     private long downloadGeneration;
     /**
      * 正在传输的短连接 Future：离开上传页时取消它，传输层据此关闭 Socket。
@@ -242,6 +281,9 @@ public final class TeacherGradeImportController {
      */
     void release() {
         abandonImport(false);
+        // 下载也要跟着作废：本控制器会被同一个工作台反复复用，离开页面再打开时 active 与宿主都会
+        // 重新有值，只有向前的代际能拦住「A 的模板/名单已保存到 …」被写到 B 的页面上。
+        downloadGeneration++;
         active = false;
         dialogOpen = false;
         dialog = null;
@@ -285,9 +327,14 @@ public final class TeacherGradeImportController {
                 }));
     }
 
-    /** 下载后的统一提示：取消（null）不提示，成功给保存路径，失败给可重试的说明。 */
+    /**
+     * 下载后的统一提示：取消（null）不提示，成功给保存路径，失败给可重试的说明。
+     *
+     * <p>页面已经卸下（{@link #release()}）时一个界面字段都不写：宿主是刻意保留的（同一个控制器
+     * 反复进出工作台），所以「宿主还在」不等于「页面还在」。代际那半句由调用方把关。
+     */
     private void reportDownload(Path saved, Throwable failure, String successPrefix) {
-        if (host == null) return;
+        if (host == null || !active) return;
         if (failure != null) {
             host.feedback(failureText(failure, DOWNLOAD_FAILURE_TEXT));
             return;
@@ -436,7 +483,7 @@ public final class TeacherGradeImportController {
 
     /** 表格里键入的修正：原文先进模型（教师看得见自己敲的字），红框仍由服务端问题维持。 */
     void correctionTyped(Row row, GradeComponentCodeDTO code, String text) {
-        if (!importing || host == null || row == null) return;
+        if (!importing || confirming || host == null || row == null) return;
         Integer rowNumber = issueRowNumber(row, code);
         if (rowNumber == null) {
             host.feedback(NO_ISSUE_CELL_TEXT);
@@ -455,6 +502,7 @@ public final class TeacherGradeImportController {
      */
     void correct(int rowNumber, String field, String text) {
         if (!importing || field == null) return;
+        if (refuseWhileConfirming()) return;
         corrections.computeIfAbsent(rowNumber, ignored -> new LinkedHashMap<>())
                 .put(field, text == null ? "" : text.trim());
         correctionVersion++;
@@ -464,6 +512,7 @@ public final class TeacherGradeImportController {
     /** 明确排除/取消排除一行；已排除的行不再阻止确认导入。 */
     void setExcluded(int rowNumber, boolean excluded) {
         if (!importing) return;
+        if (refuseWhileConfirming()) return;
         if (excluded) {
             excludedRows.add(rowNumber);
         } else {
@@ -478,6 +527,22 @@ public final class TeacherGradeImportController {
     }
 
     /**
+     * 确认在途期间拒绝一次会改动预览状态的教师手势（修正、排除）。
+     *
+     * <p>不是为了省一次往返，而是为了让 {@link #confirming} 的不变式成立：一次修订会推进代际并
+     * 应用一份新的预览，而确认正锁着它当时看到的那一版（服务端严格要求 {@code expectedPreviewRevision}
+     * 相等）。拒绝的理由说给教师听——这句话会显示在成绩表页的反馈区，弹窗里则由
+     * {@link Feedback#render()} 的提示行说明。
+     *
+     * @return true 表示这次手势已经被拒绝，调用方必须原样返回
+     */
+    private boolean refuseWhileConfirming() {
+        if (!confirming) return false;
+        if (host != null) host.feedback(CONFIRMING_TEXT);
+        return true;
+    }
+
+    /**
      * 修订预览：请求里带的是「完整修正状态」（修正集合 + 排除集合），因此取消一处修正或取消排除
      * 同样能如实表达。
      *
@@ -489,6 +554,7 @@ public final class TeacherGradeImportController {
      */
     private void revise() {
         if (!importing || importToken == null || preview == null) return;
+        if (confirming) return;       // 确认在途：一个修订都不派发（调用方已被拒绝，这里是兜底）
         if (revising) return;         // 在途：只累积，响应落地后统一冲刷
         dispatchRevise();
     }
@@ -557,16 +623,23 @@ public final class TeacherGradeImportController {
         String token = importToken;
         int previewRevision = preview.getPreviewRevision();
         long expectedRevision = baseDraft == null ? 0 : baseDraft.getExpectedRevision();
-        long current = ++generation;
+        // 确认认自己的代际：修订/上传的派发推进的是 generation，与这里无关（见 confirming 的注释）。
+        long current = ++confirmGeneration;
         confirming = true;
         feedbackText = CONFIRMING_TEXT;
         host.feedback(feedbackText);
         host.importStateChanged();
+        // 弹窗还开着的话立刻重画一次：把「修正/排除」冻上并换成「正在保存」那句提示——
+        // 模态窗口挡住成绩表页的反馈区，那半句解释只有在弹窗里才看得见。
+        if (dialogOpen && dialog != null) dialog.render();
         service.confirmGradeImport(new ConfirmGradeImportRequestDTO(pendingConfirmOperationId, token,
                 previewRevision, expectedRevision))
                 .whenComplete((result, failure) -> fxExecutor.accept(() -> {
-                    if (current != generation || !active) return;
+                    if (current != confirmGeneration) return;
+                    // 不变式优先于界面写入：只要这次确认仍然作数，confirming 无条件落下；真的被界面
+                    // 之外的原因卸下了页面（active 为 false），也只是少写一次界面而已。
                     confirming = false;
+                    if (!active) return;
                     if (failure != null) {
                         // 冲突（版本过期/名单变化）与其它失败一样保留预览与导入前的副本，等教师决定。
                         feedbackText = conflictPrefix(failure)
@@ -591,10 +664,19 @@ public final class TeacherGradeImportController {
     /**
      * 取消导入：丢弃服务端预览令牌（尽力而为），恢复导入前的编辑副本（含 dirty 标志），
      * 关闭在途短连接并回到普通编辑。
+     *
+     * <p><b>确认在途时拒绝取消。</b>确认这条写请求一旦发出就没法收回，而这里能做的只有把本地状态
+     * 收回去；真那样做，教师看到的「已取消导入，已恢复导入前的编辑内容」就会说在一份可能已经写入
+     * 的草稿上（界面与数据库互相矛盾，只有下一次保存的版本冲突才暴露）。等一个不能取消的写请求
+     * 回来更诚实，所以这里什么都不动，只说明原因。
      */
     void cancelImport() {
         if (!importing) {
             if (host != null) host.feedback(NOT_IMPORTING_TEXT);
+            return;
+        }
+        if (confirming) {
+            if (host != null) host.feedback(CONFIRMING_TEXT);
             return;
         }
         abandonImport(true);
@@ -609,8 +691,12 @@ public final class TeacherGradeImportController {
      * 离开上传页：取消在途 Future（传输层据此关闭短连接）并恢复导入前的编辑副本。
      * 恢复之后 {@code dirty} 是导入前的真实状态，离开保护因此按教师原本的内容提问；
      * 提示也换掉，页面不会留在「导入预览：…」上而实际已经退出导入态。
+     *
+     * <p>下载代际无条件前进：在途的可能只有一次模板/名单下载（它不记在
+     * {@code inFlightTransfer}/{@code inFlightChain} 里），下面那个提前返回正好会漏掉它。
      */
     void cancelOnLeave() {
+        downloadGeneration++;
         if (!importing && inFlightTransfer == null && inFlightChain == null) return;
         boolean abandonedPreview = importing;
         abandonImport(true);
@@ -627,6 +713,9 @@ public final class TeacherGradeImportController {
      */
     private void abandonImport(boolean restoreModel) {
         generation++;
+        // 在途确认就此被**显式放弃**：代际前进让它的完成回调不再落地（哪怕服务端随后真的写了草稿，
+        // 也不再往已经收回去的界面上写），而 closeImportState 保证 confirming 一定落回 false。
+        confirmGeneration++;
         CompletableFuture<Void> transfer = inFlightTransfer;
         inFlightTransfer = null;
         if (transfer != null) transfer.cancel(true);
@@ -902,9 +991,10 @@ public final class TeacherGradeImportController {
                         preview == null ? "" : TeacherGradeImportController.summaryText(preview));
             }
             if (feedbackHintLabel != null) {
-                feedbackHintLabel.setText(owner == null || owner.confirmEnabled()
-                        ? "异常行已全部解决，可以回到成绩表确认导入。"
-                        : "修正单元格或勾选排除后，服务端会重新校验；关闭本窗口不会取消导入。");
+                // 还没绑定宿主时（FXML 的 initialize() 会先 render 一次）沿用原来那句：标签非空
+                // 本身就是「render 真的跑过」的证据，GUI 冒烟用例据此断言。
+                feedbackHintLabel.setText(owner == null
+                        ? TeacherGradeImportController.HINT_SOLVED_TEXT : owner.hintText());
             }
             if (feedbackIssueList == null) return;
             feedbackIssueList.getChildren().clear();
@@ -925,8 +1015,12 @@ public final class TeacherGradeImportController {
             line.setMaxWidth(400.0);
             row.getChildren().add(line);
 
+            // 确认在途时这些控件冻结：控制器那边本来就会拒绝，这里只是别让教师白点一次。
+            boolean frozen = owner != null && owner.confirming();
+
             CheckBox exclude = new CheckBox("排除该行");
             exclude.setSelected(issue.isExcluded());
+            exclude.setDisable(frozen);
             exclude.selectedProperty().addListener((observable, previous, next) -> {
                 if (owner != null) owner.setExcluded(issue.getRowNumber(), Boolean.TRUE.equals(next));
             });
@@ -935,7 +1029,9 @@ public final class TeacherGradeImportController {
             TextField correction = new TextField(issue.getRawValue());
             correction.setPrefWidth(90.0);
             correction.setPromptText("修正为");
+            correction.setDisable(frozen);
             Button apply = new Button("修正");
+            apply.setDisable(frozen);
             apply.setOnAction(event -> {
                 if (owner != null) {
                     owner.correct(issue.getRowNumber(), issue.getField(), correction.getText());
@@ -1052,6 +1148,20 @@ public final class TeacherGradeImportController {
 
     boolean busy() {
         return uploading || revising || confirming;
+    }
+
+    /** 确认是否在途：离开保护据此拒绝离开（见 {@link #confirming} 的不变式）。 */
+    boolean confirming() {
+        return confirming;
+    }
+
+    /**
+     * 异常明细弹窗的提示行：确认在途时明说「正在保存」，与
+     * {@link #refuseWhileConfirming()} 的拒绝保持同一句话（弹窗是模态的，成绩表页的反馈区被它挡住）。
+     */
+    String hintText() {
+        if (confirming) return CONFIRMING_TEXT;
+        return confirmEnabled() ? HINT_SOLVED_TEXT : HINT_PENDING_TEXT;
     }
 
     boolean active() {

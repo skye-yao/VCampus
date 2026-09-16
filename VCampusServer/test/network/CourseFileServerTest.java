@@ -80,6 +80,7 @@ public final class CourseFileServerTest {
 
             uploadRoundTrip(server, tickets, teacherA);
             downloadRoundTrip(server, tickets, teacherA);
+            rejectedDownloadClaimsReclaimTheGeneratedFile(server, tickets, teacherA);
             rejectedClaims(server, tickets, teacherA, teacherB, student, clock);
             handlerIssuesTicketsTheFilePortAccepts(server, tickets, teacherA, student);
             stopClosesListenerLiveConnectionsAndTempFiles(server, tickets, teacherA);
@@ -152,6 +153,41 @@ public final class CourseFileServerTest {
         require(!Files.exists(generated),
                 "a claimed download must reclaim the served file, saw " + generated);
         expectRejected(server.getPort(), metadata, null, "文件票据无效或已被使用");
+    }
+
+    /**
+     * 下载票据在「已消费、长度/摘要尚未核对」时失败：兑换已经摘除了票据条目，过期清理器再也看不见
+     * 这份服务端生成的工作簿，必须在核对失败的那一处当场回收，否则一条连接就能永久留下一份孤儿，
+     * 循环几次就是无上限的临时磁盘增长。
+     */
+    private static void rejectedDownloadClaimsReclaimTheGeneratedFile(CourseFileServer server,
+            TeacherFileTicketService tickets, UserSession teacher) throws IOException {
+        int filesBefore = tempFiles(tickets.getTempDirectory()).size();
+
+        // 声明长度与票据不符：claim 成功（票据被消费），随后长度核对失败。
+        Path lengthMismatch = tickets.newTempFile("orphan-template.xlsx");
+        Files.write(lengthMismatch, CONTENT);
+        TeacherFileTicketDTO lengthTicket = tickets.issueDownload(teacher, OFFERING_A, lengthMismatch);
+        expectRejected(server.getPort(), metadata(lengthTicket.getTicket(), teacher.getToken(),
+                DOWNLOAD, CONTENT.length + 1, lengthTicket.getSha256()), null, "文件长度与票据不一致");
+        require(!Files.exists(lengthMismatch),
+                "a download claim rejected after the ticket was consumed must reclaim the file, saw "
+                        + lengthMismatch);
+
+        // 摘要与票据不符：另一张票、另一份文件，同一条回收路径。
+        Path digestMismatch = tickets.newTempFile("orphan-roster.xlsx");
+        Files.write(digestMismatch, CONTENT);
+        TeacherFileTicketDTO digestTicket = tickets.issueDownload(teacher, OFFERING_A, digestMismatch);
+        expectRejected(server.getPort(), metadata(digestTicket.getTicket(), teacher.getToken(),
+                DOWNLOAD, CONTENT.length, sha256("other-content".getBytes(StandardCharsets.UTF_8))),
+                null, "文件摘要与票据不一致");
+        require(!Files.exists(digestMismatch),
+                "a download claim rejected on the digest must reclaim the file, saw " + digestMismatch);
+
+        // 被拒绝的下载不留任何文件：两张票、两份生成物，失败之后一份都不该剩。
+        require(tempFiles(tickets.getTempDirectory()).size() == filesBefore,
+                "a rejected download must not orphan the server-generated file, saw "
+                        + tempFiles(tickets.getTempDirectory()));
     }
 
     /**

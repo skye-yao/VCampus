@@ -338,7 +338,8 @@ public class TeacherCourseHandler {
      * （工作簿超过 5 MiB、会话失效）都会留下一个**没有票据条目**的文件，而
      * {@link TeacherFileTicketService#purgeExpired} 是按票据条目回收临时文件的——看不见它，就永远
      * 收不走，一份这样的残件会一直占到停服。因此两步放在同一个 try 里，任何一步抛出都先删掉半成品
-     * 再抛（下载方向文件连接也会在成功发送后回收，那条路径已经不会留孤儿了）。
+     * 再抛。签发成功之后的回收有两条路，都归文件连接管：字节发完（或中途断开）当场回收，以及
+     * 兑换成功之后长度/摘要核对失败时当场回收——这两条路上的票据都已被消费，清理器看不见了。
      */
     private TeacherFileTicketDTO issueDownloadFile(TeacherFileTicketService fileService,
             UserSession session, String offeringId, String clientFileName, Consumer<Path> writer) {

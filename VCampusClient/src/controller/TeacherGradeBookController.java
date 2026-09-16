@@ -386,14 +386,35 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
     }
 
     /**
-     * 离开保护：导入预览是临时的，离开本页先取消在途传输（关闭短连接）并恢复导入前的编辑副本，
-     * 之后才按恢复出来的 {@code dirty} 决定要不要提示——教师原本的未保存修改会如实被问一次。
+     * 离开保护：导入预览是临时的，离开本页要取消在途传输（关闭短连接）并恢复导入前的编辑副本，
+     * 然后按恢复出来的 {@code dirty} 决定要不要提示——教师原本的未保存修改如实被问一次。
+     *
+     * <p><b>顺序按「有没有教师的临时成果会丢」分开：</b>还没有预览时，取消只是关掉在途短连接
+     * （上传链的每一段都会先 {@code requireStillImporting} 再派发，因此票据不会被白花、也不会留下
+     * 孤儿文件），照旧在提问之前就取消；已经有预览时则先问、得到「确定离开」才取消——教师点返回
+     * 又回答「取消，不离开」的话，预览、修正与那份服务端候选必须原封不动地留在原地。
+     *
+     * <p><b>确认在途时直接拒绝离开：</b>{@link TeacherGradeImportController#confirming()} 期间那条
+     * 写请求可能已经在服务端写成草稿，此刻取消会给出「已恢复导入前的编辑内容」这句与数据库矛盾的
+     * 话。留在页面上等它落地是唯一不撒谎的选择（见 importController 里 {@code confirming} 的不变式）。
      */
     @Override
     public boolean requestLeave() {
-        importController.cancelOnLeave();
+        if (importController.confirming()) {
+            feedbackText = TeacherGradeImportController.CONFIRMING_TEXT;
+            render();
+            return false;
+        }
+        if (!importController.importing()) {
+            // 没有预览：先取消在途传输（关闭短连接），这里没有教师的临时成果会丢。
+            importController.cancelOnLeave();
+        }
         if (!dirty()) return true;
-        return confirmation.apply(LEAVE_PROMPT_TEXT);
+        if (!confirmation.apply(LEAVE_PROMPT_TEXT)) return false;
+        // 明确要离开才丢预览与修正：响应里的 dirty 随之回到导入前的真实状态（本方法已经问过，
+        // 因此这次恢复不再触发第二次提问）。
+        importController.cancelOnLeave();
+        return true;
     }
 
     @Override
@@ -423,6 +444,12 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
      * 而不是“离开页面”的措辞（同一个机制，两种说法）。被拒绝时保持当前内容不动。
      */
     void reload() {
+        if (importController.confirming()) {
+            // 确认在途时重新加载会丢掉那条写请求的结果（按钮此时本来也是禁用的，这里是第二道门）。
+            feedbackText = TeacherGradeImportController.CONFIRMING_TEXT;
+            render();
+            return;
+        }
         if (model != null && dirty() && !confirmation.apply(RELOAD_PROMPT_TEXT)) return;
         pendingSaveOperationId = null;
         pendingSubmitOperationId = null;

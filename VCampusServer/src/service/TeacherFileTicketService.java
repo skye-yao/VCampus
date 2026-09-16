@@ -146,10 +146,12 @@ public final class TeacherFileTicketService implements AutoCloseable {
     }
 
     /**
-     * 兑换票据（传输阶段）：校验归属会话、有效期、用途与长度后单次消费。
+     * 兑换票据（传输阶段）：校验归属会话、有效期与用途后单次消费。
      *
-     * <p>校验全部通过才消费票据，因此并发或重复兑换只有一次成功，而无关的伪造输入不会烧掉别人
-     * 手里那张票。任何失败都抛出 {@link IllegalArgumentException}，消息可直接回给客户端。
+     * <p>身份、有效期与用途全部通过才消费票据，因此并发或重复兑换只有一次成功，而无关的伪造输入
+     * 不会烧掉别人手里那张票。长度与摘要**不在这里**核对——文件连接在兑换成功之后才逐项核对它们，
+     * 那里失败时按方向回收票据落点（{@code CourseFileConnection#claim}）。任何失败都抛出
+     * {@link IllegalArgumentException}，消息可直接回给客户端。
      *
      * <p>上传票据的传输阶段与预览阶段是**两次各自单次**的交接：这里只消费传输，成功后由
      * {@link #markUploaded} 把它登记成「已落地待预览」，再由 {@link #claimUploaded} 消费预览。
