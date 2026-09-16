@@ -5,9 +5,14 @@ import dto.course.ScheduleDisplayKindDTO;
 import dto.course.admin.schedule.ScheduleArrangementDTO;
 import dto.course.admin.schedule.ScheduleResourceDTO;
 import dto.course.admin.schedule.ScheduleSlotDTO;
+import dto.course.teacher.MarkTeacherApplicationReadDTO;
+import dto.course.teacher.TeacherApplicationDTO;
+import dto.course.teacher.TeacherApplicationDetailDTO;
 import dto.course.teacher.TeacherCalendarDateDTO;
+import dto.course.teacher.TeacherCourseActions;
 import dto.course.teacher.TeacherOfferingDTO;
 import dto.course.teacher.TeacherOfferingDetailDTO;
+import dto.course.teacher.TeacherOperationResultDTO;
 import dto.course.teacher.TeacherPageDTO;
 import dto.course.teacher.TeacherPeriodDTO;
 import dto.course.teacher.TeacherRosterRowDTO;
@@ -19,6 +24,7 @@ import protocol.Message;
 import protocol.MessageCode;
 import protocol.MessageType;
 import service.TeacherAccessPolicy;
+import service.TeacherApplicationService;
 import service.TeacherCourseQueryService;
 import session.SessionManager;
 import session.UserSession;
@@ -44,6 +50,9 @@ public final class TeacherCourseHandlerTest {
     private static final String OFFERING_B = "9007199254740995";
     private static final String PLANNED_OFFERING = "9007199254740999";
     private static final String PLAN_ID = "7001";
+    /** 「我的申请」的 BIGINT 申请 ID（同样超出 JavaScript 安全整数）与它当前的状态键。 */
+    private static final String APPLICATION_ID = "9007199254740994";
+    private static final String STATE_KEY = "PENDING:2026-09-14T08:00:00Z";
 
     private TeacherCourseHandlerTest() {
     }
@@ -70,6 +79,17 @@ public final class TeacherCourseHandlerTest {
             databaseFailureStaysInTheServerLog(handler, queries, teacherA);
             runtimeFailureStaysInTheServerLog(handler, queries, teacherA);
             dispatcherRoutesTheTeacherModule(handler, teacherA);
+
+            // 任务六 T3 的三个「我的申请」动作走各自注入的服务替身：它们要断言的是
+            // 响应键、写请求体的位置与两条新 catch 分支的 MessageCode，不是查询服务。
+            FakeApplicationService applications = new FakeApplicationService();
+            TeacherCourseHandler applicationHandler =
+                    new TeacherCourseHandler(queries, null, null, null, null, applications);
+            applicationActionsExposeTheirKeysAndArguments(applicationHandler, applications, teacherA);
+            applicationActionsRejectIllegalFiltersAndBodies(applicationHandler, applications, teacherA);
+            applicationActionsMapTheirExceptionTypesToTheirOwnCodes(applicationHandler, applications,
+                    teacherA);
+            applicationActionsReportNotWiredWhenTheServiceIsMissing(queries, teacherA);
         } finally {
             sessions.removeSession(teacherA.getToken());
             sessions.removeSession(teacherB.getToken());
@@ -538,6 +558,369 @@ public final class TeacherCourseHandlerTest {
         require(new MessageDispatcher(new CourseHandler(), new AdminCourseHandler())
                         .dispatch(legacyAdmin).getCode() == MessageCode.UNAUTHORIZED,
                 "the two-argument dispatcher must keep routing the courseAdmin module");
+    }
+
+    // ------------------------------------------------ 我的申请（任务六 T3）
+
+    /**
+     * 三个新动作的成功路径：各自写出自己的响应键，参数原样到达服务，身份只来自会话。
+     *
+     * <p>{@code applications} 是合并分页、{@code application} 是单数详情、{@code result} 是写操作的
+     * 信封——键错了客户端会以 {@code 缺少响应字段: <key>} 失败，所以这里逐个钉住。
+     */
+    private static void applicationActionsExposeTheirKeysAndArguments(TeacherCourseHandler handler,
+            FakeApplicationService applications, UserSession teacher) {
+        Message list = courseTeacher(TeacherCourseActions.LIST_MY_APPLICATIONS, teacher.getToken());
+        list.putData("type", TeacherApplicationDTO.GRADE_SUBMISSION);
+        list.putData("status", "APPROVED");
+        list.putData("page", 2);
+        list.putData("size", 20);
+        Message listed = handler.handle(list);
+        require(listed.getCode() == MessageCode.SUCCESS, "listMyApplications must succeed");
+        requireOnlyKey(listed, "applications");
+        require(listed.getData("applications") instanceof TeacherPageDTO,
+                "the applications key must carry the generic page object");
+        require(TEACHER_A.equals(applications.lastUid),
+                "the list must run as the session teacher");
+        require(TeacherApplicationDTO.GRADE_SUBMISSION.equals(applications.lastType)
+                        && "APPROVED".equals(applications.lastStatus)
+                        && applications.lastPage == 2 && applications.lastSize == 20,
+                "the type/status filters and the paging must reach the service unchanged, saw "
+                        + applications.lastType + "|" + applications.lastStatus + "|"
+                        + applications.lastPage + "|" + applications.lastSize);
+
+        // 不限类型/状态：两个筛选都不出现，服务端按「全部」处理，而不是客户端编一个默认值。
+        Message unfiltered =
+                courseTeacher(TeacherCourseActions.LIST_MY_APPLICATIONS, teacher.getToken());
+        unfiltered.putData("page", 1);
+        unfiltered.putData("size", 20);
+        require(handler.handle(unfiltered).getCode() == MessageCode.SUCCESS,
+                "an unfiltered list must succeed");
+        require(applications.lastType == null && applications.lastStatus == null,
+                "absent filters must stay null, never a fabricated default, saw "
+                        + applications.lastType + "|" + applications.lastStatus);
+
+        Message detail = courseTeacher(TeacherCourseActions.GET_MY_APPLICATION, teacher.getToken());
+        detail.putData("type", TeacherApplicationDTO.SCHEDULE_ADJUSTMENT);
+        detail.putData("id", APPLICATION_ID);
+        Message loaded = handler.handle(detail);
+        require(loaded.getCode() == MessageCode.SUCCESS, "getMyApplication must succeed");
+        requireOnlyKey(loaded, "application");
+        require(loaded.getData("application") instanceof TeacherApplicationDetailDTO,
+                "the application key must carry the typed detail object");
+        require(TEACHER_A.equals(applications.lastUid),
+                "the detail must run as the session teacher");
+        require(APPLICATION_ID.equals(applications.lastId),
+                "an id beyond the JavaScript safe integer must reach the service as the exact"
+                        + " decimal string, saw " + applications.lastId);
+
+        Message read = readRequest(teacher,
+                readBody(TeacherApplicationDTO.SCHEDULE_ADJUSTMENT, APPLICATION_ID, STATE_KEY));
+        Message marked = handler.handle(read);
+        require(marked.getCode() == MessageCode.SUCCESS, "markApplicationRead must succeed");
+        requireOnlyKey(marked, "result");
+        Object envelope = marked.getData("result");
+        require(envelope instanceof TeacherOperationResultDTO<?> result
+                        && result.getValue() == applications.readRow,
+                "the result key must carry the operation envelope whose value is the refreshed"
+                        + " row, saw " + envelope);
+        require("申请结果已标记为已读".equals(marked.getMessage()),
+                "the write response must carry the operation message, saw " + marked.getMessage());
+        require(TEACHER_A.equals(applications.lastUid),
+                "the write must run as the session teacher");
+        require(APPLICATION_ID.equals(applications.lastId) && STATE_KEY.equals(applications.lastStateKey),
+                "the id and the seen state key must reach the service unchanged, saw "
+                        + applications.lastId + "|" + applications.lastStateKey);
+    }
+
+    /**
+     * 形状与白名单的拒绝：类型/状态先过白名单，写请求体的 BIGINT 只接受十进制字符串，
+     * 伪造的身份字段出现即拒。每一条都必须在本动作内变成 BAD_REQUEST，而不是走到服务里。
+     */
+    private static void applicationActionsRejectIllegalFiltersAndBodies(TeacherCourseHandler handler,
+            FakeApplicationService applications, UserSession teacher) {
+        require(applicationList(handler, teacher, "SOMETHING_ELSE", null).getCode()
+                        == MessageCode.BAD_REQUEST,
+                "an unknown application type must be a bad request");
+        require(applicationList(handler, teacher, "grade_submission", null).getCode()
+                        == MessageCode.BAD_REQUEST,
+                "the type must match the whitelist exactly, never case-insensitively");
+        require(applicationList(handler, teacher, TeacherApplicationDTO.GRADE_SUBMISSION,
+                "WITHDRAWN").getCode() == MessageCode.BAD_REQUEST,
+                "a status outside that type's alphabet must be a bad request, not ignored");
+        require(applicationList(handler, teacher, null, "CANCELLED").getCode()
+                        == MessageCode.BAD_REQUEST,
+                "an unknown status must be a bad request even with an open type");
+        require(applicationList(handler, teacher, 7, null).getCode() == MessageCode.BAD_REQUEST,
+                "a non-string type must be a bad request");
+        require(applicationList(handler, teacher, null, 5).getCode() == MessageCode.BAD_REQUEST,
+                "a non-string status must be a bad request");
+        Message missingPaging =
+                courseTeacher(TeacherCourseActions.LIST_MY_APPLICATIONS, teacher.getToken());
+        missingPaging.putData("type", TeacherApplicationDTO.SCHEDULE_ADJUSTMENT);
+        require(handler.handle(missingPaging).getCode() == MessageCode.BAD_REQUEST,
+                "a missing page/size must be a bad request");
+        require(applicationListOverflow(handler, teacher).getCode() == MessageCode.BAD_REQUEST,
+                "a page whose offset overflows the DAO contract must be a bad request");
+
+        int detailCalls = applications.detailCalls;
+        require(detailRequest(handler, teacher, null, APPLICATION_ID).getCode()
+                        == MessageCode.BAD_REQUEST,
+                "a missing type must be a bad request");
+        require(detailRequest(handler, teacher, "  ", APPLICATION_ID).getCode()
+                        == MessageCode.BAD_REQUEST,
+                "a blank type must be a bad request");
+        require(detailRequest(handler, teacher, "SOMETHING_ELSE", APPLICATION_ID).getCode()
+                        == MessageCode.BAD_REQUEST,
+                "an unknown type must be a bad request");
+        require(detailRequest(handler, teacher, TeacherApplicationDTO.SCHEDULE_ADJUSTMENT, null)
+                        .getCode() == MessageCode.BAD_REQUEST,
+                "a missing id must be a bad request");
+        require(detailRequest(handler, teacher, TeacherApplicationDTO.SCHEDULE_ADJUSTMENT, "abc")
+                        .getCode() == MessageCode.BAD_REQUEST,
+                "a non-numeric id must be a bad request");
+        require(detailRequest(handler, teacher, TeacherApplicationDTO.SCHEDULE_ADJUSTMENT, "0")
+                        .getCode() == MessageCode.BAD_REQUEST,
+                "a zero id must be a bad request");
+        require(detailRequest(handler, teacher, TeacherApplicationDTO.SCHEDULE_ADJUSTMENT, "9.5")
+                        .getCode() == MessageCode.BAD_REQUEST,
+                "a fractional id must be a bad request");
+        Message numericId = courseTeacher(TeacherCourseActions.GET_MY_APPLICATION,
+                teacher.getToken());
+        numericId.putData("type", TeacherApplicationDTO.SCHEDULE_ADJUSTMENT);
+        numericId.putData("id", 9007199254740994L);
+        require(handler.handle(numericId).getCode() == MessageCode.BAD_REQUEST,
+                "a numeric id must be rejected, never coerced through a double");
+        require(applications.detailCalls == detailCalls,
+                "no rejected detail request may reach the service, saw "
+                        + (applications.detailCalls - detailCalls) + " calls");
+
+        int readCalls = applications.readCalls;
+        Message notAnObject =
+                courseTeacher(TeacherCourseActions.MARK_APPLICATION_READ, teacher.getToken());
+        notAnObject.putData("request", "not-an-object");
+        require(handler.handle(notAnObject).getCode() == MessageCode.BAD_REQUEST,
+                "a write body that is not a JSON object must be a bad request");
+        Message missingBody =
+                courseTeacher(TeacherCourseActions.MARK_APPLICATION_READ, teacher.getToken());
+        require(handler.handle(missingBody).getCode() == MessageCode.BAD_REQUEST,
+                "a missing write body must be a bad request");
+        Map<String, Object> forgedBody = readBody(TeacherApplicationDTO.SCHEDULE_ADJUSTMENT,
+                APPLICATION_ID, STATE_KEY);
+        forgedBody.put("uid", TEACHER_B);
+        require(handler.handle(readRequest(teacher, forgedBody)).getCode()
+                        == MessageCode.BAD_REQUEST,
+                "a forged uid inside the write body must be rejected before the service");
+        require(handler.handle(readRequest(teacher, readBody(
+                        TeacherApplicationDTO.SCHEDULE_ADJUSTMENT, 9007199254740994L, STATE_KEY)))
+                        .getCode() == MessageCode.BAD_REQUEST,
+                "a numeric id in the write body must be a bad request");
+        require(handler.handle(readRequest(teacher, readBody(
+                        TeacherApplicationDTO.SCHEDULE_ADJUSTMENT, "0", STATE_KEY))).getCode()
+                        == MessageCode.BAD_REQUEST,
+                "a zero id in the write body must be a bad request");
+        require(handler.handle(readRequest(teacher, readBody(
+                        TeacherApplicationDTO.SCHEDULE_ADJUSTMENT, APPLICATION_ID, 42))).getCode()
+                        == MessageCode.BAD_REQUEST,
+                "a non-string expectedStateKey must be a bad request");
+        require(applications.readCalls == readCalls,
+                "no malformed confirmation may reach the service, saw "
+                        + (applications.readCalls - readCalls) + " calls");
+
+        // 形状合法、语义为空的两种请求由服务层判定（Handler 只保证形状，类型白名单与状态键非空
+        // 是服务层的规则），所以它们**必须**到达服务，并且仍然以 BAD_REQUEST 结束——服务抛的是
+        // IllegalArgumentException，不允许变成 500 式的 ERROR。
+        require(handler.handle(readRequest(teacher, readBody(null, APPLICATION_ID, STATE_KEY)))
+                        .getCode() == MessageCode.BAD_REQUEST,
+                "a missing type in the write body must be a bad request");
+        require(handler.handle(readRequest(teacher, readBody(
+                        TeacherApplicationDTO.SCHEDULE_ADJUSTMENT, APPLICATION_ID, null)))
+                        .getCode() == MessageCode.BAD_REQUEST,
+                "a missing expectedStateKey must be a bad request");
+        require(applications.readCalls == readCalls + 2,
+                "exactly the two semantic rejections are judged by the service, saw "
+                        + (applications.readCalls - readCalls) + " calls");
+    }
+
+    /**
+     * Ruling G 的实测：这两条 catch 分支各自映射成自己的 {@link MessageCode}。
+     *
+     * <p>没有这两条分支时，两个异常都会掉进最后的 {@code RuntimeException} 分支，变成
+     * {@code ERROR / 服务端内部错误}——所以下面每一条断言的都是 code 本身，而冲突那条还要并接着
+     * 断言「当前申请行放在 {@code application} 键上，且没有伪造调课/成绩的冲突载体」。
+     */
+    private static void applicationActionsMapTheirExceptionTypesToTheirOwnCodes(
+            TeacherCourseHandler handler, FakeApplicationService applications, UserSession teacher) {
+        applications.mode = ApplicationMode.NOT_FOUND;
+        Message missingDetail = detailRequest(handler, teacher,
+                TeacherApplicationDTO.SCHEDULE_ADJUSTMENT, APPLICATION_ID);
+        require(missingDetail.getCode() == MessageCode.NOT_FOUND,
+                "a missing or foreign application must map to NOT_FOUND, saw "
+                        + missingDetail.getCode());
+        requireFailureOnlyCodeAndMessage(missingDetail);
+        Message missingRead = handler.handle(readRequest(teacher,
+                readBody(TeacherApplicationDTO.SCHEDULE_ADJUSTMENT, APPLICATION_ID, STATE_KEY)));
+        require(missingRead.getCode() == MessageCode.NOT_FOUND,
+                "marking an invisible application must map to NOT_FOUND, saw "
+                        + missingRead.getCode());
+
+        applications.mode = ApplicationMode.CONFLICT;
+        TeacherApplicationDTO current = applications.conflictRow;
+        Message stale = handler.handle(readRequest(teacher,
+                readBody(TeacherApplicationDTO.SCHEDULE_ADJUSTMENT, APPLICATION_ID, STATE_KEY)));
+        require(stale.getCode() == MessageCode.CONFLICT,
+                "a stale confirmation must map to CONFLICT, saw " + stale.getCode());
+        require("申请结果已更新，请刷新后重试".equals(stale.getMessage()),
+                "the conflict must keep the server message, saw " + stale.getMessage());
+        Map<String, Object> data = stale.getData();
+        require(data != null && data.size() == 1 && data.get("application") == current,
+                "the conflict must carry the current row under the application key and nothing"
+                        + " else, saw " + data);
+        require(!List.of("conflicts", "latest", "gradeBook").stream()
+                        .anyMatch(key -> data.containsKey(key)),
+                "the conflict must not fabricate the adjustment or grade conflict carriers, saw "
+                        + data);
+        applications.mode = ApplicationMode.SUCCESS;
+    }
+
+    /** 未接线时明确报「尚未开放」，与其它可选服务的处理一致，而不是掉进 NPE。 */
+    private static void applicationActionsReportNotWiredWhenTheServiceIsMissing(
+            TeacherCourseQueryService queries, UserSession teacher) {
+        TeacherCourseHandler bare = new TeacherCourseHandler(queries, null, null, null, null, null);
+        Message list = courseTeacher(TeacherCourseActions.LIST_MY_APPLICATIONS, teacher.getToken());
+        list.putData("page", 1);
+        list.putData("size", 20);
+        Message response = bare.handle(list);
+        require(response.getCode() == MessageCode.BAD_REQUEST,
+                "an unwired applications service must be a bad request, saw " + response.getCode());
+        require("该教师操作尚未开放".equals(response.getMessage()),
+                "an unwired applications service must say so, saw " + response.getMessage());
+    }
+
+    private static Message applicationList(TeacherCourseHandler handler, UserSession teacher,
+            Object type, Object status) {
+        Message request = courseTeacher(TeacherCourseActions.LIST_MY_APPLICATIONS, teacher.getToken());
+        if (type != null) request.putData("type", type);
+        if (status != null) request.putData("status", status);
+        request.putData("page", 1);
+        request.putData("size", 20);
+        return handler.handle(request);
+    }
+
+    private static Message applicationListOverflow(TeacherCourseHandler handler,
+            UserSession teacher) {
+        Message request = courseTeacher(TeacherCourseActions.LIST_MY_APPLICATIONS, teacher.getToken());
+        request.putData("page", 2000000000);
+        request.putData("size", 100);
+        return handler.handle(request);
+    }
+
+    private static Message detailRequest(TeacherCourseHandler handler, UserSession teacher,
+            Object type, Object id) {
+        Message request = courseTeacher(TeacherCourseActions.GET_MY_APPLICATION, teacher.getToken());
+        if (type != null) request.putData("type", type);
+        if (id != null) request.putData("id", id);
+        return handler.handle(request);
+    }
+
+    private static Message readRequest(UserSession teacher, Map<String, Object> body) {
+        Message request =
+                courseTeacher(TeacherCourseActions.MARK_APPLICATION_READ, teacher.getToken());
+        request.putData("request", body);
+        return request;
+    }
+
+    private static Map<String, Object> readBody(Object type, Object id, Object stateKey) {
+        Map<String, Object> body = new HashMap<>();
+        if (type != null) body.put("type", type);
+        if (id != null) body.put("id", id);
+        if (stateKey != null) body.put("expectedStateKey", stateKey);
+        return body;
+    }
+
+    /** 一行真实形状的申请：服务端算出的 stateKey 与 unread 由这个夹具带出来。 */
+    private static TeacherApplicationDTO applicationRow(String status, boolean unread) {
+        String handledAt = "PENDING".equals(status) ? null : "2026-09-14T09:00:00Z";
+        String stateKey = handledAt == null ? "PENDING:2026-09-14T08:00:00Z"
+                : status + ":" + handledAt;
+        return new TeacherApplicationDTO(TeacherApplicationDTO.SCHEDULE_ADJUSTMENT, APPLICATION_ID,
+                OFFERING_A, "人机交互导论　CS352-01", status, "2026-09-14T08:00:00Z", handledAt,
+                "PENDING".equals(status) ? null : "同意", "PENDING".equals(status), stateKey, unread);
+    }
+
+    private enum ApplicationMode { SUCCESS, NOT_FOUND, CONFLICT }
+
+    /**
+     * 只覆写三个新方法的服务替身：本测试要的是 Handler 的键、参数与异常映射，不是服务行为
+     * （服务行为由 {@code TeacherApplicationsMySqlTest} 对着真实库验证）。方法体镜像真实服务的
+     * 前置校验，因此「Handler 必须在服务之前拒绝」这一类断言才有意义。
+     */
+    private static final class FakeApplicationService extends TeacherApplicationService {
+        /** 列表与详情看到的那一行；已读确认成功之后返回的是它的「已读」版本。 */
+        private final TeacherApplicationDTO row = applicationRow("PENDING", true);
+        private final TeacherApplicationDTO readRow = applicationRow("PENDING", false);
+        /** 过期确认时服务端带回的**当前**行：与请求方看到的那一行不是同一个对象。 */
+        private final TeacherApplicationDTO conflictRow = applicationRow("APPROVED", true);
+        private ApplicationMode mode = ApplicationMode.SUCCESS;
+        private String lastUid;
+        private String lastType;
+        private String lastStatus;
+        private String lastId;
+        private String lastStateKey;
+        private int lastPage;
+        private int lastSize;
+        private int detailCalls;
+        private int readCalls;
+
+        @Override
+        public TeacherPageDTO<TeacherApplicationDTO> listMyApplications(String uid, String type,
+                String status, int page, int size) {
+            lastUid = uid;
+            lastType = type;
+            lastStatus = status;
+            lastPage = page;
+            lastSize = size;
+            if (mode == ApplicationMode.NOT_FOUND) {
+                throw new NotFoundException("申请不存在或不属于本人");
+            }
+            return new TeacherPageDTO<>(List.of(row), 1L, page, size);
+        }
+
+        @Override
+        public TeacherApplicationDetailDTO getMyApplication(String uid, String type, String id) {
+            detailCalls++;
+            lastUid = uid;
+            lastType = type;
+            lastId = id;
+            if (mode == ApplicationMode.NOT_FOUND) {
+                throw new NotFoundException("申请不存在或不属于本人");
+            }
+            return new TeacherApplicationDetailDTO(row, null, null);
+        }
+
+        @Override
+        public TeacherApplicationDTO markApplicationRead(String uid,
+                MarkTeacherApplicationReadDTO raw) {
+            readCalls++;
+            lastUid = uid;
+            if (raw == null) throw new IllegalArgumentException("请求体不能为空");
+            lastType = raw.getType();
+            lastId = raw.getId();
+            lastStateKey = raw.getExpectedStateKey();
+            if (raw.getType() == null || raw.getType().isBlank()) {
+                throw new IllegalArgumentException("type 不能为空");
+            }
+            if (raw.getExpectedStateKey() == null || raw.getExpectedStateKey().isBlank()) {
+                throw new IllegalArgumentException("expectedStateKey 不能为空");
+            }
+            if (mode == ApplicationMode.NOT_FOUND) {
+                throw new NotFoundException("申请不存在或不属于本人");
+            }
+            if (mode == ApplicationMode.CONFLICT) {
+                throw new ConflictException("申请结果已更新，请刷新后重试", conflictRow);
+            }
+            return readRow;
+        }
     }
 
     private static Message courseTeacher(String action, String token) {

@@ -170,6 +170,11 @@ public class TeacherApplicationDAO {
     /**
      * 一条属于本人的申请（别人的与不存在的都是 null，对外不可区分）。
      *
+     * <p>类型必须**明确**落在白名单里：这里不像 {@link #list} 那样把「空类型」当成「不限类型」，
+     * 因为单条查询最终要落到一张具体的事实表上——一个未知或 null 的类型如果默认走成绩分支，
+     * 就会用一个没人问过的分支回答（今天是不可达的，只因为调用方先过了白名单）。所以未知类型
+     * 直接拒绝，和 {@code TeacherApplicationService.requireType} 一样是 IllegalArgumentException。
+     *
      * <p>故意不加 {@code FOR UPDATE}：标记已读是 compare-and-set，而两张事实表的状态只会
      * PENDING → 终态单向迁移一次、时间戳由数据库固定，所以「读到旧键、随后管理员提交」的错序只会
      * 让回执存下一个**已经过时**的键，下一次查询照样显示未读——正是设计 §10 要的结果。加行锁只会
@@ -180,7 +185,10 @@ public class TeacherApplicationDAO {
         if (ADJUSTMENT.equals(type)) {
             return findOwned(connection, ADJUSTMENT_BRANCH, teacherUid, id);
         }
-        return findOwned(connection, SUBMISSION_BRANCH, teacherUid, id);
+        if (SUBMISSION.equals(type)) {
+            return findOwned(connection, SUBMISSION_BRANCH, teacherUid, id);
+        }
+        throw new IllegalArgumentException("未知的申请类型: " + type);
     }
 
     private static Row findOwned(Connection connection, String branch, String teacherUid, long id)

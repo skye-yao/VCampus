@@ -273,6 +273,11 @@ $suites = @(
     # onAction/样式类契约测试）。**它已经在 Adjustment 套件里登记过**：那是调课计划 T5 当时的我的申请页测试，
     # 不是空类，也不能从 Adjustment 挪走；这里按本文件的既有先例在第二个套件里再登记一次，因为 T3 改写的正是
     # 这一页。三者的解释都在各自套件里各写一份。
+    # handler.TeacherCourseHandlerTest（T4 新增）是 DB-free 的教师课程入口回归，T3 在里面补上三个「我的申请」
+    # 动作的响应键、写请求体位置与两条 catch 分支的 MessageCode 断言（Ruling G 要的正是「断言 code 本身」，
+    # 否则异常一旦没被映射就会掉进 RuntimeException 分支变成 ERROR / 服务端内部错误，而所有套件照样全绿）。
+    # **它已经在 Foundation 套件里登记过**（:62），与 controller.TeacherApplicationsControllerTest 同一先例：
+    # 不挪走，在第二个套件里再登记一次，因为 T3 依赖的正是这个证据。
     [pscustomobject]@{ Name = 'Applications'
         Common = @()
         Client = @('controller.TeacherGradeCorrectionDialogControllerTest',
@@ -280,7 +285,8 @@ $suites = @(
             'service.SocketTeacherCourseServiceTest',
             'controller.TeacherApplicationsControllerTest')
         Server = @('service.TeacherGradeRevisionMySqlTest',
-            'service.TeacherApplicationsMySqlTest')
+            'service.TeacherApplicationsMySqlTest',
+            'handler.TeacherCourseHandlerTest')
         Tcp = @()
         Gui = @() }
 

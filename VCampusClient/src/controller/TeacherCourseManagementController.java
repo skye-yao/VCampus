@@ -59,7 +59,7 @@ public final class TeacherCourseManagementController {
     static final String ENTRY_GRADES = "gradesEntryButton";
     static final String ENTRY_APPLICATIONS = "applicationsEntryButton";
     /**
-     * 「我的申请」入口的文案。还有未读结果时后面追加一个计数角标，未读为零时逐字回到这句话，
+     * 「我的申请」入口的文案。还有未读结果时后面追加「（本页未读 N）」，未读为零时逐字回到这句话，
      * 所以 FXML 里的静态文案与这里的常量始终一致（视图契约测试钉的就是 FXML 那一份）。
      */
     static final String APPLICATIONS_ENTRY_TEXT = "我的申请";
@@ -147,19 +147,23 @@ public final class TeacherCourseManagementController {
     }
 
     /**
-     * 「我的申请」入口上的结果角标：未读为零时逐字显示「我的申请」，否则追加「（N）」。
+     * 「我的申请」入口上的结果角标：未读为零时逐字显示「我的申请」，否则追加
+     * {@code （本页未读 N）}。
      *
-     * <p>计数来自申请页最近一次加载的那一页——本模块的查询模型只有「按类型/状态分页」这一种读取
-     * （设计 §10 明确首版只做页面进入、手动刷新与写操作后的查询，不引入推送），因此没有一个
-     * 「全账号未读总数」的入口可以查。角标仍然是真实数据驱动的：它不是客户端猜的，也不缓存上一次
-     * 的页结果，而是一直跟随申请页加载到的服务端 DTO。
+     * <p>计数来自申请页**当前筛选的当前页**——本模块的查询模型是设计 §10 定死的三条读取方法
+     * （按类型/状态分页），既没有「全账号未读总数」的入口，也不允许为了它扩一个（§10 明确首版只做
+     * 页面进入、手动刷新与写操作后的查询，不引入推送）。所以角标的措辞必须说实话：它写「本页未读」，
+     * 不能写成一个看起来像全账号总数的数字——那种措辞会在「5 条已通过未读、0 条待审批」时显示成
+     * 什么都没发生，把一个有界欠计说成全账号已读。角标本身仍然是真实数据驱动的：不是客户端猜的，
+     * 也不缓存上一次的页结果，而是一直跟随申请页加载到的服务端 DTO。
      *
      * <p>入口按钮在无 FXML 的控制器测试里为 null，此时角标只是不显示，不影响导航。
      */
     private void showApplicationsUnread(int unread) {
         if (applicationsEntryButton == null) return;
         applicationsEntryButton.setText(unread > 0
-                ? APPLICATIONS_ENTRY_TEXT + "（" + unread + "）" : APPLICATIONS_ENTRY_TEXT);
+                ? APPLICATIONS_ENTRY_TEXT + "（本页未读 " + unread + "）"
+                : APPLICATIONS_ENTRY_TEXT);
     }
 
     /**
