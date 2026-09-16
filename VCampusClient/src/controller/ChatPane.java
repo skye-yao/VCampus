@@ -57,8 +57,14 @@ public final class ChatPane implements AutoCloseable {
         for(Tab tab:tabs.getTabs())if(tab.getContent() instanceof ScrollPane pane)pane.setFitToWidth(true);
         title.setStyle("-fx-font-size:19px;-fx-font-weight:bold;");
         scroll.setFitToWidth(true);scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);bubbles.setPadding(new Insets(15));
-        input.setPromptText("输入文字消息（最多 2000 字）；Ctrl+Enter 发送");input.setPrefRowCount(3);input.setWrapText(true);
-        input.setOnKeyPressed(e->{if(e.isControlDown()&&e.getCode()==javafx.scene.input.KeyCode.ENTER){send();e.consume();}});
+        input.setPromptText("输入文字消息（最多 2000 字）；Enter 发送，Ctrl+Enter 换行");input.setPrefRowCount(3);input.setWrapText(true);
+        input.addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED,e->{
+            if(e.getCode()==javafx.scene.input.KeyCode.ENTER){
+                e.consume();
+                if(e.isControlDown())input.replaceSelection("\n");
+                else send();
+            }
+        });
         send.setOnAction(e->send());send.setDisable(true);input.setDisable(true);
         send.getStyleClass().add("chat-send");
         older.setDisable(true);older.setOnAction(e->history(true));
