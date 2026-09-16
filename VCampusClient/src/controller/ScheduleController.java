@@ -10,6 +10,7 @@ import javafx.application.Platform;
 import javafx.fxml.FXML;
 import javafx.geometry.HPos;
 import javafx.geometry.Pos;
+import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
@@ -269,13 +270,10 @@ public final class ScheduleController {
         content.setMinWidth(0.0);
 
         // 调和后的两个位置共用同一块视觉语言：旧位置灰显并带“原安排”角标，新位置带“调课后”角标。
-        String badge = adjustmentBadge(entry);
-        if (badge != null) {
-            Label badgeLabel = new Label(badge);
-            badgeLabel.getStyleClass().add("course-adjustment-badge");
-            badgeLabel.setMinWidth(0.0);
-            content.getChildren().add(0, badgeLabel);
-        }
+        // 角标竖排在课次块右侧（不再是标题上方的一行），因此不会撑高课表行；普通课程拿到的就是
+        // 正文本身。竖排与“正文吃满剩余宽度”都由 AdjustmentBadge 统一提供，与教师端同构。
+        Node graphic = AdjustmentBadge.badged(content, adjustmentBadge(entry),
+                "course-adjustment-badge");
 
         Button block = new Button();
         block.getStyleClass().add("course-class-block");
@@ -283,7 +281,7 @@ public final class ScheduleController {
         if (adjustmentStyle != null) {
             block.getStyleClass().add(adjustmentStyle);
         }
-        block.setGraphic(content);
+        block.setGraphic(graphic);
         block.setMinSize(0.0, 0.0);
         block.setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);
         block.setOnAction(event -> infoReporter.accept("课程详情", detailText(entry)));

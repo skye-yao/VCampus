@@ -503,7 +503,8 @@ public final class TeacherScheduleController {
 
     /**
      * 一个课次的卡片：课程名 + 地点，调课的两个位置各带角标与样式类（普通课次没有角标）。
-     * 卡片本身是按钮，点击把这条 DTO 原样交给详情弹窗。
+     * 角标竖排在课次块右侧，不再占标题上方的一行，因此不会撑高课表行；卡片本身是按钮，
+     * 点击把这条 DTO 原样交给详情弹窗。
      */
     private Button createCard(TeacherScheduleEntryDTO entry) {
         Label title = new Label(orDash(entry.getCourseName()));
@@ -515,12 +516,10 @@ public final class TeacherScheduleController {
 
         VBox content = new VBox(2.0, title, meta);
         content.setAlignment(Pos.CENTER_LEFT);
-        String badge = badgeText(entry);
-        if (badge != null) {
-            Label badgeLabel = new Label(badge);
-            badgeLabel.getStyleClass().add("teacher-schedule-badge");
-            content.getChildren().add(0, badgeLabel);
-        }
+        // 竖排角标与“正文吃满剩余宽度”由 AdjustmentBadge 统一提供，与学生端同构；
+        // 普通课次拿到的就是上面这个正文节点本身。
+        Node graphic = AdjustmentBadge.badged(content, badgeText(entry),
+                "teacher-schedule-badge");
 
         Button card = new Button();
         card.getStyleClass().add("teacher-schedule-card");
@@ -528,7 +527,7 @@ public final class TeacherScheduleController {
         if (adjustmentStyle != null) {
             card.getStyleClass().add(adjustmentStyle);
         }
-        card.setGraphic(content);
+        card.setGraphic(graphic);
         card.setMinSize(0.0, 0.0);
         card.setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);
         card.setOnAction(event -> openDetail(entry));

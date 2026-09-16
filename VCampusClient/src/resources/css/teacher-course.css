@@ -374,12 +374,14 @@
     -fx-text-fill: #4f5b52;
 }
 
+/* 竖排角标：宽度（约一个字宽）与换行由 AdjustmentBadge 写死，样式只负责颜色与内边距——
+   左右内边距必须小到让一个字撑满整个宽度，否则三个字会被挤成两列。 */
 .teacher-schedule-badge {
     -fx-background-color: #587558;
     -fx-background-radius: 3px;
     -fx-font-size: 9px;
     -fx-text-fill: #ffffff;
-    -fx-padding: 1px 5px 1px 5px;
+    -fx-padding: 1px 3px 1px 3px;
 }
 
 /* 旧位置只是提示层：灰显并带“原安排”角标，不额外占列。 */

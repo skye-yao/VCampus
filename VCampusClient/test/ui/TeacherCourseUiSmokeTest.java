@@ -297,6 +297,7 @@ public final class TeacherCourseUiSmokeTest {
                 List<String> badges = nodeTexts(".teacher-schedule-badge");
                 require(badges.contains("原安排") && badges.contains("调课后"),
                         "第 8 周必须同时出现 原安排 与 调课后 角标，实际 " + badges);
+                requireVerticalBadges();
                 // 范围来自响应里的 minWeek/maxWeek，控件因此可用（没有范围时它是禁用的）。
                 require(!weekSpinner().isDisabled(),
                         "第 8 周已加载，周次控件必须可用");
@@ -1658,6 +1659,24 @@ public final class TeacherCourseUiSmokeTest {
             require(scroll.getVvalue() == 0.0 && scroll.getHvalue() == 0.0,
                     where + "：铺满之后视口仍必须停在左上角，实际 vvalue=" + scroll.getVvalue()
                             + "，hvalue=" + scroll.getHvalue());
+        }
+
+        /**
+         * 调课角标必须是课次块右侧的竖排一列：宽 < 高（三个字纵向排下来，而不是整体旋转 90°，
+         * 也不是原来那个横着占满一行的角标），并且不高于一个节次行（44px），因此不会撑高课次块。
+         * 角标文本仍是完整的 {@code 原安排}／{@code 调课后}（上面按 CSS 类取文本的断言）。
+         */
+        private void requireVerticalBadges() {
+            List<Node> badges = new ArrayList<>(root.lookupAll(".teacher-schedule-badge"));
+            require(!badges.isEmpty(), "第 8 周必须画出租角标");
+            for (Node badge : badges) {
+                Bounds bounds = badge.getLayoutBounds();
+                require(bounds.getWidth() < bounds.getHeight(),
+                        "角标必须竖排（宽 < 高），实际 " + bounds.getWidth() + "x"
+                                + bounds.getHeight());
+                require(bounds.getHeight() <= 44.0,
+                        "竖排角标不得撑高课次块（节次行 44px），实际高度 " + bounds.getHeight());
+            }
         }
 
         /** 窗口拉窄到装不下整表时：表格按最小宽度渲染（不压字），横向滚动接管，纵向照样能滚。 */
