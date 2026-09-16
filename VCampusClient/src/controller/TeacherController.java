@@ -37,7 +37,8 @@ setupTables();setupActionColumn();setupReviewActionColumn();util.InformationResp
  private int teacherPageCount(){return Math.max(1,(filteredTeachers.size()+PAGE_SIZE-1)/PAGE_SIZE);} private void refreshTeacherPage(){teacherCurrentPage=Math.max(1,Math.min(teacherCurrentPage,teacherPageCount()));int from=Math.min((teacherCurrentPage-1)*PAGE_SIZE,filteredTeachers.size()),to=Math.min(from+PAGE_SIZE,filteredTeachers.size());teacherTable.getItems().setAll(filteredTeachers.subList(from,to));teacherTable.refresh();teacherPageField.setText(String.valueOf(teacherCurrentPage));teacherPageSummaryLabel.setText("共"+filteredTeachers.size()+"条  共"+teacherPageCount()+"页");updateTeacherSelection();} @FXML private void firstTeacherPage(){teacherCurrentPage=1;refreshTeacherPage();} @FXML private void previousTeacherPage(){if(teacherCurrentPage>1)teacherCurrentPage--;refreshTeacherPage();} @FXML private void nextTeacherPage(){if(teacherCurrentPage<teacherPageCount())teacherCurrentPage++;refreshTeacherPage();} @FXML private void lastTeacherPage(){teacherCurrentPage=teacherPageCount();refreshTeacherPage();} @FXML private void goTeacherPage(){try{teacherCurrentPage=Integer.parseInt(teacherPageField.getText().trim());}catch(Exception e){statusLabel.setText("请输入有效页码");}refreshTeacherPage();}
  @FXML private void clearTeacherId(){teacherSearchIdField.clear();searchTeachers();}@FXML private void clearTeacherName(){teacherSearchNameField.clear();searchTeachers();}@FXML private void clearTeacherKeyword(){teacherSearchKeywordField.clear();searchTeachers();}
  @FXML private void resetTeacherSearch(){teacherSearchIdField.clear();teacherSearchNameField.clear();teacherSearchKeywordField.clear();searchTeachers();}
- @FXML private void searchTeacherReviews(){String id=input(reviewTeacherSearchField.getText()).toLowerCase(),status=input(reviewStatusSearchField.getText()).toLowerCase();boolean completed=completedTeacherReviewButton.isSelected();requestTable.setItems(FXCollections.observableArrayList(reviewRequests.stream().filter(r->completed?r.getStatus()!=StudentChangeStatus.PENDING:r.getStatus()==StudentChangeStatus.PENDING).filter(r->input(r.getTeacherId()).toLowerCase().contains(id)).filter(r->(teacherReviewStatus(r.getStatus())+" "+input(r.getStatus())).toLowerCase().contains(status)).toList()));requestTable.refresh();}
+ @FXML private void searchTeacherReviews(){String id=input(reviewTeacherSearchField.getText()).toLowerCase(),status=input(reviewStatusSearchField.getText()).toLowerCase();boolean completed=completedTeacherReviewButton.isSelected();requestTable.setItems(FXCollections.observableArrayList(reviewRequests.stream().filter(r->completed?r.getStatus()!=StudentChangeStatus.PENDING:r.getStatus()==StudentChangeStatus.PENDING).filter(r->teacherUsername(r.getTeacherId()).toLowerCase().contains(id)).filter(r->(teacherReviewStatus(r.getStatus())+" "+input(r.getStatus())).toLowerCase().contains(status)).toList()));requestTable.refresh();}
+ private String teacherUsername(String teacherId){return teachers.stream().filter(t->Objects.equals(t.getTeacherId(),teacherId)).map(Teacher::getUID).filter(uid->uid!=null&&!uid.isBlank()).findFirst().orElse(teacherId);}
  @FXML private void clearReviewTeacher(){reviewTeacherSearchField.clear();searchTeacherReviews();}@FXML private void clearReviewStatus(){reviewStatusSearchField.clear();searchTeacherReviews();}@FXML private void resetTeacherReviewSearch(){reviewTeacherSearchField.clear();reviewStatusSearchField.clear();searchTeacherReviews();}
  @FXML private void returnOverview(){if(editing||editAcquiring)cancelEdit();tabs.getSelectionModel().select(isAdmin()?adminTab:overviewTab); }
  @FXML private void showBase(){setTeacherDetailIndexActive(teacherBaseIndexButton);scrollTo(baseSection);}@FXML private void showJob(){setTeacherDetailIndexActive(teacherJobIndexButton);scrollTo(jobSection);}@FXML private void showContact(){setTeacherDetailIndexActive(teacherContactIndexButton);scrollTo(contactSection);}
@@ -233,6 +234,31 @@ setupTables();setupActionColumn();setupReviewActionColumn();util.InformationResp
  private void selectExperience(TeacherWorkExperience record,Pane card){if(selectedExperienceCard!=null)selectedExperienceCard.getStyleClass().remove("student-info-record-card-selected");selectedExperience=record;selectedExperienceCard=card;card.getStyleClass().add("student-info-record-card-selected");editExperienceButton.setDisable(false);deleteExperienceButton.setDisable(false);}
  private void fill(GridPane g,Teacher t,List<String> fields){prepareSixColumns(g);g.getChildren().clear();int pairs=responsivePairCount();for(int i=0;i<fields.size();i++){String f=fields.get(i);Label k=new Label(title(f)),v=new Label(show(read(t,f)));k.setUserData("key:"+f);v.setUserData(f);k.getStyleClass().add("student-field-key");k.setAlignment(Pos.CENTER_LEFT);k.setMinWidth(90);k.setPrefWidth(118);k.setMaxWidth(Double.MAX_VALUE);k.setTooltip(new Tooltip(k.getText()));v.getStyleClass().add("student-field-value");v.setAlignment(Pos.CENTER_LEFT);v.setWrapText(true);v.setMinWidth(0);v.setMaxWidth(Double.MAX_VALUE);v.setTooltip(new Tooltip(v.getText()));int row=i/pairs,pair=i%pairs;g.add(k,pair*2,row);g.add(v,pair*2+1,row);}}
 
+private boolean blockRelatedAddWhenPending(String recordName) {
+
+    if (!isAdmin()
+            && overview != null
+            && overview.getPendingRequest() != null
+            && overview.getPendingRequest().getStatus()
+            == StudentChangeStatus.PENDING) {
+
+        String text =
+                "当前修改申请正在审核中，审核完成后才能添加"
+                        + recordName
+                        + "。";
+
+        statusLabel.setText(text);
+
+        util.AlertUtil.showWarning(
+                "暂时无法添加",
+                text
+        );
+
+        return true;
+    }
+
+    return false;
+}
  private void beginGlobalEdit() {
 
   if (editing || editAcquiring
@@ -244,10 +270,17 @@ setupTables();setupActionColumn();setupReviewActionColumn();util.InformationResp
   if (!isAdmin()
           && overview.getPendingRequest() != null) {
 
-   statusLabel.setText(
-           "当前修改申请正在审核中，审核完成后才能再次修改"
-   );
-   return;
+      String text=
+              "当前修改申请正在审核中，审核完成后才能再次编辑。";
+
+      statusLabel.setText(text);
+
+      AlertUtil.showWarning(
+              "暂时无法编辑",
+              text
+      );
+
+      return;
   }
 
   String teacherId =
@@ -291,7 +324,7 @@ setupTables();setupActionColumn();setupReviewActionColumn();util.InformationResp
           new Button(
                   isAdmin()
                           ? "保存修改"
-                          : "提交修改申请"
+                          : "提交申请"
           );
 
   submit.getStyleClass().add("btn-primary");
@@ -486,10 +519,10 @@ setupTables();setupActionColumn();setupReviewActionColumn();util.InformationResp
  private int responsivePairCount(){double width=rootPane==null?860:rootPane.getWidth();if(width<1050)return 1;if(width<1500)return 2;return 3;}
  private void reflowTeacherGrids(){if(baseGrid==null)return;for(GridPane grid:List.of(baseGrid,jobGrid,contactGrid,teacherReviewBaseGrid,teacherReviewJobGrid,teacherReviewContactGrid))if(grid!=null)reflowTeacherGrid(grid);}
  private void reflowTeacherGrid(GridPane grid){int pairs=responsivePairCount();prepareSixColumns(grid);int index=0;for(javafx.scene.Node node:new ArrayList<>(grid.getChildren())){Object marker=node.getUserData();if(marker instanceof String value&&value.startsWith("key:")){String field=value.substring(4);int row=index/pairs,pair=index%pairs;index++;GridPane.setRowIndex(node,row);GridPane.setColumnIndex(node,pair*2);GridPane.setColumnSpan(node,1);for(javafx.scene.Node candidate:grid.getChildren())if(Objects.equals(candidate.getUserData(),field)){GridPane.setRowIndex(candidate,row);GridPane.setColumnIndex(candidate,pair*2+1);GridPane.setColumnSpan(candidate,1);break;}}else if(Objects.equals(marker,"grid-actions")){GridPane.setRowIndex(node,(index+pairs-1)/pairs);GridPane.setColumnIndex(node,0);GridPane.setColumnSpan(node,pairs*2);}}}
- private void setupTables(){selectAllTeachers=new CheckBox();selectAllTeachers.setOnAction(e->{if(selectAllTeachers.isSelected())for(Teacher teacher:filteredTeachers)selectedTeacherIds.add(teacher.getTeacherId());else for(Teacher teacher:filteredTeachers)selectedTeacherIds.remove(teacher.getTeacherId());teacherTable.refresh();updateTeacherSelection();});selectCol.setGraphic(selectAllTeachers);selectCol.setCellFactory(column->new TableCell<>(){private final CheckBox checkBox=new CheckBox();{setAlignment(Pos.CENTER);checkBox.setOnAction(e->{int index=getIndex();if(index<0||index>=getTableView().getItems().size())return;Teacher teacher=getTableView().getItems().get(index);if(checkBox.isSelected())selectedTeacherIds.add(teacher.getTeacherId());else selectedTeacherIds.remove(teacher.getTeacherId());updateTeacherSelection();});}@Override protected void updateItem(Void item,boolean empty){super.updateItem(item,empty);if(empty||getIndex()>=getTableView().getItems().size())setGraphic(null);else{checkBox.setSelected(selectedTeacherIds.contains(getTableView().getItems().get(getIndex()).getTeacherId()));setGraphic(checkBox);}}});idCol.setCellValueFactory(c->s(c.getValue().getTeacherId()));nameCol.setCellValueFactory(c->s(c.getValue().getName()));collegeCol.setCellValueFactory(c->s(c.getValue().getCollege()));departmentCol.setCellValueFactory(c->s(c.getValue().getDepartment()));titleCol.setCellValueFactory(c->s(c.getValue().getTitle()));statusCol.setCellValueFactory(c->s(c.getValue().getEmploymentStatus()));teacherTable.setOnMouseClicked(e->{if(e.getClickCount()==2){Teacher t=teacherTable.getSelectionModel().getSelectedItem();if(t!=null)service.query(t.getTeacherId(),m->runOnPage(()->{if(ok(m)){overview=data(m,"overview",TeacherOverviewVO.class);render();openTeacherDetail();}else statusLabel.setText(m.getMessage());}));}});requestTeacherCol.setCellValueFactory(c->s(c.getValue().getTeacherId()));requestSubmitCol.setCellValueFactory(c->s(c.getValue().getSubmitTime()));requestStatusCol.setCellValueFactory(c->s(teacherReviewStatus(c.getValue().getStatus())));requestReviewCol.setCellValueFactory(c->s(c.getValue().getReviewTime()));requestTable.setOnMouseClicked(e->{if(e.getClickCount()==2)reviewSelected();});}
+ private void setupTables(){selectAllTeachers=new CheckBox();selectAllTeachers.setOnAction(e->{if(selectAllTeachers.isSelected())for(Teacher teacher:filteredTeachers)selectedTeacherIds.add(teacher.getTeacherId());else for(Teacher teacher:filteredTeachers)selectedTeacherIds.remove(teacher.getTeacherId());teacherTable.refresh();updateTeacherSelection();});selectCol.setGraphic(selectAllTeachers);selectCol.setCellFactory(column->new TableCell<>(){private final CheckBox checkBox=new CheckBox();{setAlignment(Pos.CENTER);checkBox.setOnAction(e->{int index=getIndex();if(index<0||index>=getTableView().getItems().size())return;Teacher teacher=getTableView().getItems().get(index);if(checkBox.isSelected())selectedTeacherIds.add(teacher.getTeacherId());else selectedTeacherIds.remove(teacher.getTeacherId());updateTeacherSelection();});}@Override protected void updateItem(Void item,boolean empty){super.updateItem(item,empty);if(empty||getIndex()>=getTableView().getItems().size())setGraphic(null);else{checkBox.setSelected(selectedTeacherIds.contains(getTableView().getItems().get(getIndex()).getTeacherId()));setGraphic(checkBox);}}});idCol.setCellValueFactory(c->s(c.getValue().getUID()));nameCol.setCellValueFactory(c->s(c.getValue().getName()));collegeCol.setCellValueFactory(c->s(c.getValue().getCollege()));departmentCol.setCellValueFactory(c->s(c.getValue().getDepartment()));titleCol.setCellValueFactory(c->s(c.getValue().getTitle()));statusCol.setCellValueFactory(c->s(c.getValue().getEmploymentStatus()));teacherTable.setOnMouseClicked(e->{if(e.getClickCount()==2){Teacher t=teacherTable.getSelectionModel().getSelectedItem();if(t!=null)service.query(t.getTeacherId(),m->runOnPage(()->{if(ok(m)){overview=data(m,"overview",TeacherOverviewVO.class);render();openTeacherDetail();}else statusLabel.setText(m.getMessage());}));}});requestTeacherCol.setCellValueFactory(c->s(teacherUsername(c.getValue().getTeacherId())));requestSubmitCol.setCellValueFactory(c->s(c.getValue().getSubmitTime()));requestStatusCol.setCellValueFactory(c->s(teacherReviewStatus(c.getValue().getStatus())));requestReviewCol.setCellValueFactory(c->s(c.getValue().getReviewTime()));requestTable.setOnMouseClicked(e->{if(e.getClickCount()==2)reviewSelected();});}
  private void setupActionColumn(){actionCol.setCellFactory(column->new TableCell<>(){private final Button button=new Button();{button.getStyleClass().add("table-action-button");button.setOnAction(e->{int index=getIndex();if(index<0||index>=getTableView().getItems().size())return;Teacher teacher=getTableView().getItems().get(index);service.query(teacher.getTeacherId(),m->runOnPage(()->{if(!ok(m)){statusLabel.setText(m.getMessage());return;}overview=data(m,"overview",TeacherOverviewVO.class);render();openTeacherDetail();}));});}@Override protected void updateItem(Void item,boolean empty){super.updateItem(item,empty);button.setText(adminMaintenanceMode?"编辑":"查看详情");setGraphic(empty||getIndex()<0||getIndex()>=getTableView().getItems().size()?null:button);}});}
  private void setDetailEditable(boolean visible){for(Button button:List.of(editButton,jobEditButton,contactEditButton)){button.setVisible(visible);button.setManaged(visible);}}
- private void loadAdmin(){service.list(m->runOnPage(()->{if(ok(m)){List<Teacher> x=data(m,"teachers",new TypeToken<List<Teacher>>(){}.getType());teachers=x==null?new ArrayList<>():new ArrayList<>(x);selectedTeacherIds.clear();searchTeachers();}}));service.reviews(m->runOnPage(()->{if(ok(m)){List<TeacherChangeRequest>x=data(m,"requests",new TypeToken<List<TeacherChangeRequest>>(){}.getType());reviewRequests=x==null?new ArrayList<>():new ArrayList<>(x);searchTeacherReviews();}}));}
+ private void loadAdmin(){service.list(m->runOnPage(()->{if(ok(m)){List<Teacher> x=data(m,"teachers",new TypeToken<List<Teacher>>(){}.getType());teachers=x==null?new ArrayList<>():new ArrayList<>(x);selectedTeacherIds.clear();searchTeachers();searchTeacherReviews();}}));service.reviews(m->runOnPage(()->{if(ok(m)){List<TeacherChangeRequest>x=data(m,"requests",new TypeToken<List<TeacherChangeRequest>>(){}.getType());reviewRequests=x==null?new ArrayList<>():new ArrayList<>(x);searchTeacherReviews();}}));}
  private void updateTeacherSelection(){if(selectAllTeachers!=null){long count=filteredTeachers.stream().filter(t->selectedTeacherIds.contains(t.getTeacherId())).count();selectAllTeachers.setIndeterminate(count>0&&count<filteredTeachers.size());selectAllTeachers.setSelected(!filteredTeachers.isEmpty()&&count==filteredTeachers.size());}if(selectedTeacherCountLabel!=null)selectedTeacherCountLabel.setText("已选择 "+selectedTeacherIds.size()+" 人");if(exportTeachersButton!=null)exportTeachersButton.setDisable(selectedTeacherIds.isEmpty());}
  @FXML private void exportSelectedTeachers(){List<Teacher> selected=teachers.stream().filter(t->selectedTeacherIds.contains(t.getTeacherId())).toList();if(selected.isEmpty()){AlertUtil.showWarning("请选择教师","请先勾选需要导出的教师。");return;}FileChooser chooser=new FileChooser();chooser.setTitle("导出教师信息");chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Excel 工作簿 (*.xlsx)","*.xlsx"));chooser.setInitialFileName("教师信息_"+java.time.LocalDate.now()+".xlsx");File downloadsDirectory = new File(
          System.getProperty("user.home"),
@@ -588,8 +621,26 @@ setupTables();setupActionColumn();setupReviewActionColumn();util.InformationResp
   }));
  }
  private String teacherReviewStatus(StudentChangeStatus status){if(status==null)return "-";return switch(status){case PENDING->"待审核";case APPROVED->"已通过";case REJECTED->"未通过";case CANCELLED->"已取消";};} @FXML private void reviewSelected(){showTeacherReviewDetail(requestTable.getSelectionModel().getSelectedItem());}
- @FXML private void addWorkExperience(){if(overview==null)return;if(overview.getWorkExperiences()!=null&&overview.getWorkExperiences().size()>=util.InformationRules.TEACHER_EXPERIENCES){statusLabel.setText("工作经历最多5条");return;}showWorkExperienceEditor(null);}
- @FXML private void editWorkExperience(){if(selectedExperience==null){statusLabel.setText("请先选择工作经历");return;}showWorkExperienceEditor(selectedExperience);}
+    @FXML
+    private void addWorkExperience(){
+
+        if(overview==null)return;
+
+        if(blockRelatedAddWhenPending("工作经历")){
+            return;
+        }
+
+        if(overview.getWorkExperiences()!=null
+                &&overview.getWorkExperiences().size()
+                >=util.InformationRules.TEACHER_EXPERIENCES){
+
+            statusLabel.setText("工作经历最多5条");
+            return;
+        }
+
+        showWorkExperienceEditor(null);
+    }
+    @FXML private void editWorkExperience(){if(selectedExperience==null){statusLabel.setText("请先选择工作经历");return;}showWorkExperienceEditor(selectedExperience);}
  @FXML private void deleteWorkExperience(){if(selectedExperience==null){statusLabel.setText("请先选择工作经历");return;}Alert alert=new Alert(Alert.AlertType.CONFIRMATION,"确定删除选中的工作经历吗？",ButtonType.OK,ButtonType.CANCEL);alert.setHeaderText(null);if(alert.showAndWait().orElse(ButtonType.CANCEL)!=ButtonType.OK)return;service.deleteWorkExperience(selectedExperience.getExperienceId(),m->runOnPage(()->{statusLabel.setText(m.getMessage());if(ok(m))service.overview(this::receiveOverview);}));}
  private void showWorkExperienceEditor(TeacherWorkExperience source){if(source!=null){editWorkExperience(source);return;}Dialog<ButtonType> dialog=new Dialog<>();dialog.setTitle(source==null?"新增工作经历":"编辑工作经历");GridPane grid=new GridPane();grid.setHgap(12);grid.setVgap(10);grid.setPadding(new javafx.geometry.Insets(8,12,8,12));DatePicker start=new DatePicker(),end=new DatePicker();util.control.InformationDatePicker.install(start);util.control.InformationDatePicker.install(end);TextField organization=new TextField(),department=new TextField(),position=new TextField(),description=new TextField();if(source!=null){if(source.getStartDate()!=null)start.setValue(source.getStartDate().toLocalDate());if(source.getEndDate()!=null)end.setValue(source.getEndDate().toLocalDate());organization.setText(input(source.getOrganization()));department.setText(input(source.getDepartment()));position.setText(input(source.getPosition()));description.setText(input(source.getDescription()));}start.setPromptText("必填");end.setPromptText("留空表示至今");Control[] controls={start,end,organization,department,position,description};String[] labels={"开始时间","结束时间","工作单位","所在部门","职务","工作内容"};Set<Integer> required=Set.of(0,2,3,4);for(int i=0;i<labels.length;i++){controls[i].setPrefWidth(360);Label caption=new Label(labels[i]);if(required.contains(i)){Label star=new Label("*");star.setStyle("-fx-text-fill: #d93025; -fx-font-weight: bold;");HBox requiredLabel=new HBox(3,caption,star);requiredLabel.setAlignment(Pos.CENTER_LEFT);grid.add(requiredLabel,0,i);}else grid.add(caption,0,i);grid.add(controls[i],1,i);}dialog.getDialogPane().setContent(grid);dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK,ButtonType.CANCEL);validateDialogRequired(dialog,controls,Set.of(0,2,3,4));dialog.showAndWait().ifPresent(button->{if(button!=ButtonType.OK)return;try{if(start.getValue()==null)throw new IllegalArgumentException("开始时间不能为空");if(organization.getText().isBlank())throw new IllegalArgumentException("工作单位不能为空");if(department.getText().isBlank())throw new IllegalArgumentException("所在部门不能为空");if(position.getText().isBlank())throw new IllegalArgumentException("职务不能为空");if(end.getValue()!=null&&end.getValue().isBefore(start.getValue()))throw new IllegalArgumentException("结束时间不能早于开始时间");TeacherWorkExperience value=source==null?new TeacherWorkExperience():gson.fromJson(gson.toJson(source),TeacherWorkExperience.class);value.setStartDate(Date.valueOf(start.getValue()));value.setEndDate(end.getValue()==null?null:Date.valueOf(end.getValue()));value.setOrganization(organization.getText().trim());value.setDepartment(department.getText().trim());value.setPosition(position.getText().trim());value.setDescription(description.getText().trim());java.util.function.Consumer<Message> done=m->runOnPage(()->{statusLabel.setText(m.getMessage());if(ok(m))service.overview(this::receiveOverview);});if(source==null)service.addWorkExperience(value,done);else service.updateWorkExperience(value,done);}catch(Exception exception){statusLabel.setText("工作经历格式错误: "+exception.getMessage());}});}
  private void editWorkExperience(TeacherWorkExperience source){
@@ -639,8 +690,20 @@ setupTables();setupActionColumn();setupReviewActionColumn();util.InformationResp
  }
 
  private void renderFamilyMembers(List<TeacherFamilyMember> records){if(familyCardContainer==null)return;selectedFamilyMember=null;selectedFamilyCard=null;editFamilyButton.setDisable(true);deleteFamilyButton.setDisable(true);familyCardContainer.getChildren().clear();if(records==null||records.isEmpty()){Label empty=new Label("暂无社会关系成员");empty.getStyleClass().add("student-info-empty-card");empty.setMaxWidth(Double.MAX_VALUE);familyCardContainer.getChildren().add(empty);return;}for(TeacherFamilyMember record:records){GridPane grid=new GridPane();grid.getStyleClass().add("student-info-record-grid");grid.setMaxWidth(Double.MAX_VALUE);addCardField(grid,"姓名",record.getName(),0,0);addCardField(grid,"与本人关系",record.getRelationship(),0,1);addCardField(grid,"出生年月",record.getBirthDate(),1,0);addCardField(grid,"健康状况",record.getHealthStatus(),1,1);addCardField(grid,"户口所在地",record.getRegisteredResidence(),2,0);addCardField(grid,"联系电话",record.getPhone(),2,1);addCardField(grid,"工作单位",record.getWorkplace(),3,0);addCardField(grid,"工作单位地址",record.getWorkplaceAddress(),3,1);VBox card=new VBox(grid);card.getStyleClass().add("student-info-record-card");card.setMaxWidth(Double.MAX_VALUE);card.setOnMouseClicked(e->{if(selectedFamilyCard!=null)selectedFamilyCard.getStyleClass().remove("selected");selectedFamilyMember=record;selectedFamilyCard=card;card.getStyleClass().add("selected");editFamilyButton.setDisable(false);deleteFamilyButton.setDisable(false);});familyCardContainer.getChildren().add(card);}}
- @FXML private void addFamilyMember(){if(overview==null)return;if(overview.getFamilyMembers()!=null&&overview.getFamilyMembers().size()>=util.InformationRules.TEACHER_FAMILY){statusLabel.setText("社会关系最多4条");return;}showFamilyMemberEditor(null);}
- @FXML private void editFamilyMember(){if(selectedFamilyMember==null){statusLabel.setText("请先选择社会关系成员");return;}showFamilyMemberEditor(selectedFamilyMember);}
+    @FXML
+    private void addFamilyMember(){
+        if(overview==null)return;
+
+        if(overview.getFamilyMembers()!=null
+                &&overview.getFamilyMembers().size()
+                >=util.InformationRules.TEACHER_FAMILY){
+
+            statusLabel.setText("社会关系最多4条");
+            return;
+        }
+
+        showFamilyMemberEditor(null);
+    } @FXML private void editFamilyMember(){if(selectedFamilyMember==null){statusLabel.setText("请先选择社会关系成员");return;}showFamilyMemberEditor(selectedFamilyMember);}
  @FXML private void deleteFamilyMember(){if(selectedFamilyMember==null){statusLabel.setText("请先选择社会关系成员");return;}Alert alert=new Alert(Alert.AlertType.CONFIRMATION,"确定删除选中的社会关系成员吗？",ButtonType.OK,ButtonType.CANCEL);alert.setHeaderText(null);if(alert.showAndWait().orElse(ButtonType.CANCEL)!=ButtonType.OK)return;service.deleteFamilyMember(selectedFamilyMember.getMemberId(),m->runOnPage(()->{statusLabel.setText(m.getMessage());if(ok(m))service.overview(this::receiveOverview);}));}
  private void showFamilyMemberEditor(TeacherFamilyMember source){Dialog<ButtonType> dialog=new Dialog<>();dialog.setTitle(source==null?"新增主要社会关系":"编辑主要社会关系");GridPane grid=new GridPane();grid.setHgap(12);grid.setVgap(10);grid.setPadding(new javafx.geometry.Insets(8,12,8,12));TextField name=new TextField(),relationship=new TextField(),residence=new TextField(),workplace=new TextField(),address=new TextField(),health=new TextField(),phone=new TextField();DatePicker birth=new DatePicker();util.control.InformationDatePicker.install(birth);if(source!=null){name.setText(input(source.getName()));relationship.setText(input(source.getRelationship()));if(source.getBirthDate()!=null)birth.setValue(source.getBirthDate().toLocalDate());residence.setText(input(source.getRegisteredResidence()));workplace.setText(input(source.getWorkplace()));address.setText(input(source.getWorkplaceAddress()));health.setText(input(source.getHealthStatus()));phone.setText(input(source.getPhone()));}Control[] controls={name,relationship,birth,residence,workplace,address,health,phone};String[] labels={"姓名","与本人关系","出生年月","户口所在地","工作单位","工作单位地址","健康状况","联系电话"};for(int i=0;i<labels.length;i++){controls[i].setPrefWidth(360);Label caption=new Label(labels[i]);if(Set.of(0,1,2,3,4,7).contains(i)){Label star=new Label("*");star.setStyle("-fx-text-fill: #d93025; -fx-font-weight: bold;");HBox requiredLabel=new HBox(3,caption,star);requiredLabel.setAlignment(Pos.CENTER_LEFT);grid.add(requiredLabel,0,i);}else grid.add(caption,0,i);grid.add(controls[i],1,i);}dialog.getDialogPane().setContent(grid);dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK,ButtonType.CANCEL);validateDialogRequired(dialog,controls,Set.of(0,1,2,3,4,7));dialog.showAndWait().ifPresent(button->{if(button!=ButtonType.OK)return;try{if(name.getText().isBlank())throw new IllegalArgumentException("姓名不能为空");if(relationship.getText().isBlank())throw new IllegalArgumentException("与本人关系不能为空");if(birth.getValue()==null)throw new IllegalArgumentException("出生年月不能为空");if(residence.getText().isBlank())throw new IllegalArgumentException("户口所在地不能为空");if(workplace.getText().isBlank())throw new IllegalArgumentException("工作单位不能为空");if(phone.getText().isBlank())throw new IllegalArgumentException("联系电话不能为空");TeacherFamilyMember value=source==null?new TeacherFamilyMember():gson.fromJson(gson.toJson(source),TeacherFamilyMember.class);value.setName(name.getText().trim());value.setRelationship(relationship.getText().trim());value.setBirthDate(birth.getValue()==null?null:Date.valueOf(birth.getValue()));value.setRegisteredResidence(residence.getText().trim());value.setWorkplace(workplace.getText().trim());value.setWorkplaceAddress(address.getText().trim());value.setHealthStatus(health.getText().trim());value.setPhone(phone.getText().trim());java.util.function.Consumer<Message> done=m->runOnPage(()->{statusLabel.setText(m.getMessage());if(ok(m))service.overview(this::receiveOverview);});if(source==null)service.addFamilyMember(value,done);else service.updateFamilyMember(value,done);}catch(Exception exception){statusLabel.setText("社会关系信息格式错误: "+exception.getMessage());}});}
  private void validateDialogRequired(Dialog<?> dialog,Control[] controls,Set<Integer> required){

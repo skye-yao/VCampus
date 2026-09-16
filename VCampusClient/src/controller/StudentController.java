@@ -266,12 +266,45 @@ public class StudentController {
                 "campusAddress", "emergencyContact", "emergencyPhone"
         );
     }
+    private boolean blockRelatedAddWhenPending(String recordName) {
+
+        if (!isAdmin()
+                && overview != null
+                && overview.getPendingRequest() != null
+                && overview.getPendingRequest().getStatus()
+                == StudentChangeStatus.PENDING) {
+
+            String text =
+                    "当前修改申请正在审核中，审核完成后才能添加"
+                            + recordName
+                            + "。";
+
+            setStatus(text);
+
+            AlertUtil.showWarning(
+                    "暂时无法添加",
+                    text
+            );
+
+            return true;
+        }
+
+        return false;
+    }
 
     //定义统一的编辑入口
     private void beginGlobalEdit() {
         if(overview==null||overview.getStudent()==null)return;
         if(!isAdmin()&&overview.getPendingRequest()!=null) {
-            setStatus("当前修改申请正在审核中，审核完成后才能再次修改");
+            String text="当前修改申请正在审核中，审核完成后才能再次编辑。";
+
+            setStatus(text);
+
+            AlertUtil.showWarning(
+                    "暂时无法编辑",
+                    text
+            );
+
             return;
         }
         if(editing||enteringEdit||cancellingRequest)return;
@@ -732,9 +765,9 @@ public class StudentController {
         }
         ));
         service.listPendingRequests(m->runOnPage(()-> {
-            List<StudentChangeRequest> v=ok(m)?data(m,"requests",new TypeToken<List<StudentChangeRequest>>() {
-            }
-            .getType()):List.of();reviewRequests=v==null?new ArrayList<>():new ArrayList<>(v);applyReviewBucket();
+            if(!ok(m)){setStatus(message(m,"审核信息加载失败"));return;}
+            List<StudentChangeRequest> v=data(m,"requests",new TypeToken<List<StudentChangeRequest>>() {
+            }.getType());reviewRequests=v==null?new ArrayList<>():new ArrayList<>(v);applyReviewBucket();
         }
         ));
     }
@@ -2081,10 +2114,34 @@ public class StudentController {
 
     @FXML private void handleAddExperience(){
  if(overview==null)return;
+
+ if(blockRelatedAddWhenPending("学习经历")){
+    return;
+}
+
+ if(overview.getExperiences()!=null
+        &&overview.getExperiences().size()
+        >=util.InformationRules.STUDENT_EXPERIENCES){
+
+    setStatus("学习经历最多4条，另1行预留当前大学经历");
+    return;
+}
  if(overview.getExperiences()!=null&&overview.getExperiences().size()>=util.InformationRules.STUDENT_EXPERIENCES){setStatus("学习经历最多4条，另1行预留当前大学经历");return;}
 LinkedHashMap<String,String> f=new LinkedHashMap<>();f.put("开始年月","");f.put("结束年月","");f.put("学校名称","");f.put("学习阶段","");f.put("备注","");showRecordDialog("新增主要学习经历",f).ifPresent(v->{try{validateExperienceForm(v);StudentExperience x=new StudentExperience();x.setStartDate(monthDate(v.get("开始年月")));x.setEndDate(monthDateOrNull(v.get("结束年月")));x.setSchoolName(v.get("学校名称"));x.setEducationLevel(v.get("学习阶段"));x.setDescription(v.get("备注"));service.addExperience(x,m->runOnPage(()->{setStatus(message(m,"学习经历已添加"));if(ok(m))refreshData();}));}catch(Exception e){setStatus("学习经历格式错误："+e.getMessage());}});}
     @FXML private void handleAddFamilyMember(){
- if(overview==null)return;
+        if(overview==null)return;
+
+        if(blockRelatedAddWhenPending("家庭主要关系")){
+            return;
+        }
+
+        if(overview.getFamilyMembers()!=null
+                &&overview.getFamilyMembers().size()
+                >=util.InformationRules.STUDENT_FAMILY){
+
+            setStatus("家庭成员最多4条");
+            return;
+        }
  if(overview.getFamilyMembers()!=null&&overview.getFamilyMembers().size()>=util.InformationRules.STUDENT_FAMILY){setStatus("家庭成员最多4条");return;}
 LinkedHashMap<String,String> f=new LinkedHashMap<>();f.put("姓名","");f.put("与本人关系","");f.put("出生年月","");f.put("户口所在地","");f.put("工作单位","");f.put("工作单位地址","");f.put("健康状况","");f.put("联系电话","");showRecordDialog("新增家庭主要关系成员",f).ifPresent(v->{try{validateFamilyForm(v);StudentFamilyMember x=new StudentFamilyMember();x.setName(v.get("姓名"));x.setRelationship(v.get("与本人关系"));String birth=v.get("出生年月");x.setBirthDate(birth.isBlank()?null:Date.valueOf(birth));x.setRegisteredResidence(v.get("户口所在地"));x.setWorkplace(v.get("工作单位"));x.setWorkplaceAddress(v.get("工作单位地址"));x.setHealthStatus(v.get("健康状况"));x.setPhone(v.get("联系电话"));service.addFamilyMember(x,m->runOnPage(()->{setStatus(message(m,"家庭成员已添加"));if(ok(m))refreshData();}));}catch(Exception e){setStatus("家庭成员信息格式错误："+e.getMessage());}});}
     @FXML private void handleEditExperience(){

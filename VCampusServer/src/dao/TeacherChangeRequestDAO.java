@@ -57,12 +57,18 @@ import util.LocalTimeConnection;
     }
     public List<TeacherChangeRequest> findPending()throws SQLException {
         return list("SELECT r.* FROM tblTeacherChangeRequest r WHERE r.status='PENDING' " +
-                "AND EXISTS (SELECT 1 FROM tbl_user u WHERE u.UID = r.teacherId AND (u.status IN ('ACTIVE', 'FROZEN') OR u.status IS NULL)) " +
+                "AND EXISTS (SELECT 1 FROM tblTeacher t JOIN tbl_user u " +
+                "ON u.UID COLLATE utf8mb4_unicode_ci = t.UID COLLATE utf8mb4_unicode_ci " +
+                "WHERE t.teacherId COLLATE utf8mb4_unicode_ci = r.teacherId COLLATE utf8mb4_unicode_ci " +
+                "AND (u.status IN ('ACTIVE', 'FROZEN') OR u.status IS NULL)) " +
                 "ORDER BY r.submitTime", null);
     }
     public List<TeacherChangeRequest> findAll()throws SQLException {
         return list("SELECT r.* FROM tblTeacherChangeRequest r " +
-                "WHERE EXISTS (SELECT 1 FROM tbl_user u WHERE u.UID = r.teacherId AND (u.status IN ('ACTIVE', 'FROZEN') OR u.status IS NULL)) " +
+                "WHERE EXISTS (SELECT 1 FROM tblTeacher t JOIN tbl_user u " +
+                "ON u.UID COLLATE utf8mb4_unicode_ci = t.UID COLLATE utf8mb4_unicode_ci " +
+                "WHERE t.teacherId COLLATE utf8mb4_unicode_ci = r.teacherId COLLATE utf8mb4_unicode_ci " +
+                "AND (u.status IN ('ACTIVE', 'FROZEN') OR u.status IS NULL)) " +
                 "ORDER BY r.submitTime DESC", null);
     }
     public TeacherChangeRequest findPendingByTeacherId(String id)throws SQLException {
