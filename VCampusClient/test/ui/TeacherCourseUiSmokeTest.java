@@ -45,6 +45,8 @@ import javafx.scene.input.KeyEvent;
 import javafx.scene.input.MouseButton;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.GridPane;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.Pane;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 import javafx.stage.Window;
@@ -966,6 +968,42 @@ public final class TeacherCourseUiSmokeTest {
                         "保存成功后版本必须前进到 v5，实际 " + labelText("#gradeBookStateLabel"));
             });
 
+            // 状态提示的落点与消退：与三个导入入口同排（按钮行里、撑开导入态的 Region 之前），
+            // 新提示立刻可见，3 秒后渐变淡出并隐藏，隐藏时不透明度复位（下一次提示从全不透明开始）。
+            steps.add(() -> {
+                Label feedback = requireNode("#gradeBookFeedbackLabel", Label.class, "状态提示");
+                require(feedback.getParent() instanceof HBox,
+                        "状态提示必须与三个导入入口同排，实际父节点 "
+                                + feedback.getParent().getClass().getSimpleName());
+                Pane row = (Pane) feedback.getParent();
+                require(row.getChildren().indexOf(feedback)
+                                > row.getChildren().indexOf(
+                                        requireNode("#gradeBookImportButton", Button.class, "导入 Excel")),
+                        "状态提示必须排在「导入 Excel」之后");
+                require(row.getChildren().indexOf(feedback)
+                                < row.getChildren().indexOf(requireNode("#gradeBookImportSummaryLabel",
+                                        Label.class, "导入摘要")),
+                        "状态提示必须在导入态之前（右侧留给摘要/异常明细/取消/确认）");
+                require(feedback.isVisible() && feedback.isManaged(),
+                        "刚到达的提示必须立刻可见");
+                require(feedback.getOpacity() == 1.0,
+                        "刚到达的提示必须是全不透明，实际 " + feedback.getOpacity());
+                snapshot("gradebook-feedback-row.png");
+            });
+            // 消退是真实时间驱动的：这里让出 FX 线程一小段真实时间（`settle` 的脉冲随后把动画
+            // 时钟推到结束），下一步断言标签已经自己隐藏。
+            steps.add(() -> sleepQuietly(3600));
+            steps.add(() -> {
+                Label feedback = requireNode("#gradeBookFeedbackLabel", Label.class, "状态提示");
+                require(!feedback.isVisible() && !feedback.isManaged(),
+                        "3 秒之后提示必须自己消退隐藏（不是一直挂着）");
+                require(feedback.getOpacity() == 1.0,
+                        "消退结束后不透明度必须复位，实际 " + feedback.getOpacity());
+                require(labelText("#gradeBookFeedbackLabel").contains("成绩草稿已保存"),
+                        "消退只隐藏标签，那句话本身不能被抹掉，实际 "
+                                + labelText("#gradeBookFeedbackLabel"));
+            });
+
             // 灰列：禁用一列组成 → 该列整体置灰、权重输入禁用、权重合计变成未配齐，且点不进编辑器。
             steps.add(() -> requireNode("#gradeBookExperimentEnabled", CheckBox.class, "实验启用开关")
                     .setSelected(false));
@@ -1033,6 +1071,12 @@ public final class TeacherCourseUiSmokeTest {
             steps.add(() -> {
                 require(labelText("#gradeBookFeedbackLabel").contains("成绩批次已提交"),
                         "确认提交后必须提交成功，实际 " + labelText("#gradeBookFeedbackLabel"));
+                // 上一条提示已经消退过：新提示必须把标签重新点亮（隐藏状态与不透明度都被复位），
+                // 而不是继承上一轮消退后的“看不见”。
+                Label feedback = requireNode("#gradeBookFeedbackLabel", Label.class, "状态提示");
+                require(feedback.isVisible() && feedback.getOpacity() == 1.0,
+                        "消退之后到达的新提示必须重新可见，实际可见 " + feedback.isVisible()
+                                + "／不透明度 " + feedback.getOpacity());
                 require(labelText("#gradeBookStateLabel").contains("已提交待审核")
                                 && labelText("#gradeBookStateLabel").contains("v6"),
                         "提交成功后必须进入待审核只读态，实际 " + labelText("#gradeBookStateLabel"));
@@ -1743,6 +1787,20 @@ public final class TeacherCourseUiSmokeTest {
         private String labelText(String selector) {
             Label label = requireNode(selector, Label.class, "标签 " + selector);
             return label.getText() == null ? "" : label.getText();
+        }
+
+        /**
+         * 在 FX 线程上等待一段真实时间：被阻塞的这段时间里没有脉冲，但动画时钟按脉冲时间戳推进，
+         * 因此下一次脉冲会把已经过期的动画一次性推到结束（提示消退正是这样一条 Timeline）。
+         * 只在必须等真实时间的地方用（提示的 3 秒消退），别拿它代替逐步的交互。
+         */
+        private void sleepQuietly(long millis) {
+            try {
+                Thread.sleep(millis);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("等待提示消退时被中断", interrupted);
+            }
         }
 
         /** Tab 正文里的文本行数：正文由控制器用 Label 逐行渲染，行数即数据完整度。 */

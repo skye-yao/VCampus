@@ -15,6 +15,9 @@ import dto.course.teacher.GradeComponentCodeDTO;
 import dto.course.teacher.TeacherGradeBookDTO;
 import dto.course.teacher.TeacherOperationResultDTO;
 import dto.course.teacher.WriteGradeBookRequestDTO;
+import javafx.animation.KeyFrame;
+import javafx.animation.KeyValue;
+import javafx.animation.Timeline;
 import javafx.application.Platform;
 import javafx.beans.property.ReadOnlyStringWrapper;
 import javafx.event.Event;
@@ -34,6 +37,7 @@ import javafx.scene.input.Clipboard;
 import javafx.scene.input.ClipboardContent;
 import javafx.scene.input.KeyEvent;
 import javafx.stage.Window;
+import javafx.util.Duration;
 import model.course.teacher.GradeBookEditorModel;
 import model.course.teacher.GradeBookEditorModel.Column;
 import model.course.teacher.GradeBookEditorModel.Row;
@@ -70,6 +74,11 @@ import util.PageLeaveGuard;
  * {@link #requestLeave()} 询问用户，拒绝返回 false 让调用方 {@code consume} 关闭事件或保持页面；
  * 允许离开后 {@link #onClosed()} 取消在途请求并保证之后的响应不再写界面。
  *
+ * <p>状态提示（{@code gradeBookFeedbackLabel}）与三个导入入口同排：新文本一到达就显示，留
+ * {@link #FEEDBACK_VISIBLE_DURATION} 之后渐变淡出并隐藏，隐藏只是界面状态——
+ * {@link #feedbackText} 里那句话不会被清掉（换班与页面重新进入才清）。每次到达都会取消上一次
+ * 计时并重新计时，因此同一个字符串再次到达（连续两次「成绩草稿已保存」）同样会重新显示。
+ *
  * <p>录入交互是“Excel 式”的（见 {@link ScoreEditCell}）：单击选中即编辑、输入即写入模型、
  * 方向键即导航、离开单元格即完成、只有非法输入才在本格标红打断。所有导航与剪贴板的判定都放在
  * 无工具包的 {@link GradeBookNavigator}/{@link GradeClipboardParser} 里，本类只负责接线与渲染。
@@ -104,6 +113,9 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
     private static final int PENDING_EDIT_RETRIES = 5;
     /** 权重输入框的非法样式：与单元格标红同一套视觉，用户一眼能找到是哪一列。 */
     private static final String ERROR_FIELD_CLASS = "teacher-course-weight-field-error";
+    /** 状态提示留在按钮行上的时长，以及随后渐变淡出的时长（3 秒后消退，不是瞬间隐藏）。 */
+    private static final Duration FEEDBACK_VISIBLE_DURATION = Duration.seconds(3);
+    private static final Duration FEEDBACK_FADE_DURATION = Duration.millis(400);
 
     private final TeacherCourseService service;
     private final Consumer<Runnable> fxExecutor;
@@ -124,7 +136,26 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
     private boolean submitting;
     private boolean confirmingSubmit;
     private boolean syncingScheme;
+    /**
+     * 状态提示的文本：本类的唯一事实来源（测试经 {@link #feedbackText()} 读取）。
+     *
+     * <p>只经 {@link #setFeedback} 写入——它同时推进 {@link #feedbackRevision}，渲染因此能区分
+     * “这一次渲染之前有新提示到达”与“这只是一次重画”。
+     */
     private String feedbackText;
+    /**
+     * 提示到达计数：每次 {@link #setFeedback} 前进一格。
+     *
+     * <p>触发条件是“到达”而不是“文本变化”：连续两次「成绩草稿已保存」是同一个字符串，按文本比较
+     * 会漏掉第二次到达，上一次消退的收尾就会把这条新提示连着一起清掉，用户从此看不到任何提示。
+     */
+    private long feedbackRevision;
+    /** 已经渲染过的到达计数：两者不等就是有新提示要显示并重新计时。 */
+    private long renderedFeedbackRevision;
+    /** 提示是否已经随渐变消退并隐藏；文本没再到达时 {@link #render} 不把它显示回来。 */
+    private boolean feedbackFaded;
+    /** 正在跑的那次消退（{@code null} 表示没有在跑的计时）；换新提示时取消旧的。 */
+    private Timeline feedbackFade;
     private String errorText;
     private String pendingSaveOperationId;
     private String pendingSubmitOperationId;
@@ -350,7 +381,7 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
         this.pendingSaveOperationId = null;
         this.pendingSubmitOperationId = null;
         this.confirmingSubmit = false;
-        this.feedbackText = null;
+        setFeedback(null);
         this.errorText = null;
         this.active = true;
         // 同一个页面实例会被反复进出（打开教学班 → 返回列表 → 再打开），导入编排跟着重新激活。
@@ -371,6 +402,9 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
         submitting = false;
         confirmingSubmit = false;
         generation++;
+        // 提示的消退计时也一起停掉：页面已卸下，不能留下一个还在跑的动画（同一个控制器实例
+        // 会被反复进出，计时器更不能跨页泄漏）。
+        stopFeedbackFade();
         // 页面被卸下：把打开的编辑器收起来，也别让排队的“落到某一格”在页面之外生效。
         closeActiveCell();
         clearPendingEdit();
@@ -401,7 +435,7 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
     @Override
     public boolean requestLeave() {
         if (importController.confirming()) {
-            feedbackText = TeacherGradeImportController.CONFIRMING_TEXT;
+            setFeedback(TeacherGradeImportController.CONFIRMING_TEXT);
             render();
             return false;
         }
@@ -446,7 +480,7 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
     void reload() {
         if (importController.confirming()) {
             // 确认在途时重新加载会丢掉那条写请求的结果（按钮此时本来也是禁用的，这里是第二道门）。
-            feedbackText = TeacherGradeImportController.CONFIRMING_TEXT;
+            setFeedback(TeacherGradeImportController.CONFIRMING_TEXT);
             render();
             return;
         }
@@ -501,7 +535,7 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
 
     @Override
     public void feedback(String text) {
-        feedbackText = text;
+        setFeedback(text);
         render();
     }
 
@@ -570,13 +604,13 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
         if (model == null || saving || submitting) return;
         // 导入预览期间只能取消或确认导入：草稿写入必须来自其中一条明确的路径。
         if (importController.importing()) {
-            feedbackText = FROZEN_SCHEME_TEXT;
+            setFeedback(FROZEN_SCHEME_TEXT);
             render();
             return;
         }
         String blocked = model.saveBlockReason();
         if (blocked != null) {
-            feedbackText = blocked;
+            setFeedback(blocked);
             render();
             return;
         }
@@ -585,7 +619,7 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
         try {
             request = model.writeRequest(pendingSaveOperationId);
         } catch (IllegalStateException refused) {
-            feedbackText = refused.getMessage();
+            setFeedback(refused.getMessage());
             render();
             return;
         }
@@ -594,7 +628,7 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
         // 一并复位，否则“正在加载成绩表...”会一直挂着、重新加载按钮永久禁用——与 loadBook 在开头
         // 复位写入标志是对称的同一件事。
         loading = false;
-        feedbackText = SAVING_TEXT;
+        setFeedback(SAVING_TEXT);
         errorText = null;
         render();
         long current = ++generation;
@@ -603,14 +637,14 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
             saving = false;
             if (failure != null) {
                 // 失败保留编辑内容：模型一个字段都不动，只把原因显示出来。
-                feedbackText = conflictPrefix(failure, SAVE_CONFLICT_PREFIX)
-                        + failureText(failure, SAVE_FAILURE_TEXT);
+                setFeedback(conflictPrefix(failure, SAVE_CONFLICT_PREFIX)
+                        + failureText(failure, SAVE_FAILURE_TEXT));
                 render();
                 return;
             }
             applySnapshot(result);
             pendingSaveOperationId = null;
-            feedbackText = SAVE_SUCCESS_TEXT;
+            setFeedback(SAVE_SUCCESS_TEXT);
             errorText = null;
             render();
         }));
@@ -626,12 +660,12 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
         if (model == null || submitting || confirmingSubmit) return;
         // 导入预览期间不进入提交确认：确认导入不是提交审批，两条流程不能混在一起。
         if (importController.importing()) {
-            feedbackText = FROZEN_SCHEME_TEXT;
+            setFeedback(FROZEN_SCHEME_TEXT);
             render();
             return;
         }
         confirmingSubmit = true;
-        feedbackText = null;
+        setFeedback(null);
         render();
     }
 
@@ -657,14 +691,14 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
     void confirmSubmit() {
         if (model == null || submitting) return;
         if (importController.importing()) {
-            feedbackText = FROZEN_SCHEME_TEXT;
+            setFeedback(FROZEN_SCHEME_TEXT);
             render();
             return;
         }
         String blocked = model.submitBlockReason();
         if (blocked != null) {
             confirmingSubmit = false;
-            feedbackText = blocked;
+            setFeedback(blocked);
             render();
             return;
         }
@@ -674,14 +708,14 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
         try {
             request = model.writeRequest(pendingSubmitOperationId);
         } catch (IllegalStateException refused) {
-            feedbackText = refused.getMessage();
+            setFeedback(refused.getMessage());
             render();
             return;
         }
         submitting = true;
         // 同 save()：提交同样作废在途加载的响应，加载标志必须一起复位，不能让它悬空。
         loading = false;
-        feedbackText = SUBMITTING_TEXT;
+        setFeedback(SUBMITTING_TEXT);
         errorText = null;
         render();
         long current = ++generation;
@@ -689,14 +723,14 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
             if (!isCurrent(current)) return;
             submitting = false;
             if (failure != null) {
-                feedbackText = conflictPrefix(failure, SUBMIT_CONFLICT_PREFIX)
-                        + failureText(failure, SUBMIT_FAILURE_TEXT);
+                setFeedback(conflictPrefix(failure, SUBMIT_CONFLICT_PREFIX)
+                        + failureText(failure, SUBMIT_FAILURE_TEXT));
                 render();
                 return;
             }
             applySnapshot(result);
             pendingSubmitOperationId = null;
-            feedbackText = SUBMIT_SUCCESS_TEXT;
+            setFeedback(SUBMIT_SUCCESS_TEXT);
             errorText = null;
             render();
         }));
@@ -731,7 +765,7 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
                 && !importController.isCorrectableCell(model.rows().get(rowIndex), code)) {
             // 预览期间只有服务端报过问题的格子可以改：其它格子改了要么是本地假象，要么会被
             // 服务端在确认时忽略，宁可不打开编辑器也不让教师白改。
-            feedbackText = TeacherGradeImportController.NO_ISSUE_CELL_TEXT;
+            setFeedback(TeacherGradeImportController.NO_ISSUE_CELL_TEXT);
             render();
             return;
         }
@@ -854,7 +888,7 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
         if (model == null || !model.canEdit() || startRow == null || startCode == null) return;
         // 导入预览期间不接收批量粘贴：一次铺开的格子大多不是异常格，改完也不会进候选。
         if (importController.importing()) {
-            feedbackText = TeacherGradeImportController.NO_ISSUE_CELL_TEXT;
+            setFeedback(TeacherGradeImportController.NO_ISSUE_CELL_TEXT);
             render();
             return;
         }
@@ -967,7 +1001,7 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
         if (syncingScheme) return;
         if (importController.importing()) {
             // 冻结方案切换：控件会被 render 拨回模型状态，同时把原因说清楚。
-            feedbackText = FROZEN_SCHEME_TEXT;
+            setFeedback(FROZEN_SCHEME_TEXT);
             render();
             return;
         }
@@ -982,7 +1016,7 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
     void applyWeight(GradeComponentCodeDTO code, String text) {
         if (syncingScheme) return;
         if (importController.importing()) {
-            feedbackText = FROZEN_SCHEME_TEXT;
+            setFeedback(FROZEN_SCHEME_TEXT);
             render();
             return;
         }
@@ -1006,6 +1040,15 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
     }
 
     // ------------------------------------------------------------------ 渲染
+
+    /**
+     * 状态提示的唯一写入口：置文本并推进到达计数（画由调用方紧随其后的 {@link #render} 完成，
+     * 渲染出口保持只有 {@link #render} 一个）。
+     */
+    private void setFeedback(String text) {
+        feedbackText = text;
+        feedbackRevision++;
+    }
 
     private void render() {
         render(true);
@@ -1038,10 +1081,7 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
         }
         setActive(gradeBookNoticeLabel, notice != null);
         if (gradeBookSchemeLabel != null) gradeBookSchemeLabel.setText(schemeText());
-        if (gradeBookFeedbackLabel != null) {
-            gradeBookFeedbackLabel.setText(feedbackText == null ? "" : feedbackText);
-        }
-        setActive(gradeBookFeedbackLabel, feedbackText != null);
+        renderFeedback();
 
         // 导入预览期间方案与保存/提交都冻结：候选是按当前权重算出来的，改权重会让它作废；
         // 而确认导入只写草稿，提交审批只能走原来的「提交成绩」流程。
@@ -1099,6 +1139,69 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
         }
         if (gradeBookConfirmImportButton != null) {
             gradeBookConfirmImportButton.setDisable(!importController.confirmEnabled());
+        }
+    }
+
+    /**
+     * 状态提示：新文本一到达就显示，并在 {@link #FEEDBACK_VISIBLE_DURATION} 之后渐变淡出。
+     *
+     * <p>只认“有新提示到达”（{@link #feedbackRevision} 前进），不认“这次渲染和上次不一样”：页面上的
+     * 任何一次重画（逐格录入、按钮可用性、导入态）都会走到 {@link #render} 里来，按渲染次数重新计时
+     * 会让提示永远等不到消退。
+     *
+     * <p>标签缺失（无工具包的控制器测试）时只保留 {@code feedbackText} 字段本身：它仍然是这条提示的
+     * 唯一事实来源，测试照旧读得到。
+     */
+    private void renderFeedback() {
+        if (gradeBookFeedbackLabel == null) return;
+        gradeBookFeedbackLabel.setText(feedbackText == null ? "" : feedbackText);
+        if (feedbackRevision != renderedFeedbackRevision) {
+            renderedFeedbackRevision = feedbackRevision;
+            feedbackFaded = false;
+            startFeedbackFade();
+        }
+        setActive(gradeBookFeedbackLabel, feedbackText != null && !feedbackFaded);
+    }
+
+    /**
+     * 按当前提示重新计时：非空则先原样留 {@link #FEEDBACK_VISIBLE_DURATION}，再
+     * {@link #FEEDBACK_FADE_DURATION} 之内淡出；提示被置空则只是取消在跑的那次消退。
+     *
+     * <p>旧计时一律先取消：新提示到家时，上一次的收尾既不能把它隐藏，也不能把不透明度留成 0。
+     * 收尾自身还有一道“我还是当前这次消退吗”的检查，因此即使某个实现会在 {@code stop()} 里同步
+     * 触发 {@code onFinished}，也清不掉刚落地的提示。
+     */
+    private void startFeedbackFade() {
+        stopFeedbackFade();
+        if (gradeBookFeedbackLabel == null || feedbackText == null) return;
+        gradeBookFeedbackLabel.setOpacity(1);
+        Timeline fade = new Timeline(
+                new KeyFrame(Duration.ZERO, new KeyValue(gradeBookFeedbackLabel.opacityProperty(), 1)),
+                new KeyFrame(FEEDBACK_VISIBLE_DURATION,
+                        new KeyValue(gradeBookFeedbackLabel.opacityProperty(), 1)),
+                new KeyFrame(FEEDBACK_VISIBLE_DURATION.add(FEEDBACK_FADE_DURATION),
+                        new KeyValue(gradeBookFeedbackLabel.opacityProperty(), 0)));
+        fade.setOnFinished(event -> {
+            if (feedbackFade != fade) return;
+            feedbackFade = null;
+            feedbackFaded = true;
+            // 复位不透明度：下一次提示从全不透明开始，不能继承上一轮淡出到 0 的那一帧。
+            gradeBookFeedbackLabel.setOpacity(1);
+            render(false);
+        });
+        feedbackFade = fade;
+        fade.play();
+    }
+
+    /**
+     * 取消在跑的消退并解绑。先解绑再停：解绑之后这次消退的收尾不再作数，与
+     * {@code stop()} 是否回调 {@code onFinished} 无关。
+     */
+    private void stopFeedbackFade() {
+        Timeline running = feedbackFade;
+        feedbackFade = null;
+        if (running != null) {
+            running.stop();
         }
     }
 
@@ -1393,6 +1496,7 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
         return model != null && model.dirty();
     }
 
+    /** 最近一条状态提示：消退只隐藏标签，不改这个字段（换班/重新进入才清）。 */
     String feedbackText() {
         return feedbackText;
     }

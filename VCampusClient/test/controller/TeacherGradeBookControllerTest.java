@@ -74,6 +74,7 @@ public final class TeacherGradeBookControllerTest {
         releasedPageIgnoresLateResponses();
         readOnlyBookShowsTheReviewStateAndBlocksWrites();
         gradeViewsDeclareTheirControllerIdsAndHandlers();
+        theStatusLineSitsOnTheButtonRow();
         everyStyleClassExistsInTheStylesheet();
         System.out.println("TeacherGradeBookControllerTest: PASS");
     }
@@ -554,6 +555,93 @@ public final class TeacherGradeBookControllerTest {
         require(elementWithId(bookView, "gradeBookConfirmSubmitButton") != null
                         && elementWithId(bookView, "gradeBookCancelSubmitButton") != null,
                 "提交必须有二次确认与取消入口");
+    }
+
+    /**
+     * 状态提示与三个导入入口同排：{@code gradeBookFeedbackLabel} 必须是按钮行 HBox 的孩子，
+     * 位置在「导入 Excel」之后、撑开右侧导入态的 {@code Region} 之前，并且仍然只有它原来的
+     * fx:id／styleClass／wrapText。它不再挂在根 VBox 末尾（那正是“页面最底部”那一行）。
+     */
+    private static void theStatusLineSitsOnTheButtonRow() throws Exception {
+        Document bookView = parseView(GRADE_BOOK_VIEW);
+        Element feedback = elementWithId(bookView, "gradeBookFeedbackLabel");
+        require(feedback != null, "成绩编辑表必须有状态提示标签");
+        require("teacher-course-feedback-text".equals(feedback.getAttribute("styleClass")),
+                "状态提示必须保留原样式类，收到 " + feedback.getAttribute("styleClass"));
+        require("true".equals(feedback.getAttribute("wrapText")),
+                "状态提示必须保留 wrapText");
+        require("false".equals(feedback.getAttribute("visible"))
+                        && "false".equals(feedback.getAttribute("managed")),
+                "状态提示必须默认隐藏（没有提示时不占位）");
+
+        Element row = ownerElement(feedback);
+        require("HBox".equals(row.getTagName()), "状态提示必须直接挂在按钮行 HBox 上，收到 "
+                + row.getTagName());
+        for (String id : List.of("gradeBookDownloadTemplateButton", "gradeBookExportRosterButton",
+                "gradeBookImportButton", "gradeBookImportSummaryLabel",
+                "gradeBookImportIssuesButton", "gradeBookCancelImportButton",
+                "gradeBookConfirmImportButton")) {
+            require(row == ownerElement(elementWithId(bookView, id)),
+                    id + " 必须仍然在同一个按钮行里（导入区不能被状态提示移位打散）");
+        }
+        List<Element> children = contentElements(row);
+        int importButton = indexOfId(children, "gradeBookImportButton");
+        int statusLine = indexOfId(children, "gradeBookFeedbackLabel");
+        int grower = indexOfGrowRegion(children);
+        require(importButton >= 0 && statusLine > importButton,
+                "状态提示必须排在「导入 Excel」之后，收到 " + importButton + " / " + statusLine);
+        require(grower >= 0 && statusLine < grower,
+                "状态提示必须排在撑开导入态的 Region 之前（与三个入口平齐），收到 "
+                        + statusLine + " / " + grower);
+
+        // 根 VBox 里不再有它：状态提示已经离开“页面最底部”那一行。
+        require(indexOfId(contentElements(bookView.getDocumentElement()),
+                        "gradeBookFeedbackLabel") < 0,
+                "状态提示不得再挂在根 VBox 上（那正是页面最底部那一行）");
+    }
+
+    /**
+     * 节点的“归属容器”：FXML 里每个容器的孩子都包在一层 {@code <children>} 元素里，
+     * 因此 DOM 父节点是它，再往上一级才是真正的容器（HBox/VBox）。
+     */
+    private static Element ownerElement(Element node) {
+        Element parent = (Element) node.getParentNode();
+        return "children".equals(parent.getTagName()) ? (Element) parent.getParentNode() : parent;
+    }
+
+    /** 容器里的孩子节点：剥掉 FXML 的 {@code <children>} 包装层。 */
+    private static List<Element> contentElements(Element container) {
+        List<Element> direct = childElements(container);
+        return direct.size() == 1 && "children".equals(direct.get(0).getTagName())
+                ? childElements(direct.get(0)) : direct;
+    }
+
+    private static List<Element> childElements(Element parent) {
+        List<Element> children = new ArrayList<>();
+        NodeList nodes = parent.getChildNodes();
+        for (int index = 0; index < nodes.getLength(); index++) {
+            if (nodes.item(index) instanceof Element element) children.add(element);
+        }
+        return children;
+    }
+
+    private static int indexOfId(List<Element> children, String id) {
+        for (int index = 0; index < children.size(); index++) {
+            if (id.equals(children.get(index).getAttribute("fx:id"))) return index;
+        }
+        return -1;
+    }
+
+    /** 按钮行里那一个 {@code HBox.hgrow="ALWAYS"} 的占位 {@code Region}。 */
+    private static int indexOfGrowRegion(List<Element> children) {
+        for (int index = 0; index < children.size(); index++) {
+            Element child = children.get(index);
+            if ("Region".equals(child.getTagName())
+                    && "ALWAYS".equals(child.getAttribute("HBox.hgrow"))) {
+                return index;
+            }
+        }
+        return -1;
     }
 
     /** 所有 styleClass 都能在 teacher-course.css 里找到选择器。 */
