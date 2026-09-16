@@ -55,10 +55,14 @@ import java.util.*;
         return list("SELECT * FROM tblStudentChangeRequest WHERE studentId=? ORDER BY submitTime DESC",id);
     }
     public List<StudentChangeRequest> findPending()throws SQLException {
-        return list("SELECT * FROM tblStudentChangeRequest WHERE status='PENDING' ORDER BY submitTime",null);
+        return list("SELECT r.* FROM tblStudentChangeRequest r WHERE r.status='PENDING' " +
+                "AND EXISTS (SELECT 1 FROM tbl_user u WHERE u.UID = r.studentId AND (u.status IN ('ACTIVE', 'FROZEN') OR u.status IS NULL)) " +
+                "ORDER BY r.submitTime", null);
     }
     public List<StudentChangeRequest> findAll()throws SQLException {
-        return list("SELECT * FROM tblStudentChangeRequest ORDER BY submitTime DESC",null);
+        return list("SELECT r.* FROM tblStudentChangeRequest r " +
+                "WHERE EXISTS (SELECT 1 FROM tbl_user u WHERE u.UID = r.studentId AND (u.status IN ('ACTIVE', 'FROZEN') OR u.status IS NULL)) " +
+                "ORDER BY r.submitTime DESC", null);
     }
     public StudentChangeRequest findPendingByStudentId(String id)throws SQLException {
         try(Connection c=DBUtil.getConnection()) {

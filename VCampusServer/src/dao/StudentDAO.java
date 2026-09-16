@@ -51,7 +51,13 @@ public class StudentDAO {
     }
     public List<Student> findAll()throws SQLException {
         List<Student>o=new ArrayList<>();
-        try(Connection c=DBUtil.getConnection();PreparedStatement p=c.prepareStatement("SELECT * FROM tblStudent ORDER BY studentId");ResultSet r=p.executeQuery()) {
+        String sql = "SELECT s.* FROM tblStudent s " +
+                     "WHERE EXISTS (" +
+                     "    SELECT 1 FROM tbl_user u " +
+                     "    WHERE (u.UID = s.UID OR u.UID = s.studentId) " +
+                     "      AND (u.status IN ('ACTIVE', 'FROZEN') OR u.status IS NULL)" +
+                     ") ORDER BY s.studentId";
+        try(Connection c=DBUtil.getConnection();PreparedStatement p=c.prepareStatement(sql);ResultSet r=p.executeQuery()) {
             while(r.next())o.add(map(r));
         }
         return o;
