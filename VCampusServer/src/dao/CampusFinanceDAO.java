@@ -15,7 +15,7 @@ public class CampusFinanceDAO {
     public List<FinanceChargeTarget> findChargeTargets(Connection conn, String keyword,
                                                         Integer role, String college) throws SQLException {
         StringBuilder sql = new StringBuilder(
-                "SELECT UID,name,role,college,major FROM tbl_user WHERE role IN (1,2)");
+                "SELECT UID,name,role,college,major FROM tbl_user WHERE role IN (1,2) AND (status IN ('ACTIVE', 'FROZEN') OR status IS NULL)");
         List<Object> params = new ArrayList<>();
         if (keyword != null && !keyword.isBlank()) {
             sql.append(" AND (UID LIKE ? OR name LIKE ? OR college LIKE ? OR major LIKE ?)");
@@ -51,7 +51,7 @@ public class CampusFinanceDAO {
     public int createBills(Connection conn, List<String> userIds, String billType,
                            String title, BigDecimal amount, Date dueDate) throws SQLException {
         String sql = "INSERT INTO tbl_finance_bill(user_id,bill_type,title,amount,status,due_date) " +
-                "SELECT UID,?,?,?,'UNPAID',? FROM tbl_user WHERE UID=? AND role IN (1,2) " +
+                "SELECT UID,?,?,?,'UNPAID',? FROM tbl_user WHERE UID=? AND role IN (1,2) AND (status IN ('ACTIVE', 'FROZEN') OR status IS NULL) " +
                 "ON DUPLICATE KEY UPDATE bill_id=bill_id";
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             for (String userId : userIds) {

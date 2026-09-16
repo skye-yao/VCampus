@@ -18,6 +18,8 @@ import util.PasswordUtil;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.time.LocalDate;
@@ -674,6 +676,17 @@ public class BankService implements IBankPaymentService {
     private BankAccount requireAccount(Connection conn, String userId, boolean lock) throws SQLException {
         BankAccount account = accountDAO.findByUserId(conn, userId, lock);
         if (account == null) throw new BusinessException("校园银行账户不存在：" + userId);
+        try (PreparedStatement ps = conn.prepareStatement("SELECT status FROM tbl_user WHERE UID = ?")) {
+            ps.setString(1, userId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    String status = rs.getString("status");
+                    if ("DELETED".equalsIgnoreCase(status)) {
+                        throw new BusinessException("该校园账户已注销：" + userId);
+                    }
+                }
+            }
+        }
         return account;
     }
 
