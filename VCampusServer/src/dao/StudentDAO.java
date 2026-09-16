@@ -54,7 +54,8 @@ public class StudentDAO {
         String sql = "SELECT s.* FROM tblStudent s " +
                      "WHERE EXISTS (" +
                      "    SELECT 1 FROM tbl_user u " +
-                     "    WHERE (u.UID = s.UID OR u.UID = s.studentId) " +
+                     "    WHERE (u.UID COLLATE utf8mb4_unicode_ci = s.UID COLLATE utf8mb4_unicode_ci " +
+                     "       OR u.UID COLLATE utf8mb4_unicode_ci = s.studentId COLLATE utf8mb4_unicode_ci) " +
                      "      AND (u.status IN ('ACTIVE', 'FROZEN') OR u.status IS NULL)" +
                      ") ORDER BY s.studentId";
         try(Connection c=DBUtil.getConnection();PreparedStatement p=c.prepareStatement(sql);ResultSet r=p.executeQuery()) {

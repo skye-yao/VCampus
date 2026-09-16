@@ -266,7 +266,8 @@ public class UserDAO {
         try {
             // 1. 同步学生学籍信息（学院、专业、姓名、性别、手机、邮箱）
             String sqlStudent = "UPDATE tbl_user u " +
-                    "JOIN tblStudent s ON (u.UID = s.UID OR u.UID = s.studentId) " +
+                    "JOIN tblStudent s ON (u.UID COLLATE utf8mb4_unicode_ci = s.UID COLLATE utf8mb4_unicode_ci " +
+                    "OR u.UID COLLATE utf8mb4_unicode_ci = s.studentId COLLATE utf8mb4_unicode_ci) " +
                     "SET u.name = s.name, u.gender = s.gender, u.college = s.college, u.major = s.major, " +
                     "u.phone = COALESCE(NULLIF(s.mobile, ''), u.phone), u.email = COALESCE(NULLIF(s.email, ''), u.email) " +
                     "WHERE u.UID = ?";
@@ -316,7 +317,7 @@ public class UserDAO {
              Statement stmt = conn.createStatement()) {
             // 1. 同步学生
             stmt.executeUpdate("UPDATE tbl_user u " +
-                    "JOIN tblStudent s ON u.UID = s.UID " +
+                    "JOIN tblStudent s ON u.UID COLLATE utf8mb4_unicode_ci = s.UID COLLATE utf8mb4_unicode_ci " +
                     "SET u.name = s.name, u.gender = s.gender, u.college = s.college, u.major = s.major");
             // 2. 同步教师
             stmt.executeUpdate("UPDATE tbl_user u " +

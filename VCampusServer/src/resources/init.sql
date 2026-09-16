@@ -67,7 +67,17 @@ VALUES
 ('admin2', '管理员2', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 0, '校图书馆', '系统管理', '18800000002', 'andrew.lib@seu.edu.cn', 50000.00),
 ('admin3', '管理员3', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 0, '教务处', '课程管理', '18800000003', 'alexander.jwc@seu.edu.cn', 50000.00),
 ('admin4', '管理员4', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 0, '财务处', '系统管理', '18800000004', 'arthur.cwc@seu.edu.cn', 50000.00),
-('teacher01', '李老师', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 1, '计算机科学与工程学院', '副教授', '13700137000', 'teacher@seu.edu.cn', 10000.00)
+('teacher01', '李老师', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 1, '计算机科学与工程学院', '副教授', '13700137000', 'teacher@seu.edu.cn', 10000.00),
+('teacher02', '王明哲', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 1, '计算机科学与工程学院', '讲师', '13700137002', 'demo.teacher02@example.com', 10000.00),
+('teacher03', '陈静怡', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 1, '电子科学与工程学院', '副教授', '13700137003', 'demo.teacher03@example.com', 10000.00),
+('teacher04', '刘建华', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 1, '机械工程学院', '教授', '13700137004', 'demo.teacher04@example.com', 10000.00),
+('teacher05', '周雅琴', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 1, '建筑学院', '讲师', '13700137005', 'demo.teacher05@example.com', 10000.00),
+('teacher06', '张志远', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 1, '经济管理学院', '副教授', '13700137006', 'demo.teacher06@example.com', 10000.00),
+('teacher07', '孙晓岚', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 1, '交通学院', '教授', '13700137007', 'demo.teacher07@example.com', 10000.00),
+('teacher08', '赵文清', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 1, '外国语学院', '讲师', '13700137008', 'demo.teacher08@example.com', 10000.00),
+('teacher09', '吴思敏', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 1, '医学院', '副教授', '13700137009', 'demo.teacher09@example.com', 10000.00),
+('teacher10', '郑启航', '男', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 1, '土木工程学院', '教授', '13700137010', 'demo.teacher10@example.com', 10000.00),
+('teacher11', '徐若兰', '女', 'tECnNTmvtuITz4kN9fLAhO+T9HYBzxnCIqiBpldvAfM=', 'dGVzdHNhbHQxMjM0NTY=', 1, '数学学院', '讲师', '13700137011', 'demo.teacher11@example.com', 10000.00)
 ON DUPLICATE KEY UPDATE `name`=VALUES(`name`);
 
 -- 学籍管理
@@ -175,7 +185,18 @@ CREATE TABLE IF NOT EXISTS tblTeacherChangeItem (
 SET @ddl=IF((SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tblTeacher' AND COLUMN_NAME='education')=0,'ALTER TABLE tblTeacher ADD education VARCHAR(50)','SELECT 1');PREPARE s FROM @ddl;EXECUTE s;DEALLOCATE PREPARE s;
 SET @ddl=IF((SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tblTeacher' AND COLUMN_NAME='employmentStartDate')=0,'ALTER TABLE tblTeacher ADD employmentStartDate DATE','SELECT 1');PREPARE s FROM @ddl;EXECUTE s;DEALLOCATE PREPARE s;
 INSERT INTO tblTeacher(teacherId,UID,name,politicalStatus,nationality,gender,idType,idNumber,idIssueDate,birthDate,nativePlace,householdType,birthPlace,sourcePlace,registeredResidence,partyMember,partyJoinDate,healthStatus,employed,employmentStatus,campus,college,department,title,position,education,employmentStartDate,telephone,mobile,email,officeAddress,emergencyContact,emergencyPhone)
-VALUES('T00001','teacher01','李老师','中共党员','汉族','女','居民身份证','320100198001010001','2015-01-01','1980-01-01','江苏南京','城镇户口','江苏南京','江苏南京','江苏省南京市',1,'2005-07-01','健康',1,'在职','九龙湖校区','计算机科学与工程学院','计算机科学系','副教授','教师','博士研究生','2010-09-01','025-52090001','13700137000','teacher@seu.edu.cn','九龙湖校区计算机楼','李家属','13600136000')
+VALUES
+('T00001','teacher01','李老师','中共党员','汉族','女','居民身份证','320100198001010001','2015-01-01','1980-01-01','江苏南京','城镇户口','江苏南京','江苏南京','江苏省南京市',1,'2005-07-01','健康',1,'在职','九龙湖校区','计算机科学与工程学院','计算机科学系','副教授','教师','博士研究生','2010-09-01','025-52090001','13700137000','teacher@seu.edu.cn','九龙湖校区计算机楼','李家属','13600136000'),
+('T00002','teacher02','王明哲','群众','汉族','男','居民身份证','320100198502020002','2016-02-01','1985-02-02','江苏南京','城镇户口','江苏南京','江苏南京','江苏省南京市',0,NULL,'健康',1,'在职','九龙湖校区','计算机科学与工程学院','计算机科学系','讲师','教师','博士研究生','2016-09-01','025-52090002','13700137002','demo.teacher02@example.com','九龙湖校区计算机楼','王家属','13600136002'),
+('T00003','teacher03','陈静怡','中共党员','汉族','女','居民身份证','320100198403030003','2016-03-01','1984-03-03','江苏苏州','城镇户口','江苏苏州','江苏苏州','江苏省苏州市',1,'2006-07-01','健康',1,'在职','九龙湖校区','电子科学与工程学院','电子工程系','副教授','教师','博士研究生','2012-09-01','025-52090003','13700137003','demo.teacher03@example.com','九龙湖校区电子楼','陈家属','13600136003'),
+('T00004','teacher04','刘建华','中共党员','汉族','男','居民身份证','320100197504040004','2014-04-01','1975-04-04','江苏无锡','城镇户口','江苏无锡','江苏无锡','江苏省无锡市',1,'1998-07-01','健康',1,'在职','九龙湖校区','机械工程学院','机械工程系','教授','教师','博士研究生','2003-09-01','025-52090004','13700137004','demo.teacher04@example.com','九龙湖校区机械楼','刘家属','13600136004'),
+('T00005','teacher05','周雅琴','群众','汉族','女','居民身份证','320100198805050005','2017-05-01','1988-05-05','江苏常州','城镇户口','江苏常州','江苏常州','江苏省常州市',0,NULL,'健康',1,'在职','四牌楼校区','建筑学院','建筑系','讲师','教师','硕士研究生','2017-09-01','025-52090005','13700137005','demo.teacher05@example.com','四牌楼校区建筑楼','周家属','13600136005'),
+('T00006','teacher06','张志远','中共党员','汉族','男','居民身份证','320100198206060006','2015-06-01','1982-06-06','江苏南通','城镇户口','江苏南通','江苏南通','江苏省南通市',1,'2004-07-01','健康',1,'在职','九龙湖校区','经济管理学院','工商管理系','副教授','教师','博士研究生','2011-09-01','025-52090006','13700137006','demo.teacher06@example.com','九龙湖校区经管楼','张家属','13600136006'),
+('T00007','teacher07','孙晓岚','中共党员','汉族','女','居民身份证','320100197807070007','2014-07-01','1978-07-07','江苏扬州','城镇户口','江苏扬州','江苏扬州','江苏省扬州市',1,'2000-07-01','健康',1,'在职','九龙湖校区','交通学院','交通运输系','教授','教师','博士研究生','2006-09-01','025-52090007','13700137007','demo.teacher07@example.com','九龙湖校区交通楼','孙家属','13600136007'),
+('T00008','teacher08','赵文清','群众','汉族','男','居民身份证','320100198908080008','2018-08-01','1989-08-08','江苏镇江','城镇户口','江苏镇江','江苏镇江','江苏省镇江市',0,NULL,'健康',1,'在职','九龙湖校区','外国语学院','英语系','讲师','教师','硕士研究生','2018-09-01','025-52090008','13700137008','demo.teacher08@example.com','九龙湖校区外语楼','赵家属','13600136008'),
+('T00009','teacher09','吴思敏','中共党员','汉族','女','居民身份证','320100198309090009','2015-09-01','1983-09-09','江苏泰州','城镇户口','江苏泰州','江苏泰州','江苏省泰州市',1,'2005-07-01','健康',1,'在职','丁家桥校区','医学院','临床医学系','副教授','教师','博士研究生','2010-09-01','025-52090009','13700137009','demo.teacher09@example.com','丁家桥校区医学楼','吴家属','13600136009'),
+('T00010','teacher10','郑启航','中共党员','汉族','男','居民身份证','320100197610100010','2014-10-01','1976-10-10','江苏盐城','城镇户口','江苏盐城','江苏盐城','江苏省盐城市',1,'1999-07-01','健康',1,'在职','九龙湖校区','土木工程学院','土木工程系','教授','教师','博士研究生','2005-09-01','025-52090010','13700137010','demo.teacher10@example.com','九龙湖校区土木楼','郑家属','13600136010'),
+('T00011','teacher11','徐若兰','群众','汉族','女','居民身份证','320100199011110011','2019-11-01','1990-11-11','江苏南京','城镇户口','江苏南京','江苏南京','江苏省南京市',0,NULL,'健康',1,'在职','九龙湖校区','数学学院','应用数学系','讲师','教师','博士研究生','2019-09-01','025-52090011','13700137011','demo.teacher11@example.com','九龙湖校区数学楼','徐家属','13600136011')
 ON DUPLICATE KEY UPDATE name=VALUES(name);
 
 CREATE TABLE IF NOT EXISTS tblStudentChangeItem (
