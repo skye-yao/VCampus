@@ -7,6 +7,7 @@ import dto.course.admin.approval.AdjustmentRequestDetailDTO;
 import dto.course.teacher.ConfirmGradeImportRequestDTO;
 import dto.course.teacher.PreviewGradeImportRequestDTO;
 import dto.course.teacher.ReviseGradeImportRequestDTO;
+import dto.course.teacher.StartGradeRevisionRequestDTO;
 import dto.course.teacher.TeacherAdjustmentWriteDTO;
 import dto.course.teacher.TeacherCourseActions;
 import dto.course.teacher.TeacherFileTicketDTO;
@@ -60,7 +61,7 @@ import java.util.function.Consumer;
  * 教学班的名单生成的，先发票据就等于先把别人的名单借出去。
  *
  * <p>成绩动作的响应键：{@code offerings}（成绩列表）、{@code gradeBook}（成绩表）、{@code result}
- * （保存/提交/确认导入的操作结果信封）、{@code preview}（导入预览与修订）。成绩冲突用
+ * （保存/提交/驳回重开/发起更正/确认导入的操作结果信封）、{@code preview}（导入预览与修订）。成绩冲突用
  * {@code gradeBook} 带回最新成绩表，与调课冲突的 {@code conflicts}/{@code latest} 区分开，
  * 客户端不解析对方的类型。
  *
@@ -226,6 +227,15 @@ public class TeacherCourseHandler {
                 }
                 case TeacherCourseActions.SUBMIT_GRADE_BOOK -> {
                     return mutation(response, grades().submitGradeBook(uid, gradeWrite(request)));
+                }
+                case TeacherCourseActions.REOPEN_REJECTED_GRADE_BOOK -> {
+                    // 驳回重开与更正共用同一个请求体；来源批次与权限由服务端在事务内重新核验。
+                    return mutation(response,
+                            grades().reopenRejectedGradeBook(uid, revisionWrite(request)));
+                }
+                case TeacherCourseActions.BEGIN_GRADE_CORRECTION -> {
+                    return mutation(response,
+                            grades().beginGradeCorrection(uid, revisionWrite(request)));
                 }
                 case TeacherCourseActions.BEGIN_GRADE_UPLOAD -> {
                     // 只签发短时票据：文件字节走独立端口，业务 JSON 里绝不出现 Base64 文件内容。
@@ -406,6 +416,25 @@ public class TeacherCourseHandler {
         requireGradeContent(content, "content");
         requireOptionalString(values, "operationId");
         return payload(request, WriteGradeBookRequestDTO.class);
+    }
+
+    /**
+     * 解析版本变更请求体（驳回重开/发起更正）。
+     *
+     * <p>只有五个字段，但和别的写请求走同一套防线：身份/人员/force 伪造字段出现即拒绝；两个 BIGINT
+     * 标识（offeringId、sourceSubmissionId）只接受十进制字符串，避免 Gson 经 double 静默改写——
+     * 「来源批次」是这次操作唯一认准的历史依据，被悄悄改掉一个数字就等于换了一份基础。
+     * operationId/reason 必须是字符串，expectedRevision 必须是整数；原因是否为空由服务端判定（更正
+     * 必填、重提不要求），Handler 只保证形状。
+     */
+    private StartGradeRevisionRequestDTO revisionWrite(Message request) {
+        Map<String, Object> values = gradeValues(request);
+        requireDecimalText(values.get("offeringId"), "offeringId");
+        requireDecimalText(values.get("sourceSubmissionId"), "sourceSubmissionId");
+        requireOptionalString(values, "operationId");
+        requireOptionalString(values, "reason");
+        integerValue(values.get("expectedRevision"), "expectedRevision");
+        return payload(request, StartGradeRevisionRequestDTO.class);
     }
 
     /**

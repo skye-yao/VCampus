@@ -173,6 +173,43 @@ public class TeacherGradeBookDAO {
     }
 
     /**
+     * 某个批次属于哪个教学班、现在是什么状态；批次不存在返回 null。
+     *
+     * <p>版本变更（驳回重开/更正）用它核对来源批次：只认「本班最后一次提交」这一条，既要状态对得上，
+     * 也要它确实属于这个教学班——别人的批次号不能当来源。
+     */
+    public SubmissionRef findSubmissionRef(Connection connection, long submissionId)
+            throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT offering_id,status FROM grade_submission WHERE submission_id=?")) {
+            statement.setLong(1, submissionId);
+            try (ResultSet rows = statement.executeQuery()) {
+                return rows.next()
+                        ? new SubmissionRef(rows.getLong("offering_id"), rows.getString("status"))
+                        : null;
+            }
+        }
+    }
+
+    /** 冻结批次捕获的四项分数（禁用项在提交时已置 NULL），按 enrollment_id 升序。 */
+    public List<ItemRow> listSubmissionItems(Connection connection, long submissionId)
+            throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT enrollment_id,daily_score,midterm_score,experiment_score,finalterm_score"
+                        + " FROM grade_submission_item WHERE submission_id=?"
+                        + " ORDER BY enrollment_id")) {
+            statement.setLong(1, submissionId);
+            try (ResultSet rows = statement.executeQuery()) {
+                List<ItemRow> items = new ArrayList<>();
+                while (rows.next()) {
+                    items.add(new ItemRow(rows.getLong("enrollment_id"), scores(rows)));
+                }
+                return List.copyOf(items);
+            }
+        }
+    }
+
+    /**
      * 提交之后名单是否变化：当前正常名单的 <b>UID 集合</b>与批次捕获的身份快照集合是否不同。
      * 新批次写入 student_uid_snapshot；V007 之前的批次没有快照，退回按 enrollment 的 uid 计算，
      * 不猜测身份。已退课学生的 UID 仍在批次集合里，所以退课同样算名单变化。
@@ -329,6 +366,66 @@ public class TeacherGradeBookDAO {
             statement.setLong(2, offeringId);
             statement.setInt(3, revision);
             statement.setLong(4, rejectedSubmissionId);
+            return statement.executeUpdate();
+        }
+    }
+
+    /**
+     * 删除本班所有不在当前正常名单里的草稿行（名单里已经退课/移出的学生不再占着一条草稿）。
+     *
+     * <p>只删「不在名单里」的行，不是清空整份草稿：重建可编辑副本时，快照里同时属于当前名单的分数
+     * 由调用方紧接着写回，而草稿行里那些没进过任何批次的残余值不会被当成历史事实。
+     *
+     * @param rosterEnrollmentIds 当前正常名单的选课记录 ID，空名单表示删除本班所有草稿行
+     * @return 受影响行数
+     */
+    public int deleteItemsOutsideRoster(Connection connection, long offeringId,
+                                        List<Long> rosterEnrollmentIds) throws SQLException {
+        StringBuilder sql = new StringBuilder(
+                "DELETE FROM teacher_grade_draft_item WHERE offering_id=?");
+        if (!rosterEnrollmentIds.isEmpty()) {
+            sql.append(" AND enrollment_id NOT IN (");
+            for (int index = 0; index < rosterEnrollmentIds.size(); index++) {
+                sql.append(index == 0 ? "?" : ",?");
+            }
+            sql.append(')');
+        }
+        try (PreparedStatement statement = connection.prepareStatement(sql.toString())) {
+            int index = 1;
+            statement.setLong(index++, offeringId);
+            for (Long enrollmentId : rosterEnrollmentIds) statement.setLong(index++, enrollmentId);
+            return statement.executeUpdate();
+        }
+    }
+
+    /**
+     * 从最后一次批次重建可编辑副本：把草稿翻回开放、写上类型与基础批次，更正原因一次写入。
+     *
+     * <p>与 {@link #reopenForResubmission} 的区别只有「类型与原因由调用方决定」：显式入口既能从
+     * REJECTED 重提（原因 NULL），也能从 APPROVED 发起更正（原因必填）。<b>不递增 revision</b>——
+     * 随后的 {@link #updateScheme} 才递增，这一点与惰性重开完全一致，两条路留下的工作副本形状相同。
+     * 条件里的 {@code revision}、{@code draft_open=0} 与 {@code last_submission_id} 保证过期请求
+     * 不会重开草稿，也不会用别的批次当基础。
+     *
+     * @return 受影响行数，调用方必须要求恰好 1
+     */
+    public int reopenFromSubmission(Connection connection, long offeringId, int revision,
+                                    String draftKind, long sourceSubmissionId,
+                                    String correctionReason, String updatedBy, Instant updatedAt)
+            throws SQLException {
+        String sql = "UPDATE teacher_grade_book SET draft_open=1,draft_kind=?,base_submission_id=?,"
+                + "correction_reason=?,updated_by=?,updated_at=?"
+                + " WHERE offering_id=? AND revision=? AND draft_open=0 AND last_submission_id=?";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, draftKind);
+            statement.setLong(2, sourceSubmissionId);
+            if (correctionReason == null) statement.setNull(3, Types.VARCHAR);
+            else statement.setString(3, correctionReason);
+            statement.setString(4, updatedBy);
+            statement.setTimestamp(5, timestamp(updatedAt));
+            statement.setLong(6, offeringId);
+            statement.setInt(7, revision);
+            statement.setLong(8, sourceSubmissionId);
             return statement.executeUpdate();
         }
     }
@@ -557,6 +654,10 @@ public class TeacherGradeBookDAO {
 
     /** 一条草稿明细；四项分数为 null 表示尚未录入。 */
     public record ItemRow(long enrollmentId, GradeScoresDTO scores) {
+    }
+
+    /** 一个批次的归属与状态；版本变更用它判断来源批次是否本班、是否处于要求的状态。 */
+    public record SubmissionRef(long offeringId, String status) {
     }
 
     /** 批次头的全部写入字段；统计与快照由服务层在同一事务里算好后一次写入。 */

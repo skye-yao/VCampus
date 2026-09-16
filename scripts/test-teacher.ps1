@@ -251,7 +251,20 @@ $suites = @(
         # 是人工预览工具且不注册进任何套件（详见 Foundation.Gui 的说明）。同一个冒烟类同时出现在
         # Foundation/Timetable/GradeBook 的 Gui 列，跨套件重复有先例。
         Gui = @('ui.TeacherCourseUiSmokeTest') }
-    [pscustomobject]@{ Name = 'Applications'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }
+    # 教师端「我的申请与结果通知」套件：T1 建立驳回重开与发起更正两个版本链入口（真实库），T2 补上客户端更正入口，
+    # T3 补上统一申请列表与已读状态，T4 补上端到端闭环与整分支回归。
+    # service.TeacherGradeRevisionMySqlTest 自带 `mysql` 开关（-WithMySql 才跑真实库，未传时打印 SKIP 且不算通过）：
+    # 来源批次不是最后一次提交或状态不符、PENDING 批次、已打开的草稿、非任课教师、空更正原因、重复开始重放、
+    # 名单新增与退课、两个教师竞争、事务中途失败整笔回滚、惰性重开与显式重开同形、纯权重更正只记实际变化的行，
+    # 以及 v1 通过 → 更正草稿 → v2 驳回 → 重提 → v3 通过的整条版本链（学生可见成绩一律读已发布的 grade 投影），
+    # 全部对着真实库验证。
+    [pscustomobject]@{ Name = 'Applications'
+        Common = @()
+        Client = @()
+        Server = @('service.TeacherGradeRevisionMySqlTest')
+        Tcp = @()
+        Gui = @() }
+
 )
 
 function Get-SourceFiles {

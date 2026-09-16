@@ -23,6 +23,16 @@ public final class TeacherCourseActions {
     public static final String GET_GRADE_BOOK = "getGradeBook";
     public static final String SAVE_GRADE_DRAFT = "saveGradeDraft";
     public static final String SUBMIT_GRADE_BOOK = "submitGradeBook";
+    /**
+     * 驳回重开：把本班最后一次被驳回的批次复制成新的可编辑草稿（草稿类型 RESUBMISSION）。
+     *
+     * <p>这个字面量同时是写库时的动作名：它随版本变更落进 {@code teacher_grade_change_log.action}
+     * 与 {@code teacher_course_operation_log.action}，所以「教师按下重开」与随后那次「保存草稿」
+     * 在事后追责时是两件事。
+     */
+    public static final String REOPEN_REJECTED_GRADE_BOOK = "reopenRejectedGradeBook";
+    /** 发起更正：把本班最后一次已通过的批次复制成新的可编辑草稿（草稿类型 CORRECTION，原因必填）。 */
+    public static final String BEGIN_GRADE_CORRECTION = "beginGradeCorrection";
     /** 申请一张上传票据：Excel 文件本身走独立文件端口，业务 JSON 只带回票据。 */
     public static final String BEGIN_GRADE_UPLOAD = "beginGradeUpload";
     /** 申请一张空白成绩模板的下载票据（与名单导出同形，方向为 DOWNLOAD）。 */
