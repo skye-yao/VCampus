@@ -27,6 +27,7 @@ public final class CourseDtoJsonTest {
         exposesExactCourseActions();
         legacyScheduleEntryDefaultsToNormalDisplay();
         roundTripsScheduleEntryDisplayFields();
+        roundTripsCourseScheduleWeek();
     }
 
     private static void legacyScheduleEntryDefaultsToNormalDisplay() {
@@ -85,6 +86,37 @@ public final class CourseDtoJsonTest {
                 key + " must be a JSON string, not a JSON number");
         require(expected.equals(json.get(key).getAsString()),
                 key + " must remain exact on the wire");
+    }
+
+    private static void roundTripsCourseScheduleWeek() {
+        CourseScheduleWeekDTO week = new CourseScheduleWeekDTO(3,
+                Arrays.asList(new CourseCalendarDateDTO("2026-09-14", 3, 1, true)),
+                Arrays.asList(new CoursePeriodDTO("2026-09-14", 1, "08:00:00", "08:45:00")),
+                new ArrayList<>());
+        CourseScheduleWeekDTO copy = GSON.fromJson(
+                GSON.toJson(week), CourseScheduleWeekDTO.class);
+
+        require(copy.getWeek() == 3, "the viewed week must round-trip");
+        require(copy.getDates().size() == 1
+                        && "2026-09-14".equals(copy.getDates().get(0).getDate())
+                        && copy.getDates().get(0).getWeek() == 3
+                        && copy.getDates().get(0).getTeachingWeekday() == 1
+                        && copy.getDates().get(0).isTeachingDay(),
+                "calendar dates must round-trip date, week, weekday and teaching-day flag");
+        require(copy.getPeriods().size() == 1
+                        && copy.getPeriods().get(0).getPeriod() == 1
+                        && "08:00:00".equals(copy.getPeriods().get(0).getStartTime())
+                        && "08:45:00".equals(copy.getPeriods().get(0).getEndTime()),
+                "periods must round-trip with fixed-width clock strings");
+        require(copy.getEntries().isEmpty(), "an empty entry list must stay empty");
+
+        CourseScheduleWeekDTO nullLists = new CourseScheduleWeekDTO(1, null, null, null);
+        require(nullLists.getDates().isEmpty() && nullLists.getPeriods().isEmpty()
+                        && nullLists.getEntries().isEmpty(),
+                "null lists must normalize to empty ones");
+        requireUnmodifiable(copy.getDates(), "deserialized dates must be unmodifiable");
+        requireUnmodifiable(copy.getPeriods(), "deserialized periods must be unmodifiable");
+        requireUnmodifiable(copy.getEntries(), "deserialized entries must be unmodifiable");
     }
 
     private static void roundTripsSixStateOfferingContract() {
