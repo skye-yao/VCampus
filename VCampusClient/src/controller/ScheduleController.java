@@ -34,6 +34,16 @@ import service.CourseServices;
 import util.AlertUtil;
 
 public final class ScheduleController {
+    /**
+     * 节次列的固定宽度：行头是 {@code 第 13 节 18:00:00-18:45:00}（11px 字号约 120px 字形 + 12px
+     * 内边距），窄了会被 {@code Label} 默认的 {@code TextOverrun.ELLIPSIS} 裁掉时刻。与教师端同值——
+     * 两边的行头文案与字号完全一样（原来 50px 只够放 {@code 第 N 节}，放不下本 Task 新增的时间区间）。
+     */
+    private static final double PERIOD_COLUMN_WIDTH = 150.0;
+    /** 日期列的最小宽度（同时是"铺满"的下限）与首选宽度，沿用学生端原有的观感。 */
+    private static final double DAY_COLUMN_MIN_WIDTH = 72.0;
+    private static final double DAY_COLUMN_PREF_WIDTH = 96.0;
+
     private final CourseService service;
     private final BiConsumer<String, String> infoReporter;
     private final BiConsumer<String, String> errorReporter;
@@ -171,14 +181,27 @@ public final class ScheduleController {
     /**
      * 按教学日历画出这一周的网格：行 = 该周节次字典里出现过的节次，列 = 该周的每一个日期
      * （含非教学日与周末）。几何规则与教师端 {@code TeacherScheduleController.rebuildGrid()} 同源，
-     * 客户端不再有节次/星期的常量。{@code week} 为 null 或该周没有节次定义时只清空网格。
+     * 客户端与视图里都不再有节次/星期的常量。{@code week} 为 null 或该周没有节次定义时只清空网格。
      */
     private void renderSchedule(ScheduleWeekView week) {
         scheduleGrid.getChildren().clear();
+        scheduleGrid.getColumnConstraints().clear();
         scheduleGrid.getRowConstraints().clear();
         periodRows = week == null ? List.of() : periodNumbers(week.getPeriods());
         if (periodRows.isEmpty()) {
             return;
+        }
+
+        List<CourseCalendarDateDTO> dates = week.getDates();
+        // 列几何同样由数据决定：1 条定宽节次列 + 每个日期一条可拉伸的日期列。视图不再声明任何列约束
+        // （原来写死 1 + 5 条），因此多于 5 个日期的列也有约束与 hgrow，少于 5 个时也不会留下空列。
+        scheduleGrid.getColumnConstraints().add(new ColumnConstraints(
+                PERIOD_COLUMN_WIDTH, PERIOD_COLUMN_WIDTH, PERIOD_COLUMN_WIDTH));
+        for (int column = 0; column < dates.size(); column++) {
+            ColumnConstraints dayColumn = new ColumnConstraints(
+                    DAY_COLUMN_MIN_WIDTH, DAY_COLUMN_PREF_WIDTH, Double.MAX_VALUE);
+            dayColumn.setHgrow(Priority.ALWAYS);
+            scheduleGrid.getColumnConstraints().add(dayColumn);
         }
 
         RowConstraints headerRow = new RowConstraints(30.0);
@@ -190,7 +213,6 @@ public final class ScheduleController {
             scheduleGrid.getRowConstraints().add(periodRow);
         }
 
-        List<CourseCalendarDateDTO> dates = week.getDates();
         addGridLabel("节次", 0, 0, "course-schedule-header");
         for (int column = 0; column < dates.size(); column++) {
             addGridLabel(dayHeader(dates.get(column)), column + 1, 0,
@@ -266,12 +288,25 @@ public final class ScheduleController {
         return null;
     }
 
-    /** 节次 → 网格行号（表头占第 0 行）。 */
+    /** 节次 → 网格行号（表头占第 0 行）。与教师端 `:538-544` 逐字同构。 */
     private int rowIndex(int period) {
+        return rowIndexOf(periodRows, period);
+    }
+
+    /**
+     * 第一个不小于 {@code period} 的节次行（表头占第 0 行）；没有这样的行时夹到表尾。
+     *
+     * <p>用 {@code >=} 而不是相等，是为了容忍节次字典的缺口——某天模板只有 1、2、4 节时，落在缺口
+     * 里的第 3 节要吸附到第 4 节那一行，而不是找不到行。末尾夹到 {@code periodRows.size()} 则保证
+     * 绝不返回 {@code -1}：{@code GridPane.add(node, column, -1)} 会被 JavaFX 当作非法行号抛
+     * {@code IllegalArgumentException}，整张表都画不出来。教师端 {@code TeacherScheduleController}
+     * `:538-544` 是同一条规则。
+     */
+    static int rowIndexOf(List<Integer> periodRows, int period) {
         for (int index = 0; index < periodRows.size(); index++) {
-            if (periodRows.get(index) == period) return index + 1;
+            if (periodRows.get(index) >= period) return index + 1;
         }
-        return -1;
+        return periodRows.size();
     }
 
     private void addGridCell(int column, int row) {

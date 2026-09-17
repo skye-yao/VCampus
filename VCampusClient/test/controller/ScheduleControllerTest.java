@@ -43,7 +43,39 @@ public final class ScheduleControllerTest {
         weekSpinnerArrowsRunBackwards();
         typedWeekTextIsClampedToTheSpinnerBounds();
         periodRowsComeFromTheDictionary();
+        gappedPeriodDictionarySnapsToTheNextRow();
+        theViewDeclaresNoColumnGeometry();
         System.out.println("ScheduleControllerTest: PASS");
+    }
+
+    /**
+     * 节次字典有缺口时（一天 1、2、4 节），落在缺口里的第 3 节必须吸附到第 3 行（第 4 节那行），
+     * 比所有节次都大时夹到表尾——两条都绝不返回 {@code -1}：负行号会被 JavaFX 的
+     * {@code GridPane.add(node, column, row)} 拒绝，整张表画不出来。规则与教师端 `:538-544` 同构。
+     */
+    private static void gappedPeriodDictionarySnapsToTheNextRow() {
+        List<Integer> gapped = List.of(1, 2, 4);
+        require(ScheduleController.rowIndexOf(gapped, 3) == 3,
+                "缺口里的第 3 节必须吸附到第 4 节那一行（行号 3），实际 "
+                        + ScheduleController.rowIndexOf(gapped, 3));
+        require(ScheduleController.rowIndexOf(gapped, 5) == 3,
+                "比所有节次都大时必须夹到表尾而不是负行号，实际 "
+                        + ScheduleController.rowIndexOf(gapped, 5));
+        require(ScheduleController.rowIndexOf(gapped, 1) == 1
+                        && ScheduleController.rowIndexOf(List.of(), 5) == 0,
+                "第 1 节仍在第 1 行；空字典只可能是表头行 0");
+    }
+
+    /**
+     * 列几何与行一样不能写死在视图里：{@code ScheduleView.fxml} 里一条列约束都不许有，列必须由
+     * {@code renderSchedule} 按教学日数量重建（教师端的 FXML 同样是裸 {@code GridPane}）。
+     * 这里只钉视图这一半——控制器那一半要真实 JavaFX 工具包才能断言。
+     */
+    private static void theViewDeclaresNoColumnGeometry() throws Exception {
+        String view = readResource("/resources/fxml/ScheduleView.fxml");
+        require(!view.contains("ColumnConstraints") && !view.contains("<columnConstraints"),
+                "视图不得声明列约束：写死的列数（1 条节次列 + 5 条日期列）与『星期列也由服务端驱动』"
+                        + "相矛盾，实际视图里仍然写着 " + view);
     }
 
     /**
