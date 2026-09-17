@@ -15,6 +15,7 @@ public final class ChatService {
             String sql = new String(in.readAllBytes(), StandardCharsets.UTF_8).replaceAll("(?m)^--.*$", "");
             try (Connection c = DBUtil.getConnection(); Statement s = c.createStatement()) {
                 for (String part : sql.split(";")) if (!part.isBlank()) s.execute(part);
+                upgradeCourseGroups(c);
             }
         }
         schemaReady = true;
@@ -36,7 +37,20 @@ public final class ChatService {
             }
             case "SEARCH" -> {
                 String q = text(data,"query",50);
-                out.put("users",rows(c,"SELECT UID AS uid,name,role FROM tbl_user WHERE status='ACTIVE' AND UID<>? AND (UID=? OR LOCATE(?,name)>0) ORDER BY UID LIMIT 30",me,q,q));
+                var users=rows(c,"SELECT UID AS uid,name,role FROM tbl_user WHERE status='ACTIVE' AND UID<>? AND (UID=? OR LOCATE(?,name)>0) ORDER BY UID LIMIT 30",me,q,q);
+                for(var u:users){
+                    String peer=u.get("uid").toString();
+                    String low=me.compareTo(peer)<0?me:peer, high=me.compareTo(peer)<0?peer:me;
+                    var links=rows(c,"SELECT status,requester FROM tbl_chat_friend WHERE user_low=? AND user_high=?",low,high);
+                    String state="NONE";
+                    if(!links.isEmpty()){
+                        var link=links.get(0);
+                        if("ACCEPTED".equals(link.get("status")))state="FRIEND";
+                        else if("PENDING".equals(link.get("status")))state=me.equals(link.get("requester"))?"SENT":"RECEIVED";
+                    }
+                    u.put("friendState",state);
+                }
+                out.put("users",users);
             }
             case "CONTACTS" -> {
                 out.put("friends",rows(c,"SELECT u.UID AS uid,u.name,u.role, (SELECT COUNT(*) FROM tbl_chat_message m WHERE m.sender=u.UID COLLATE utf8mb4_unicode_ci AND m.recipient=? AND m.read_at IS NULL) AS unread FROM tbl_chat_friend f JOIN tbl_user u ON u.UID COLLATE utf8mb4_unicode_ci=CASE WHEN f.user_low=? THEN f.user_high ELSE f.user_low END WHERE (f.user_low=? OR f.user_high=?) AND f.status='ACCEPTED' ORDER BY unread DESC,f.updated_at DESC",me,me,me,me));
@@ -44,13 +58,17 @@ public final class ChatService {
             }
             case "GROUP_LIST" -> {
                 var groups = rows(c, """
-                    SELECT g.group_id AS groupId, g.name, g.owner_uid AS ownerUid,
+                    SELECT g.group_id AS groupId, g.name, g.owner_uid AS ownerUid, g.offering_id AS offeringId,
                            my_gm.role AS myRole, my_gm.last_read_id AS lastReadId
                     FROM tbl_chat_group_member my_gm
                     JOIN tbl_chat_group g ON g.group_id = my_gm.group_id
                     WHERE my_gm.uid = ?
                     ORDER BY g.updated_at DESC
                 """, me);
+                if(data.containsKey("offeringId")){
+                    long offeringId=number(data,"offeringId",0);
+                    groups.removeIf(g->g.get("offeringId")==null||((Number)g.get("offeringId")).longValue()!=offeringId);
+                }
                 for (var g : groups) {
                     long gid = ((Number) g.get("groupId")).longValue();
                     long lastRead = ((Number) g.get("lastReadId")).longValue();
@@ -61,6 +79,10 @@ public final class ChatService {
                 }
                 groups.sort((a, b) -> Long.compare(((Number)b.get("unread")).longValue(), ((Number)a.get("unread")).longValue()));
                 out.put("groups", groups);
+            }
+            case "COURSE_GROUP_CREATE" -> {
+                if(data.size()!=1||!data.containsKey("offeringId"))throw new IllegalArgumentException("只允许提交教学班编号");
+                out.putAll(createCourseGroup(c,me,number(data,"offeringId",0)));
             }
             case "GROUP_CREATE" -> {
                 String groupName = text(data, "name", 100);
@@ -289,6 +311,44 @@ public final class ChatService {
         }
         return out;
     }
+    static void upgradeCourseGroups(Connection c) throws SQLException {
+        if(rows(c,"SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='tbl_chat_group' AND column_name='offering_id'").isEmpty())
+            update(c,"ALTER TABLE tbl_chat_group ADD COLUMN offering_id BIGINT NULL");
+        if(rows(c,"SELECT 1 FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='tbl_chat_group' AND index_name='uq_chat_group_offering'").isEmpty())
+            update(c,"ALTER TABLE tbl_chat_group ADD UNIQUE INDEX uq_chat_group_offering(offering_id)");
+    }
+
+    private Map<String,Object> createCourseGroup(Connection c,String me,long offeringId) throws SQLException {
+        if(rows(c,"SELECT 1 FROM tbl_user WHERE UID=? AND role=1",me).isEmpty())throw new IllegalArgumentException("仅任课教师可创建课程群");
+        boolean old=c.getAutoCommit();c.setAutoCommit(false);
+        try {
+            // The offering row serializes creation even before a chat group exists.
+            var offerings=rows(c,"SELECT offering_code FROM course_offering WHERE offering_id=? FOR UPDATE",offeringId);
+            if(offerings.isEmpty())throw new IllegalArgumentException("教学班不存在");
+            var teachers=rows(c,"SELECT uid FROM course_offering_teacher WHERE offering_id=?",offeringId);
+            if(teachers.stream().noneMatch(t->me.equals(t.get("uid"))))throw new IllegalArgumentException("仅该教学班的任课教师可创建课程群");
+            var existing=rows(c,"SELECT group_id AS groupId,name FROM tbl_chat_group WHERE offering_id=? FOR UPDATE",offeringId);
+            if(!existing.isEmpty()){
+                var result=new HashMap<String,Object>(existing.get(0));
+                result.put("created",false);result.put("offeringId",offeringId);
+                c.commit();return result;
+            }
+            var students=rows(c,"SELECT DISTINCT uid FROM enrollment WHERE offering_id=? AND status=2",offeringId);
+            if(students.isEmpty())throw new IllegalArgumentException("该教学班暂无在读学生");
+            String name=offerings.get(0).get("offering_code").toString();
+            update(c,"INSERT INTO tbl_chat_group(name,owner_uid,offering_id) VALUES(?,?,?)",name,me,offeringId);
+            long id=((Number)rows(c,"SELECT LAST_INSERT_ID() AS id").get(0).get("id")).longValue();
+            Set<String> members=new LinkedHashSet<>();
+            teachers.forEach(t->members.add(t.get("uid").toString()));
+            students.forEach(t->members.add(t.get("uid").toString()));
+            for(String uid:members)update(c,"INSERT INTO tbl_chat_group_member(group_id,uid,role) VALUES(?,?,?)",id,uid,uid.equals(me)?"OWNER":"MEMBER");
+            update(c,"INSERT INTO tbl_chat_group_message(group_id,sender,client_id,content) VALUES(?,?,?,?)",id,me,UUID.randomUUID().toString(),"已按当前教学班名单创建课程群，后续成员变动请由群主管理");
+            c.commit();
+            return Map.of("groupId",id,"name",name,"offeringId",offeringId,"created",true,"studentCount",students.size(),"teacherCount",teachers.size());
+        } catch(SQLException|RuntimeException e){c.rollback();throw e;}
+        finally{c.setAutoCommit(old);}
+    }
+
     private static String user(Connection c,String id) throws SQLException {
         var users=rows(c,"SELECT UID AS uid FROM tbl_user WHERE UID=? AND status='ACTIVE'",id);
         if(users.isEmpty()) throw new IllegalArgumentException("用户不存在或账号不可用");

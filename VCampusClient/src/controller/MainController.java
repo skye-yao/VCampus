@@ -793,6 +793,10 @@ public class MainController {
 
     // ===== 页面导航动作 =====
     private ChatPane chatPane;
+    public void openChatGroup(long groupId) {
+        openChat();
+        if(chatPane!=null && rootMain.getCenter()==chatPane.getView())chatPane.openGroup(groupId);
+    }
 
     public void openChat() {
         if (chatPane != null && rootMain.getCenter() == chatPane.getView()) return;

@@ -65,7 +65,7 @@ public final class TeacherOfferingController {
     private final TeacherCourseService service;
     private final ChatClientService chatService;
     private final Consumer<Runnable> fxExecutor;
-    private final Set<String> createdGroupNames = ConcurrentHashMap.newKeySet();
+    private final Map<String, Long> courseGroups = new ConcurrentHashMap<>();
     private final Set<String> creatingOfferingIds = ConcurrentHashMap.newKeySet();
 
     private Consumer<String> onShowOffering = offeringId -> { };
@@ -332,9 +332,9 @@ public final class TeacherOfferingController {
                 String groupName = offering.getOfferingName();
                 String offeringId = offering.getOfferingId();
 
-                if (createdGroupNames.contains(groupName)) {
-                    groupButton.setText("已建群");
-                    groupButton.setDisable(true);
+                if (courseGroups.containsKey(offeringId)) {
+                    groupButton.setText("进入群聊");
+                    groupButton.setOnAction(event -> openCourseGroup(courseGroups.get(offeringId)));
                 } else if (creatingOfferingIds.contains(offeringId)) {
                     groupButton.setText("建群中...");
                     groupButton.setDisable(true);
@@ -361,50 +361,27 @@ public final class TeacherOfferingController {
         if (groupName == null || groupName.isBlank() || offeringId == null) {
             return CompletableFuture.completedFuture(false);
         }
-        if (createdGroupNames.contains(groupName) || creatingOfferingIds.contains(offeringId)) {
+        if (courseGroups.containsKey(offeringId) || creatingOfferingIds.contains(offeringId)) {
             return CompletableFuture.completedFuture(false);
         }
 
         creatingOfferingIds.add(offeringId);
         if (offeringTable != null) offeringTable.refresh();
 
-        CompletableFuture<List<String>> studentsFuture = fetchAllEnrolledStudentUids(offeringId);
-        CompletableFuture<TeacherOfferingDetailDTO> detailFuture;
-        try {
-            CompletableFuture<TeacherOfferingDetailDTO> f = service.getOffering(offeringId);
-            detailFuture = f != null ? f.handle((detail, error) -> detail) : CompletableFuture.completedFuture(null);
-        } catch (Throwable failure) {
-            detailFuture = CompletableFuture.completedFuture(null);
-        }
-
-        return studentsFuture.thenCombine(detailFuture, (students, detail) -> {
-            Set<String> memberUids = new LinkedHashSet<>();
-            if (detail != null && detail.getTeachers() != null) {
-                for (ScheduleResourceDTO t : detail.getTeachers()) {
-                    if (t.getResourceId() != null && !t.getResourceId().isBlank()) {
-                        memberUids.add(t.getResourceId());
-                    }
-                }
-            }
-            memberUids.addAll(students);
-            return List.copyOf(memberUids);
-        }).thenCompose(members -> {
-            if (chatService == null) {
-                return CompletableFuture.completedFuture(members.size());
-            }
-            Map<String, Object> data = new HashMap<>();
-            data.put("name", groupName);
-            data.put("members", members);
-            return chatService.call("GROUP_CREATE", data).thenApply(res -> members.size());
-        }).thenApply(memberCount -> {
-            createdGroupNames.add(groupName);
+        return chatService.call("COURSE_GROUP_CREATE", Map.of("offeringId", offeringId))
+        .thenApply(res -> {
+            courseGroups.put(offeringId, res.get("groupId").getAsLong());
+            return res;
+        }).thenApply(res -> {
             creatingOfferingIds.remove(offeringId);
             fxExecutor.accept(() -> {
-                if (offeringTable != null) {
+                if (active && offeringTable != null) {
                     offeringTable.refresh();
                     try {
                         AlertUtil.showInfo("一键建群成功",
-                                "已成功为教学班【" + groupName + "】创建群聊！\n已将任课教师与全部 " + memberCount + " 名在读学生加入群聊。");
+                                res.has("created") && res.get("created").getAsBoolean()
+                                ? "已加入学生 " + res.get("studentCount").getAsInt() + " 人、教师及助教 " + res.get("teacherCount").getAsInt() + " 人"
+                                : "该教学班已有课程群，可点击进入群聊");
                     } catch (Throwable ignored) {
                     }
                 }
@@ -413,7 +390,7 @@ public final class TeacherOfferingController {
         }).exceptionally(error -> {
             creatingOfferingIds.remove(offeringId);
             fxExecutor.accept(() -> {
-                if (offeringTable != null) {
+                if (active && offeringTable != null) {
                     offeringTable.refresh();
                     String msg = error.getCause() != null ? error.getCause().getMessage() : error.getMessage();
                     try {
@@ -426,65 +403,27 @@ public final class TeacherOfferingController {
         });
     }
 
-    CompletableFuture<List<String>> fetchAllEnrolledStudentUids(String offeringId) {
-        List<String> accumulator = new ArrayList<>();
-        return fetchStudentPage(offeringId, 1, accumulator);
-    }
-
-    private CompletableFuture<List<String>> fetchStudentPage(String offeringId, int pageNumber,
-            List<String> accumulator) {
-        return service.listOfferingStudents(offeringId, null, 2, pageNumber, 100)
-                .thenCompose(result -> {
-                    if (result == null || result.getItems() == null || result.getItems().isEmpty()) {
-                        return CompletableFuture.completedFuture(accumulator);
-                    }
-                    for (TeacherRosterRowDTO row : result.getItems()) {
-                        if (row.getStudentUid() != null && !row.getStudentUid().isBlank()) {
-                            accumulator.add(row.getStudentUid());
-                        }
-                    }
-                    long total = result.getTotalCount();
-                    if (accumulator.size() < total && result.getItems().size() == 100) {
-                        return fetchStudentPage(offeringId, pageNumber + 1, accumulator);
-                    }
-                    return CompletableFuture.completedFuture(accumulator);
-                });
+    private void openCourseGroup(long groupId) {
+        if(MainController.getInstance()!=null)MainController.getInstance().openChatGroup(groupId);
     }
 
     void syncExistingGroups() {
-        if (chatService == null) return;
-        chatService.call("GROUP_LIST", Map.of())
-                .thenAccept(res -> {
-                    if (res != null && res.has("groups") && res.get("groups").isJsonArray()) {
-                        Set<String> names = new HashSet<>();
-                        for (JsonElement el : res.getAsJsonArray("groups")) {
-                            if (el.isJsonObject()) {
-                                JsonObject g = el.getAsJsonObject();
-                                if (g.has("name") && !g.get("name").isJsonNull()) {
-                                    names.add(g.get("name").getAsString());
-                                }
-                            }
-                        }
-                        fxExecutor.accept(() -> {
-                            createdGroupNames.addAll(names);
-                            if (offeringTable != null) offeringTable.refresh();
-                        });
-                    }
-                })
-                .exceptionally(ex -> null);
+        if(chatService==null)return;
+        long generation=listGeneration;
+        chatService.call("GROUP_LIST", Map.of()).thenAccept(res -> fxExecutor.accept(() -> {
+            if(!active || generation!=listGeneration)return;
+            courseGroups.clear();
+            if(res!=null && res.has("groups"))for(JsonElement el:res.getAsJsonArray("groups")){
+                JsonObject g=el.getAsJsonObject();
+                if(g.has("offeringId")&&!g.get("offeringId").isJsonNull())
+                    courseGroups.put(g.get("offeringId").getAsString(),g.get("groupId").getAsLong());
+            }
+            if(offeringTable!=null)offeringTable.refresh();
+        })).exceptionally(ex->null);
     }
 
-    boolean isGroupCreated(String offeringName) {
-        return createdGroupNames.contains(offeringName);
-    }
-
-    boolean isGroupCreating(String offeringId) {
-        return creatingOfferingIds.contains(offeringId);
-    }
-
-    Set<String> createdGroupNames() {
-        return Collections.unmodifiableSet(createdGroupNames);
-    }
+    boolean isGroupCreated(String offeringId) { return courseGroups.containsKey(offeringId); }
+    boolean isGroupCreating(String offeringId) { return creatingOfferingIds.contains(offeringId); }
 
     private void bindColumn(TableColumn<TeacherOfferingDTO, String> column, int index) {
         if (column == null) return;

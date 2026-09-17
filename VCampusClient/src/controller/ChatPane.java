@@ -132,7 +132,10 @@ public final class ChatPane implements AutoCloseable {
         Tab applications=new Tab("好友申请",new ScrollPane(requests));
         TextField query=new TextField();query.setPromptText("姓名或一卡通号");Button search=new Button("查找");
         HBox searchBar=new HBox(6,query,search);HBox.setHgrow(query,Priority.ALWAYS);
-        VBox find=new VBox(12,searchBar,new ScrollPane(results));find.setPadding(new Insets(10));
+        ScrollPane resultScroll=new ScrollPane(results);resultScroll.setFitToWidth(true);
+        resultScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        results.setFillWidth(true);
+        VBox find=new VBox(12,searchBar,resultScroll);find.setPadding(new Insets(10));VBox.setVgrow(resultScroll,Priority.ALWAYS);
         Runnable lookup=()->{
             if(query.getText().isBlank())return;
             search.setDisable(true);
@@ -141,8 +144,20 @@ public final class ChatPane implements AutoCloseable {
                 for(var e:r.getAsJsonArray("users")){
                     var u=e.getAsJsonObject();
                     Button add=new Button("申请好友");
-                    add.setOnAction(ev->mutation(add,"REQUEST",u.get("uid").getAsString()));
-                    VBox card=new VBox(10,person(u,38),add);
+                    String state=u.has("friendState")?u.get("friendState").getAsString():"NONE";
+                    if("FRIEND".equals(state)){add.setText("已是好友");add.setDisable(true);}
+                    if("SENT".equals(state)){add.setText("已发送申请");add.setDisable(true);}
+                    if("RECEIVED".equals(state)){add.setText("待处理申请");add.setDisable(true);}
+                    add.setMinWidth(110);
+                    add.setOnAction(ev->{
+                        add.setText("发送中…");add.setDisable(true);
+                        boolean[] sent={false};
+                        call("REQUEST",Map.of("peer",u.get("uid").getAsString()),reply->{sent[0]=true;add.setText("已发送申请");refresh();},()->{
+                            if(!sent[0]){add.setText("申请好友");add.setDisable(false);}
+                        });
+                    });
+                    HBox personRow=person(u,38);personRow.setMinWidth(0);HBox.setHgrow(personRow,Priority.ALWAYS);
+                    HBox card=new HBox(10,personRow,add);card.setAlignment(Pos.CENTER_LEFT);card.setMaxWidth(Double.MAX_VALUE);
                     card.getStyleClass().add("chat-person-card");
                     results.getChildren().add(card);
                 }
@@ -185,6 +200,8 @@ public final class ChatPane implements AutoCloseable {
     }
     public BorderPane getView(){return root;}
     public void start(){timer.play();refresh();}
+    private Long requestedGroupId;
+    public void openGroup(long groupId){requestedGroupId=groupId;refresh();}
     private boolean valid(){return !closed&&Objects.equals(token,ClientSession.getInstance().getToken());}
     private HBox person(JsonObject u,double size){
         Label label=new Label(u.get("name").getAsString());label.getStyleClass().add("chat-person-name");
@@ -234,6 +251,11 @@ public final class ChatPane implements AutoCloseable {
                     for(var e:gr.getAsJsonArray("groups"))groupItems.add(e.getAsJsonObject());
                 }
                 groups.getItems().setAll(groupItems);
+                if(requestedGroupId!=null){
+                    for(var g:groupItems)if(g.get("groupId").getAsLong()==requestedGroupId){
+                        requestedGroupId=null;groups.getSelectionModel().select(g);break;
+                    }
+                }
                 if(activeGroupId!=null){
                     for(var g:groupItems){
                         if(g.get("groupId").getAsLong()==activeGroupId){

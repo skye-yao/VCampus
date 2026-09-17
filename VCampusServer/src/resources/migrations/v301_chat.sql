@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS tbl_chat_message (
  KEY ix_chat_history(sender,recipient,id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 CREATE TABLE IF NOT EXISTS tbl_chat_group (
+ offering_id BIGINT NULL,
+ UNIQUE KEY uq_chat_group_offering(offering_id),
  group_id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
  name VARCHAR(100) NOT NULL,
  owner_uid VARCHAR(32) NOT NULL,

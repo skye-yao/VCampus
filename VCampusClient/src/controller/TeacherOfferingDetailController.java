@@ -105,6 +105,10 @@ public final class TeacherOfferingDetailController {
     @FXML private Label basicErrorLabel;
     @FXML private TextField rosterSearchField;
     @FXML private ComboBox<String> rosterStatusFilter;
+    @FXML private Button courseGroupButton;
+    private final service.ChatClientService courseChat = new service.ChatClientService();
+    private Long courseGroupId;
+    private boolean creatingCourseGroup;
     @FXML private Button exportButton;
     @FXML private TableView<TeacherRosterRowDTO> rosterTable;
     @FXML private TableColumn<TeacherRosterRowDTO, String> rosterUidColumn;
@@ -172,10 +176,13 @@ public final class TeacherOfferingDetailController {
         selectedTab = BASIC_TAB;
         render();
         loadBasic();
+        refreshCourseGroup();
     }
 
     /** 工作台离开本页时调用：丢弃在途响应，并且不再保留这个教学班的任何数据。 */
     void release() {
+        courseGroupId=null;creatingCourseGroup=false;
+        if(courseGroupButton!=null){courseGroupButton.setText("一键建群");courseGroupButton.setDisable(false);}
         offeringId = null;
         active = false;
         detail = null;
@@ -197,6 +204,51 @@ public final class TeacherOfferingDetailController {
         scheduleGeneration++;
         selectedTab = BASIC_TAB;
         render();
+    }
+
+    private void refreshCourseGroup() {
+        if(courseGroupButton==null||!active)return;
+        String selected=offeringId;
+        long generation=detailGeneration;
+        courseChat.call("GROUP_LIST",java.util.Map.of("offeringId",selected)).whenComplete((r,error)->fxExecutor.accept(()->{
+            if(!active||generation!=detailGeneration||!Objects.equals(selected,offeringId))return;
+            if(error!=null)return;
+            courseGroupId=null;
+            if(r.has("groups")&&!r.getAsJsonArray("groups").isEmpty())
+                courseGroupId=r.getAsJsonArray("groups").get(0).getAsJsonObject().get("groupId").getAsLong();
+            renderCourseGroup();
+        }));
+    }
+
+    private void renderCourseGroup(){
+        if(courseGroupButton==null)return;
+        courseGroupButton.setText(creatingCourseGroup?"建群中…":courseGroupId==null?"一键建群":"进入群聊");
+        courseGroupButton.setDisable(creatingCourseGroup);
+    }
+
+    @FXML private void handleCourseGroup(){
+        if(!active||offeringId==null||creatingCourseGroup)return;
+        if(courseGroupId!=null){
+            if(MainController.getInstance()!=null)MainController.getInstance().openChatGroup(courseGroupId);
+            return;
+        }
+        String selected=offeringId;long generation=detailGeneration;
+        creatingCourseGroup=true;renderCourseGroup();
+        courseChat.call("COURSE_GROUP_CREATE",java.util.Map.of("offeringId",selected)).whenComplete((r,error)->fxExecutor.accept(()->{
+            if(!active||generation!=detailGeneration||!Objects.equals(selected,offeringId))return;
+            creatingCourseGroup=false;
+            if(error==null){
+                courseGroupId=r.get("groupId").getAsLong();
+                renderCourseGroup();
+                util.AlertUtil.showInfo("课程群",r.has("created")&&r.get("created").getAsBoolean()
+                    ?"已加入学生 "+r.get("studentCount").getAsInt()+" 人、教师及助教 "+r.get("teacherCount").getAsInt()+" 人"
+                    :"该教学班已有课程群，可点击进入群聊");
+            }else{
+                renderCourseGroup();
+                Throwable cause=error;while(cause.getCause()!=null)cause=cause.getCause();
+                util.AlertUtil.showError("建群失败",cause.getMessage());
+            }
+        }));
     }
 
     /** 切换 Tab；名单与安排在首次选中时各加载一次，隐藏的 Tab 不发起请求。 */
