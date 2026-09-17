@@ -1200,7 +1200,19 @@ Expected: 全部 PASS；`AdminScheduleHandlerTest` 里新增一条 `createSchedu
 
 - [ ] **Step 2: FXML 加入口**
 
-在 `ScheduleArrangementDialog.fxml` 的方案区域加一个按钮（`fx:id="createDraftButton"`，`onAction="#handleCreateDraft"`，文案「创建草稿方案」），摆在现有方案信息标签旁边。**先打开 FXML 确认那一带的实际控件与 `fx:id`，别照抄计划里猜的名字。** 所有 `fx:id` 必须在控制器里有对应字段（`@FXML private Button createDraftButton;`），否则 `FXMLLoader` 会直接抛 `LoadException`——这是本仓库最容易被忽略的一处（`AdminCourseUiSmokeTest` 那类冒烟测试就是撞在这个上面）。
+在 `ScheduleArrangementDialog.fxml` 的方案区域加一个按钮（`fx:id="createDraftButton"`，`onAction="#handleCreateDraft"`，文案「创建草稿方案」），摆在现有方案信息标签旁边。**先打开 FXML 确认那一带的实际控件与 `fx:id`，别照抄计划里猜的名字。** 所有 `fx:id` 必须在控制器里有对应字段（`@FXML private Button createDraftButton;`）——但注意下面这条更正，**失败机制与原文说的不一样**。
+
+> **2026-09-17 更正（Task 7 实现者实测 + 我复核）：原文说"否则 `FXMLLoader` 会直接抛 `LoadException`"，反了。**
+>
+> 实测：**`fx:id` 在控制器里没有对应字段时，`FXMLLoader` 是静默跳过、不抛异常的**；会抛 `LoadException` 的是解不出来的 `onAction`（找不到处理方法）。
+> 也就是说这条风险的两个方向不对称：
+>
+> - `fx:id` → 控制器字段（`verifyBindings` 检查的方向）：缺字段**不崩**，本文件的 `fx:id="scheduleContentScroll"`（FXML `:29`）就是活证据——控制器里没有这个字段，而生产路径一直在加载它，从没报过错。
+> - 控制器 `@FXML` 字段 → `fx:id`（**没有网兜的方向**）：FXML 里漏写 `fx:id` 时字段留 `null`，之后 NPE。这才是这条注释真正想防的那类事故。
+> - `onAction` → 控制器方法：会抛，`verifyBindings` 检查这一项是有效的。
+>
+> 结论：`verifyBindings` 仍然值得加（它钉住 `onAction`，且反向也覆盖"字段改名但 FXML 没跟上"的半个面），但**它防的不是原文说的那个崩溃**；原文那句"MUST"因此不该被当作 `LoadException` 的依据。
+> 同时原文附带的"`AdminCourseUiSmokeTest` 那类冒烟测试就是撞在这个上面"也是**未经验证的猜测**——既然缺字段不抛，它变红的原因就不是这条，不应再引用它当证据。
 
 > **2026-09-17 补记：这个风险在本 Task 里没有任何自动网兜，必须自己织一个。**
 >
@@ -1383,7 +1395,7 @@ Run:
 ```bash
 pwsh -File scripts/test-teacher.ps1 -Suite Course -WithMySql -TestConfigPath .codex-tmp/t1config/resources/db.properties
 ```
-Expected: 全部 PASS，无 SKIP。若 `service.ScheduleManagementMySqlTest` 报 `Refusing live migration test`，说明 `-TestConfigPath` 没传对——它拒绝跑演示库。
+Expected: 全部 PASS，无 SKIP。若 `service.ScheduleManagementMySqlTest` 报 `Refusing schedule test`，说明 `-TestConfigPath` 没传对——它拒绝跑演示库。
 
 ---
 
