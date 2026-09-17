@@ -121,6 +121,14 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
     static final String CLEAN_TEXT = "没有未保存的修改";
     static final String LEAVE_PROMPT_TEXT = "成绩表有未保存的修改，离开将丢失这些修改。确定离开吗？";
     static final String RELOAD_PROMPT_TEXT = "重新加载会丢弃未保存的修改，确定重新加载吗？";
+    /**
+     * 有未保存的修改时导出的确认：导出**仍然可以**，但必须先把「导的是哪一份」说清楚。
+     *
+     * <p>服务端导出的永远是<b>已保存的草稿</b>，屏幕上那些还没保存的编辑一个都不在文件里。没有这句话，
+     * 教师会拿到一份与眼前列出来的数字不同的文件而完全无从察觉。
+     */
+    static final String EXPORT_PROMPT_TEXT =
+            "成绩表有未保存的修改，导出的是已保存的草稿、不包含这些修改。确定导出吗？";
     static final String FROZEN_SCHEME_TEXT = "导入预览期间方案已冻结，取消导入后才能调整权重";
     static final String PLACEHOLDER = "—";
 
@@ -588,9 +596,14 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
      * 导出成绩：本页导出的是**这张表当前的草稿**——名单三列加四项成绩、总评与绩点，未填写的成绩在
      * 文件里写 0。要导出学生名单本身（含退课行、状态与选课/退课时间，并可按当前筛选）走教学班详情页
      * 学生名单 Tab 的导出按钮，那是另一条路径、另一份文件。
+     *
+     * <p>导出的是<b>已保存的草稿</b>，所以有未保存的修改时先走一次离开/重新加载同款的
+     * {@link #confirmation}：导出不被禁止（用户明确选了「仍可导出，但先弹确认框」这一种），
+     * 只是先把文件里是哪一份数字说清楚；被拒绝就什么都不发。
      */
     @FXML
     void handleExportGrades(Event event) {
+        if (dirty() && !confirmation.apply(EXPORT_PROMPT_TEXT)) return;
         importController.exportGrades(offeringId);
     }
 
@@ -1411,7 +1424,9 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
             gradeBookDownloadTemplateButton.setDisable(!hasModel || importing || busy);
         }
         if (gradeBookExportGradesButton != null) {
-            gradeBookExportGradesButton.setDisable(!hasModel || importing || busy);
+            // 保存请求在途时也禁用：导出的是服务端那份已保存的草稿，此时它还没有收到这一次写入，
+            // 允许导出就会得到一份与屏幕上不一样的成绩（重新加载按钮同一条道理）。
+            gradeBookExportGradesButton.setDisable(!hasModel || importing || busy || saving);
         }
         if (gradeBookImportButton != null) {
             gradeBookImportButton.setDisable(!hasModel || !model.canEdit() || importing || busy);

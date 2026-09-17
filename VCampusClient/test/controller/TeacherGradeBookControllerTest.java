@@ -6,6 +6,8 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -29,6 +31,7 @@ import dto.course.teacher.GradeRowInputDTO;
 import dto.course.teacher.GradeSchemeDTO;
 import dto.course.teacher.GradeScoresDTO;
 import dto.course.teacher.StartGradeRevisionRequestDTO;
+import dto.course.teacher.TeacherFileTicketDTO;
 import dto.course.teacher.TeacherGradeBookDTO;
 import dto.course.teacher.TeacherGradeOfferingDTO;
 import dto.course.teacher.TeacherGradeRowDTO;
@@ -45,6 +48,7 @@ import protocol.MessageCode;
 import service.MockTeacherCourseService;
 import service.SocketTeacherCourseService.TeacherCourseServiceException;
 import service.TeacherCourseService;
+import service.TeacherFileTransport;
 import util.PageLeaveGuard;
 
 /**
@@ -99,6 +103,7 @@ public final class TeacherGradeBookControllerTest {
         approvedBookIsReachableOnlyThroughTheCorrectionEntry();
         theCorrectionEntryCarriesTheProposedScoresThroughTheOrdinarySave();
         aCorrectionForAStudentWhoLeftTheRosterWritesNothing();
+        exportingADirtyPageConfirmsFirstAndSendsNothingWhenRefused();
         gradeViewsDeclareTheirControllerIdsAndHandlers();
         theStatusLineSitsOnTheButtonRow();
         everyStyleClassExistsInTheStylesheet();
@@ -812,6 +817,65 @@ public final class TeacherGradeBookControllerTest {
         require(!controller.dirty(), "什么都没写，页面必须仍然是干净的");
     }
 
+    /**
+     * 导出成绩前的确认（用户裁决「仍可导出，但先弹确认框」）：导出不被禁止，但必须先把「导的是哪一份」
+     * 说清楚——文件里永远是服务端那份**已保存的草稿**，屏幕上还没保存的编辑一个都不在。
+     *
+     * <p>被拒绝时一个字节都不许发出去：不选文件、不申请票据。
+     */
+    private static void exportingADirtyPageConfirmsFirstAndSendsNothingWhenRefused() throws Exception {
+        RecordingService service = new RecordingService();
+        List<String> asked = new ArrayList<>();
+        boolean[] answer = {false};
+        StubDialogs dialogs = new StubDialogs(
+                Files.createTempDirectory("vcampus-export-gate").resolve("学生成绩.xlsx"));
+        TeacherGradeBookController controller = exportController(service, dialogs, message -> {
+            asked.add(message);
+            return answer[0];
+        });
+        controller.showOffering(OFFERING);
+        controller.model().setScore(controller.rows().get(0).enrollmentId(),
+                GradeComponentCodeDTO.DAILY, "88");
+        require(controller.dirty(), "本用例要的就是「有未保存的修改」这一种页面");
+
+        controller.handleExportGrades(null);
+
+        require(asked.equals(List.of(TeacherGradeBookController.EXPORT_PROMPT_TEXT)),
+                "有未保存的修改时导出必须先问一次，收到 " + asked);
+        require(TeacherGradeBookController.EXPORT_PROMPT_TEXT.contains("已保存")
+                        && TeacherGradeBookController.EXPORT_PROMPT_TEXT.contains("不包含"),
+                "确认文案必须说清楚导的是已保存的草稿、不含未保存的修改，收到 "
+                        + TeacherGradeBookController.EXPORT_PROMPT_TEXT);
+        require(service.gradeExports.isEmpty(),
+                "拒绝确认之后不得申请导出票据，收到 " + service.gradeExports);
+        require(dialogs.saveTargetChoices == 0,
+                "拒绝确认之后不得先让教师选文件，实际选了 " + dialogs.saveTargetChoices + " 次");
+
+        // 同意之后照常导出：确认框只是把话说清楚，它不拦「导出」这件事。
+        answer[0] = true;
+        controller.handleExportGrades(null);
+        require(service.gradeExports.equals(List.of(OFFERING)),
+                "同意之后必须照常申请导出票据，收到 " + service.gradeExports);
+        require(dialogs.saveTargetChoices == 1,
+                "同意之后才选文件，实际选了 " + dialogs.saveTargetChoices + " 次");
+
+        // 干净页面不提问：这句话只有在存在未保存的修改时才有意义。
+        RecordingService cleanService = new RecordingService();
+        List<String> cleanAsked = new ArrayList<>();
+        TeacherGradeBookController clean = exportController(cleanService,
+                new StubDialogs(Files.createTempDirectory("vcampus-export-clean")
+                        .resolve("学生成绩.xlsx")), message -> {
+                    cleanAsked.add(message);
+                    return true;
+                });
+        clean.showOffering(OFFERING);
+        require(!clean.dirty(), "刚打开的页面必须是干净的");
+        clean.handleExportGrades(null);
+        require(cleanAsked.isEmpty(), "没有未保存的修改时不得提问，收到 " + cleanAsked);
+        require(cleanService.gradeExports.equals(List.of(OFFERING)),
+                "干净页面必须照常导出，收到 " + cleanService.gradeExports);
+    }
+
     // ------------------------------------------------------------------ 视图契约
 
     /** 两个新视图：fx:controller、fx:id 与 onAction 全部能在对应控制器上解析。 */
@@ -975,6 +1039,20 @@ public final class TeacherGradeBookControllerTest {
         return controller;
     }
 
+    /**
+     * 导出那条路要的控制器：导出先问「保存到哪里」，生产路径上弹的是真实 {@code FileChooser}
+     * （无工具包环境里根本弹不出来），所以这里把选文件的端口也换成替身。传输端口只是为了满足构造
+     * 函数的非空要求：票据没有真的申请成功时它一次都不会被调用。
+     */
+    private static TeacherGradeBookController exportController(TeacherCourseService service,
+            TeacherGradeImportController.FileDialogs dialogs,
+            java.util.function.Function<String, Boolean> confirmation) {
+        TeacherGradeBookController controller = new TeacherGradeBookController(
+                service, new StubTransport(), Runnable::run, confirmation, dialogs);
+        controller.setReopenConfirmation(confirmation);
+        return controller;
+    }
+
     /** 把这个夹具的权重配齐成 30/20/20/30（等价于界面上依次输入百分比）。 */
     private static void completeScheme(TeacherGradeBookController controller) {
         controller.model().setWeightText(GradeComponentCodeDTO.DAILY, "30");
@@ -1127,6 +1205,45 @@ public final class TeacherGradeBookControllerTest {
     }
 
     /**
+     * 选文件替身：记下选过几次、建议的文件名是什么。目标路径由用例给一个<b>不存在</b>的位置，
+     * 覆盖确认因此不会介入——这条路径上真正要观察的是「有没有走到这一步」。
+     */
+    private static final class StubDialogs implements TeacherGradeImportController.FileDialogs {
+        private final Path target;
+        private int saveTargetChoices;
+        private String lastSuggestedName;
+
+        StubDialogs(Path target) {
+            this.target = target;
+        }
+
+        @Override
+        public Path chooseUploadSource() {
+            return null;
+        }
+
+        @Override
+        public Path chooseSaveTarget(String suggestedFileName) {
+            saveTargetChoices++;
+            lastSuggestedName = suggestedFileName;
+            return target;
+        }
+    }
+
+    /** 传输替身：本组用例只看「有没有开始导出」，真到下载那一步立刻成功即可，绝不碰网络。 */
+    private static final class StubTransport implements TeacherFileTransport {
+        @Override
+        public CompletableFuture<Void> upload(TeacherFileTicketDTO ticket, Path file) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        @Override
+        public CompletableFuture<Void> download(TeacherFileTicketDTO ticket, Path file) {
+            return CompletableFuture.completedFuture(null);
+        }
+    }
+
+    /**
      * 记录型成绩服务：读路径全部委托给确定性 mock，写路径可以只记录不落地（默认）或注入失败，
      * 也可以自行控制“何时返回”，用来验证重复点击不会发第二个请求。
      */
@@ -1136,6 +1253,8 @@ public final class TeacherGradeBookControllerTest {
         private final List<WriteGradeBookRequestDTO> submits = new ArrayList<>();
         private final List<StartGradeRevisionRequestDTO> reopens = new ArrayList<>();
         private final List<StartGradeRevisionRequestDTO> corrections = new ArrayList<>();
+        /** 导出成绩真的申请过票据的教学班：导出被挡下时这里必须是空的。 */
+        private final List<String> gradeExports = new ArrayList<>();
         private final Deque<CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>>>
                 submitResponses = new ArrayDeque<>();
         private CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> heldSubmit;
@@ -1204,6 +1323,13 @@ public final class TeacherGradeBookControllerTest {
             if (saveFailure != null) return failed(saveFailure);
             if (saveResult != null) return CompletableFuture.completedFuture(saveResult);
             return delegate.saveGradeDraft(write);
+        }
+
+        /** 导出成绩：先记一笔再交给 mock——它按归属校验并真的签一张票据，导出那条路照常走完。 */
+        @Override
+        public CompletableFuture<TeacherFileTicketDTO> requestGradeExport(String offeringId) {
+            gradeExports.add(offeringId);
+            return delegate.requestGradeExport(offeringId);
         }
 
         /** 两个版本入口同样记一笔再交给 mock：它的状态机就是这两个入口的最小模型。 */

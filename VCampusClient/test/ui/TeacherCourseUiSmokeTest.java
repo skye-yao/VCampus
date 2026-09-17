@@ -1018,7 +1018,18 @@ public final class TeacherCourseUiSmokeTest {
                 TableView<?> book = table("#gradeBookTable", "成绩表");
                 require(styledCellsIn(book, 2, GRADE_CELL_ERROR_CLASS) == 0,
                         "修正后的单元格不得再标红");
+                Button export = button("#gradeBookExportGradesButton", "导出成绩按钮");
+                Button template = button("#gradeBookDownloadTemplateButton", "下载成绩模板按钮");
+                require(!export.isDisabled(), "保存之前导出成绩必须是可用的");
                 button("#gradeBookSaveButton", "保存草稿").fire();
+                // fire() 只是把保存请求发出去：响应经 fxExecutor（Platform.runLater）回到 FX 线程，
+                // 所以这一刻保存确实还在途。在途期间导出成绩必须禁用——导出的是服务端那份**已保存
+                // 的草稿**，此刻它还没收到这一次写入，允许导出就会拿到一份与屏幕上不一样的数字。
+                // 模板下载不动：空白模板是静态内容，不是在途保存的快照，用不着跟着一起禁用。
+                require(export.isDisabled(),
+                        "保存请求在途时导出成绩必须禁用（白名单：屏幕上这份还没落到服务端）");
+                require(!template.isDisabled(),
+                        "模板下载是静态内容，不得跟着在途保存一起禁用");
             });
             steps.add(() -> {
                 require(labelText("#gradeBookFeedbackLabel").contains("成绩草稿已保存"),
