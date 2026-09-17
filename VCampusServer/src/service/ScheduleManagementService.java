@@ -298,6 +298,87 @@ public class ScheduleManagementService {
                 mutation);
     }
 
+    /**
+     * Opens the editable draft of a term, optionally seeding it from the term's current published
+     * plan. This is the only way a DRAFT plan can come into existence — every other scheduling
+     * write requires one to exist already.
+     */
+    public AdminOperationResultDTO<SchedulePlanDTO> createDraftPlan(String adminUid, int academicYear,
+                                                                    int semester, boolean copyPublished,
+                                                                    String operationId) {
+        if (academicYear <= 0) throw new IllegalArgumentException("学年无效");
+        if (semester < 1 || semester > 3) throw new IllegalArgumentException("学期无效");
+        Lock lock = connection -> {
+            Long calendarId = scheduleDAO.findCalendarIdByTerm(connection, academicYear, semester);
+            if (calendarId != null) scheduleDAO.lockCalendar(connection, calendarId);
+        };
+        Mutation<SchedulePlanDTO> mutation = connection -> {
+            Long calendarId = scheduleDAO.findCalendarIdByTerm(connection, academicYear, semester);
+            if (calendarId == null) throw new NotFoundException("该学期尚未创建教学日历");
+            if (scheduleDAO.findDraftPlanId(connection, calendarId) != null) {
+                throw new ConflictException("该学期已有草稿方案");
+            }
+            AdminScheduleDAO.CalendarContext calendar = scheduleDAO.loadCalendar(connection, calendarId);
+            if (calendar == null) throw new NotFoundException("教学日历不存在");
+            // Name is the term itself, so nextRevision lands on 1 the first time and the
+            // (calendar_id,name,revision) unique key can never collide.
+            String name = academicYear + "-" + (academicYear + 1) + " 学年"
+                    + switch (semester) {
+                        case 1 -> "第一学期";
+                        case 2 -> "第二学期";
+                        default -> "第三学期";
+                    } + "排课方案";
+            int revision = scheduleDAO.nextRevision(connection, calendarId, name);
+            long planId = scheduleDAO.insertPlan(connection, name, calendarId, revision, adminUid);
+            if (copyPublished) {
+                Long sourcePlanId = scheduleDAO.findPublishedPlanId(connection, calendarId);
+                if (sourcePlanId != null) {
+                    copyArrangements(connection, sourcePlanId, planId, calendar, adminUid);
+                }
+            }
+            AdminScheduleDAO.PlanRow created = scheduleDAO.findPlan(connection, planId);
+            return new Outcome<>(new AdminOperationResultDTO<>(operationId, OK, "草稿方案已创建",
+                    planDTO(connection, created, List.of()), List.of()), PLAN_TARGET,
+                    Long.toString(planId), List.of(), false, null);
+        };
+        return execute(adminUid, operationId, AdminCourseActions.CREATE_SCHEDULE_PLAN,
+                AdminOperationTransaction.termRequest(academicYear, semester, copyPublished),
+                PLAN_RESULT_TYPE, lock, mutation);
+    }
+
+    /**
+     * Copies every complete arrangement from {@code sourcePlanId} into {@code targetPlanId} by
+     * re-running the same child writer {@code save} uses, so the copied {@code course_occurrence}
+     * UTC windows are derived from the calendar exactly as a hand-edited arrangement would be.
+     *
+     * <p>Rows that cannot form a candidate — no teacher, or no slots — are skipped rather than
+     * fatal. The demo seed's arrangement 4104 is deliberately teacher-less, and
+     * {@code writeChildren} would hand a null business id to {@code ensureResource}. The skip also
+     * keeps this consistent with the read path, which now tolerates exactly the same rows.
+     *
+     * <p>{@code writeChildren} reads only offeringId/teacherUid/assistantUid/classroomId/slots/
+     * startWeek/endWeek off the candidate — never {@code arrangementId()}, which it takes as its own
+     * parameter. Reusing the source row's candidate is therefore safe; do not "fix" it by passing the
+     * source arrangement id into {@code writeChildren}.
+     */
+    private int copyArrangements(Connection connection, long sourcePlanId, long targetPlanId,
+                                 AdminScheduleDAO.CalendarContext calendar, String adminUid)
+            throws SQLException {
+        int copied = 0;
+        for (ScheduleArrangementDTO arrangement : scheduleDAO.listArrangements(connection,
+                sourcePlanId, null)) {
+            CourseConflictService.Candidate candidate =
+                    CourseConflictService.candidate(sourcePlanId, arrangement);
+            if (candidate == null) continue;
+            long id = scheduleDAO.insertArrangement(connection, targetPlanId, candidate.offeringId(),
+                    candidate.teacherUid(), candidate.assistantUid(), candidate.classroomId(),
+                    adminUid);
+            writeChildren(connection, id, targetPlanId, candidate, calendar);
+            copied++;
+        }
+        return copied;
+    }
+
     // -------------------------------------------------------------- validation
 
     private CourseConflictService.Candidate candidate(SaveArrangementRequestDTO request) {

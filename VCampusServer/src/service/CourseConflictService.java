@@ -213,7 +213,12 @@ public class CourseConflictService {
         }
     }
 
-    private static Candidate candidate(long planId, ScheduleArrangementDTO arrangement) {
+    /**
+     * One stored arrangement reshaped as a candidate, or {@code null} when it cannot form one —
+     * no teacher, or no slots yet. Package-private so the copy path in
+     * {@code ScheduleManagementService} reuses this single rule instead of forking it.
+     */
+    static Candidate candidate(long planId, ScheduleArrangementDTO arrangement) {
         ScheduleResourceDTO teacher = arrangement.getTeacher();
         ScheduleResourceDTO classroom = arrangement.getClassroom();
         if (teacher == null || arrangement.getSlots().isEmpty()) return null;

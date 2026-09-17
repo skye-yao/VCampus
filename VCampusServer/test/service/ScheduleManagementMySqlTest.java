@@ -54,6 +54,10 @@ public final class ScheduleManagementMySqlTest {
     // complete. Reading such a plan is what the admin dialog does; publishing it must still refuse.
     private static final long PLAN_INCOMPLETE = 930104L;
     private static final long CALENDAR_INCOMPLETE = 930110L;
+    // Draft creation: a term whose published plan carries a teacher-less arrangement — the shape
+    // the demo seed ships in plan 4001 — so the copy has to skip that row.
+    private static final long CALENDAR_COPY = 930120L;
+    private static final long PLAN_COPY_SOURCE = 930121L;
     private static final long ROOM_A = 930200L;
     private static final long ROOM_B = 930201L;
     private static final long ROOM_SMALL = 930202L;
@@ -86,6 +90,7 @@ public final class ScheduleManagementMySqlTest {
             verifyOfferingConflictRebuild(service);
             verifyLoadPlan(service);
             verifyIncompleteArrangementReadsAndPublication(service);
+            verifyCreateDraftPlan(service);
         } finally {
             cleanup();
         }
@@ -552,6 +557,86 @@ public final class ScheduleManagementMySqlTest {
                 "a refused publication leaves the plan in DRAFT");
     }
 
+    /**
+     * The new-draft path. A term that only has a published plan gains an editable draft carrying
+     * that plan's complete arrangements over — while the calendar's published pointer stays on the
+     * source, so the teacher-facing timetable never flips to an unedited draft.
+     */
+    private static void verifyCreateDraftPlan(ScheduleManagementService service) throws Exception {
+        require(count("SELECT current_schedule_plan_id FROM teaching_calendar WHERE id="
+                + CALENDAR_COPY) == PLAN_COPY_SOURCE,
+                "the copy fixture calendar must start out pointing at its published plan");
+
+        AdminOperationResultDTO<SchedulePlanDTO> created =
+                service.createDraftPlan(ADMIN, 2028, 1, true, op(70));
+        SchedulePlanDTO draft = created.getEntity();
+        require("OK".equals(created.getOutcomeCode()) && "DRAFT".equals(draft.getStatus())
+                        && !draft.isCurrent() && draft.getRevision() == 1,
+                "a term with no draft gains one, and it is not the current plan");
+        require("2028-2029 学年第一学期排课方案".equals(draft.getName()),
+                "the draft is named after the term, got " + draft.getName());
+        long planId = Long.parseLong(draft.getPlanId());
+        require(count("SELECT COUNT(*) FROM schedule_plan WHERE id=" + planId + " AND status='DRAFT'"
+                        + " AND created_by='" + ADMIN + "'") == 1,
+                "the draft row is written as DRAFT by the calling administrator");
+        require(count("SELECT COUNT(*) FROM admin_course_operation_log WHERE admin_uid='" + ADMIN
+                + "' AND operation_id='" + op(70) + "' AND action='createSchedulePlan'"
+                + " AND target_type='SCHEDULE_PLAN' AND target_id='" + planId + "'") == 1,
+                "creating a draft writes one operation row naming the new plan");
+
+        require(count("SELECT COUNT(*) FROM course_schedule_arrangement WHERE plan_id="
+                        + PLAN_COPY_SOURCE) == 3,
+                "the source plan keeps all three arrangements, teacher-less one included");
+        List<ScheduleArrangementDTO> copied = service.listArrangements(Long.toString(planId), null);
+        require(copied.size() == 2 && copied.stream().allMatch(row -> row.getTeacher() != null),
+                "the draft copies exactly the published plan's complete arrangements, got "
+                        + copied.size());
+        require(copied.stream().anyMatch(row -> row.getAssistant() != null
+                        && "teacher-beta".equals(row.getAssistant().getBusinessId())),
+                "the assistant of a copied arrangement comes along");
+        require(count("SELECT COUNT(*) FROM course_schedule_rule WHERE plan_id=" + planId) == 2
+                        && count("SELECT COUNT(*) FROM course_occurrence WHERE plan_id=" + planId)
+                        == 2,
+                "each copied arrangement rebuilds its rule and its calendar-derived occurrence");
+        require(count("SELECT COUNT(*) FROM resource_booking WHERE plan_id=" + planId) == 5,
+                "teacher, assistant, and classroom bookings follow the copied occurrences");
+
+        require(count("SELECT current_schedule_plan_id FROM teaching_calendar WHERE id="
+                        + CALENDAR_COPY) == PLAN_COPY_SOURCE,
+                "creating a draft never moves the calendar's published pointer");
+
+        AdminOperationResultDTO<SchedulePlanDTO> replay =
+                service.createDraftPlan(ADMIN, 2028, 1, true, op(70));
+        require(draft.getPlanId().equals(replay.getEntity().getPlanId())
+                        && count("SELECT COUNT(*) FROM schedule_plan WHERE calendar_id="
+                        + CALENDAR_COPY) == 2
+                        && count("SELECT COUNT(*) FROM course_schedule_arrangement WHERE plan_id="
+                        + planId) == 2,
+                "a same-digest replay returns the stored plan without writing a second one");
+        expect(ScheduleManagementService.ConflictException.class,
+                () -> service.createDraftPlan(ADMIN, 2028, 1, false, op(70)),
+                "the same operationId carrying a different request is a conflict");
+
+        ScheduleManagementService.ConflictException duplicate = expect(
+                ScheduleManagementService.ConflictException.class,
+                () -> service.createDraftPlan(ADMIN, 2028, 1, true, op(71)),
+                "a term that already has a draft refuses to create a second one");
+        require("该学期已有草稿方案".equals(duplicate.getMessage()),
+                "the refusal names the draft it found, got " + duplicate.getMessage());
+        require(count("SELECT COUNT(*) FROM schedule_plan WHERE calendar_id=" + CALENDAR_COPY) == 2,
+                "a refused creation writes no plan");
+
+        expect(ScheduleManagementService.NotFoundException.class,
+                () -> service.createDraftPlan(ADMIN, 2031, 1, true, op(72)),
+                "a term without a teaching calendar has nowhere to put a draft");
+        expect(IllegalArgumentException.class,
+                () -> service.createDraftPlan(ADMIN, 2028, 4, true, op(73)),
+                "an invalid semester is rejected before any transaction");
+        expect(IllegalArgumentException.class,
+                () -> service.createDraftPlan(ADMIN, 0, 1, true, op(74)),
+                "an invalid academic year is rejected before any transaction");
+    }
+
     private static ScheduleSlotDTO slot(int dayOfWeek, int startPeriod, int endPeriod) {
         return new ScheduleSlotDTO(dayOfWeek, startPeriod, endPeriod);
     }
@@ -729,6 +814,39 @@ public final class ScheduleManagementMySqlTest {
         execute("INSERT INTO course_schedule_rule_week(rule_id,week_no) VALUES(930560,1)");
         scheduled(930461L, 930561L, 930661L, PLAN_INCOMPLETE, OFFERING_SELF, "teacher-alpha",
                 ROOM_B, 1, 4, 1, 2);
+
+        // Draft-creation fixture: its own term, whose only plan is PUBLISHED and whose calendar
+        // pointer names it. Two arrangements are complete (one with an assistant) and one is
+        // teacher-less like the seeded arrangement 4104, so a copy must land exactly two rows while
+        // the pointer stays on the published plan.
+        execute("INSERT INTO teaching_calendar(id,name,academic_year,semester,week1_start_date,"
+                + "timezone,version,status) VALUES(" + CALENDAR_COPY
+                + ",'Schedule copy calendar',2028,1,'2026-09-07','Asia/Shanghai',1,'PUBLISHED')");
+        for (int day = 1; day <= 5; day++) {
+            execute("INSERT INTO calendar_date(id,calendar_id,local_date,week_no,"
+                    + "teaching_weekday,day_template_id,is_teaching_day) VALUES("
+                    + (930060 + day - 1) + "," + CALENDAR_COPY + ",'"
+                    + LocalDate.parse("2026-09-07").plusDays(day - 1L) + "',1," + day + ","
+                    + TEMPLATE + ",1)");
+        }
+        execute("INSERT INTO schedule_plan(id,name,calendar_id,revision,status,created_at,"
+                + "updated_at) VALUES(" + PLAN_COPY_SOURCE + ",'Schedule copy source plan',"
+                + CALENDAR_COPY + ",1,'PUBLISHED','2026-08-01 00:00:00','2026-08-01 00:00:00')");
+        execute("UPDATE teaching_calendar SET current_schedule_plan_id=" + PLAN_COPY_SOURCE
+                + " WHERE id=" + CALENDAR_COPY);
+        scheduled(930480L, 930580L, 930680L, PLAN_COPY_SOURCE, OFFERING_SELF, "teacher-alpha",
+                ROOM_A, 1, 2, 1, 2);
+        scheduled(930481L, 930581L, 930681L, PLAN_COPY_SOURCE, OFFERING_OTHER, "teacher-beta",
+                ROOM_B, 1, 4, 1, 1);
+        execute("UPDATE course_schedule_arrangement SET assistant_uid='teacher-beta'"
+                + " WHERE arrangement_id=930480");
+        execute("INSERT INTO course_schedule_arrangement(arrangement_id,plan_id,offering_id,"
+                + "teacher_uid,classroom_id,status,version) VALUES(930482," + PLAN_COPY_SOURCE + ","
+                + OFFERING_SELF + ",NULL," + ROOM_A + ",'ACTIVE',1)");
+        execute("INSERT INTO course_schedule_rule(id,plan_id,course_offering_id,arrangement_id,"
+                + "weekday,start_period,end_period,status) VALUES(930582," + PLAN_COPY_SOURCE + ","
+                + OFFERING_SELF + ",930482,3,1,2,'ACTIVE')");
+        execute("INSERT INTO course_schedule_rule_week(rule_id,week_no) VALUES(930582,1)");
     }
 
     private static void scheduled(long arrangementId, long ruleId, long occurrenceId, long planId,
@@ -778,6 +896,11 @@ public final class ScheduleManagementMySqlTest {
         execute("DELETE FROM course_schedule_rule WHERE plan_id BETWEEN 930000 AND 939999");
         execute("DELETE FROM course_schedule_arrangement WHERE plan_id BETWEEN 930000 AND 939999");
         execute("DELETE FROM schedule_plan WHERE id BETWEEN 930000 AND 939999");
+        // The draft createDraftPlan writes gets an auto-increment id no fixture could name, so it
+        // is removed by calendar instead; the plan delete cascades through its arrangements, rules,
+        // weeks, occurrences, and bookings, and must precede the tbl_user delete below because
+        // schedule_plan.created_by is ON DELETE RESTRICT.
+        execute("DELETE FROM schedule_plan WHERE calendar_id BETWEEN 930000 AND 939999");
         execute("DELETE FROM resource_booking WHERE plan_id BETWEEN 930000 AND 939999");
         execute("DELETE FROM schedule_resource WHERE resource_type='classroom'"
                 + " AND business_id IN ('930200','930201','930202')");
@@ -857,6 +980,8 @@ public final class ScheduleManagementMySqlTest {
     /** Proves {@code cleanup} leaves nothing behind, including auto-created resource rows. */
     private static void verifyNoFixtureRows() throws SQLException {
         require(count("SELECT COUNT(*) FROM schedule_plan WHERE id BETWEEN 930000 AND 939999") == 0
+                && count("SELECT COUNT(*) FROM schedule_plan"
+                + " WHERE calendar_id BETWEEN 930000 AND 939999") == 0
                 && count("SELECT COUNT(*) FROM course_schedule_arrangement"
                 + " WHERE plan_id BETWEEN 930000 AND 939999") == 0
                 && count("SELECT COUNT(*) FROM course_schedule_rule"

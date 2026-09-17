@@ -404,6 +404,7 @@ public final class AdminCatalogDtoJsonTest {
         expected.put("SAVE_ARRANGEMENT", "saveArrangement");
         expected.put("DELETE_ARRANGEMENT", "deleteArrangement");
         expected.put("PUBLISH_SCHEDULE_PLAN", "publishSchedulePlan");
+        expected.put("CREATE_SCHEDULE_PLAN", "createSchedulePlan");
         expected.put("SEARCH_STUDENTS", "searchStudents");
         expected.put("LIST_OFFERING_STUDENTS", "listOfferingStudents");
         expected.put("PREVIEW_ADMIN_ENROLLMENT", "previewAdminEnrollment");
@@ -428,7 +429,7 @@ public final class AdminCatalogDtoJsonTest {
 
         require(expected.equals(actual),
                 "AdminCourseActions must contain exactly the complete action registry");
-        require(actual.size() == 28, "the administrator action registry has 28 actions");
+        require(actual.size() == 29, "the administrator action registry has 29 actions");
     }
 
     private static AdminCourseDTO course(String courseId) {

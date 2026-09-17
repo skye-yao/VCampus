@@ -177,6 +177,10 @@ public class AdminCourseHandler {
                         scheduling().publish(uid, decimalId(request, "planId"),
                                 integer(request, "expectedRevision"), text(request, "operationId"),
                                 flag(request, "force"), optionalText(request, "overrideReason")));
+                case AdminCourseActions.CREATE_SCHEDULE_PLAN -> mutation(response,
+                        scheduling().createDraftPlan(uid, integer(request, "academicYear"),
+                                integer(request, "semester"), flag(request, "copyPublished"),
+                                text(request, "operationId")));
                 case AdminCourseActions.LIST_ADJUSTMENT_REQUESTS -> adjustmentPage(response,
                         adjustments().listRequests(adjustmentStatus(request), pageNumber(request),
                                 pageSize(request)));

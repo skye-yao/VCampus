@@ -53,6 +53,7 @@ public final class AdminScheduleHandlerTest {
             saveArrangementUsesResultKeyAndTypedPayload(handler, scheduling, administrator);
             deleteArrangementUsesResultKey(handler, scheduling, administrator);
             publishPlanUsesResultKey(handler, scheduling, administrator);
+            createDraftPlanUsesResultKey(handler, scheduling, administrator);
             malformedTopLevelIdsAreBadRequest(handler, administrator);
             typedDtoRejectionsAreBadRequest(handler, scheduling, administrator);
             notFoundMapsToNotFound(handler, scheduling, administrator);
@@ -220,6 +221,35 @@ public final class AdminScheduleHandlerTest {
                 "the publish target must reach the service");
         require(scheduling.lastForce && "  教室临时调整  ".equals(scheduling.lastReason),
                 "the force flag and raw reason must reach the service for trimming");
+    }
+
+    private static void createDraftPlanUsesResultKey(AdminCourseHandler handler,
+            FakeScheduleService scheduling, UserSession administrator) {
+        Message request = request(AdminCourseActions.CREATE_SCHEDULE_PLAN,
+                administrator.getToken());
+        request.putData("academicYear", 2028);
+        request.putData("semester", 1);
+        request.putData("copyPublished", true);
+        request.putData("operationId", OPERATION_ID);
+        Message response = handler.handle(request);
+        require(response.getCode() == MessageCode.SUCCESS,
+                "createSchedulePlan must succeed: " + response.getMessage());
+        require(List.of("result").equals(new ArrayList<>(response.getData().keySet())),
+                "createSchedulePlan must use exactly the result key: "
+                        + response.getData().keySet());
+        require(response.getData().get("result") instanceof AdminOperationResultDTO,
+                "createSchedulePlan must carry an operation result");
+        require(scheduling.lastCreatedYear == 2028 && scheduling.lastCreatedSemester == 1
+                        && scheduling.lastCreatedCopyPublished,
+                "the term and copy flag must reach the service");
+
+        Message invalidYear = request(AdminCourseActions.CREATE_SCHEDULE_PLAN,
+                administrator.getToken());
+        invalidYear.putData("academicYear", "abc");
+        invalidYear.putData("semester", 1);
+        invalidYear.putData("operationId", OPERATION_ID);
+        require(handler.handle(invalidYear).getCode() == MessageCode.BAD_REQUEST,
+                "a non-integer academic year must be BAD_REQUEST");
     }
 
     private static void malformedTopLevelIdsAreBadRequest(AdminCourseHandler handler,
@@ -434,6 +464,9 @@ public final class AdminScheduleHandlerTest {
         private int lastExpectedRevision;
         private boolean lastForce;
         private String lastReason;
+        private int lastCreatedYear;
+        private int lastCreatedSemester;
+        private boolean lastCreatedCopyPublished;
 
         @Override
         public List<ScheduleResourceDTO> listResources(String type, String query) {
@@ -504,6 +537,19 @@ public final class AdminScheduleHandlerTest {
             }
             fail();
             return new AdminOperationResultDTO<>(OPERATION_ID, "OK", "排课方案已发布", plan(),
+                    List.of());
+        }
+
+        @Override
+        public AdminOperationResultDTO<SchedulePlanDTO> createDraftPlan(String adminUid,
+                int academicYear, int semester, boolean copyPublished, String operationId) {
+            lastAdminUid = adminUid;
+            lastCreatedYear = academicYear;
+            lastCreatedSemester = semester;
+            lastCreatedCopyPublished = copyPublished;
+            requireUuid(operationId);
+            fail();
+            return new AdminOperationResultDTO<>(OPERATION_ID, "OK", "草稿方案已创建", plan(),
                     List.of());
         }
 

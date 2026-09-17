@@ -234,6 +234,77 @@ public class AdminScheduleDAO {
         }
     }
 
+    /** 该学期最新的教学日历 id；null 表示该学期尚未创建教学日历，排课无处容身。 */
+    public Long findCalendarIdByTerm(Connection connection, int academicYear, int semester)
+            throws SQLException {
+        String sql = "SELECT id FROM teaching_calendar WHERE academic_year=? AND semester=?"
+                + " ORDER BY version DESC,id DESC LIMIT 1";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setInt(1, academicYear);
+            statement.setInt(2, semester);
+            try (ResultSet rows = statement.executeQuery()) {
+                return rows.next() ? rows.getLong(1) : null;
+            }
+        }
+    }
+
+    /** 该日历下已发布的方案 id；null 表示还没有可复制的来源。 */
+    public Long findPublishedPlanId(Connection connection, long calendarId) throws SQLException {
+        String sql = "SELECT id FROM schedule_plan WHERE calendar_id=? AND status='PUBLISHED'"
+                + " ORDER BY revision DESC,id DESC LIMIT 1";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, calendarId);
+            try (ResultSet rows = statement.executeQuery()) {
+                return rows.next() ? rows.getLong(1) : null;
+            }
+        }
+    }
+
+    /** 同一日历下已有的草稿方案 id；用于"已有草稿则拒绝重复创建"。 */
+    public Long findDraftPlanId(Connection connection, long calendarId) throws SQLException {
+        String sql = "SELECT id FROM schedule_plan WHERE calendar_id=? AND status='DRAFT'"
+                + " ORDER BY revision DESC,id DESC LIMIT 1";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, calendarId);
+            try (ResultSet rows = statement.executeQuery()) {
+                return rows.next() ? rows.getLong(1) : null;
+            }
+        }
+    }
+
+    /** 同名方案的下一个可用修订号；唯一键是 (calendar_id, name, revision)。 */
+    public int nextRevision(Connection connection, long calendarId, String name)
+            throws SQLException {
+        String sql = "SELECT COALESCE(MAX(revision),0)+1 FROM schedule_plan"
+                + " WHERE calendar_id=? AND name=?";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, calendarId);
+            statement.setString(2, name);
+            try (ResultSet rows = statement.executeQuery()) {
+                rows.next();
+                return rows.getInt(1);
+            }
+        }
+    }
+
+    public long insertPlan(Connection connection, String name, long calendarId, int revision,
+                           String createdBy) throws SQLException {
+        String sql = "INSERT INTO schedule_plan(name,calendar_id,revision,status,created_by)"
+                + " VALUES(?,?,?,'DRAFT',?)";
+        try (PreparedStatement statement = connection.prepareStatement(sql,
+                Statement.RETURN_GENERATED_KEYS)) {
+            statement.setString(1, name);
+            statement.setLong(2, calendarId);
+            statement.setInt(3, revision);
+            statement.setString(4, createdBy);
+            statement.executeUpdate();
+            try (ResultSet keys = statement.getGeneratedKeys()) {
+                keys.next();
+                return keys.getLong(1);
+            }
+        }
+    }
+
     public void lockPlan(Connection connection, long planId) throws SQLException {
         lock(connection, "SELECT id FROM schedule_plan WHERE id=? FOR UPDATE", planId);
     }
