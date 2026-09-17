@@ -32,7 +32,7 @@ flowchart LR
     D --> DB[(MySQL 8)]
     SV --> AI[OpenAI-compatible LLM API]
     C --> P[Europe PMC / arXiv]
-    K[VCampusCommon\nEntities · DTOs · Protocol] --- C
+    K["VCampusCommon<br/>Entities · DTOs · Protocol"] --- C
     K --- S
 ```
 
