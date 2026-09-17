@@ -3,6 +3,7 @@ package service;
 import dto.course.CourseNoticeDTO;
 import dto.course.CourseOfferingDTO;
 import dto.course.CoursePlanSnapshotDTO;
+import dto.course.CourseScheduleWeekDTO;
 import dto.course.GradeSummaryDTO;
 import dto.course.ScheduleDisplayKindDTO;
 import dto.course.ScheduleEntryDTO;
@@ -59,18 +60,25 @@ public final class CourseQueryMySqlTest {
 
         // The guarded schema may already carry adjustments created outside this suite, so the
         // seeded meetings are asserted as plain-or-original entries rather than by a bare count.
-        List<ScheduleEntryDTO> seededWeek = service.loadSchedule("student-alpha", 2026, 2, 1);
-        long pairedHalves = seededWeek.stream()
+        CourseScheduleWeekDTO seededWeek = service.loadSchedule("student-alpha", 2026, 2, 1);
+        require(!seededWeek.getPeriods().isEmpty(),
+                "a teaching week must publish its period dictionary");
+        require(!seededWeek.getDates().isEmpty(),
+                "a teaching week must publish its teaching days");
+        require(seededWeek.getPeriods().stream().anyMatch(period -> period.getPeriod() == 1),
+                "period 1 must be defined");
+        List<ScheduleEntryDTO> seededEntries = seededWeek.getEntries();
+        long pairedHalves = seededEntries.stream()
                 .filter(entry -> ScheduleDisplayKindDTO.NORMAL != entry.getDisplayKind()).count();
-        long plainMeetings = seededWeek.stream()
+        long plainMeetings = seededEntries.stream()
                 .filter(entry -> ScheduleDisplayKindDTO.NORMAL == entry.getDisplayKind()).count();
-        require(seededWeek.stream().allMatch(entry -> "2001".equals(entry.getOfferingId()))
+        require(seededEntries.stream().allMatch(entry -> "2001".equals(entry.getOfferingId()))
                         && plainMeetings + pairedHalves / 2 == 2 && pairedHalves % 2 == 0,
-                "schedule must use the selected published plan, observed " + seededWeek.size()
+                "schedule must use the selected published plan, observed " + seededEntries.size()
                         + " entries with " + pairedHalves + " paired halves");
-        require(originalPositions(seededWeek).equals(List.of("2/1-2", "4/3-4")),
+        require(originalPositions(seededEntries).equals(List.of("2/1-2", "4/3-4")),
                 "both published meetings must be present as a plain or original entry, observed "
-                        + originalPositions(seededWeek));
+                        + originalPositions(seededEntries));
 
         require(service.loadNotices("student-alpha", 2026, 2, 1).size() == 1,
                 "notices must be published and enrollment-scoped");
@@ -113,7 +121,8 @@ public final class CourseQueryMySqlTest {
             throws Exception {
         try {
             insertAdjustmentFixtures();
-            List<ScheduleEntryDTO> adjusted = service.loadSchedule(STUDENT, 2027, 3, 1);
+            List<ScheduleEntryDTO> adjusted = service.loadSchedule(STUDENT, 2027, 3, 1)
+                    .getEntries();
             require(adjusted.size() == 3,
                     "the adjusted meeting must expand into a pair next to the untouched one, observed "
                             + adjusted.size());
@@ -170,7 +179,8 @@ public final class CourseQueryMySqlTest {
                     "the unadjusted meeting must stay one NORMAL entry");
 
             // 跨周（972972）：原周 3 只留原标记，目标周 4 只返回目标标记，中间的周 2 什么都没有。
-            List<ScheduleEntryDTO> originWeek = service.loadSchedule(STUDENT, 2027, 3, 3);
+            List<ScheduleEntryDTO> originWeek = service.loadSchedule(STUDENT, 2027, 3, 3)
+                    .getEntries();
             require(originWeek.size() == 1
                             && ScheduleDisplayKindDTO.ADJUSTED_ORIGINAL
                             == originWeek.get(0).getDisplayKind()
@@ -180,7 +190,8 @@ public final class CourseQueryMySqlTest {
                             && "Query Room A".equals(originWeek.get(0).getLocation()),
                     "the origin week of a cross-week move must keep only the original marker, observed "
                             + describe(originWeek));
-            List<ScheduleEntryDTO> targetWeek = service.loadSchedule(STUDENT, 2027, 3, 4);
+            List<ScheduleEntryDTO> targetWeek = service.loadSchedule(STUDENT, 2027, 3, 4)
+                    .getEntries();
             require(targetWeek.size() == 1
                             && ScheduleDisplayKindDTO.ADJUSTED_TARGET == targetWeek.get(0)
                             .getDisplayKind()
@@ -195,9 +206,9 @@ public final class CourseQueryMySqlTest {
                             targetWeek.get(0).getAdjustedScheduleText()),
                     "the target week of a cross-week move must hold only the target marker, observed "
                             + describe(targetWeek));
-            require(service.loadSchedule(STUDENT, 2027, 3, 2).isEmpty(),
+            require(service.loadSchedule(STUDENT, 2027, 3, 2).getEntries().isEmpty(),
                     "the week between origin and target must stay empty, observed "
-                            + describe(service.loadSchedule(STUDENT, 2027, 3, 2)));
+                            + describe(service.loadSchedule(STUDENT, 2027, 3, 2).getEntries()));
 
             // 通知：普通通知只按 week_no；调课通知按关联申请的原周/目标周去重后每周至多一条。
             require(noticeIds(service, 1).equals(List.of("972031", "972032")),
@@ -210,8 +221,8 @@ public final class CourseQueryMySqlTest {
                     "the cross-week notice must appear once in its origin and target weeks, observed "
                             + noticeIds(service, 3) + " / " + noticeIds(service, 4));
 
-            require(service.loadSchedule(STUDENT, 2027, 3, 1).size() == 3
-                            && service.loadSchedule(STUDENT, 2027, 3, 4).size() == 1,
+            require(service.loadSchedule(STUDENT, 2027, 3, 1).getEntries().size() == 3
+                            && service.loadSchedule(STUDENT, 2027, 3, 4).getEntries().size() == 1,
                     "the overlay must be stable across repeated reads");
         } finally {
             cleanAdjustmentFixtures();

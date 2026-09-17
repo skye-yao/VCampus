@@ -4,9 +4,9 @@ import dto.course.CourseDTO;
 import dto.course.CourseNoticeDTO;
 import dto.course.CourseOfferingDTO;
 import dto.course.CoursePlanSnapshotDTO;
+import dto.course.CourseScheduleWeekDTO;
 import dto.course.CourseTermDTO;
 import dto.course.GradeSummaryDTO;
-import dto.course.ScheduleEntryDTO;
 import dto.course.TrainingPlanGroupDTO;
 import network.MessageDispatcher;
 import protocol.Message;
@@ -152,9 +152,9 @@ public final class CourseHandlerTest {
         }
 
         @Override
-        public List<ScheduleEntryDTO> loadSchedule(String uid, int year, int semester, int week) {
+        public CourseScheduleWeekDTO loadSchedule(String uid, int year, int semester, int week) {
             record(uid);
-            return List.of();
+            return new CourseScheduleWeekDTO(week, List.of(), List.of(), List.of());
         }
 
         @Override

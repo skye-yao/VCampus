@@ -370,7 +370,8 @@ public final class ScheduleAdjustmentSocketEndToEndTest {
         Message response = student.request("course", CourseActions.LOAD_SCHEDULE, token,
                 Map.of("academicYear", YEAR, "semester", SEMESTER, "week", week));
         requireCode(response, MessageCode.SUCCESS, "read the student timetable for week " + week);
-        return GSON.fromJson(GSON.toJsonTree(response.getData("schedule")),
+        return GSON.fromJson(GSON.toJsonTree(response.getData("schedule"))
+                .getAsJsonObject().get("entries"),
                 new TypeToken<List<ScheduleEntryDTO>>() { }.getType());
     }
 

@@ -272,7 +272,8 @@ public final class AdminScheduleSocketEndToEndTest {
             throws IOException {
         Message response = scheduleResponse(client, token, week);
         requireCode(response, MessageCode.SUCCESS, "student schedule for week " + week);
-        List<ScheduleEntryDTO> entries = GSON.fromJson(GSON.toJsonTree(response.getData("schedule")),
+        List<ScheduleEntryDTO> entries = GSON.fromJson(GSON.toJsonTree(response.getData("schedule"))
+                .getAsJsonObject().get("entries"),
                 new TypeToken<List<ScheduleEntryDTO>>() { }.getType());
         require(entries != null, "successful schedule response must include its list");
         return entries;

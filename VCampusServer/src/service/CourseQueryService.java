@@ -7,9 +7,9 @@ import dto.course.CourseDTO;
 import dto.course.CourseNoticeDTO;
 import dto.course.CourseOfferingDTO;
 import dto.course.CoursePlanSnapshotDTO;
+import dto.course.CourseScheduleWeekDTO;
 import dto.course.CourseTermDTO;
 import dto.course.GradeSummaryDTO;
-import dto.course.ScheduleEntryDTO;
 import dto.course.TrainingPlanGroupDTO;
 import exception.DatabaseException;
 import util.DBUtil;
@@ -58,8 +58,8 @@ public class CourseQueryService {
                 connection, uid, academicYear, semester));
     }
 
-    public List<ScheduleEntryDTO> loadSchedule(String uid, int academicYear,
-                                               int semester, int week) {
+    public CourseScheduleWeekDTO loadSchedule(String uid, int academicYear,
+                                              int semester, int week) {
         return read(connection -> scheduleDAO.loadSchedule(
                 connection, uid, academicYear, semester, week));
     }

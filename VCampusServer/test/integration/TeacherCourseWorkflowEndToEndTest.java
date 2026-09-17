@@ -1011,7 +1011,8 @@ public final class TeacherCourseWorkflowEndToEndTest {
         Message response = client.request("course", CourseActions.LOAD_SCHEDULE, token,
                 scheduleQuery(week));
         requireCode(response, MessageCode.SUCCESS, "read the student week " + week);
-        return GSON.fromJson(GSON.toJsonTree(response.getData("schedule")), SCHEDULE_ENTRIES);
+        return GSON.fromJson(GSON.toJsonTree(response.getData("schedule"))
+                .getAsJsonObject().get("entries"), SCHEDULE_ENTRIES);
     }
 
     private static dto.course.GradeSummaryDTO grades(JsonLineClient student, String token)

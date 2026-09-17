@@ -280,7 +280,8 @@ public final class CourseModuleSocketEndToEndTest {
             Message schedule = beta.course(CourseActions.LOAD_SCHEDULE, betaToken,
                     week(ACADEMIC_YEAR, SEMESTER, 1));
             requireSuccess(schedule, "loadSchedule");
-            require(!asList(schedule.getData("schedule")).isEmpty(),
+            require(!asList(GSON.fromJson(GSON.toJsonTree(schedule.getData("schedule"))
+                            .getAsJsonObject().get("entries"), List.class)).isEmpty(),
                     "beta schedule must contain the newly selected meeting");
             requireSuccess(beta.course(CourseActions.LOAD_NOTICES, betaToken,
                     week(ACADEMIC_YEAR, SEMESTER, 1)), "loadNotices");
