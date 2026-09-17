@@ -75,6 +75,9 @@ public final class ScheduleArrangementDialogControllerTest {
         testClosingTwiceRefreshesCatalogOnce();
         testSaveCompletingAfterCloseRefreshesWithoutReloadingDialog();
         testPublishUsesWholePlanConflictsAndTrimmedReason();
+        testPlanConflictsArePartitionedByOffering();
+        testConflictTextCarriesThePosition();
+        testOtherConflictsSummaryTextCountsOthers();
         testSuccessfulWriteReloadsPlanState();
         testReadFailuresKeepTheirRetryTarget();
         testEditingCanReturnToANewArrangement();
@@ -339,6 +342,72 @@ public final class ScheduleArrangementDialogControllerTest {
         require(clean.publishRequests.size() == 1
                         && clean.publishRequests.get(0).endsWith("@false@null"),
                 "an unsaved editor conflict must not block publication of a clean stored plan");
+    }
+
+    /**
+     * 甲1(b)：方案级冲突按归属教学班分区；归属不明的旧数据一律算「其他教学班」。
+     */
+    private static void testPlanConflictsArePartitionedByOffering() {
+        ControlledScheduleService service = new ControlledScheduleService();
+        ScheduleConflictDTO ownBlocking = ownBlockingConflict();
+        ScheduleConflictDTO ownOverridable = ownOverridableConflict();
+        ScheduleConflictDTO otherBlocking = otherBlockingConflict();
+        ScheduleConflictDTO otherOverridable = otherOverridableConflict();
+        ScheduleConflictDTO unattributed = blockingConflict();
+        service.plan = new SchedulePlanDTO("7001", "draft", 1, "DRAFT", false,
+                List.of(ownBlocking, ownOverridable, otherBlocking, otherOverridable, unattributed));
+        ScheduleArrangementDialogController controller = controller(service, new Recorder());
+
+        require(controller.ownPlanConflicts(ScheduleConflictSeverityDTO.BLOCKING)
+                        .equals(List.of(ownBlocking)),
+                "本教学班的阻断冲突必须只含本班那条，saw "
+                        + controller.ownPlanConflicts(ScheduleConflictSeverityDTO.BLOCKING));
+        require(controller.ownPlanConflicts(ScheduleConflictSeverityDTO.OVERRIDABLE)
+                        .equals(List.of(ownOverridable)),
+                "本教学班的可绕过冲突必须只含本班那条，saw "
+                        + controller.ownPlanConflicts(ScheduleConflictSeverityDTO.OVERRIDABLE));
+        require(controller.otherPlanConflicts()
+                        .equals(List.of(otherBlocking, otherOverridable, unattributed)),
+                "其余冲突必须归入其他教学班，offeringId=null 的旧数据也不例外，saw "
+                        + controller.otherPlanConflicts());
+    }
+
+    /**
+     * 甲1(a)：冲突文案必须渲染位置（周次/星期/节次），星期与节次复用 slotSummary 的格式化；
+     * 位置数据缺失的段直接省略。
+     */
+    private static void testConflictTextCarriesThePosition() {
+        ControlledScheduleService service = new ControlledScheduleService();
+        ScheduleArrangementDialogController controller = controller(service, new Recorder());
+
+        String text = controller.conflictText(ownBlockingConflict());
+        require(("同一教学班在该时间已有排课（第 3 周 周三 第3-4节）").equals(text),
+                "冲突文案必须带完整位置，saw " + text);
+        require(text.contains(controller.slotSummary(new ScheduleSlotDTO(3, 3, 4))),
+                "星期与节次必须复用 slotSummary 的格式化，saw " + text);
+
+        ScheduleConflictDTO positionless = new ScheduleConflictDTO("TEACHER_OVERLAP",
+                ScheduleConflictSeverityDTO.OVERRIDABLE, "1001", "2004", "2004", "CS202-2026-2-A",
+                0, 0, 0, 0, "任课教师在该时间已有其他课程");
+        require("任课教师在该时间已有其他课程".equals(controller.conflictText(positionless)),
+                "缺位置数据的冲突不得渲染空括号，saw " + controller.conflictText(positionless));
+    }
+
+    /**
+     * 甲1(b)：折叠成一行的文案必须报出其他教学班冲突的条数。
+     */
+    private static void testOtherConflictsSummaryTextCountsOthers() {
+        ControlledScheduleService service = new ControlledScheduleService();
+        service.plan = new SchedulePlanDTO("7001", "draft", 1, "DRAFT", false,
+                List.of(ownBlockingConflict(), otherBlockingConflict(), otherOverridableConflict()));
+        ScheduleArrangementDialogController controller = controller(service, new Recorder());
+
+        require(controller.otherPlanConflicts().size() == 2,
+                "两条其他教学班的冲突必须都归入折叠区，saw " + controller.otherPlanConflicts());
+        require("本方案还有 2 条其他教学班的冲突（点击展开）"
+                        .equals(ScheduleArrangementDialogController.otherConflictsSummaryText(2)),
+                "折叠行必须报出其他教学班的冲突条数，saw "
+                        + ScheduleArrangementDialogController.otherConflictsSummaryText(2));
     }
 
     private static void testSuccessfulWriteReloadsPlanState() {
@@ -1247,6 +1316,32 @@ public final class ScheduleArrangementDialogControllerTest {
     private static ScheduleConflictDTO overridableConflict() {
         return new ScheduleConflictDTO("TEACHER", ScheduleConflictSeverityDTO.OVERRIDABLE,
                 "8001", "1001", 1, 3, 3, 4, "任课教师在该时间段已有教学安排");
+    }
+
+    /** 本教学班（1001）的冲突：带归属标识与完整位置（第 3 周 周三 第3-4节）。 */
+    private static ScheduleConflictDTO ownBlockingConflict() {
+        return new ScheduleConflictDTO("OFFERING_OVERLAP", ScheduleConflictSeverityDTO.BLOCKING,
+                "1001", "1001", "1001", "CS101-2026-2-A", 3, 3, 3, 4,
+                "同一教学班在该时间已有排课");
+    }
+
+    private static ScheduleConflictDTO ownOverridableConflict() {
+        return new ScheduleConflictDTO("TEACHER_OVERLAP",
+                ScheduleConflictSeverityDTO.OVERRIDABLE, "8001", "2004", "1001",
+                "CS101-2026-2-A", 3, 3, 3, 4, "任课教师在该时间已有其他课程");
+    }
+
+    /** 其他教学班（2004）的冲突。 */
+    private static ScheduleConflictDTO otherBlockingConflict() {
+        return new ScheduleConflictDTO("OFFERING_OVERLAP", ScheduleConflictSeverityDTO.BLOCKING,
+                "2004", "2004", "2004", "CS202-2026-2-A", 3, 3, 1, 2,
+                "同一教学班在该时间已有排课");
+    }
+
+    private static ScheduleConflictDTO otherOverridableConflict() {
+        return new ScheduleConflictDTO("CLASSROOM_CAPACITY",
+                ScheduleConflictSeverityDTO.OVERRIDABLE, "3101", "2004", "2004",
+                "CS202-2026-2-A", 3, 3, 3, 4, "教室容量 40 小于教学班容量 45");
     }
 
     private static void require(boolean condition, String message) {

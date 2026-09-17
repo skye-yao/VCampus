@@ -156,7 +156,7 @@ public final class AdminScheduleDtoJsonTest {
     private static void roundTripsPlanWithBlockingAndOverridableSeverities() {
         SchedulePlanDTO source = new SchedulePlanDTO(
                 "9007199254740995", "2025-2026 学年第一学期", 4, "DRAFT", true,
-                Arrays.asList(blockingConflict(), overridableConflict()));
+                Arrays.asList(attributedConflict(), overridableConflict()));
         SchedulePlanDTO copy = GSON.fromJson(GSON.toJson(source), SchedulePlanDTO.class);
 
         require("9007199254740995".equals(copy.getPlanId()),
@@ -175,6 +175,13 @@ public final class AdminScheduleDtoJsonTest {
                 "OVERRIDABLE severity must survive JSON");
         require("TEACHER_OVERLAP".equals(copy.getConflicts().get(1).getType()),
                 "conflict type must round-trip");
+        require("2004".equals(copy.getConflicts().get(0).getOfferingId()),
+                "the owning offering id must survive JSON");
+        require("CS202-2026-2-A".equals(copy.getConflicts().get(0).getOfferingLabel()),
+                "the owning offering label must survive JSON");
+        require(copy.getConflicts().get(1).getOfferingId() == null
+                        && copy.getConflicts().get(1).getOfferingLabel() == null,
+                "a conflict without attribution must keep both ownership fields null");
 
         SchedulePlanDTO published = new SchedulePlanDTO(
                 "9007199254740995", "Plan", 0, "PUBLISHED", false, null);
@@ -466,6 +473,14 @@ public final class AdminScheduleDtoJsonTest {
         return new ScheduleConflictDTO(
                 "OFFERING_OVERLAP", ScheduleConflictSeverityDTO.BLOCKING,
                 "9007199254740993", "9007199254740997",
+                5, 1, 3, 4, "同一教学班排课重叠");
+    }
+
+    /** 带归属教学班的新构造：新增的 offeringId/offeringLabel 必须往返 JSON。 */
+    private static ScheduleConflictDTO attributedConflict() {
+        return new ScheduleConflictDTO(
+                "OFFERING_OVERLAP", ScheduleConflictSeverityDTO.BLOCKING,
+                "9007199254740993", "9007199254740997", "2004", "CS202-2026-2-A",
                 5, 1, 3, 4, "同一教学班排课重叠");
     }
 

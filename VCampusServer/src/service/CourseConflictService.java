@@ -98,6 +98,8 @@ public class CourseConflictService {
         AdminScheduleDAO.OfferingState offering =
                 scheduleDAO.offeringState(connection, candidate.offeringId());
         if (offering == null) throw new IllegalArgumentException("教学班不存在");
+        String offeringId = Long.toString(candidate.offeringId());
+        String offeringLabel = offeringLabel(offering, candidate.offeringId());
         Integer roomCapacity = candidate.classroomId() == null ? null
                 : scheduleDAO.classroomCapacity(connection, candidate.classroomId());
 
@@ -112,15 +114,17 @@ public class CourseConflictService {
                 }
                 if (roomCapacity != null && roomCapacity < offering.capacity()) {
                     add(conflicts, seen, new ScheduleConflictDTO(CLASSROOM_CAPACITY, OVERRIDABLE,
-                            Long.toString(candidate.classroomId()), null, week, slot.getDayOfWeek(),
-                            slot.getStartPeriod(), slot.getEndPeriod(),
+                            Long.toString(candidate.classroomId()), offeringId, offeringId,
+                            offeringLabel, week, slot.getDayOfWeek(), slot.getStartPeriod(),
+                            slot.getEndPeriod(),
                             "教室容量 " + roomCapacity + " 小于教学班容量 " + offering.capacity()));
                 }
                 for (AdminScheduleConflictDAO.EffectiveOccurrence other : conflictDAO.overlapping(
                         connection, candidate.planId(), window.start(), window.end(),
                         candidate.arrangementId())) {
                     if (excludedOccurrenceIds.contains(other.occurrenceId())) continue;
-                    classify(candidate, slot, week, other, conflicts, seen);
+                    classify(candidate, slot, week, other, conflicts, seen, offeringId,
+                            offeringLabel);
                 }
             }
         }
@@ -245,34 +249,44 @@ public class CourseConflictService {
 
     private static void classify(Candidate candidate, ScheduleSlotDTO slot, int week,
                                  AdminScheduleConflictDAO.EffectiveOccurrence other,
-                                 List<ScheduleConflictDTO> conflicts, Set<String> seen) {
+                                 List<ScheduleConflictDTO> conflicts, Set<String> seen,
+                                 String offeringId, String offeringLabel) {
         String related = Long.toString(other.offeringId());
         if (other.offeringId() == candidate.offeringId()) {
-            add(conflicts, seen, conflict(OFFERING_OVERLAP, BLOCKING, related, related, week, slot,
-                    "同一教学班在该时间已有排课"));
+            add(conflicts, seen, conflict(OFFERING_OVERLAP, BLOCKING, related, related, offeringId,
+                    offeringLabel, week, slot, "同一教学班在该时间已有排课"));
         }
         if (candidate.teacherUid() != null && candidate.teacherUid().equals(other.teacherUid())) {
             add(conflicts, seen, conflict(TEACHER_OVERLAP, OVERRIDABLE,
-                    candidate.teacherUid(), related, week, slot, "任课教师在该时间已有其他课程"));
+                    candidate.teacherUid(), related, offeringId, offeringLabel, week, slot,
+                    "任课教师在该时间已有其他课程"));
         }
         if (candidate.assistantUid() != null
                 && candidate.assistantUid().equals(other.assistantUid())) {
             add(conflicts, seen, conflict(ASSISTANT_OVERLAP, OVERRIDABLE, candidate.assistantUid(),
-                    related, week, slot, "助教在该时间已有其他课程"));
+                    related, offeringId, offeringLabel, week, slot, "助教在该时间已有其他课程"));
         }
         if (candidate.classroomId() != null && candidate.classroomId().equals(other.classroomId())) {
             add(conflicts, seen, conflict(CLASSROOM_OVERLAP, OVERRIDABLE,
-                    Long.toString(candidate.classroomId()), related, week, slot,
-                    "教室在该时间已被其他课程占用"));
+                    Long.toString(candidate.classroomId()), related, offeringId, offeringLabel,
+                    week, slot, "教室在该时间已被其他课程占用"));
         }
+    }
+
+    /** 冲突归属标签：教学班代码缺失时退回教学班号，绝不产生空标签。 */
+    private static String offeringLabel(AdminScheduleDAO.OfferingState offering, long offeringId) {
+        String code = offering.offeringCode();
+        return code == null || code.isBlank() ? "教学班 " + offeringId : code;
     }
 
     private static ScheduleConflictDTO conflict(String type,
                                                 dto.course.admin.schedule.ScheduleConflictSeverityDTO severity,
                                                 String subjectId, String relatedOfferingId,
-                                                int week, ScheduleSlotDTO slot, String message) {
-        return new ScheduleConflictDTO(type, severity, subjectId, relatedOfferingId, week,
-                slot.getDayOfWeek(), slot.getStartPeriod(), slot.getEndPeriod(), message);
+                                                String offeringId, String offeringLabel, int week,
+                                                ScheduleSlotDTO slot, String message) {
+        return new ScheduleConflictDTO(type, severity, subjectId, relatedOfferingId, offeringId,
+                offeringLabel, week, slot.getDayOfWeek(), slot.getStartPeriod(),
+                slot.getEndPeriod(), message);
     }
 
     private static void add(List<ScheduleConflictDTO> conflicts, Set<String> seen,

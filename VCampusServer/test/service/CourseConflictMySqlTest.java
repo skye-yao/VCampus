@@ -95,11 +95,16 @@ public final class CourseConflictMySqlTest {
         requireOnly(result, "OFFERING_OVERLAP", BLOCKING, "self overlap");
     }
 
-    private static void verifyTeacherOverlap(CourseConflictService conflicts) {
+    private static void verifyTeacherOverlap(CourseConflictService conflicts) throws Exception {
         List<ScheduleConflictDTO> result =
                 conflicts.check(candidate(OFFERING_SELF, "teacher-alpha", null, ROOM_C,
                         slot(1, 1, 1), 1, 1, null));
         requireOnly(result, "TEACHER_OVERLAP", OVERRIDABLE, "teacher");
+        ScheduleConflictDTO overlap = result.get(0);
+        require(Long.toString(OFFERING_SELF).equals(overlap.getOfferingId())
+                        && offeringCode(OFFERING_SELF).equals(overlap.getOfferingLabel()),
+                "overlap conflicts must name the offering they belong to, got offering="
+                        + overlap.getOfferingId() + " label=" + overlap.getOfferingLabel());
     }
 
     private static void verifyAssistantOverlap(CourseConflictService conflicts) {
@@ -116,11 +121,23 @@ public final class CourseConflictMySqlTest {
         requireOnly(result, "CLASSROOM_OVERLAP", OVERRIDABLE, "room");
     }
 
-    private static void verifyClassroomCapacity(CourseConflictService conflicts) {
+    private static void verifyClassroomCapacity(CourseConflictService conflicts) throws Exception {
         List<ScheduleConflictDTO> result =
                 conflicts.check(candidate(OFFERING_SELF, "teacher-alpha", null, ROOM_B,
                         slot(3, 1, 1), 2, 2, null));
         requireOnly(result, "CLASSROOM_CAPACITY", OVERRIDABLE, "capacity");
+        ScheduleConflictDTO capacity = result.get(0);
+        require(Long.toString(OFFERING_SELF).equals(capacity.getRelatedOfferingId())
+                        && Long.toString(OFFERING_SELF).equals(capacity.getOfferingId())
+                        && offeringCode(OFFERING_SELF).equals(capacity.getOfferingLabel()),
+                "the capacity conflict must name its own offering, got related="
+                        + capacity.getRelatedOfferingId() + " offering="
+                        + capacity.getOfferingId() + " label=" + capacity.getOfferingLabel());
+    }
+
+    /** 归属标签的期望值：不硬编码种子代码，直接读受保护测试库里的真实值。 */
+    private static String offeringCode(long offeringId) throws SQLException {
+        return text("SELECT offering_code FROM course_offering WHERE offering_id=" + offeringId);
     }
 
     private static void verifyBoundaryTouch(CourseConflictService conflicts) {

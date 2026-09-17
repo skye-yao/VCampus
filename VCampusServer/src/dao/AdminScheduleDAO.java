@@ -557,14 +557,15 @@ public class AdminScheduleDAO {
     // ------------------------------------------------------- referenced objects
 
     public OfferingState offeringState(Connection connection, long offeringId) throws SQLException {
-        String sql = "SELECT o.capacity,o.status,c.status AS course_status FROM course_offering o"
-                + " JOIN course c ON c.course_id=o.course_id WHERE o.offering_id=?";
+        String sql = "SELECT o.capacity,o.status,o.offering_code,c.status AS course_status"
+                + " FROM course_offering o JOIN course c ON c.course_id=o.course_id"
+                + " WHERE o.offering_id=?";
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setLong(1, offeringId);
             try (ResultSet rows = statement.executeQuery()) {
                 if (!rows.next()) return null;
                 return new OfferingState(rows.getInt("capacity"), rows.getInt("status"),
-                        rows.getString("course_status"));
+                        rows.getString("course_status"), rows.getString("offering_code"));
             }
         }
     }
@@ -714,7 +715,7 @@ public class AdminScheduleDAO {
                                  String assistantUid, Long classroomId, String status, int version) {
     }
 
-    public record OfferingState(int capacity, int status, String courseStatus) {
+    public record OfferingState(int capacity, int status, String courseStatus, String offeringCode) {
     }
 
     public record CalendarDay(LocalDate date, int weekNo, int weekday, long templateId) {
