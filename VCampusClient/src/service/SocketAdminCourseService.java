@@ -336,6 +336,21 @@ public final class SocketAdminCourseService implements AdminCourseService {
     }
 
     @Override
+    public CompletableFuture<AdminOperationResultView<SchedulePlanView>> createSchedulePlan(
+            int academicYear, int semester, boolean copyPublished, String operationId) {
+        Message request = request(AdminCourseActions.CREATE_SCHEDULE_PLAN);
+        request.putData("academicYear", academicYear);
+        request.putData("semester", semester);
+        request.putData("copyPublished", copyPublished);
+        request.putData("operationId", operationId);
+        // 服务端把它走 mutation(...)，因此信封放在 result 下（与 publishSchedulePlan 同形），
+        // 不是读路径的 plan 键。
+        return map(request,
+                response -> planResult(read(response, "result", PLAN_RESULT_TYPE)),
+                this::latestPlan);
+    }
+
+    @Override
     public CompletableFuture<AdjustmentRequestPageDTO> listAdjustmentRequestsByStatus(
             AdjustmentRequestStatusDTO status, int page, int size) {
         Message request = request(AdminCourseActions.LIST_ADJUSTMENT_REQUESTS);

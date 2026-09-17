@@ -133,6 +133,15 @@ public interface AdminCourseService {
         throw new UnsupportedOperationException("publishSchedulePlan");
     }
 
+    /**
+     * 开一份该学期的草稿方案（服务端唯一能让 DRAFT 方案出现的入口）。与其它写操作同形：
+     * 返回信封，而不是 {@link #loadSchedulePlan} 那样的裸 DTO。
+     */
+    default CompletableFuture<AdminOperationResultView<SchedulePlanView>> createSchedulePlan(
+            int academicYear, int semester, boolean copyPublished, String operationId) {
+        throw new UnsupportedOperationException("createSchedulePlan");
+    }
+
     default CompletableFuture<List<AdjustmentRequestSummaryDTO>> listAdjustmentRequests(
             AdjustmentRequestStatusDTO status, int page, int size) {
         return listAdjustmentRequestsPage(status, page, size)

@@ -23,6 +23,7 @@
                 <Label fx:id="offeringContextLabel" styleClass="course-admin-schedule-context" text="" />
                 <Region HBox.hgrow="ALWAYS" />
                 <Label fx:id="planContextLabel" styleClass="course-admin-schedule-context" text="" />
+                <Button fx:id="createDraftButton" managed="false" onAction="#handleCreateDraft" styleClass="course-admin-action" text="创建草稿方案" visible="false" />
             </children>
         </HBox>
         <ScrollPane fx:id="scheduleContentScroll" fitToWidth="true" hbarPolicy="NEVER" minHeight="0.0" styleClass="course-admin-schedule-scroll" VBox.vgrow="ALWAYS">

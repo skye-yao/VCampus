@@ -114,6 +114,7 @@ public final class ScheduleArrangementDialogController {
     private final Map<ReadTarget, String> readErrors = new EnumMap<>(ReadTarget.class);
 
     private boolean closed;
+    private boolean createDraftInFlight;
     private boolean mutated;
     private boolean uncertainWrite;
     private boolean changeNotified;
@@ -124,6 +125,7 @@ public final class ScheduleArrangementDialogController {
     @FXML private Node dialogRoot;
     @FXML private Label offeringContextLabel;
     @FXML private Label planContextLabel;
+    @FXML private Button createDraftButton;
     @FXML private Label planConflictSummaryLabel;
     @FXML private VBox planConflictArea;
     @FXML private ComboBox<ScheduleResourceDTO> teacherField;
@@ -278,7 +280,8 @@ public final class ScheduleArrangementDialogController {
                     loadingPlan = false;
                     if (failure != null) {
                         plan = null;
-                        readErrors.put(ReadTarget.PLAN, "排课方案加载失败，请重试");
+                        // 服务端消息必须留下：丢掉它，「缺少任课教师或时间段」这类真实原因就永远看不见。
+                        readErrors.put(ReadTarget.PLAN, "排课方案加载失败：" + errorMessage(failure));
                         render();
                         return;
                     }
@@ -838,6 +841,15 @@ public final class ScheduleArrangementDialogController {
                 && !readErrors.containsKey(ReadTarget.ARRANGEMENTS);
     }
 
+    /**
+     * 「创建草稿方案」只在学期确实没有可编辑草稿时提供：方案加载中、已是草稿、写入或创建进行中
+     * 都不提供，避免给出一个必然被服务端以「该学期已有草稿方案」拒绝的按钮。
+     */
+    boolean isCreateDraftOffered() {
+        return offering != null && !closed && !loadingPlan && !writeBusy() && !createDraftInFlight
+                && (plan == null || !DRAFT.equals(plan.getStatus()));
+    }
+
     // ---------------------------------------------------------------- 编辑既有安排
 
     @FXML
@@ -994,6 +1006,32 @@ public final class ScheduleArrangementDialogController {
     @FXML
     private void handlePublish() {
         requestPublishPlan();
+    }
+
+    /**
+     * 学期还没有方案（或只有已发布的方案）时，从服务端开一份草稿：这是本对话框里唯一能让整屏
+     * 写控件重新可用的入口。创建结果本身不参与任何判断——它的 conflicts 在服务端固定为空，
+     * 真正的权威冲突随 {@link #loadPlan()} 一起回来，所以成功一律以重新加载的方案为准。
+     */
+    @FXML
+    public void handleCreateDraft() {
+        if (!isCreateDraftOffered()) return;
+        createDraftInFlight = true;
+        localMessage = null;
+        render();
+        String operationId = UUID.randomUUID().toString();
+        service.createSchedulePlan(offering.getAcademicYear(), offering.getSemester(),
+                        plan != null, operationId)
+                .whenComplete((created, failure) -> fxExecutor.accept(() -> {
+                    createDraftInFlight = false;
+                    if (failure != null) {
+                        validationVisible = true;
+                        localMessage = "创建草稿方案失败：" + errorMessage(failure);
+                        render();
+                        return;
+                    }
+                    loadPlan();
+                }));
     }
 
     @FXML
@@ -1246,6 +1284,12 @@ public final class ScheduleArrangementDialogController {
             publishButton.setText(hasWarnings ? "填写原因并发布" : "发布方案");
             publishButton.setDisable(editingDisabled
                     || !planConflicts(ScheduleConflictSeverityDTO.BLOCKING).isEmpty());
+        }
+        if (createDraftButton != null) {
+            boolean offered = isCreateDraftOffered();
+            createDraftButton.setVisible(offered);
+            createDraftButton.setManaged(offered);
+            createDraftButton.setDisable(!offered);
         }
         if (addSlotButton != null) addSlotButton.setDisable(editingDisabled);
         if (newArrangementButton != null) newArrangementButton.setDisable(editingDisabled);

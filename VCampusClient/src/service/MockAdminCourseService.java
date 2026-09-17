@@ -755,6 +755,35 @@ public final class MockAdminCourseService implements AdminCourseService {
         }
     }
 
+    /**
+     * 与服务端 {@code createDraftPlan} 同形：已有草稿时冲突，已发布方案则在其之上开下一修订号的草稿。
+     * mock 的学期只有一份方案（{@link #PLAN_ID} 固定），新草稿沿用同一 id，因此既有的教学安排
+     * 天然仍然可见——{@code copyPublished} 在这里没有第二种可区分的结果。
+     */
+    @Override
+    public CompletableFuture<AdminOperationResultView<SchedulePlanView>> createSchedulePlan(
+            int academicYear, int semester, boolean copyPublished, String operationId) {
+        AdminOperationResultView<SchedulePlanView> replay = replay(operationId);
+        if (replay != null) return CompletableFuture.completedFuture(replay);
+        try {
+            requireOperationId(operationId);
+            if (academicYear <= 0) throw badRequest("学年无效");
+            if (semester < 1 || semester > 3) throw badRequest("学期无效");
+            PlanState current = plan;
+            if (current.academicYear != academicYear || current.semester != semester) {
+                throw notFound("该学期尚未创建教学日历");
+            }
+            if (DRAFT.equals(current.status)) throw conflict("该学期已有草稿方案");
+            current.revision += 1;
+            current.status = DRAFT;
+            current.current = false;
+            return CompletableFuture.completedFuture(
+                    remember(operationId, "草稿方案已创建", planView(current)));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
     private ScheduleArrangementView applyArrangement(SaveArrangementRequestDTO request) {
         String arrangementId = blankToNull(request.getArrangementId());
         List<ScheduleSlotDTO> slots = List.copyOf(request.getSlots());

@@ -1325,6 +1325,7 @@ public final class ScheduleArrangementDialogControllerTest {
                     operationId, "OK", "排课方案已发布", null));
         }
 
+        @Override
         public CompletableFuture<AdminOperationResultView<SchedulePlanView>> createSchedulePlan(
                 int academicYear, int semester, boolean copyPublished, String operationId) {
             createDraftRequests.add(academicYear + "|" + semester + "|" + copyPublished
