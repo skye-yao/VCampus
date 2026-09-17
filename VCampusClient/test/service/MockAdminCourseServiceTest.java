@@ -7,12 +7,14 @@ import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
 import dto.course.admin.approval.ApprovalDecisionRequestDTO;
 import dto.course.admin.catalog.CourseEditorRequestDTO;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
+import dto.course.admin.schedule.SchedulePlanDTO;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import model.course.admin.AdminCourseView;
 import model.course.admin.AdminOfferingView;
 import model.course.admin.AdminOperationResultView;
+import model.course.admin.SchedulePlanView;
 import protocol.MessageCode;
 import service.SocketAdminCourseService.AdminCourseServiceException;
 
@@ -29,7 +31,46 @@ public final class MockAdminCourseServiceTest {
         operationIdReplayDoesNotApplyTwice();
         adjustmentListProvidesEveryFourStateValue();
         reviewDecisionChangesTheAdjustmentQueries();
+        createDraftPlanRefusesAnExistingDraftAndOpensAFreshOneAfterPublish();
         System.out.println("MockAdminCourseServiceTest: PASS");
+    }
+
+    /**
+     * 创建草稿必须与服务端同形：已有草稿时冲突，已发布后在其之上开下一修订号的草稿；
+     * 同一 operationId 重放不得再开一份。
+     */
+    private static void createDraftPlanRefusesAnExistingDraftAndOpensAFreshOneAfterPublish() {
+        MockAdminCourseService service = new MockAdminCourseService();
+        requireConflict(service.createSchedulePlan(2026, 1, false, "op-draft-1"));
+
+        AdminOperationResultView<SchedulePlanView> published = service.publishSchedulePlan(
+                "7001", 1, "op-publish", false, null).join();
+        require("PUBLISHED".equals(published.getEntity().getStatus()),
+                "the fixture draft must be publishable first");
+
+        AdminOperationResultView<SchedulePlanView> created =
+                service.createSchedulePlan(2026, 1, true, "op-draft-2").join();
+        require(created.getEntity() != null && "DRAFT".equals(created.getEntity().getStatus()),
+                "a term whose published plan is loaded must accept a fresh draft");
+        require(created.getEntity().getRevision() == 3 && !created.getEntity().isCurrent(),
+                "the fresh draft must take the next revision and not be the calendar pointer");
+        require("草稿方案已创建".equals(created.getMessage()),
+                "the create result must carry its own message");
+
+        SchedulePlanDTO reopened = service.loadSchedulePlan(2026, 1).join();
+        require("DRAFT".equals(reopened.getStatus()) && reopened.getRevision() == 3,
+                "reloading the term must show the new editable draft, saw " + reopened.getStatus()
+                        + "@" + reopened.getRevision());
+
+        service.createSchedulePlan(2026, 1, true, "op-draft-2").join();
+        require(service.loadSchedulePlan(2026, 1).join().getRevision() == 3,
+                "replaying the same operationId must not open a second draft");
+
+        requireConflict(service.createSchedulePlan(2026, 1, false, "op-draft-3"));
+        AdminCourseServiceException missingTerm =
+                failureOf(service.createSchedulePlan(2025, 1, false, "op-draft-4"));
+        require(missingTerm.getCode() == MessageCode.NOT_FOUND,
+                "a term without its own plan must be NOT_FOUND, saw " + missingTerm.getCode());
     }
 
     /**

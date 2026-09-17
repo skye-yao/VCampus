@@ -82,6 +82,7 @@ public final class SocketAdminCourseServiceTest {
             saveArrangementSendsRequestInstanceAndMapsView();
             deleteArrangementSendsTargetKeysAndMapsNullEntity();
             publishSchedulePlanSendsTargetKeysAndMapsPlanView();
+            createSchedulePlanSendsTermAndCopyFlagAndMapsPlanView();
             schedulingConflictMapsLatestArrangement();
             studentSearchMapsPageAndListAdapter();
             offeringStudentsMapPageAndListAdapter();
@@ -441,6 +442,7 @@ public final class SocketAdminCourseServiceTest {
         declared("deleteArrangement", String.class, int.class, String.class);
         declared("publishSchedulePlan", String.class, int.class, String.class, boolean.class,
                 String.class);
+        declared("createSchedulePlan", int.class, int.class, boolean.class, String.class);
     }
 
     private static void declared(String name, Class<?>... parameters) {
@@ -623,6 +625,50 @@ public final class SocketAdminCourseServiceTest {
                         && "PUBLISHED".equals(result.getEntity().getStatus())
                         && result.getEntity().getRevision() == 2,
                 "the published plan must map to a view");
+    }
+
+    /**
+     * 创建草稿走写路径：请求带学期与复制意图，结果从 result 信封读，而不是读路径的 plan 键。
+     */
+    private static void createSchedulePlanSendsTermAndCopyFlagAndMapsPlanView() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("result", wireShaped(
+                new AdminOperationResultDTO<>("op-create-draft", "OK", "草稿方案已创建",
+                        new SchedulePlanDTO("7001", "2026-2027 学年第一学期排课方案", 1, "DRAFT",
+                                false, List.of()),
+                        List.of()))));
+        SocketAdminCourseService service = new SocketAdminCourseService(transport);
+
+        AdminOperationResultView<SchedulePlanView> result =
+                service.createSchedulePlan(2026, 1, true, "op-create-draft").join();
+        requireEnvelope(transport, AdminCourseActions.CREATE_SCHEDULE_PLAN);
+        require(Integer.valueOf(2026).equals(transport.lastRequest.getData("academicYear"))
+                        && Integer.valueOf(1).equals(transport.lastRequest.getData("semester")),
+                "the term must travel as ints");
+        require(Boolean.TRUE.equals(transport.lastRequest.getData("copyPublished")),
+                "the copy-published intent must travel");
+        require("op-create-draft".equals(transport.lastRequest.getData("operationId")),
+                "operationId must travel unchanged");
+        require(result.getEntity() != null && "7001".equals(result.getEntity().getPlanId())
+                        && "DRAFT".equals(result.getEntity().getStatus())
+                        && result.getEntity().getRevision() == 1,
+                "the created draft must map to a view");
+        require("op-create-draft".equals(result.getOperationId())
+                        && "草稿方案已创建".equals(result.getMessage()),
+                "the result envelope must map through instead of being dropped");
+
+        FakeTransport readPathOnly = new FakeTransport();
+        readPathOnly.respond(message -> message.putData("plan", wireShaped(planDto())));
+        boolean rejected = false;
+        try {
+            new SocketAdminCourseService(readPathOnly)
+                    .createSchedulePlan(2026, 1, false, "op-wrong-key").join();
+        } catch (CompletionException failure) {
+            rejected = failure.getCause()
+                    instanceof SocketAdminCourseService.AdminCourseServiceException;
+        }
+        require(rejected, "the created plan must be read from the result envelope,"
+                + " not from the read-path plan key");
     }
 
     private static void schedulingConflictMapsLatestArrangement() {
