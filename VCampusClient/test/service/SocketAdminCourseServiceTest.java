@@ -23,6 +23,7 @@ import dto.course.admin.enrollment.AdminEnrollmentRequestDTO;
 import dto.course.admin.enrollment.OfferingStudentDTO;
 import dto.course.admin.enrollment.StudentSearchResultDTO;
 import dto.course.admin.result.AdminOperationResultDTO;
+import dto.course.admin.schedule.CheckArrangementResultDTO;
 import dto.course.admin.schedule.SaveArrangementRequestDTO;
 import dto.course.admin.schedule.ScheduleArrangementDTO;
 import dto.course.admin.schedule.ScheduleConflictDTO;
@@ -540,15 +541,18 @@ public final class SocketAdminCourseServiceTest {
 
     private static void checkArrangementSendsRequestInstanceAndMapsConflicts() {
         FakeTransport transport = new FakeTransport();
-        transport.respond(message -> message.putData("conflicts",
-                List.of(wireShaped(conflict()))));
+        transport.respond(message -> {
+            message.putData("conflicts", List.of(wireShaped(conflict())));
+            message.putData("planConflicts", List.of(wireShaped(planConflict())));
+        });
         SocketAdminCourseService service = new SocketAdminCourseService(transport);
 
         SaveArrangementRequestDTO request = arrangementRequest("op-check", null, 0, false, null);
-        List<ScheduleConflictDTO> conflicts = service.checkArrangement(request).join();
+        CheckArrangementResultDTO checked = service.checkArrangement(request).join();
         requireEnvelope(transport, AdminCourseActions.CHECK_ARRANGEMENT);
         require(transport.lastRequest.getData("request") == request,
                 "the check payload must be the DTO instance itself");
+        List<ScheduleConflictDTO> conflicts = checked.getArrangementConflicts();
         require(conflicts.size() == 1, "one conflict expected");
         ScheduleConflictDTO conflict = conflicts.get(0);
         require("TEACHER".equals(conflict.getType())
@@ -560,6 +564,11 @@ public final class SocketAdminCourseServiceTest {
         require("2001".equals(conflict.getRelatedOfferingId())
                         && "教师时间冲突".equals(conflict.getMessage()),
                 "conflict relation and message must map");
+        require(checked.getPlanConflicts().size() == 1
+                        && "CLASSROOM_OVERLAP".equals(
+                                checked.getPlanConflicts().get(0).getType()),
+                "the same round trip must map the plan-level conflicts, saw "
+                        + checked.getPlanConflicts());
     }
 
     private static void saveArrangementSendsRequestInstanceAndMapsView() {
@@ -1181,6 +1190,11 @@ public final class SocketAdminCourseServiceTest {
     private static ScheduleConflictDTO conflict() {
         return new ScheduleConflictDTO("TEACHER", ScheduleConflictSeverityDTO.OVERRIDABLE,
                 "8001", "2001", 1, 1, 1, 2, "教师时间冲突");
+    }
+
+    private static ScheduleConflictDTO planConflict() {
+        return new ScheduleConflictDTO("CLASSROOM_OVERLAP", ScheduleConflictSeverityDTO.BLOCKING,
+                "3101", "2004", 3, 3, 4, 4, "教室在该时间段已有排课");
     }
 
     private static SchedulePlanDTO planDto() {

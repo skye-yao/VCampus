@@ -13,6 +13,7 @@ import dto.course.admin.catalog.OfferingEditorRequestDTO;
 import dto.course.admin.enrollment.AdminEnrollmentPageDTO;
 import dto.course.admin.enrollment.AdminEnrollmentRequestDTO;
 import dto.course.admin.result.AdminOperationResultDTO;
+import dto.course.admin.schedule.CheckArrangementResultDTO;
 import dto.course.admin.schedule.SaveArrangementRequestDTO;
 import exception.DatabaseException;
 import protocol.Message;
@@ -166,8 +167,13 @@ public class AdminCourseHandler {
                         "arrangements", scheduling().listArrangements(
                                 decimalId(request, "planId"),
                                 optionalText(request, "offeringId")));
-                case AdminCourseActions.CHECK_ARRANGEMENT -> response.putData("conflicts",
-                        scheduling().checkArrangement(arrangementRequest(request)));
+                case AdminCourseActions.CHECK_ARRANGEMENT -> {
+                    // 一次往返同时刷新表单级与方案级冲突：两个键各带一份权威列表。
+                    CheckArrangementResultDTO checked =
+                            scheduling().checkArrangement(arrangementRequest(request));
+                    response.putData("conflicts", checked.getArrangementConflicts());
+                    response.putData("planConflicts", checked.getPlanConflicts());
+                }
                 case AdminCourseActions.SAVE_ARRANGEMENT -> mutation(response,
                         scheduling().save(uid, arrangementRequest(request)));
                 case AdminCourseActions.DELETE_ARRANGEMENT -> mutation(response,

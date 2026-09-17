@@ -536,7 +536,9 @@ public final class ScheduleArrangementDialogController {
                 render();
                 return;
             }
-            conflicts = found == null ? List.of() : List.copyOf(found);
+            // 预检查一次往返刷新两处：表单级冲突来自候选安排，方案级冲突来自服务端的整方案快照。
+            conflicts = found == null ? List.of() : copyConflicts(found.getArrangementConflicts());
+            planConflictList = found == null ? List.of() : copyConflicts(found.getPlanConflicts());
             previewCurrent = true;
             render();
         }));
@@ -596,6 +598,10 @@ public final class ScheduleArrangementDialogController {
             if (conflict != null && conflict.getSeverity() == severity) result.add(conflict);
         }
         return List.copyOf(result);
+    }
+
+    private static List<ScheduleConflictDTO> copyConflicts(List<ScheduleConflictDTO> source) {
+        return source == null ? List.of() : List.copyOf(source);
     }
 
     // ---------------------------------------------------------------- 写入

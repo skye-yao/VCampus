@@ -20,6 +20,7 @@ import org.w3c.dom.NodeList;
 
 import dto.course.admin.catalog.CourseEditorRequestDTO;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
+import dto.course.admin.schedule.CheckArrangementResultDTO;
 import dto.course.admin.schedule.SaveArrangementRequestDTO;
 import dto.course.admin.schedule.ScheduleConflictDTO;
 import dto.course.admin.schedule.ScheduleConflictSeverityDTO;
@@ -76,6 +77,8 @@ public final class ScheduleArrangementDialogControllerTest {
         testSaveCompletingAfterCloseRefreshesWithoutReloadingDialog();
         testPublishUsesWholePlanConflictsAndTrimmedReason();
         testPlanConflictsArePartitionedByOffering();
+        testPreviewSuccessRefreshesPlanConflicts();
+        testPreviewFailureKeepsPlanConflicts();
         testConflictTextCarriesThePosition();
         testConflictTextRendersTheMergedWeekRange();
         testOtherConflictsSummaryTextCountsOthers();
@@ -329,6 +332,8 @@ public final class ScheduleArrangementDialogControllerTest {
         blocking.plan = new SchedulePlanDTO("7001", "draft", 2, "DRAFT", false,
                 List.of(blockingConflict(), overridableConflict()));
         ScheduleArrangementDialogController blocked = validForm(loaded(blocking, new Recorder()));
+        // 甲2 之后预检查也会刷新方案级冲突：服务端快照仍是这份方案的冲突，预检查改变不了它。
+        blocking.setNextPreviewResult(List.of(), blocking.plan.getConflicts());
         blocked.previewArrangement();
         blocked.setOverrideReason("不能绕过阻断冲突");
         blocked.requestPublishPlan();
@@ -371,6 +376,58 @@ public final class ScheduleArrangementDialogControllerTest {
                         .equals(List.of(otherBlocking, otherOverridable, unattributed)),
                 "其余冲突必须归入其他教学班，offeringId=null 的旧数据也不例外，saw "
                         + controller.otherPlanConflicts());
+    }
+
+    /**
+     * 甲2：预检查的一次往返必须同时刷新表单级与方案级冲突——
+     * 对话框开着时点「预检查冲突」，顶部的方案级冲突不能再等关闭重开。
+     */
+    private static void testPreviewSuccessRefreshesPlanConflicts() {
+        ControlledScheduleService service = new ControlledScheduleService();
+        ScheduleConflictDTO stale = ownBlockingConflict();
+        service.plan = new SchedulePlanDTO("7001", "draft", 1, "DRAFT", false, List.of(stale));
+        ScheduleArrangementDialogController controller = validForm(loaded(service, new Recorder()));
+        require(controller.ownPlanConflicts(ScheduleConflictSeverityDTO.BLOCKING)
+                        .equals(List.of(stale)),
+                "the loaded plan conflicts must be visible before the preview, saw "
+                        + controller.ownPlanConflicts(ScheduleConflictSeverityDTO.BLOCKING));
+
+        ScheduleConflictDTO form = overridableConflict();
+        ScheduleConflictDTO fresh = ownOverridableConflict();
+        service.setNextPreviewResult(List.of(form), List.of(fresh));
+        controller.previewArrangement();
+
+        require(controller.conflicts().equals(List.of(form)),
+                "a successful preview must refresh the form-level conflicts, saw "
+                        + controller.conflicts());
+        require(controller.ownPlanConflicts(ScheduleConflictSeverityDTO.OVERRIDABLE)
+                        .equals(List.of(fresh)),
+                "a successful preview must refresh the plan-level conflicts, saw "
+                        + controller.ownPlanConflicts(ScheduleConflictSeverityDTO.OVERRIDABLE));
+        require(controller.ownPlanConflicts(ScheduleConflictSeverityDTO.BLOCKING).isEmpty(),
+                "the stale plan-level conflict must be gone after the preview, saw "
+                        + controller.ownPlanConflicts(ScheduleConflictSeverityDTO.BLOCKING));
+    }
+
+    /**
+     * 甲2：预检查失败时方案级冲突保持原样——旧数据仍然有效，
+     * 不能因为一次失败的刷新就把顶部的冲突清空。
+     */
+    private static void testPreviewFailureKeepsPlanConflicts() {
+        ControlledScheduleService service = new ControlledScheduleService();
+        ScheduleConflictDTO stale = ownBlockingConflict();
+        service.plan = new SchedulePlanDTO("7001", "draft", 1, "DRAFT", false, List.of(stale));
+        ScheduleArrangementDialogController controller = validForm(loaded(service, new Recorder()));
+        service.enqueuePreview(CompletableFuture.failedFuture(new IllegalStateException("offline")));
+        controller.previewArrangement();
+
+        require(!controller.isPreviewCurrent() && controller.conflicts().isEmpty(),
+                "a failed preview must clear the form-level conflicts, saw "
+                        + controller.conflicts());
+        require(controller.ownPlanConflicts(ScheduleConflictSeverityDTO.BLOCKING)
+                        .equals(List.of(stale)),
+                "a failed preview must keep the plan-level conflicts, saw "
+                        + controller.ownPlanConflicts(ScheduleConflictSeverityDTO.BLOCKING));
     }
 
     /**
@@ -470,13 +527,13 @@ public final class ScheduleArrangementDialogControllerTest {
         require(service.previewRequests.size() == previews + 1 && controller.isPreviewCurrent(),
                 "retry after preview failure must actually rerun the preview");
 
-        CompletableFuture<List<ScheduleConflictDTO>> pending = new CompletableFuture<>();
+        CompletableFuture<CheckArrangementResultDTO> pending = new CompletableFuture<>();
         service.enqueuePreview(pending);
         controller.previewArrangement();
         controller.setWeekRange(2, 6);
         require(!controller.isPreviewPending() && !controller.isPreviewCurrent(),
                 "editing must invalidate both completed and pending preview state");
-        pending.complete(List.of());
+        pending.complete(new CheckArrangementResultDTO(List.of(), List.of()));
         require(!controller.canSave(), "a stale preview completion must not enable saving");
     }
 
@@ -669,32 +726,36 @@ public final class ScheduleArrangementDialogControllerTest {
         ScheduleArrangementDialogController controller = validForm(
                 loaded(service, new Recorder()));
 
-        CompletableFuture<List<ScheduleConflictDTO>> stale = new CompletableFuture<>();
-        CompletableFuture<List<ScheduleConflictDTO>> newest = new CompletableFuture<>();
+        CompletableFuture<CheckArrangementResultDTO> stale = new CompletableFuture<>();
+        CompletableFuture<CheckArrangementResultDTO> newest = new CompletableFuture<>();
         service.enqueuePreview(stale);
         service.enqueuePreview(newest);
         controller.previewArrangement();
         controller.previewArrangement();
         require(controller.isPreviewPending(), "two pending previews must report pending");
 
-        newest.complete(List.of());
+        newest.complete(new CheckArrangementResultDTO(List.of(), List.of()));
         require(!controller.isPreviewPending(), "the newest preview must clear the pending state");
         require(controller.isPreviewCurrent(), "the newest preview must authorize saving");
         require(controller.conflicts().isEmpty(), "the newest preview reported no conflicts");
 
-        stale.complete(List.of(blockingConflict()));
+        stale.complete(new CheckArrangementResultDTO(List.of(blockingConflict()),
+                List.of(otherBlockingConflict())));
         require(controller.conflicts().isEmpty(),
                 "a stale preview must not overwrite the newest conflict state, saw "
                         + controller.conflicts());
         require(!controller.hasBlockingConflicts(),
                 "a stale preview must not introduce blocking conflicts");
+        require(controller.otherPlanConflicts().isEmpty(),
+                "a stale preview must not overwrite the plan-level conflicts either, saw "
+                        + controller.otherPlanConflicts());
         require(controller.canSave(), "a stale preview must not revoke the newest authorization");
 
-        CompletableFuture<List<ScheduleConflictDTO>> orphaned = new CompletableFuture<>();
+        CompletableFuture<CheckArrangementResultDTO> orphaned = new CompletableFuture<>();
         service.enqueuePreview(orphaned);
         controller.previewArrangement();
         controller.setWeekRange(5, 10);
-        orphaned.complete(List.of());
+        orphaned.complete(new CheckArrangementResultDTO(List.of(), List.of()));
         require(!controller.isPreviewCurrent(),
                 "a preview whose form changed mid-flight must not authorize saving");
         require(!controller.canSave(),
@@ -1405,7 +1466,7 @@ public final class ScheduleArrangementDialogControllerTest {
                 new ArrayDeque<>();
         private final Deque<CompletableFuture<List<ScheduleArrangementView>>> arrangementResults =
                 new ArrayDeque<>();
-        private final Deque<CompletableFuture<List<ScheduleConflictDTO>>> previewResults =
+        private final Deque<CompletableFuture<CheckArrangementResultDTO>> previewResults =
                 new ArrayDeque<>();
         private final Deque<CompletableFuture<AdminOperationResultView<ScheduleArrangementView>>>
                 saveResults = new ArrayDeque<>();
@@ -1419,6 +1480,7 @@ public final class ScheduleArrangementDialogControllerTest {
         private List<ScheduleArrangementView> authoritativeArrangements =
                 List.of(arrangement("9001"));
         private List<ScheduleConflictDTO> nextPreviewConflicts = List.of();
+        private List<ScheduleConflictDTO> nextPreviewPlanConflicts = List.of();
         private RuntimeException saveFailure;
         private RuntimeException publishFailure;
         private RuntimeException createDraftFailure;
@@ -1432,7 +1494,7 @@ public final class ScheduleArrangementDialogControllerTest {
             arrangementResults.addLast(result);
         }
 
-        private void enqueuePreview(CompletableFuture<List<ScheduleConflictDTO>> result) {
+        private void enqueuePreview(CompletableFuture<CheckArrangementResultDTO> result) {
             previewResults.addLast(result);
         }
 
@@ -1441,8 +1503,17 @@ public final class ScheduleArrangementDialogControllerTest {
             saveResults.addLast(result);
         }
 
+        /** 只关心表单级冲突的既有用例：方案级快照一律为空。 */
         private void setNextPreview(List<ScheduleConflictDTO> conflicts) {
             nextPreviewConflicts = List.copyOf(conflicts);
+            nextPreviewPlanConflicts = List.of();
+        }
+
+        /** 甲2：两处列表都能设，验证一次预检查刷新两处。 */
+        private void setNextPreviewResult(List<ScheduleConflictDTO> conflicts,
+                List<ScheduleConflictDTO> planConflicts) {
+            nextPreviewConflicts = List.copyOf(conflicts);
+            nextPreviewPlanConflicts = List.copyOf(planConflicts);
         }
 
         private void failNextSave(RuntimeException failure) {
@@ -1475,13 +1546,14 @@ public final class ScheduleArrangementDialogControllerTest {
         }
 
         @Override
-        public CompletableFuture<List<ScheduleConflictDTO>> checkArrangement(
+        public CompletableFuture<CheckArrangementResultDTO> checkArrangement(
                 SaveArrangementRequestDTO request) {
             previewRequests.add(request);
-            CompletableFuture<List<ScheduleConflictDTO>> held = previewResults.poll();
+            CompletableFuture<CheckArrangementResultDTO> held = previewResults.poll();
             return held != null
                     ? held
-                    : CompletableFuture.completedFuture(nextPreviewConflicts);
+                    : CompletableFuture.completedFuture(new CheckArrangementResultDTO(
+                            nextPreviewConflicts, nextPreviewPlanConflicts));
         }
 
         @Override

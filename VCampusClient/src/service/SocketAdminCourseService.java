@@ -28,6 +28,7 @@ import dto.course.admin.enrollment.AdminEnrollmentRequestDTO;
 import dto.course.admin.enrollment.OfferingStudentDTO;
 import dto.course.admin.enrollment.StudentSearchResultDTO;
 import dto.course.admin.result.AdminOperationResultDTO;
+import dto.course.admin.schedule.CheckArrangementResultDTO;
 import dto.course.admin.schedule.SaveArrangementRequestDTO;
 import dto.course.admin.schedule.ScheduleArrangementDTO;
 import dto.course.admin.schedule.ScheduleConflictDTO;
@@ -288,12 +289,13 @@ public final class SocketAdminCourseService implements AdminCourseService {
     }
 
     @Override
-    public CompletableFuture<List<ScheduleConflictDTO>> checkArrangement(
+    public CompletableFuture<CheckArrangementResultDTO> checkArrangement(
             SaveArrangementRequestDTO request) {
         Message message = request(AdminCourseActions.CHECK_ARRANGEMENT);
         message.putData("request", request);
-        return map(message, response -> List.copyOf(
-                list(response, "conflicts", ScheduleConflictDTO.class)));
+        return map(message, response -> new CheckArrangementResultDTO(
+                list(response, "conflicts", ScheduleConflictDTO.class),
+                list(response, "planConflicts", ScheduleConflictDTO.class)));
     }
 
     @Override

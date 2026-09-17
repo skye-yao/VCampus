@@ -340,7 +340,7 @@ public final class AdminScheduleDtoJsonTest {
         String list = "java.util.List";
         String resource = "dto.course.admin.schedule.ScheduleResourceDTO";
         String plan = "dto.course.admin.schedule.SchedulePlanDTO";
-        String conflict = "dto.course.admin.schedule.ScheduleConflictDTO";
+        String check = "dto.course.admin.schedule.CheckArrangementResultDTO";
         String result = "model.course.admin.AdminOperationResultView";
         String arrangementView = "model.course.admin.ScheduleArrangementView";
         String planView = "model.course.admin.SchedulePlanView";
@@ -354,7 +354,7 @@ public final class AdminScheduleDtoJsonTest {
                 future + "<" + list + "<" + arrangementView + ">>",
                 String.class, String.class);
         requireMethod(AdminCourseService.class, "checkArrangement",
-                future + "<" + list + "<" + conflict + ">>", SaveArrangementRequestDTO.class);
+                future + "<" + check + ">", SaveArrangementRequestDTO.class);
         requireMethod(AdminCourseService.class, "saveArrangement",
                 future + "<" + result + "<" + arrangementView + ">>",
                 SaveArrangementRequestDTO.class);

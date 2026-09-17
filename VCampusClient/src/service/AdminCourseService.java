@@ -16,8 +16,8 @@ import dto.course.admin.catalog.CourseEditorRequestDTO;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
 import dto.course.admin.enrollment.AdminEnrollmentPreviewDTO;
 import dto.course.admin.enrollment.AdminEnrollmentRequestDTO;
+import dto.course.admin.schedule.CheckArrangementResultDTO;
 import dto.course.admin.schedule.SaveArrangementRequestDTO;
-import dto.course.admin.schedule.ScheduleConflictDTO;
 import dto.course.admin.schedule.SchedulePlanDTO;
 import dto.course.admin.schedule.ScheduleResourceDTO;
 import model.course.admin.AdminCourseView;
@@ -112,7 +112,7 @@ public interface AdminCourseService {
         throw new UnsupportedOperationException("loadOfferingArrangements");
     }
 
-    default CompletableFuture<List<ScheduleConflictDTO>> checkArrangement(
+    default CompletableFuture<CheckArrangementResultDTO> checkArrangement(
             SaveArrangementRequestDTO request) {
         throw new UnsupportedOperationException("checkArrangement");
     }

@@ -3,6 +3,7 @@ package handler;
 import com.google.gson.Gson;
 import dto.course.admin.AdminCourseActions;
 import dto.course.admin.result.AdminOperationResultDTO;
+import dto.course.admin.schedule.CheckArrangementResultDTO;
 import dto.course.admin.schedule.SaveArrangementRequestDTO;
 import dto.course.admin.schedule.ScheduleArrangementDTO;
 import dto.course.admin.schedule.ScheduleConflictDTO;
@@ -22,6 +23,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 public final class AdminScheduleHandlerTest {
@@ -147,11 +149,25 @@ public final class AdminScheduleHandlerTest {
         Message response = handler.handle(request);
         require(response.getCode() == MessageCode.SUCCESS,
                 "checkArrangement must succeed: " + response.getMessage());
-        require(List.of("conflicts").equals(new ArrayList<>(response.getData().keySet())),
-                "checkArrangement must use exactly the conflicts key: "
+        require(Set.of("conflicts", "planConflicts").equals(response.getData().keySet()),
+                "checkArrangement must use exactly the conflicts and planConflicts keys: "
                         + response.getData().keySet());
         require(response.getData().get("conflicts") instanceof List,
                 "conflicts must carry a list");
+        require(response.getData().get("planConflicts") instanceof List,
+                "planConflicts must carry a list");
+        require(scheduling.lastCheckResult != null,
+                "the fake must record the result it returned for the passthrough assertions");
+        require(scheduling.lastCheckResult.getArrangementConflicts()
+                        .equals(response.getData().get("conflicts")),
+                "conflicts must carry the arrangement-level list the service returned, saw "
+                        + response.getData().get("conflicts"));
+        require(scheduling.lastCheckResult.getPlanConflicts()
+                        .equals(response.getData().get("planConflicts")),
+                "planConflicts must carry the plan-level list the service returned, saw "
+                        + response.getData().get("planConflicts"));
+        require(!scheduling.lastCheckResult.getPlanConflicts().isEmpty(),
+                "the plan-level list must not be empty, or the passthrough proves nothing");
         require(scheduling.lastChecked != null
                         && PLAN_ID.equals(scheduling.lastChecked.getPlanId()),
                 "the typed arrangement request must reach the check");
@@ -418,6 +434,11 @@ public final class AdminScheduleHandlerTest {
                 "8001", "2001", 1, 1, 1, 2, "教师时间冲突");
     }
 
+    private static ScheduleConflictDTO planConflict() {
+        return new ScheduleConflictDTO("CLASSROOM_OVERLAP", ScheduleConflictSeverityDTO.BLOCKING,
+                "3101", "2004", 3, 3, 4, 4, "教室在该时间段已有排课");
+    }
+
     private static ScheduleArrangementDTO arrangement() {
         ScheduleResourceDTO teacher = new ScheduleResourceDTO("8001", "T1001", "张老师",
                 "teacher", 0);
@@ -456,6 +477,7 @@ public final class AdminScheduleHandlerTest {
         private String lastPlanId;
         private String lastOfferingId;
         private SaveArrangementRequestDTO lastChecked;
+        private CheckArrangementResultDTO lastCheckResult;
         private SaveArrangementRequestDTO lastSaved;
         private String lastAdminUid;
         private String lastDeletedId;
@@ -493,11 +515,13 @@ public final class AdminScheduleHandlerTest {
         }
 
         @Override
-        public List<ScheduleConflictDTO> checkArrangement(SaveArrangementRequestDTO request) {
+        public CheckArrangementResultDTO checkArrangement(SaveArrangementRequestDTO request) {
             lastChecked = request;
             validateLikeService(request);
             fail();
-            return List.of(conflict());
+            lastCheckResult = new CheckArrangementResultDTO(
+                    List.of(conflict()), List.of(planConflict()));
+            return lastCheckResult;
         }
 
         @Override

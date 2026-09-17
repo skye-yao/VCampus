@@ -7,6 +7,7 @@ import dao.AdminScheduleConflictDAO;
 import dao.AdminScheduleDAO;
 import dto.course.admin.AdminCourseActions;
 import dto.course.admin.result.AdminOperationResultDTO;
+import dto.course.admin.schedule.CheckArrangementResultDTO;
 import dto.course.admin.schedule.ScheduleArrangementDTO;
 import dto.course.admin.schedule.ScheduleConflictDTO;
 import dto.course.admin.schedule.SchedulePlanDTO;
@@ -113,14 +114,34 @@ public class ScheduleManagementService {
         }
     }
 
-    /** 表单级预检查：返回前把跨周的同一冲突合并为区间，界面上不再按周刷屏。 */
-    public List<ScheduleConflictDTO> checkArrangement(SaveArrangementRequestDTO request) {
+    /**
+     * 表单级预检查：返回前把跨周的同一冲突合并为区间，界面上不再按周刷屏。
+     * 同一条连接上顺带读出该方案的方案级冲突快照，让「预检查冲突」一次往返就能刷新两处列表。
+     */
+    public CheckArrangementResultDTO checkArrangement(SaveArrangementRequestDTO request) {
         CourseConflictService.Candidate candidate = candidate(request);
         try (Connection connection = DBUtil.getConnection()) {
             validateReferences(connection, candidate);
-            return CourseConflictService.mergeWeekRanges(conflicts.check(connection, candidate));
+            List<ScheduleConflictDTO> arrangementConflicts =
+                    CourseConflictService.mergeWeekRanges(conflicts.check(connection, candidate));
+            Long planId = planIdOrNull(request.getPlanId());
+            return new CheckArrangementResultDTO(arrangementConflicts,
+                    planId == null ? List.of() : conflicts.checkPlan(connection, planId));
         } catch (SQLException failure) {
             throw new DatabaseException("排课冲突检查失败", failure);
+        }
+    }
+
+    /**
+     * 方案级快照只在前置校验已经给出合法 planId 时读取；空白或不可解析一律当作没有快照，
+     * 不额外抛出（{@link #candidate} 已经用同样的规则拒绝了这些请求）。
+     */
+    private static Long planIdOrNull(String value) {
+        if (value == null || value.isBlank()) return null;
+        try {
+            return AdminOperationTransaction.parseId(value, "planId");
+        } catch (IllegalArgumentException failure) {
+            return null;
         }
     }
 

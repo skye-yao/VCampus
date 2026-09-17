@@ -28,6 +28,7 @@ import dto.course.admin.approval.GradeSubmissionSummaryDTO;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
 import dto.course.admin.enrollment.AdminEnrollmentPreviewDTO;
 import dto.course.admin.enrollment.AdminEnrollmentRequestDTO;
+import dto.course.admin.schedule.CheckArrangementResultDTO;
 import dto.course.admin.schedule.SaveArrangementRequestDTO;
 import dto.course.admin.schedule.ScheduleConflictDTO;
 import dto.course.admin.schedule.ScheduleConflictSeverityDTO;
@@ -672,10 +673,12 @@ public final class MockAdminCourseService implements AdminCourseService {
     }
 
     @Override
-    public CompletableFuture<List<ScheduleConflictDTO>> checkArrangement(
+    public CompletableFuture<CheckArrangementResultDTO> checkArrangement(
             SaveArrangementRequestDTO request) {
         try {
-            return CompletableFuture.completedFuture(conflicts(request));
+            // mock 的方案快照始终为空：它的 loadSchedulePlan 也从不带方案级冲突。
+            return CompletableFuture.completedFuture(
+                    new CheckArrangementResultDTO(conflicts(request), List.of()));
         } catch (RuntimeException failure) {
             return failed(failure);
         }

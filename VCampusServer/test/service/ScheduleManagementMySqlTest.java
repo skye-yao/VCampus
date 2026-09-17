@@ -3,6 +3,7 @@ package service;
 import dao.AdminScheduleConflictDAO;
 import dao.AdminScheduleDAO;
 import dto.course.admin.result.AdminOperationResultDTO;
+import dto.course.admin.schedule.CheckArrangementResultDTO;
 import dto.course.admin.schedule.ScheduleArrangementDTO;
 import dto.course.admin.schedule.ScheduleConflictDTO;
 import dto.course.admin.schedule.SchedulePlanDTO;
@@ -282,7 +283,8 @@ public final class ScheduleManagementMySqlTest {
 
         List<ScheduleConflictDTO> preview = service.checkArrangement(
                 request(op(23), id, 2, PLAN_DRAFT, OFFERING_SELF, "teacher-beta", null, ROOM_B,
-                        List.of(slot(2, 1, 2), slot(4, 3, 3)), 1, 2, false, null));
+                        List.of(slot(2, 1, 2), slot(4, 3, 3)), 1, 2, false, null))
+                .getArrangementConflicts();
         require(preview.isEmpty(),
                 "a preview excludes the edited arrangement's own occurrences");
         return id;
@@ -539,7 +541,8 @@ public final class ScheduleManagementMySqlTest {
     private static void verifyWeekRangeMerge(ScheduleManagementService service) throws Exception {
         List<ScheduleConflictDTO> preview = service.checkArrangement(
                 request(op(80), null, 0, PLAN_MERGE, OFFERING_SELF, "teacher-alpha", null, ROOM_A,
-                        List.of(slot(2, 1, 2)), 1, 2, false, null));
+                        List.of(slot(2, 1, 2)), 1, 2, false, null))
+                .getArrangementConflicts();
         require(preview.size() == 1 && "TEACHER_OVERLAP".equals(preview.get(0).getType()),
                 "the two-week teacher conflict must merge before it leaves checkArrangement, got "
                         + describe(preview));
@@ -547,13 +550,20 @@ public final class ScheduleManagementMySqlTest {
                 "the merged conflict must span weeks 1-2, got " + preview.get(0).getWeek() + "-"
                         + preview.get(0).getEndWeek());
 
-        List<ScheduleConflictDTO> singleWeek = service.checkArrangement(
+        CheckArrangementResultDTO singleWeekResult = service.checkArrangement(
                 request(op(81), null, 0, PLAN_MERGE, OFFERING_SELF, "teacher-alpha", null, ROOM_A,
                         List.of(slot(2, 1, 2)), 2, 2, false, null));
+        List<ScheduleConflictDTO> singleWeek = singleWeekResult.getArrangementConflicts();
         require(singleWeek.size() == 1 && singleWeek.get(0).getWeek() == 2
                         && singleWeek.get(0).getEndWeek() == 2,
                 "a single-week conflict must stay one week==endWeek entry, got "
                         + describe(singleWeek));
+        // 甲2：方案级快照与表单级冲突同一次往返带回，且已经是合并后的区间。
+        require(singleWeekResult.getPlanConflicts().size() == 2
+                        && singleWeekResult.getPlanConflicts().get(0).getWeek() == 1
+                        && singleWeekResult.getPlanConflicts().get(0).getEndWeek() == 2,
+                "checkArrangement must carry the merged plan snapshot in the same round trip, got "
+                        + describe(singleWeekResult.getPlanConflicts()));
 
         SchedulePlanDTO plan = service.loadPlan(2027, 2);
         require(Long.toString(PLAN_MERGE).equals(plan.getPlanId()),
