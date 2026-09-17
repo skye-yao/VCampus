@@ -12,9 +12,13 @@ import util.DBUtil;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.SortedSet;
+import java.util.TreeSet;
 
 import static dto.course.admin.schedule.ScheduleConflictSeverityDTO.BLOCKING;
 import static dto.course.admin.schedule.ScheduleConflictSeverityDTO.OVERRIDABLE;
@@ -200,7 +204,7 @@ public class CourseConflictService {
                 add(conflicts, seen, conflict);
             }
         }
-        return List.copyOf(conflicts);
+        return mergeWeekRanges(conflicts);
     }
 
     /**
@@ -295,5 +299,56 @@ public class CourseConflictService {
                 + "|" + conflict.getStartPeriod() + "|" + conflict.getEndPeriod() + "|"
                 + conflict.getSubjectId() + "|" + conflict.getRelatedOfferingId();
         if (seen.add(key)) conflicts.add(conflict);
+    }
+
+    /**
+     * 一条跨 N 周的安排会对每周各报一次同样的冲突（用户案例：9 条「教室容量 40 小于教学班容量 45」），
+     * 这里把「其余字段完全相同、周次连续」的冲突合并成区间：{@code week}=段起，{@code endWeek}=段止。
+     * 只在两个消费点调用——{@link #checkPlan} 与 {@code ScheduleManagementService.checkArrangement}；
+     * {@link #check} 引擎本身保持按周列表，调课模块复用 check 并依赖那个形状。
+     *
+     * <p>每条输入先按其覆盖的周集合展开（旧 journal JSON 缺失 endWeek 时为 0，等价于单周），所以
+     * 对已合并的结果再跑一次不变形；组内周次排序后切连续段，「第 3 周和第 9 周」这种不相邻的周次
+     * 保持两条。分组键含 message 与归属字段，形状相同但文案或归属不同的冲突不会被并到一起。
+     */
+    static List<ScheduleConflictDTO> mergeWeekRanges(List<ScheduleConflictDTO> conflicts) {
+        Map<String, SortedSet<Integer>> weeksByGroup = new LinkedHashMap<>();
+        Map<String, ScheduleConflictDTO> templateByGroup = new LinkedHashMap<>();
+        for (ScheduleConflictDTO conflict : conflicts) {
+            String key = conflict.getType() + "|" + conflict.getSeverity() + "|"
+                    + conflict.getSubjectId() + "|" + conflict.getRelatedOfferingId() + "|"
+                    + conflict.getOfferingId() + "|" + conflict.getDayOfWeek() + "|"
+                    + conflict.getStartPeriod() + "|" + conflict.getEndPeriod() + "|"
+                    + conflict.getMessage();
+            templateByGroup.putIfAbsent(key, conflict);
+            SortedSet<Integer> weeks =
+                    weeksByGroup.computeIfAbsent(key, ignored -> new TreeSet<>());
+            for (int week = conflict.getWeek();
+                    week <= Math.max(conflict.getWeek(), conflict.getEndWeek()); week++) {
+                weeks.add(week);
+            }
+        }
+        List<ScheduleConflictDTO> merged = new ArrayList<>();
+        for (Map.Entry<String, SortedSet<Integer>> group : weeksByGroup.entrySet()) {
+            ScheduleConflictDTO template = templateByGroup.get(group.getKey());
+            List<Integer> weeks = List.copyOf(group.getValue());
+            int start = weeks.get(0);
+            for (int index = 1; index < weeks.size(); index++) {
+                if (weeks.get(index) != weeks.get(index - 1) + 1) {
+                    merged.add(weekRange(template, start, weeks.get(index - 1)));
+                    start = weeks.get(index);
+                }
+            }
+            merged.add(weekRange(template, start, weeks.get(weeks.size() - 1)));
+        }
+        return List.copyOf(merged);
+    }
+
+    private static ScheduleConflictDTO weekRange(ScheduleConflictDTO template, int week,
+                                                 int endWeek) {
+        return new ScheduleConflictDTO(template.getType(), template.getSeverity(),
+                template.getSubjectId(), template.getRelatedOfferingId(), template.getOfferingId(),
+                template.getOfferingLabel(), week, endWeek, template.getDayOfWeek(),
+                template.getStartPeriod(), template.getEndPeriod(), template.getMessage());
     }
 }

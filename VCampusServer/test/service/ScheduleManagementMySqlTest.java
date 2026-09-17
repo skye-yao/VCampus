@@ -25,6 +25,7 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
 
@@ -62,6 +63,9 @@ public final class ScheduleManagementMySqlTest {
     // reachable, and the one publication must refuse before it moves the calendar pointer.
     private static final long CALENDAR_EMPTY = 930140L;
     private static final long PLAN_EMPTY = 930106L;
+    // 跨周合并夹具（甲4）：跨第 1-2 周的同一冲突必须合并成 (week=1, endWeek=2) 而不是按周刷屏。
+    private static final long CALENDAR_MERGE = 930150L;
+    private static final long PLAN_MERGE = 930108L;
     private static final long ROOM_A = 930200L;
     private static final long ROOM_B = 930201L;
     private static final long ROOM_SMALL = 930202L;
@@ -93,6 +97,7 @@ public final class ScheduleManagementMySqlTest {
             verifyPublish(service);
             verifyOfferingConflictRebuild(service);
             verifyLoadPlan(service);
+            verifyWeekRangeMerge(service);
             verifyIncompleteArrangementReadsAndPublication(service);
             verifyEmptyPlanIsNotPublishable(service);
             verifyCreateDraftPlan(service);
@@ -527,6 +532,53 @@ public final class ScheduleManagementMySqlTest {
     }
 
     /**
+     * 甲4：一条跨 N 周的安排过去会让同一条冲突按周刷屏（用户案例：9 条「教室容量 40 小于教学班容量
+     * 45（第 N 周）」）。两个消费路径都必须合并：表单级 checkArrangement 与方案级 loadPlan→checkPlan。
+     * 单周场景仍是 week==endWeek 的一条，绝不出现「第 3-3 周」这种区间。
+     */
+    private static void verifyWeekRangeMerge(ScheduleManagementService service) throws Exception {
+        List<ScheduleConflictDTO> preview = service.checkArrangement(
+                request(op(80), null, 0, PLAN_MERGE, OFFERING_SELF, "teacher-alpha", null, ROOM_A,
+                        List.of(slot(2, 1, 2)), 1, 2, false, null));
+        require(preview.size() == 1 && "TEACHER_OVERLAP".equals(preview.get(0).getType()),
+                "the two-week teacher conflict must merge before it leaves checkArrangement, got "
+                        + describe(preview));
+        require(preview.get(0).getWeek() == 1 && preview.get(0).getEndWeek() == 2,
+                "the merged conflict must span weeks 1-2, got " + preview.get(0).getWeek() + "-"
+                        + preview.get(0).getEndWeek());
+
+        List<ScheduleConflictDTO> singleWeek = service.checkArrangement(
+                request(op(81), null, 0, PLAN_MERGE, OFFERING_SELF, "teacher-alpha", null, ROOM_A,
+                        List.of(slot(2, 1, 2)), 2, 2, false, null));
+        require(singleWeek.size() == 1 && singleWeek.get(0).getWeek() == 2
+                        && singleWeek.get(0).getEndWeek() == 2,
+                "a single-week conflict must stay one week==endWeek entry, got "
+                        + describe(singleWeek));
+
+        SchedulePlanDTO plan = service.loadPlan(2027, 2);
+        require(Long.toString(PLAN_MERGE).equals(plan.getPlanId()),
+                "the merge fixture term must load its own draft, got " + plan.getPlanId());
+        // 同一对安排的教师冲突在两个方向各报一次（引擎既有语义），两次都必须已合并。
+        require(plan.getConflicts().size() == 2,
+                "checkPlan must report both directions of the teacher overlap, got "
+                        + describe(plan.getConflicts()));
+        for (ScheduleConflictDTO conflict : plan.getConflicts()) {
+            require("TEACHER_OVERLAP".equals(conflict.getType()) && conflict.getWeek() == 1
+                            && conflict.getEndWeek() == 2,
+                    "the plan read must hold merged week ranges only, got " + conflict.getType()
+                            + " " + conflict.getWeek() + "-" + conflict.getEndWeek());
+        }
+    }
+
+    private static String describe(List<ScheduleConflictDTO> conflicts) {
+        List<String> parts = new ArrayList<>();
+        for (ScheduleConflictDTO conflict : conflicts) {
+            parts.add(conflict.getType() + "@" + conflict.getWeek() + "-" + conflict.getEndWeek());
+        }
+        return parts.toString();
+    }
+
+    /**
      * A plan an admin is still assembling legitimately holds arrangements that cannot form a
      * candidate — here one with no teacher at all. Reading such a plan must skip that row instead
      * of running the publication gate, and the row must stay visible so the client can render it
@@ -925,6 +977,36 @@ public final class ScheduleManagementMySqlTest {
         execute("INSERT INTO schedule_plan(id,name,calendar_id,revision,status,created_at,"
                 + "updated_at) VALUES(" + PLAN_EMPTY + ",'Schedule empty plan'," + CALENDAR_EMPTY
                 + ",1,'DRAFT','2026-08-01 00:00:00','2026-08-01 00:00:00')");
+
+        // 跨周合并夹具（甲4）：新学期的草稿方案里放三张安排，覆盖两个独立场景。
+        // 预检查：候选（2001/ROOM_A，周二第 1-2 节）只与 930491（2004/teacher-alpha/ROOM_B，同一
+        // 时间段）冲突，因此恰好得到一条已合并的教师冲突；930490/930492 在周四第 3-4 节，与候选
+        // 不重叠，不会引入第二条。
+        // 方案读路径：930490（2001/teacher-alpha/ROOM_A）与 930492（2004/teacher-alpha/ROOM_B）在
+        // 周四第 3-4 节重叠且各覆盖第 1-2 周，checkPlan 逐张检查时会从两个方向各报一条教师冲突，
+        // 每条都必须已合并成 (1,2)。
+        execute("INSERT INTO teaching_calendar(id,name,academic_year,semester,week1_start_date,"
+                + "timezone,version,status) VALUES(" + CALENDAR_MERGE
+                + ",'Schedule merge calendar',2027,2,'2026-09-07','Asia/Shanghai',1,'PUBLISHED')");
+        for (int week = 1; week <= 2; week++) {
+            for (int day = 1; day <= 5; day++) {
+                String date = LocalDate.parse("2026-09-07")
+                        .plusDays((week - 1) * 7L + day - 1).toString();
+                execute("INSERT INTO calendar_date(id,calendar_id,local_date,week_no,"
+                        + "teaching_weekday,day_template_id,is_teaching_day) VALUES("
+                        + (930080 + (week - 1) * 5 + day - 1) + "," + CALENDAR_MERGE + ",'" + date
+                        + "'," + week + "," + day + "," + TEMPLATE + ",1)");
+            }
+        }
+        execute("INSERT INTO schedule_plan(id,name,calendar_id,revision,status,created_at,"
+                + "updated_at) VALUES(" + PLAN_MERGE + ",'Schedule merge plan'," + CALENDAR_MERGE
+                + ",1,'DRAFT','2026-08-01 00:00:00','2026-08-01 00:00:00')");
+        scheduledWeeks(930490L, 930590L, 930690L, PLAN_MERGE, OFFERING_SELF, "teacher-alpha",
+                ROOM_A, 4, 3, 4, 1, 2);
+        scheduledWeeks(930491L, 930591L, 930692L, PLAN_MERGE, OFFERING_OTHER, "teacher-alpha",
+                ROOM_B, 2, 1, 2, 1, 2);
+        scheduledWeeks(930492L, 930592L, 930694L, PLAN_MERGE, OFFERING_OTHER, "teacher-alpha",
+                ROOM_B, 4, 3, 4, 1, 2);
     }
 
     private static void scheduled(long arrangementId, long ruleId, long occurrenceId, long planId,
@@ -945,6 +1027,34 @@ public final class ScheduleManagementMySqlTest {
                 + "teaching_weekday) VALUES(" + occurrenceId + "," + ruleId + "," + planId + ",'"
                 + utcText(date, period(startPeriod, true)) + "','"
                 + utcText(date, period(endPeriod, false)) + "'," + week + "," + weekday + ")");
+    }
+
+    /**
+     * 一条覆盖给定周次的安排：规则一条、每周一行 rule_week 与一条 occurrence（occurrence id 从
+     * {@code occurrenceId} 起依次递增），用来构造跨周场景——既有的 {@code scheduled} 只写一周。
+     */
+    private static void scheduledWeeks(long arrangementId, long ruleId, long occurrenceId,
+                                       long planId, long offeringId, String teacher,
+                                       long classroomId, int weekday, int startPeriod,
+                                       int endPeriod, int... weeks) throws SQLException {
+        execute("INSERT INTO course_schedule_arrangement(arrangement_id,plan_id,offering_id,"
+                + "teacher_uid,classroom_id,status,version) VALUES(" + arrangementId + "," + planId
+                + "," + offeringId + ",'" + teacher + "'," + classroomId + ",'ACTIVE',1)");
+        execute("INSERT INTO course_schedule_rule(id,plan_id,course_offering_id,arrangement_id,"
+                + "weekday,start_period,end_period,status) VALUES(" + ruleId + "," + planId + ","
+                + offeringId + "," + arrangementId + "," + weekday + "," + startPeriod + ","
+                + endPeriod + ",'ACTIVE')");
+        for (int index = 0; index < weeks.length; index++) {
+            int week = weeks[index];
+            execute("INSERT INTO course_schedule_rule_week(rule_id,week_no) VALUES(" + ruleId + ","
+                    + week + ")");
+            String date = LocalDate.parse("2026-09-07")
+                    .plusDays((week - 1) * 7L + weekday - 1).toString();
+            execute("INSERT INTO course_occurrence(id,rule_id,plan_id,start_at,end_at,week_no,"
+                    + "teaching_weekday) VALUES(" + (occurrenceId + index) + "," + ruleId + ","
+                    + planId + ",'" + utcText(date, period(startPeriod, true)) + "','"
+                    + utcText(date, period(endPeriod, false)) + "'," + week + "," + weekday + ")");
+        }
     }
 
     private static String period(int periodNo, boolean start) {

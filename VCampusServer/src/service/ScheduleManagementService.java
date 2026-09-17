@@ -113,11 +113,12 @@ public class ScheduleManagementService {
         }
     }
 
+    /** 表单级预检查：返回前把跨周的同一冲突合并为区间，界面上不再按周刷屏。 */
     public List<ScheduleConflictDTO> checkArrangement(SaveArrangementRequestDTO request) {
         CourseConflictService.Candidate candidate = candidate(request);
         try (Connection connection = DBUtil.getConnection()) {
             validateReferences(connection, candidate);
-            return conflicts.check(connection, candidate);
+            return CourseConflictService.mergeWeekRanges(conflicts.check(connection, candidate));
         } catch (SQLException failure) {
             throw new DatabaseException("排课冲突检查失败", failure);
         }

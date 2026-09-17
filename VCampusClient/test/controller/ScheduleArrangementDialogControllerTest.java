@@ -77,6 +77,7 @@ public final class ScheduleArrangementDialogControllerTest {
         testPublishUsesWholePlanConflictsAndTrimmedReason();
         testPlanConflictsArePartitionedByOffering();
         testConflictTextCarriesThePosition();
+        testConflictTextRendersTheMergedWeekRange();
         testOtherConflictsSummaryTextCountsOthers();
         testSuccessfulWriteReloadsPlanState();
         testReadFailuresKeepTheirRetryTarget();
@@ -391,6 +392,36 @@ public final class ScheduleArrangementDialogControllerTest {
                 0, 0, 0, 0, "任课教师在该时间已有其他课程");
         require("任课教师在该时间已有其他课程".equals(controller.conflictText(positionless)),
                 "缺位置数据的冲突不得渲染空括号，saw " + controller.conflictText(positionless));
+    }
+
+    /**
+     * 甲4：服务端已把连续周次合并成区间，文案必须渲染成「第 8-16 周」；单周（endWeek==week，或旧
+     * journal JSON 缺失 endWeek 时的 0）仍是「第 8 周」，绝不出现「第 8-8 周」。
+     */
+    private static void testConflictTextRendersTheMergedWeekRange() {
+        ControlledScheduleService service = new ControlledScheduleService();
+        ScheduleArrangementDialogController controller = controller(service, new Recorder());
+
+        ScheduleConflictDTO range = weekRangeConflict(8, 16);
+        require("教室容量 40 小于教学班容量 45（第 8-16 周 周三 第3-4节）"
+                        .equals(controller.conflictText(range)),
+                "合并后的周次区间必须渲染成第 X-Y 周，saw " + controller.conflictText(range));
+
+        ScheduleConflictDTO single = weekRangeConflict(8, 8);
+        require("教室容量 40 小于教学班容量 45（第 8 周 周三 第3-4节）"
+                        .equals(controller.conflictText(single)),
+                "week==endWeek 的单周必须保持「第 8 周」，saw " + controller.conflictText(single));
+
+        ScheduleConflictDTO missing = weekRangeConflict(8, 0);
+        require("教室容量 40 小于教学班容量 45（第 8 周 周三 第3-4节）"
+                        .equals(controller.conflictText(missing)),
+                "缺失 endWeek（旧数据为 0）必须按单周归一，saw " + controller.conflictText(missing));
+    }
+
+    private static ScheduleConflictDTO weekRangeConflict(int week, int endWeek) {
+        return new ScheduleConflictDTO("CLASSROOM_CAPACITY",
+                ScheduleConflictSeverityDTO.OVERRIDABLE, "3101", "2004", "2004",
+                "CS202-2026-2-A", week, endWeek, 3, 3, 4, "教室容量 40 小于教学班容量 45");
     }
 
     /**

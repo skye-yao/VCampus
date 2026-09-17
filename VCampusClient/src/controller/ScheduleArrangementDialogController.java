@@ -1314,7 +1314,9 @@ public final class ScheduleArrangementDialogController {
      */
     private static String conflictPosition(ScheduleConflictDTO conflict) {
         List<String> parts = new ArrayList<>();
-        if (conflict.getWeek() > 0) parts.add(weekText(conflict.getWeek()));
+        if (conflict.getWeek() > 0) {
+            parts.add(weekText(conflict.getWeek(), conflict.getEndWeek()));
+        }
         if (conflict.getDayOfWeek() > 0) {
             parts.add(ScheduleSlotEditor.weekdayLabel(conflict.getDayOfWeek()));
         }
@@ -1325,9 +1327,13 @@ public final class ScheduleArrangementDialogController {
         return parts.isEmpty() ? "" : "（" + String.join(" ", parts) + "）";
     }
 
-    /** 周次段：本任务只有单周；扩成区间时改这里一处。 */
-    private static String weekText(int week) {
-        return "第 " + week + " 周";
+    /**
+     * 周次段：服务端已把连续周次合并成区间，这里渲染成「第 X-Y 周」；单周（含缺失 endWeek 的旧数据）
+     * 仍是「第 X 周」，绝不出现「第 3-3 周」。
+     */
+    private static String weekText(int week, int endWeek) {
+        int last = Math.max(week, endWeek);
+        return last > week ? "第 " + week + "-" + last + " 周" : "第 " + week + " 周";
     }
 
     private Label conflictLabel(ScheduleConflictDTO conflict, String styleClass,

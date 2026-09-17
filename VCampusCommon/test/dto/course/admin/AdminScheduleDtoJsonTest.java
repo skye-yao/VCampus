@@ -30,6 +30,7 @@ public final class AdminScheduleDtoJsonTest {
         roundTripsArrangementWithNullableAssistant();
         roundTripsSaveRequestWithOperationIdentityAndForceReason();
         roundTripsPlanWithBlockingAndOverridableSeverities();
+        roundTripsConflictWithMergedWeekRange();
         normalizesNullListsToEmptyImmutableLists();
         slotListsAreDefensiveAndUnmodifiable();
         deserializedListsAreUnmodifiable();
@@ -190,6 +191,41 @@ public final class AdminScheduleDtoJsonTest {
         require(!publishedCopy.isCurrent(), "false current flag must round-trip");
         require(publishedCopy.getConflicts().isEmpty(),
                 "a plan without conflicts must serialize an empty list");
+    }
+
+    /**
+     * 甲4：冲突的周次区间必须往返 JSON；旧构造（未给 endWeek）委托 endWeek=week，而在此之前写下的
+     * journal JSON 缺 endWeek 时反序列化为 0——渲染端一律按 max(week, endWeek) 当单周。
+     */
+    private static void roundTripsConflictWithMergedWeekRange() {
+        ScheduleConflictDTO range = new ScheduleConflictDTO("CLASSROOM_CAPACITY",
+                ScheduleConflictSeverityDTO.OVERRIDABLE, "3101", "2004", "2004",
+                "CS202-2026-2-A", 8, 16, 3, 3, 4, "教室容量 40 小于教学班容量 45");
+        ScheduleConflictDTO copy = GSON.fromJson(GSON.toJson(range), ScheduleConflictDTO.class);
+        require(copy.getWeek() == 8 && copy.getEndWeek() == 16,
+                "the merged week range must round-trip, got " + copy.getWeek() + "-"
+                        + copy.getEndWeek());
+
+        ScheduleConflictDTO single = new ScheduleConflictDTO("TEACHER_OVERLAP",
+                ScheduleConflictSeverityDTO.OVERRIDABLE, "T1001", "9007199254740997",
+                6, 3, 1, 2, "教师时间冲突");
+        require(single.getEndWeek() == 6,
+                "the constructor without endWeek must default it to week, got "
+                        + single.getEndWeek());
+        ScheduleConflictDTO singleCopy =
+                GSON.fromJson(GSON.toJson(single), ScheduleConflictDTO.class);
+        require(singleCopy.getWeek() == 6 && singleCopy.getEndWeek() == 6,
+                "a single-week conflict must round-trip as exactly one week, got "
+                        + singleCopy.getWeek() + "-" + singleCopy.getEndWeek());
+
+        ScheduleConflictDTO legacy = GSON.fromJson("{\"type\":\"TEACHER_OVERLAP\","
+                + "\"severity\":\"OVERRIDABLE\",\"subjectId\":\"T1001\","
+                + "\"relatedOfferingId\":\"9007199254740997\",\"week\":6,\"dayOfWeek\":3,"
+                + "\"startPeriod\":1,\"endPeriod\":2,\"message\":\"教师时间冲突\"}",
+                ScheduleConflictDTO.class);
+        require(legacy.getEndWeek() == 0,
+                "a journal JSON written before endWeek existed must deserialize it as 0, got "
+                        + legacy.getEndWeek());
     }
 
     private static void normalizesNullListsToEmptyImmutableLists() {

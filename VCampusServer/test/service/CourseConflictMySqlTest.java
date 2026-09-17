@@ -74,6 +74,7 @@ public final class CourseConflictMySqlTest {
             verifyAssistantOverlap(conflicts);
             verifyClassroomOverlap(conflicts);
             verifyClassroomCapacity(conflicts);
+            verifyWeekRangeMerge(conflicts);
             verifyBoundaryTouch(conflicts);
             verifyEditingExcludesOwnOccurrences(conflicts);
             verifyActiveAdjustmentReplacesOriginal(conflicts);
@@ -138,6 +139,51 @@ public final class CourseConflictMySqlTest {
     /** 归属标签的期望值：不硬编码种子代码，直接读受保护测试库里的真实值。 */
     private static String offeringCode(long offeringId) throws SQLException {
         return text("SELECT offering_code FROM course_offering WHERE offering_id=" + offeringId);
+    }
+
+    /**
+     * 甲4：跨 N 周的一条安排会把同一条冲突按周各报一次，mergeWeekRanges 把连续周次合并成区间；
+     * 但「第 1 周和第 3 周」这种不相邻的周次必须保持两条——按 min..max 合并会凭空造出第 2 周的课。
+     * 引擎本身（check）不改：合并只发生在消费点，所以这里显式调用助手。
+     */
+    private static void verifyWeekRangeMerge(CourseConflictService conflicts) {
+        List<ScheduleConflictDTO> weekly = conflicts.check(candidate(OFFERING_SELF,
+                "teacher-delta", null, ROOM_A, slot(3, 2, 2), 1, 2, null));
+        require(weekly.size() == 2 && weekly.get(0).getWeek() == 1 && weekly.get(1).getWeek() == 2,
+                "the engine still reports one conflict per week, got " + positions(weekly));
+
+        List<ScheduleConflictDTO> merged = CourseConflictService.mergeWeekRanges(weekly);
+        require(merged.size() == 1,
+                "two contiguous weekly conflicts must merge into one range, got "
+                        + positions(merged));
+        ScheduleConflictDTO range = merged.get(0);
+        require("TEACHER_OVERLAP".equals(range.getType()) && range.getWeek() == 1
+                        && range.getEndWeek() == 2,
+                "the merged conflict must span weeks 1-2, got " + range.getType() + " "
+                        + range.getWeek() + "-" + range.getEndWeek());
+        require(CourseConflictService.mergeWeekRanges(merged).size() == 1,
+                "merging an already merged range must not split it again");
+
+        List<ScheduleConflictDTO> gapped = conflicts.check(candidate(OFFERING_SELF,
+                "teacher-epsilon", null, ROOM_A, slot(5, 2, 2), 1, 3, null));
+        require(gapped.size() == 2 && gapped.get(0).getWeek() == 1 && gapped.get(1).getWeek() == 3,
+                "the candidate spans 1..3 but the other arrangement only occupies 1 and 3, got "
+                        + positions(gapped));
+        List<ScheduleConflictDTO> separate = CourseConflictService.mergeWeekRanges(gapped);
+        require(separate.size() == 2,
+                "non-contiguous weeks must stay two conflicts, got " + positions(separate));
+        require(separate.get(0).getWeek() == 1 && separate.get(0).getEndWeek() == 1
+                        && separate.get(1).getWeek() == 3 && separate.get(1).getEndWeek() == 3,
+                "each non-contiguous week is its own single-week range, got "
+                        + positions(separate));
+    }
+
+    private static String positions(List<ScheduleConflictDTO> conflicts) {
+        List<String> parts = new ArrayList<>();
+        for (ScheduleConflictDTO conflict : conflicts) {
+            parts.add(conflict.getType() + "@" + conflict.getWeek() + "-" + conflict.getEndWeek());
+        }
+        return parts.toString();
     }
 
     private static void verifyBoundaryTouch(CourseConflictService conflicts) {
@@ -223,7 +269,7 @@ public final class CourseConflictMySqlTest {
                 : service.listArrangements(Long.toString(PLAN), null)) {
             listed.add(arrangement.getArrangementId());
         }
-        require(listed.size() == 6 && !listed.contains("910008"),
+        require(listed.size() == 8 && !listed.contains("910008"),
                 "listArrangements must report only ACTIVE arrangements, got " + listed);
     }
 
@@ -263,7 +309,9 @@ public final class CourseConflictMySqlTest {
 
     private static void insertFixtures() throws SQLException {
         execute("INSERT INTO tbl_user(UID,name,password,salt,role,college,major) VALUES"
-                + "('teacher-gamma','Course Test Teacher C','x','x',1,'Engineering','Lecturer')");
+                + "('teacher-gamma','Course Test Teacher C','x','x',1,'Engineering','Lecturer'),"
+                + "('teacher-delta','Course Test Teacher D','x','x',1,'Engineering','Lecturer'),"
+                + "('teacher-epsilon','Course Test Teacher E','x','x',1,'Engineering','Lecturer')");
         execute("INSERT INTO teaching_calendar(id,name,academic_year,semester,week1_start_date,"
                 + "timezone,version,status) VALUES(" + CALENDAR + ",'Conflict test calendar',"
                 + "2026,3,'2026-09-07','Asia/Shanghai',1,'PUBLISHED')");
@@ -276,7 +324,9 @@ public final class CourseConflictMySqlTest {
                 + "(900012," + TEMPLATE + ",3,'09:30:00','10:15:00'),"
                 + "(900013," + TEMPLATE + ",4,'10:15:00','11:00:00')");
         int dateId = 900020;
-        for (int week = 1; week <= 2; week++) {
+        // Week 3 exists for the gap fixture: a candidate spanning 1..3 with the other arrangement
+        // occupying only weeks 1 and 3 proves the merge never fills week 2 in.
+        for (int week = 1; week <= 3; week++) {
             for (int day = 1; day <= 5; day++) {
                 String date = LocalDate.parse("2026-09-07")
                         .plusDays((week - 1) * 7L + day - 1).toString();
@@ -329,6 +379,13 @@ public final class CourseConflictMySqlTest {
         scheduled(910008L, 911008L, 912008L, PLAN, OFFERING_SELF, "teacher-alpha", null, ROOM_C,
                 DISABLED, week(1, 5), slot(5, 1, 1));
 
+        // Week-range merge fixtures, both on windows no other fixture uses. 910010 spans weeks 1-2
+        // contiguously; 910011 occupies weeks 1 and 3 only, leaving week 2 free.
+        scheduledWeeks(910010L, 911010L, 912010L, OFFERING_OTHER, "teacher-delta", ROOM_C,
+                slot(3, 2, 2), 1, 2);
+        scheduledWeeks(910011L, 911011L, 912012L, OFFERING_OTHER, "teacher-epsilon", ROOM_C,
+                slot(5, 2, 2), 1, 3);
+
         // An arrangement that occupies nothing because it has no slots at all.
         execute("INSERT INTO schedule_plan(id,name,calendar_id,revision,status,created_at,"
                 + "updated_at) VALUES(" + SLOTLESS_PLAN + ",'Conflict slotless plan'," + CALENDAR
@@ -373,6 +430,25 @@ public final class CourseConflictMySqlTest {
                 period(slot.getEndPeriod(), false));
         insertOccurrence(occurrenceId, ruleId, planId, range[0], range[1], at.week(),
                 slot.getDayOfWeek());
+    }
+
+    /**
+     * One ACTIVE arrangement in {@link #PLAN} covering exactly the given weeks — one rule, one
+     * rule_week row and one occurrence per week, with occurrence ids counting up from
+     * {@code occurrenceId}. Same-week gaps stay gaps.
+     */
+    private static void scheduledWeeks(long arrangementId, long ruleId, long occurrenceId,
+                                       long offeringId, String teacher, long classroomId,
+                                       ScheduleSlotDTO slot, int... weeks) throws SQLException {
+        insertArrangement(arrangementId, PLAN, offeringId, teacher, null, classroomId, ACTIVE);
+        insertRule(ruleId, PLAN, offeringId, arrangementId, slot, ACTIVE);
+        for (int index = 0; index < weeks.length; index++) {
+            insertRuleWeek(ruleId, weeks[index]);
+            String[] range = utc(week(weeks[index], slot.getDayOfWeek()).date(),
+                    period(slot.getStartPeriod(), true), period(slot.getEndPeriod(), false));
+            insertOccurrence(occurrenceId + index, ruleId, PLAN, range[0], range[1], weeks[index],
+                    slot.getDayOfWeek());
+        }
     }
 
     /** Inserts an arrangement in another calendar whose occurrence UTC window is written literally. */
@@ -459,7 +535,8 @@ public final class CourseConflictMySqlTest {
         execute("DELETE FROM period_definition WHERE id BETWEEN 900000 AND 900999");
         execute("DELETE FROM day_template WHERE id BETWEEN 900000 AND 900999");
         execute("DELETE FROM teaching_calendar WHERE id BETWEEN 900000 AND 900999");
-        execute("DELETE FROM tbl_user WHERE UID='teacher-gamma'");
+        execute("DELETE FROM tbl_user WHERE UID IN"
+                + " ('teacher-gamma','teacher-delta','teacher-epsilon')");
     }
 
     private static void requireTestDatabase() throws Exception {
@@ -518,7 +595,8 @@ public final class CourseConflictMySqlTest {
                 && count("SELECT COUNT(*) FROM classroom WHERE id BETWEEN 900000 AND 900999") == 0
                 && count("SELECT COUNT(*) FROM calendar_date"
                 + " WHERE calendar_id BETWEEN 900000 AND 900999") == 0
-                && count("SELECT COUNT(*) FROM tbl_user WHERE UID='teacher-gamma'") == 0,
+                && count("SELECT COUNT(*) FROM tbl_user WHERE UID IN"
+                + " ('teacher-gamma','teacher-delta','teacher-epsilon')") == 0,
                 "cleanup must leave no fixture row behind");
     }
 

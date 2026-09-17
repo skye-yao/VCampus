@@ -358,7 +358,7 @@ public final class AdminCatalogDtoJsonTest {
                 "assistantUid", "status"));
 
         requireKeySet(blockingConflict(), Arrays.asList(
-                "type", "severity", "subjectId", "relatedOfferingId", "week",
+                "type", "severity", "subjectId", "relatedOfferingId", "week", "endWeek",
                 "dayOfWeek", "startPeriod", "endPeriod", "message"));
 
         requireKeySet(offeringResult(), Arrays.asList(
