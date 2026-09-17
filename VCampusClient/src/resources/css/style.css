@@ -1069,6 +1069,41 @@
     -fx-text-fill: #16a34a;
 }
 
+.notice-badge-chat {
+    -fx-background-color: #dcfce7;
+    -fx-text-fill: #15803d;
+}
+
+.notice-badge-bank {
+    -fx-background-color: #fef3c7;
+    -fx-text-fill: #b45309;
+}
+
+.notice-badge-danger {
+    -fx-background-color: #fee2e2;
+    -fx-text-fill: #b91c1c;
+}
+
+.notice-unread-pill {
+    -fx-background-color: #ef4444;
+    -fx-text-fill: #ffffff;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-background-radius: 10px;
+    -fx-padding: 1px 7px;
+}
+
+.dash-card-link-muted {
+    -fx-text-fill: #64748b;
+    -fx-font-size: 12px;
+    -fx-underline: false;
+    -fx-cursor: hand;
+}
+.dash-card-link-muted:hover {
+    -fx-text-fill: #0284c7;
+    -fx-underline: true;
+}
+
 /* 课表表格 */
 .schedule-table {
     -fx-background-color: #ffffff;

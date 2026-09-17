@@ -28,6 +28,10 @@ public final class MainControllerRoleRoutingTest {
             testMainViewExposesSchedulesAndAcademicCard();
             testAcademicMetricFormatting();
             testMainViewSidebarTwoLineSubtext();
+            testMainViewExposesChatNoticeItem();
+            testChatNoticeFormatting();
+            testMainViewExposesNotificationCenterAndDynamicContainer();
+            testNotificationCenterBadgeAndTiming();
             System.out.println("MainControllerRoleRoutingTest: PASS");
         } finally {
             ClientSession.getInstance().logout();
@@ -158,6 +162,62 @@ public final class MainControllerRoleRoutingTest {
                 "MainView.fxml must contain sidebarCollegeLabel for college line");
         require(fxml.contains("fx:id=\"sidebarMajorLabel\""),
                 "MainView.fxml must contain sidebarMajorLabel for major/position line");
+    }
+
+    private static void testMainViewExposesChatNoticeItem() throws IOException {
+        String fxml = readResource("/resources/fxml/MainView.fxml");
+        require(fxml.contains("fx:id=\"noticeItemThree\""),
+                "MainView.fxml must contain noticeItemThree for chat notice entry");
+        require(fxml.contains("fx:id=\"noticeBadgeThree\""),
+                "MainView.fxml must contain noticeBadgeThree");
+        require(fxml.contains("fx:id=\"chatNoticeLabel\""),
+                "MainView.fxml must contain chatNoticeLabel");
+        require(fxml.contains("fx:id=\"chatNoticeLink\""),
+                "MainView.fxml must contain chatNoticeLink");
+        require(fxml.contains("onAction=\"#openChat\""),
+                "MainView.fxml chat notice link must route to openChat");
+    }
+
+    private static void testChatNoticeFormatting() {
+        require("你有 2 条未读聊天消息，3 条好友申请待处理"
+                        .equals(MainController.formatChatNoticeText(2, 3)),
+                "both unread and pending should be combined");
+        require("你有 5 条未读聊天消息"
+                        .equals(MainController.formatChatNoticeText(5, 0)),
+                "only unread messages text should be formatted correctly");
+        require("你有 1 条好友申请待处理"
+                        .equals(MainController.formatChatNoticeText(0, 1)),
+                "only pending friend applications text should be formatted correctly");
+    }
+
+    private static void testMainViewExposesNotificationCenterAndDynamicContainer() throws IOException {
+        String fxml = readResource("/resources/fxml/MainView.fxml");
+        require(fxml.contains("fx:id=\"noticeUnreadCountLabel\""),
+                "MainView.fxml must contain noticeUnreadCountLabel for unread pill");
+        require(fxml.contains("fx:id=\"markAllReadLink\""),
+                "MainView.fxml must contain markAllReadLink");
+        require(fxml.contains("onAction=\"#handleMarkAllNotificationsRead\""),
+                "markAllReadLink must route to handleMarkAllNotificationsRead");
+        require(fxml.contains("fx:id=\"openNoticeCenterLink\""),
+                "MainView.fxml must contain openNoticeCenterLink");
+        require(fxml.contains("onAction=\"#openNotificationCenter\""),
+                "openNoticeCenterLink must route to openNotificationCenter");
+        require(fxml.contains("fx:id=\"dynamicNoticeContainer\""),
+                "MainView.fxml must contain dynamicNoticeContainer for event notifications");
+    }
+
+    private static void testNotificationCenterBadgeAndTiming() {
+        require("转账".equals(NotificationCenterDialog.badgeText("BANK")), "BANK badge text should be 转账");
+        require("群聊".equals(NotificationCenterDialog.badgeText("CHAT")), "CHAT badge text should be 群聊");
+        require("审核".equals(NotificationCenterDialog.badgeText("REVIEW")), "REVIEW badge text should be 审核");
+        require("系统".equals(NotificationCenterDialog.badgeText("OTHER")), "other badge text should be 系统");
+
+        require("notice-badge-bank".equals(NotificationCenterDialog.badgeStyleClass("BANK")), "BANK style should be notice-badge-bank");
+        require("notice-badge-chat".equals(NotificationCenterDialog.badgeStyleClass("CHAT")), "CHAT style should be notice-badge-chat");
+
+        String timeSample = "2026-09-17 11:42:15";
+        String formatted = MainController.formatShortTime(timeSample);
+        require(formatted != null && !formatted.isBlank(), "formatted short time must not be empty");
     }
 
     private static Harness route(String role) {

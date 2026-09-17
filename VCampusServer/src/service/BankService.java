@@ -148,6 +148,9 @@ public class BankService implements IBankPaymentService {
             insertTransaction(conn, newTransactionNo(), target, source.getUserId(), BankTransactionType.TRANSFER_IN,
                     amount, target.getBalance().add(amount), null, null,
                     "收到 " + source.getUserId() + " 的转账");
+            String senderName = queryUserName(conn, source.getUserId());
+            NotificationService.notify(conn, target.getUserId(), "BANK", "转账到账提醒",
+                    "「" + senderName + " (" + source.getUserId() + ")」向您转账 " + amount.toPlainString() + " 元", "BANK");
             conn.commit();
             return txNo;
         } catch (BusinessException e) {
@@ -244,6 +247,8 @@ public class BankService implements IBankPaymentService {
                         BankTransactionType.TRANSFER_IN, amountPerUser,
                         target.getBalance().add(amountPerUser), null, null,
                         traceRemark + "（批次" + batchTransactionNo + "）");
+                NotificationService.notify(conn, targetId, "BANK", "校园转账到账",
+                        "收到校园转账 " + amountPerUser.toPlainString() + " 元" + (traceRemark != null && !traceRemark.isBlank() ? "（" + traceRemark + "）" : ""), "BANK");
                 recipientIndex++;
             }
             conn.commit();
@@ -766,5 +771,19 @@ public class BankService implements IBankPaymentService {
             try { conn.setAutoCommit(true); } catch (SQLException ignored) { }
             DBUtil.close(conn, null, null);
         }
+    }
+
+    private String queryUserName(Connection conn, String uid) {
+        if (uid == null || uid.isBlank()) return "";
+        try (PreparedStatement ps = conn.prepareStatement("SELECT name FROM tbl_user WHERE UID=?")) {
+            ps.setString(1, uid.trim());
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    String name = rs.getString("name");
+                    if (name != null && !name.isBlank()) return name;
+                }
+            }
+        } catch (Exception ignored) { }
+        return uid;
     }
 }

@@ -27,6 +27,7 @@ public class MessageDispatcher {
     // 各模块 Handler
     private final UserHandler userHandler;
     private final handler.ChatHandler chatHandler = new handler.ChatHandler();
+    private final handler.NotificationHandler notificationHandler = new handler.NotificationHandler();
     private final StudentHandler studentHandler;
     private final TeacherHandler teacherHandler;
     private final ShopHandler shopHandler;
@@ -94,6 +95,8 @@ public class MessageDispatcher {
             return userHandler.handle(request);
         } else if ("chat".equalsIgnoreCase(module)) {
             return chatHandler.handle(request);
+        } else if ("notification".equalsIgnoreCase(module) || "notice".equalsIgnoreCase(module)) {
+            return notificationHandler.handle(request);
         } else if ("library".equalsIgnoreCase(module)) {
                 return libraryHandler.handle(request);
         } else if ("student".equalsIgnoreCase(module)) {

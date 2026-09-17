@@ -27,3 +27,9 @@
 .chat-root .chat-conversation-header { -fx-background-color: white; -fx-padding: 18 20; -fx-border-color: transparent transparent #e4eae5 transparent; }
 .chat-root .chat-composer { -fx-background-color: white; -fx-padding: 14 20; -fx-border-color: #e4eae5 transparent transparent transparent; }
 .chat-root .chat-person-card { -fx-background-color: white; -fx-background-radius: 8; -fx-padding: 12; -fx-border-color: #e2e9e3; -fx-border-radius: 8; }
+.chat-root .chat-tag-owner { -fx-background-color: #e67e22; -fx-background-radius: 4; -fx-text-fill: white; -fx-padding: 2 6; -fx-font-size: 11px; -fx-font-weight: bold; }
+.chat-root .chat-tag-member { -fx-background-color: #95a5a6; -fx-background-radius: 4; -fx-text-fill: white; -fx-padding: 2 6; -fx-font-size: 11px; }
+.chat-root .chat-danger-btn { -fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-weight: bold; }
+.chat-root .chat-danger-btn:hover { -fx-background-color: #c0392b; }
+.chat-root .chat-primary-btn { -fx-background-color: #507a56; -fx-text-fill: white; -fx-font-weight: bold; }
+.chat-root .chat-primary-btn:hover { -fx-background-color: #3e6544; }

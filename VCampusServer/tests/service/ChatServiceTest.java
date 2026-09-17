@@ -28,6 +28,12 @@ public final class ChatServiceTest {
                     String sql=new String(in.readAllBytes(),StandardCharsets.UTF_8).replaceAll("(?m)^--.*$","").replace("CREATE TABLE IF NOT EXISTS","CREATE TEMPORARY TABLE");
                     for(String part:sql.split(";"))if(!part.isBlank())s.execute(part);
                 }
+                try(var in=NotificationService.class.getResourceAsStream("/resources/migrations/v302_notification.sql")){
+                    if (in != null) {
+                        String sql=new String(in.readAllBytes(),StandardCharsets.UTF_8).replaceAll("(?m)^--.*$","").replace("CREATE TABLE IF NOT EXISTS","CREATE TEMPORARY TABLE");
+                        for(String part:sql.split(";"))if(!part.isBlank())s.execute(part);
+                    }
+                }
             }
             var peer=Map.<String,Object>of("peer","bob");
             check("test-avatar".equals(run("alice","AVATAR",peer).get("avatar")),"profile avatar");
@@ -57,7 +63,60 @@ public final class ChatServiceTest {
             run("alice","CONTACTS",Map.of());run("alice","SEARCH",Map.of("query","乙"));
             var unauth=new handler.ChatHandler().handle(new protocol.Message(protocol.MessageType.REQUEST,"chat","SUMMARY"));
             check(unauth.getCode()==protocol.MessageCode.UNAUTHORIZED,"authentication");
-            System.out.println("PASS: friend approval/rejection, authorization, retry deduplication, offline unread, history pagination and incremental catch-up; temporary tables only");
+
+            // Group chat tests
+            var createRes = run("alice", "GROUP_CREATE", Map.of("name", "东南大学交流群", "members", List.of("bob")));
+            long gid = ((Number)createRes.get("groupId")).longValue();
+            check(gid > 0, "group created with id");
+
+            var bobGroups = (List<Map<String, Object>>) run("bob", "GROUP_LIST", Map.of()).get("groups");
+            check(bobGroups.size() == 1 && "东南大学交流群".equals(bobGroups.get(0).get("name")), "bob directly in group");
+            check("MEMBER".equals(bobGroups.get(0).get("myRole")), "bob is member");
+            check(((Number)bobGroups.get(0).get("memberCount")).intValue() == 2, "group has 2 members");
+
+            var info = run("alice", "GROUP_INFO", Map.of("groupId", gid));
+            var members = (List<Map<String, Object>>) info.get("members");
+            check(members.size() == 2, "group info member count");
+
+            blocked("eve", "GROUP_INFO", Map.of("groupId", gid));
+            blocked("eve", "GROUP_SEND", Map.of("groupId", gid, "content", "hi", "clientId", UUID.randomUUID().toString()));
+
+            String gMsgKey = UUID.randomUUID().toString();
+            var sendGRes = run("alice", "GROUP_SEND", Map.of("groupId", gid, "content", "大家好！", "clientId", gMsgKey));
+            long gMsgId = ((Number)sendGRes.get("id")).longValue();
+            var retrySendGRes = run("alice", "GROUP_SEND", Map.of("groupId", gid, "content", "大家好！", "clientId", gMsgKey));
+            check(((Number)retrySendGRes.get("id")).longValue() == gMsgId, "group send deduplicate");
+            blocked("alice", "GROUP_SEND", Map.of("groupId", gid, "content", "diff", "clientId", gMsgKey));
+
+            bobGroups = (List<Map<String, Object>>) run("bob", "GROUP_LIST", Map.of()).get("groups");
+            check(((Number)bobGroups.get(0).get("unread")).intValue() >= 1, "bob sees group unread");
+
+            var gHistory = (List<Map<String, Object>>) run("bob", "GROUP_HISTORY", Map.of("groupId", gid)).get("messages");
+            check(!gHistory.isEmpty(), "bob sees group history");
+            run("bob", "GROUP_READ", Map.of("groupId", gid, "through", gMsgId));
+            bobGroups = (List<Map<String, Object>>) run("bob", "GROUP_LIST", Map.of()).get("groups");
+            check(((Number)bobGroups.get(0).get("unread")).intValue() == 0, "bob marked read");
+
+            run("alice", "GROUP_ADD_MEMBERS", Map.of("groupId", gid, "members", List.of("eve")));
+            var eveGroups = (List<Map<String, Object>>) run("eve", "GROUP_LIST", Map.of()).get("groups");
+            check(eveGroups.size() == 1, "eve directly added to group");
+
+            blocked("bob", "GROUP_RENAME", Map.of("groupId", gid, "name", "黑客帝国"));
+            run("alice", "GROUP_RENAME", Map.of("groupId", gid, "name", "东南大学技术交流群"));
+            var updatedInfo = run("bob", "GROUP_INFO", Map.of("groupId", gid));
+            check("东南大学技术交流群".equals(((Map<String, Object>)updatedInfo.get("group")).get("name")), "group renamed");
+
+            blocked("bob", "GROUP_KICK", Map.of("groupId", gid, "memberUid", "eve"));
+            blocked("alice", "GROUP_KICK", Map.of("groupId", gid, "memberUid", "alice"));
+            run("alice", "GROUP_KICK", Map.of("groupId", gid, "memberUid", "eve"));
+            blocked("eve", "GROUP_HISTORY", Map.of("groupId", gid));
+
+            blocked("bob", "GROUP_DISSOLVE", Map.of("groupId", gid));
+            run("alice", "GROUP_DISSOLVE", Map.of("groupId", gid));
+            var aliceGroupsAfter = (List<Map<String, Object>>) run("alice", "GROUP_LIST", Map.of()).get("groups");
+            check(aliceGroupsAfter.isEmpty(), "group dissolved");
+
+            System.out.println("PASS: friend and group chat (create, direct entry, send, read, history, kick, rename, dissolve); temporary tables only");
         }
     }
 }

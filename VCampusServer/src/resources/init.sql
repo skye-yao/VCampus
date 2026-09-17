@@ -1802,3 +1802,71 @@ ALTER TABLE tbl_product
     DROP CHECK chk_product_category,
     ADD CONSTRAINT chk_product_category
         CHECK (category IN ('文具', '教材资料', '校园纪念品', '生活用品', '食品'));
+
+-- ============================================================
+-- 8. 聊天与群聊系统表
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `tbl_chat_friend` (
+    `user_low` VARCHAR(32) NOT NULL,
+    `user_high` VARCHAR(32) NOT NULL,
+    `requester` VARCHAR(32) NOT NULL,
+    `status` VARCHAR(12) NOT NULL DEFAULT 'PENDING',
+    `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`user_low`, `user_high`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `tbl_chat_message` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    `sender` VARCHAR(32) NOT NULL,
+    `recipient` VARCHAR(32) NOT NULL,
+    `client_id` VARCHAR(36) NOT NULL,
+    `content` TEXT NOT NULL,
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `read_at` TIMESTAMP NULL,
+    UNIQUE KEY `uq_chat_retry` (`sender`, `client_id`),
+    KEY `ix_chat_inbox` (`recipient`, `read_at`, `id`),
+    KEY `ix_chat_history` (`sender`, `recipient`, `id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `tbl_chat_group` (
+    `group_id` BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    `name` VARCHAR(100) NOT NULL COMMENT '群聊名称',
+    `owner_uid` VARCHAR(32) NOT NULL COMMENT '群主一卡通号',
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    KEY `ix_chat_group_owner` (`owner_uid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `tbl_chat_group_member` (
+    `group_id` BIGINT NOT NULL,
+    `uid` VARCHAR(32) NOT NULL,
+    `role` VARCHAR(12) NOT NULL DEFAULT 'MEMBER' COMMENT 'OWNER 或 MEMBER',
+    `last_read_id` BIGINT NOT NULL DEFAULT 0 COMMENT '已读最新消息ID',
+    `joined_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`group_id`, `uid`),
+    KEY `ix_chat_group_member_uid` (`uid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `tbl_chat_group_message` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    `group_id` BIGINT NOT NULL,
+    `sender` VARCHAR(32) NOT NULL,
+    `client_id` VARCHAR(36) NOT NULL,
+    `content` TEXT NOT NULL,
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY `uq_group_msg_retry` (`sender`, `client_id`),
+    KEY `ix_group_msg_history` (`group_id`, `id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 9. 校园统一消息通知中心
+CREATE TABLE IF NOT EXISTS `tbl_system_notification` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    `recipient_uid` VARCHAR(32) NOT NULL COMMENT '接收人一卡通号',
+    `category` VARCHAR(32) NOT NULL DEFAULT 'SYSTEM' COMMENT '分类: CHAT, BANK, REVIEW, LIBRARY, SHOP, SYSTEM',
+    `title` VARCHAR(128) NOT NULL COMMENT '通知标题',
+    `content` VARCHAR(512) NOT NULL COMMENT '通知内容',
+    `link_action` VARCHAR(64) DEFAULT NULL COMMENT '跳转目标: CHAT, BANK, STUDENT_STATUS, TEACHER_STATUS, LIBRARY, SHOP',
+    `is_read` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '0-未读, 1-已读',
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY `ix_notif_recipient` (`recipient_uid`, `is_read`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

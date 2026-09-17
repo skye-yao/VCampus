@@ -155,6 +155,12 @@ public class StudentService implements IStudentService {
                 if (!requests.review(connection, requestId, result, reviewer, remark)) {
                     throw new IllegalStateException("申请状态已变化");
                 }
+                String studentUid = request.getStudentId();
+                String reviewTitle = "学籍审核结果";
+                String reviewContent = result == StudentChangeStatus.APPROVED
+                        ? "您的学籍信息修改申请已审核通过"
+                        : "您的学籍信息修改申请已被驳回" + (remark != null && !remark.isBlank() ? "（原因：" + remark + "）" : "");
+                NotificationService.notify(connection, studentUid, "REVIEW", reviewTitle, reviewContent, "STUDENT_STATUS");
                 connection.commit();
             }
             catch (Exception exception) {

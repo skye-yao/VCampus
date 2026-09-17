@@ -17,11 +17,18 @@ import javafx.scene.control.Hyperlink;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressBar;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.Tooltip;
+import javafx.geometry.Pos;
+import javafx.scene.layout.Priority;
+import javafx.stage.Window;
+import entity.SystemNotification;
+import service.NotificationClientService;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.shape.Circle;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import model.course.CourseTermView;
@@ -164,6 +171,7 @@ public class MainController {
     @FXML private Label libraryBorrowNoticeLabel;
     @FXML private Label libraryReservationNoticeLabel;
     @FXML private Label libraryFineNoticeLabel;
+    @FXML private Label chatNoticeLabel;
     @FXML private Label noticeBadgeOne;
     @FXML private Label noticeBadgeTwo;
     @FXML private Label noticeBadgeThree;
@@ -176,9 +184,17 @@ public class MainController {
     @FXML private Hyperlink libraryTaskNoticeLink;
     @FXML private Hyperlink shopTaskNoticeLink;
     @FXML private Hyperlink libraryNoticeLink;
+    @FXML private Hyperlink chatNoticeLink;
+    @FXML private Label noticeUnreadCountLabel;
+    @FXML private Hyperlink markAllReadLink;
+    @FXML private Hyperlink openNoticeCenterLink;
+    @FXML private VBox dynamicNoticeContainer;
 
     private long noticeOneCount = Long.MIN_VALUE;
     private long noticeTwoCount = Long.MIN_VALUE;
+    private long noticeThreeCount = Long.MIN_VALUE;
+    private long dynamicNoticeCount = Long.MIN_VALUE;
+    private final NotificationClientService notificationClientService = new NotificationClientService();
 
     // ===== 一卡通金额卡片 =====
     @FXML private Label walletBalanceLabel;
@@ -187,7 +203,13 @@ public class MainController {
     @FXML
     public void initialize() {
         instance = this;
-        if (navChatBtn != null) chatEntry = new ChatEntry(navChatBtn,this::openChat);
+        if (navChatBtn != null) {
+            chatEntry = new ChatEntry(navChatBtn, this::openChat, this::updateChatNotice);
+        }
+        if (noticeItemThree != null) {
+            noticeItemThree.setOnMouseClicked(e -> openChat());
+            noticeItemThree.setStyle("-fx-cursor: hand;");
+        }
 
         // 1. 读取并显示当前用户本地 Session 数据
         loadUserData();
@@ -450,18 +472,22 @@ public class MainController {
     }
 
     /**
-     * 异步读取图书馆通知消息
+     * 异步读取主页通知消息（审核待办、图书馆图书、商店订单及聊天消息）
      */
     private void loadNotices() {
+        resetNoticeState();
         if (isAdminUser()) loadInformationReviewNotices();
         else loadLibraryNotices();
+        if (chatEntry != null) {
+            chatEntry.triggerRefresh();
+        }
+        loadDynamicNotifications();
     }
 
     private void loadInformationReviewNotices() {
         resetNoticeState();
         if (noticeBadgeOne != null) noticeBadgeOne.setText("学生信息");
         if (noticeBadgeTwo != null) noticeBadgeTwo.setText("教师信息");
-        setManagedVisible(noticeItemThree, false);
         setManagedVisible(studentReviewNoticeLink, true);
         setManagedVisible(teacherReviewNoticeLink, true);
         setManagedVisible(libraryTaskNoticeLink, false);
@@ -528,7 +554,6 @@ public class MainController {
         resetNoticeState();
         if (noticeBadgeOne != null) noticeBadgeOne.setText("图书馆");
         if (noticeBadgeTwo != null) noticeBadgeTwo.setText("商店");
-        setManagedVisible(noticeItemThree, false);
         setManagedVisible(studentReviewNoticeLink, false);
         setManagedVisible(teacherReviewNoticeLink, false);
         setManagedVisible(libraryTaskNoticeLink, true);
@@ -581,19 +606,162 @@ public class MainController {
                 : "你有 " + count + " " + unitText);
     }
 
+    public void updateChatNotice(int unread, int pending) {
+        if (noticeItemThree == null) return;
+        if (unread < 0) {
+            setManagedVisible(noticeItemThree, false);
+            recordNoticeCount(noticeItemThree, 0);
+            return;
+        }
+        long total = unread + pending;
+        setManagedVisible(noticeItemThree, total > 0);
+        recordNoticeCount(noticeItemThree, total);
+        if (total > 0) {
+            if (noticeBadgeThree != null) {
+                noticeBadgeThree.setText("聊天");
+            }
+            String text = formatChatNoticeText(unread, pending);
+            Label label = chatNoticeLabel != null ? chatNoticeLabel : libraryFineNoticeLabel;
+            if (label != null) {
+                label.setText(text);
+            }
+            if (chatNoticeLink != null) {
+                setManagedVisible(chatNoticeLink, true);
+            }
+        }
+    }
+
+    static String formatChatNoticeText(int unread, int pending) {
+        if (unread > 0 && pending > 0) {
+            return "你有 " + unread + " 条未读聊天消息，" + pending + " 条好友申请待处理";
+        } else if (unread > 0) {
+            return "你有 " + unread + " 条未读聊天消息";
+        } else {
+            return "你有 " + pending + " 条好友申请待处理";
+        }
+    }
+
     private void resetNoticeState() {
         noticeOneCount = Long.MIN_VALUE;
         noticeTwoCount = Long.MIN_VALUE;
+        noticeThreeCount = Long.MIN_VALUE;
+        dynamicNoticeCount = Long.MIN_VALUE;
         setManagedVisible(noticeEmptyPane, false);
         setManagedVisible(noticeItemOne, true);
         setManagedVisible(noticeItemTwo, true);
+        setManagedVisible(noticeItemThree, false);
+        if (dynamicNoticeContainer != null) dynamicNoticeContainer.getChildren().clear();
     }
 
     private void recordNoticeCount(HBox item, long count) {
         if (item == noticeItemOne) noticeOneCount = count;
         if (item == noticeItemTwo) noticeTwoCount = count;
-        boolean loaded = noticeOneCount != Long.MIN_VALUE && noticeTwoCount != Long.MIN_VALUE;
-        setManagedVisible(noticeEmptyPane, loaded && noticeOneCount == 0 && noticeTwoCount == 0);
+        if (item == noticeItemThree) noticeThreeCount = count;
+        checkAllNoticesLoaded();
+    }
+
+    private void recordDynamicNoticeCount(long count) {
+        dynamicNoticeCount = count;
+        checkAllNoticesLoaded();
+    }
+
+    private void checkAllNoticesLoaded() {
+        long n3 = (chatEntry == null && noticeThreeCount == Long.MIN_VALUE) ? 0 : noticeThreeCount;
+        long nDyn = (dynamicNoticeCount == Long.MIN_VALUE) ? 0 : dynamicNoticeCount;
+        boolean loaded = noticeOneCount != Long.MIN_VALUE && noticeTwoCount != Long.MIN_VALUE && n3 != Long.MIN_VALUE;
+        boolean allZero = noticeOneCount <= 0 && noticeTwoCount <= 0 && n3 <= 0 && nDyn <= 0;
+        setManagedVisible(noticeEmptyPane, loaded && allZero);
+    }
+
+    public void loadDynamicNotifications() {
+        notificationClientService.list(true, 5, 0).thenAccept(list -> Platform.runLater(() -> {
+            renderDynamicNotifications(list);
+        })).exceptionally(e -> {
+            Platform.runLater(() -> recordDynamicNoticeCount(0));
+            return null;
+        });
+
+        notificationClientService.unreadCount().thenAccept(count -> Platform.runLater(() -> {
+            updateUnreadCountBadge(count != null ? count : 0L);
+        })).exceptionally(e -> null);
+    }
+
+    private void updateUnreadCountBadge(long count) {
+        if (noticeUnreadCountLabel != null) {
+            if (count > 0) {
+                noticeUnreadCountLabel.setText(count > 99 ? "99+" : String.valueOf(count));
+                setManagedVisible(noticeUnreadCountLabel, true);
+            } else {
+                setManagedVisible(noticeUnreadCountLabel, false);
+            }
+        }
+        if (markAllReadLink != null) {
+            setManagedVisible(markAllReadLink, count > 0);
+        }
+    }
+
+    private void renderDynamicNotifications(List<SystemNotification> list) {
+        if (dynamicNoticeContainer == null) {
+            recordDynamicNoticeCount(0);
+            return;
+        }
+        dynamicNoticeContainer.getChildren().clear();
+        if (list == null || list.isEmpty()) {
+            recordDynamicNoticeCount(0);
+            return;
+        }
+
+        for (SystemNotification n : list) {
+            HBox row = new HBox(8);
+            row.setAlignment(Pos.CENTER_LEFT);
+            row.getStyleClass().add("notice-item");
+            row.setStyle("-fx-cursor: hand;");
+
+            Label badge = new Label(NotificationCenterDialog.badgeText(n.getCategory()));
+            badge.getStyleClass().addAll("notice-badge", NotificationCenterDialog.badgeStyleClass(n.getCategory()));
+
+            Label contentLabel = new Label(n.getContent());
+            contentLabel.setStyle("-fx-text-fill: #1e293b;");
+            Tooltip.install(contentLabel, new Tooltip(n.getContent()));
+
+            Region spacer = new Region();
+            HBox.setHgrow(spacer, Priority.ALWAYS);
+
+            Label timeLabel = new Label(formatShortTime(n.getCreatedAt()));
+            timeLabel.setStyle("-fx-text-fill: #94a3b8; -fx-font-size: 11px;");
+
+            Hyperlink viewLink = new Hyperlink("查看 >");
+            viewLink.getStyleClass().add("dash-card-link");
+
+            row.getChildren().addAll(badge, contentLabel, spacer, timeLabel, viewLink);
+
+            Runnable onClick = () -> {
+                notificationClientService.markRead(n.getId()).thenRun(() -> {});
+                navigateToAction(n.getLinkAction());
+            };
+            row.setOnMouseClicked(e -> onClick.run());
+            viewLink.setOnAction(e -> {
+                e.consume();
+                onClick.run();
+            });
+
+            dynamicNoticeContainer.getChildren().add(row);
+        }
+        recordDynamicNoticeCount(list.size());
+    }
+
+    static String formatShortTime(String dateTime) {
+        if (dateTime == null || dateTime.length() < 16) return "";
+        try {
+            String today = java.time.LocalDate.now().toString();
+            if (dateTime.startsWith(today)) {
+                return dateTime.substring(11, 16);
+            } else {
+                return dateTime.substring(5, 10);
+            }
+        } catch (Exception e) {
+            return dateTime;
+        }
     }
 
     private void showAvatar(ImageView view, String base64) {
@@ -744,6 +912,7 @@ public class MainController {
     // ===== 页面导航动作 =====
     private ChatPane chatPane;
 
+    @FXML
     public void openChat() {
         if (chatPane != null && rootMain.getCenter() == chatPane.getView()) return;
         PageLeaveGuard previousGuard=PageLeaveGuard.active();
@@ -756,6 +925,11 @@ public class MainController {
         ClientMain.setPageCleanup(()->{page.close();if(chatPane==page)chatPane=null;});
         updateActiveNavButton(navChatBtn);
         page.start();
+    }
+
+    @FXML
+    public void openChat(ActionEvent event) {
+        openChat();
     }
 
     @FXML
@@ -856,6 +1030,31 @@ public class MainController {
             }
         }
         loadCenterView("/resources/fxml/BankView.fxml");
+    }
+
+    @FXML
+    public void handleMarkAllNotificationsRead(ActionEvent event) {
+        notificationClientService.markAllRead().thenRun(() -> Platform.runLater(this::loadDynamicNotifications));
+    }
+
+    @FXML
+    public void openNotificationCenter(ActionEvent event) {
+        Window owner = (rootMain != null && rootMain.getScene() != null) ? rootMain.getScene().getWindow() : null;
+        new NotificationCenterDialog(this::navigateToAction, this::loadDynamicNotifications).show(owner);
+    }
+
+    public void navigateToAction(String linkAction) {
+        if (linkAction == null || linkAction.isBlank()) return;
+        switch (linkAction.toUpperCase()) {
+            case "CHAT" -> openChat();
+            case "BANK" -> openBank(null);
+            case "STUDENT_STATUS", "STUDENT" -> openStudentAffairs(null);
+            case "TEACHER_STATUS", "TEACHER" -> openStudentAffairs(null);
+            case "LIBRARY" -> openLibrary(null);
+            case "SHOP", "STORE" -> openStore(null);
+            case "COURSE" -> openCourseSelection(null);
+            default -> {}
+        }
     }
 
     @FXML

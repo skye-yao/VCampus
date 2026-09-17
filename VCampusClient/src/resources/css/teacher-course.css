@@ -142,6 +142,27 @@
     -fx-background-color: #456045;
 }
 
+.teacher-course-row-group-button {
+    -fx-background-color: #3b71ca;
+    -fx-background-radius: 4px;
+    -fx-text-fill: #ffffff;
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-padding: 6px 12px 6px 12px;
+    -fx-cursor: hand;
+}
+
+.teacher-course-row-group-button:hover {
+    -fx-background-color: #2b579a;
+}
+
+.teacher-course-row-group-button:disabled {
+    -fx-background-color: #cfd8cf;
+    -fx-text-fill: #7d8a7e;
+    -fx-opacity: 0.85;
+    -fx-cursor: default;
+}
+
 /* 提交是写操作里最重的一步：与“保存草稿”用不同颜色区分，避免误点。 */
 .teacher-course-submit-button {
     -fx-background-color: #fdd000;

@@ -19,3 +19,30 @@ CREATE TABLE IF NOT EXISTS tbl_chat_message (
  KEY ix_chat_inbox(recipient,read_at,id),
  KEY ix_chat_history(sender,recipient,id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE IF NOT EXISTS tbl_chat_group (
+ group_id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ name VARCHAR(100) NOT NULL,
+ owner_uid VARCHAR(32) NOT NULL,
+ created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+ KEY ix_chat_group_owner(owner_uid)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE IF NOT EXISTS tbl_chat_group_member (
+ group_id BIGINT NOT NULL,
+ uid VARCHAR(32) NOT NULL,
+ role VARCHAR(12) NOT NULL DEFAULT 'MEMBER',
+ last_read_id BIGINT NOT NULL DEFAULT 0,
+ joined_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ PRIMARY KEY(group_id,uid),
+ KEY ix_chat_group_member_uid(uid)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE IF NOT EXISTS tbl_chat_group_message (
+ id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ group_id BIGINT NOT NULL,
+ sender VARCHAR(32) NOT NULL,
+ client_id VARCHAR(36) NOT NULL,
+ content TEXT NOT NULL,
+ created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ UNIQUE KEY uq_group_msg_retry(sender,client_id),
+ KEY ix_group_msg_history(group_id,id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

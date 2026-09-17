@@ -79,23 +79,28 @@ public class AiService {
             apiKey = envKey.trim();
         }
 
-        // 2. 其次读取 server.properties 配置文件作为备选/默认配置
+        // 2. 其次读取 server.properties 配置文件作为备选/默认配置（优先运行目录同级文件，其次读取 classpath 资源）
         try {
-            InputStream is = getClass().getClassLoader().getResourceAsStream("resources/server.properties");
+            java.io.File external = new java.io.File("server.properties");
+            InputStream is = (external.exists() && external.isFile())
+                    ? new java.io.FileInputStream(external)
+                    : getClass().getClassLoader().getResourceAsStream("resources/server.properties");
             if (is != null) {
-                Properties props = new Properties();
-                props.load(is);
-                String url = props.getProperty("ai.api.url", "").trim();
-                // LangChain4j 需要 base URL（不含 /chat/completions 后缀）
-                if (!url.isEmpty()) {
-                    apiUrl = url.replace("/chat/completions", "");
+                try (is) {
+                    Properties props = new Properties();
+                    props.load(is);
+                    String url = props.getProperty("ai.api.url", "").trim();
+                    // LangChain4j 需要 base URL（不含 /chat/completions 后缀）
+                    if (!url.isEmpty()) {
+                        apiUrl = url.replace("/chat/completions", "");
+                    }
+                    if (apiKey.isEmpty()) {
+                        String key = props.getProperty("ai.api.key", "").trim();
+                        if (!key.isEmpty()) apiKey = key;
+                    }
+                    String model = props.getProperty("ai.model", "").trim();
+                    if (!model.isEmpty()) modelName = model;
                 }
-                if (apiKey.isEmpty()) {
-                    String key = props.getProperty("ai.api.key", "").trim();
-                    if (!key.isEmpty()) apiKey = key;
-                }
-                String model = props.getProperty("ai.model", "").trim();
-                if (!model.isEmpty()) modelName = model;
             }
         } catch (Exception e) {
             System.err.println("[AI] 读取配置文件警告: " + e.getMessage());
@@ -436,6 +441,9 @@ public class AiService {
                 return new String[]{content, String.valueOf(pt), String.valueOf(ct)};
             } catch (Exception e) {
                 System.err.println("[AI] LangChain4j 调用异常，降级离线: " + e.getMessage());
+                if (e.getMessage() != null && (e.getMessage().contains("Authentication") || e.getMessage().contains("api key"))) {
+                    System.err.println("[AI] 提示：当前大模型 API Key 无效或已失效，请在 server.properties 中配置有效的 ai.api.key！");
+                }
             }
         }
         // 离线降级

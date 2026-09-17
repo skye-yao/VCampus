@@ -270,50 +270,58 @@
                                             <children>
                                                 <HBox alignment="CENTER_LEFT" spacing="8.0">
                                                     <children>
-                                                        <Label styleClass="dashboard-card-title" text="🔔  消息通知" />
-                                                    </children>
-                                                </HBox>
+                                                         <Label styleClass="dashboard-card-title" text="🔔  消息通知" />
+                                                         <Label fx:id="noticeUnreadCountLabel" managed="false" styleClass="notice-unread-pill" text="0" visible="false" />
+                                                         <Region HBox.hgrow="ALWAYS" />
+                                                         <Hyperlink fx:id="markAllReadLink" managed="false" onAction="#handleMarkAllNotificationsRead" styleClass="dash-card-link-muted" text="全部已读" visible="false" />
+                                                         <Hyperlink fx:id="openNoticeCenterLink" onAction="#openNotificationCenter" styleClass="dash-card-link" text="消息中心 &gt;" />
+                                                     </children>
+                                                 </HBox>
 
-                                                <!-- 图书馆相关消息列表 -->
-                                                <VBox fx:id="noticeContainer" spacing="8.0" VBox.vgrow="ALWAYS">
-                                                    <children>
-                                                        <HBox fx:id="noticeItemOne" alignment="CENTER_LEFT" spacing="8.0" styleClass="notice-item">
-                                                            <children>
-                                                                <Label fx:id="noticeBadgeOne" styleClass="notice-badge, notice-badge-info" text="图书在借" />
-                                                                <Label fx:id="libraryBorrowNoticeLabel" text="正在读取图书借阅情况..." />
-                                                                <Region HBox.hgrow="ALWAYS" />
-                                                                <Hyperlink fx:id="studentReviewNoticeLink" managed="false" onAction="#openStudentReviewNotifications" styleClass="dash-card-link" text="点击进入 &gt;" visible="false" />
-                                                                <Hyperlink fx:id="libraryTaskNoticeLink" managed="false" onAction="#openLibrary" styleClass="dash-card-link" text="点击进入 &gt;" visible="false" />
-                                                            </children>
-                                                        </HBox>
-                                                        <HBox fx:id="noticeItemTwo" alignment="CENTER_LEFT" spacing="8.0" styleClass="notice-item">
-                                                            <children>
-                                                                <Label fx:id="noticeBadgeTwo" styleClass="notice-badge, notice-badge-success" text="商店" />
-                                                                <Label fx:id="libraryReservationNoticeLabel" text="正在读取未支付订单..." />
-                                                                <Region HBox.hgrow="ALWAYS" />
-                                                                <Hyperlink fx:id="teacherReviewNoticeLink" managed="false" onAction="#openTeacherReviewNotifications" styleClass="dash-card-link" text="点击进入 &gt;" visible="false" />
-                                                                <Hyperlink fx:id="shopTaskNoticeLink" managed="false" onAction="#openStore" styleClass="dash-card-link" text="点击进入 &gt;" visible="false" />
-                                                            </children>
-                                                        </HBox>
-                                                        <HBox fx:id="noticeItemThree" alignment="CENTER_LEFT" spacing="8.0" styleClass="notice-item">
-                                                            <children>
-                                                                <Label fx:id="noticeBadgeThree" styleClass="notice-badge, notice-badge-warning" text="图书欠款" />
-                                                                <Label fx:id="libraryFineNoticeLabel" text="暂无未缴逾期罚款" />
-                                                            </children>
-                                                        </HBox>
-                                                        <StackPane fx:id="noticeEmptyPane" managed="false" visible="false" VBox.vgrow="ALWAYS">
-                                                            <children>
-                                                                <Label style="-fx-text-fill: #64748b; -fx-font-size: 14px;" text="暂无消息通知" />
-                                                            </children>
-                                                        </StackPane>
-                                                    </children>
-                                                </VBox>
-                                                <!-- 右下角跳转超链接 -->
-                                                <HBox alignment="CENTER_RIGHT">
-                                                    <children>
-                                                        <Hyperlink fx:id="libraryNoticeLink" onAction="#openLibrary" styleClass="dash-card-link" text="转子界面 &gt;" />
-                                                    </children>
-                                                </HBox>
+                                                 <!-- 消息通知与待办列表 -->
+                                                 <VBox fx:id="noticeContainer" spacing="8.0" VBox.vgrow="ALWAYS">
+                                                     <children>
+                                                         <HBox fx:id="noticeItemOne" alignment="CENTER_LEFT" spacing="8.0" styleClass="notice-item">
+                                                             <children>
+                                                                 <Label fx:id="noticeBadgeOne" styleClass="notice-badge, notice-badge-info" text="图书在借" />
+                                                                 <Label fx:id="libraryBorrowNoticeLabel" text="正在读取图书借阅情况..." />
+                                                                 <Region HBox.hgrow="ALWAYS" />
+                                                                 <Hyperlink fx:id="studentReviewNoticeLink" managed="false" onAction="#openStudentReviewNotifications" styleClass="dash-card-link" text="点击进入 &gt;" visible="false" />
+                                                                 <Hyperlink fx:id="libraryTaskNoticeLink" managed="false" onAction="#openLibrary" styleClass="dash-card-link" text="点击进入 &gt;" visible="false" />
+                                                             </children>
+                                                         </HBox>
+                                                         <HBox fx:id="noticeItemTwo" alignment="CENTER_LEFT" spacing="8.0" styleClass="notice-item">
+                                                             <children>
+                                                                 <Label fx:id="noticeBadgeTwo" styleClass="notice-badge, notice-badge-success" text="商店" />
+                                                                 <Label fx:id="libraryReservationNoticeLabel" text="正在读取未支付订单..." />
+                                                                 <Region HBox.hgrow="ALWAYS" />
+                                                                 <Hyperlink fx:id="teacherReviewNoticeLink" managed="false" onAction="#openTeacherReviewNotifications" styleClass="dash-card-link" text="点击进入 &gt;" visible="false" />
+                                                                 <Hyperlink fx:id="shopTaskNoticeLink" managed="false" onAction="#openStore" styleClass="dash-card-link" text="点击进入 &gt;" visible="false" />
+                                                             </children>
+                                                         </HBox>
+                                                         <HBox fx:id="noticeItemThree" alignment="CENTER_LEFT" spacing="8.0" styleClass="notice-item" managed="false" visible="false">
+                                                             <children>
+                                                                 <Label fx:id="noticeBadgeThree" styleClass="notice-badge, notice-badge-chat" text="聊天" />
+                                                                 <Label fx:id="chatNoticeLabel" text="正在读取消息通知..." />
+                                                                 <Region HBox.hgrow="ALWAYS" />
+                                                                 <Hyperlink fx:id="chatNoticeLink" onAction="#openChat" styleClass="dash-card-link" text="点击进入 &gt;" />
+                                                             </children>
+                                                         </HBox>
+                                                         <!-- 动态事件通知列表 (转账、群聊踢人/解散、业务审核结果等) -->
+                                                         <VBox fx:id="dynamicNoticeContainer" spacing="8.0" />
+                                                         <StackPane fx:id="noticeEmptyPane" managed="false" visible="false" VBox.vgrow="ALWAYS">
+                                                             <children>
+                                                                 <Label style="-fx-text-fill: #64748b; -fx-font-size: 14px;" text="暂无消息通知" />
+                                                             </children>
+                                                         </StackPane>
+                                                     </children>
+                                                 </VBox>
+                                                 <!-- 右下角跳转超链接 -->
+                                                 <HBox alignment="CENTER_RIGHT">
+                                                     <children>
+                                                         <Hyperlink fx:id="libraryNoticeLink" onAction="#openLibrary" styleClass="dash-card-link" text="转子界面 &gt;" managed="false" visible="false" />
+                                                     </children>
+                                                 </HBox>
                                             </children>
                                         </VBox>
 

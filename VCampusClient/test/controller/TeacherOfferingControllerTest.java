@@ -8,16 +8,20 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import javax.xml.parsers.DocumentBuilderFactory;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
+import com.google.gson.JsonObject;
 import dto.course.CourseTermDTO;
 import dto.course.admin.schedule.ScheduleArrangementDTO;
+import dto.course.admin.schedule.ScheduleResourceDTO;
 import dto.course.teacher.TeacherOfferingDTO;
 import dto.course.teacher.TeacherOfferingDetailDTO;
 import dto.course.teacher.TeacherPageDTO;
@@ -25,6 +29,7 @@ import dto.course.teacher.TeacherRosterRowDTO;
 import dto.course.teacher.TeacherScheduleWeekDTO;
 import javafx.event.ActionEvent;
 import javafx.event.Event;
+import service.ChatClientService;
 import service.TeacherCourseService;
 
 /**
@@ -54,6 +59,9 @@ public final class TeacherOfferingControllerTest {
         hiddenPageIgnoresLateResponsesButKeepsTermQueryAndPage();
         detailRowOpensTheOffering();
         cellsAndStatusTextComeFromTheDto();
+        createGroupChatAddsAllStudentsAndTeachers();
+        duplicateGroupCreationIsPrevented();
+        existingGroupsAreSyncedAndRecognized();
         viewIsTheOfferingListPage(parseView());
         System.out.println("TeacherOfferingControllerTest: PASS");
     }
@@ -270,6 +278,121 @@ public final class TeacherOfferingControllerTest {
                 "every server status value must have a stable Chinese label");
     }
 
+    private static void createGroupChatAddsAllStudentsAndTeachers() {
+        ControlledService service = new ControlledService();
+        service.terms = List.of(term(2025, 3));
+        TeacherOfferingDTO offering = offering(FULL_ROSTER, "CS203-01", "数据结构 CS203-01",
+                "2001", "CS203", "数据结构与算法基础", 4.0, 2025, 3, 2, 30, "OPEN");
+        service.offeringPage = offeringPage(1, 1, 20, offering);
+
+        // 名单模拟：2 名学生
+        TeacherRosterRowDTO s1 = new TeacherRosterRowDTO("e1", "213001", "张三", "计算机", "ENROLLED", null, null);
+        TeacherRosterRowDTO s2 = new TeacherRosterRowDTO("e2", "213002", "李四", "软件", "ENROLLED", null, null);
+        service.studentPages.put(FULL_ROSTER, new TeacherPageDTO<>(List.of(s1, s2), 2, 1, 100));
+
+        // 详情模拟：1 名同班任课教师
+        ScheduleResourceDTO coTeacher = new ScheduleResourceDTO("t002", "t002", "王老师", "teacher", 0);
+        service.offeringDetails.put(FULL_ROSTER, new TeacherOfferingDetailDTO(offering, List.of(coTeacher), "计算机学院", "简介"));
+
+        // 模拟 ChatClientService
+        List<Map<String, Object>> createdGroups = new ArrayList<>();
+        ChatClientService chatService = new ChatClientService() {
+            @Override
+            public CompletableFuture<JsonObject> call(String action, Map<String, Object> data) {
+                if ("GROUP_CREATE".equals(action)) {
+                    createdGroups.add(data);
+                    JsonObject res = new JsonObject();
+                    res.addProperty("groupId", 888L);
+                    res.addProperty("name", (String) data.get("name"));
+                    return CompletableFuture.completedFuture(res);
+                }
+                return CompletableFuture.completedFuture(new JsonObject());
+            }
+        };
+
+        TeacherOfferingController controller = new TeacherOfferingController(service, chatService, Runnable::run);
+        controller.activate();
+
+        require(!controller.isGroupCreated("数据结构 CS203-01"), "group should not be created initially");
+
+        boolean success = controller.createGroupChat(offering).join();
+        require(success, "createGroupChat should succeed");
+
+        // 校验 ChatClientService 被正确调用
+        require(createdGroups.size() == 1, "GROUP_CREATE must be called once, saw " + createdGroups.size());
+        Map<String, Object> createData = createdGroups.get(0);
+        require("数据结构 CS203-01".equals(createData.get("name")), "group name must be offering name");
+        @SuppressWarnings("unchecked")
+        List<String> members = (List<String>) createData.get("members");
+        require(members.contains("213001") && members.contains("213002"), "students must be added");
+        require(members.contains("t002"), "co-teachers must be added");
+
+        // 校验控制器状态
+        require(controller.isGroupCreated("数据结构 CS203-01"), "group must be recorded as created");
+        require(!controller.isGroupCreating(FULL_ROSTER), "creating flag must be cleared");
+    }
+
+    private static void duplicateGroupCreationIsPrevented() {
+        ControlledService service = new ControlledService();
+        service.terms = List.of(term(2025, 3));
+        TeacherOfferingDTO offering = offering(FULL_ROSTER, "CS203-01", "数据结构 CS203-01",
+                "2001", "CS203", "数据结构与算法基础", 4.0, 2025, 3, 0, 30, "OPEN");
+        service.offeringPage = offeringPage(1, 1, 20, offering);
+        service.studentPages.put(FULL_ROSTER, new TeacherPageDTO<>(List.of(), 0, 1, 100));
+
+        List<String> calls = new ArrayList<>();
+        ChatClientService chatService = new ChatClientService() {
+            @Override
+            public CompletableFuture<JsonObject> call(String action, Map<String, Object> data) {
+                calls.add(action);
+                JsonObject res = new JsonObject();
+                res.addProperty("groupId", 100L);
+                return CompletableFuture.completedFuture(res);
+            }
+        };
+
+        TeacherOfferingController controller = new TeacherOfferingController(service, chatService, Runnable::run);
+        controller.activate();
+
+        boolean first = controller.createGroupChat(offering).join();
+        require(first, "first group creation should succeed");
+
+        boolean second = controller.createGroupChat(offering).join();
+        require(!second, "second group creation must be rejected");
+        long createCalls = calls.stream().filter("GROUP_CREATE"::equals).count();
+        require(createCalls == 1, "GROUP_CREATE should only be called once, saw " + createCalls);
+    }
+
+    private static void existingGroupsAreSyncedAndRecognized() {
+        ControlledService service = new ControlledService();
+        service.terms = List.of(term(2025, 3));
+        TeacherOfferingDTO offering = offering(FULL_ROSTER, "CS203-01", "数据结构 CS203-01",
+                "2001", "CS203", "数据结构与算法基础", 4.0, 2025, 3, 0, 30, "OPEN");
+        service.offeringPage = offeringPage(1, 1, 20, offering);
+
+        ChatClientService chatService = new ChatClientService() {
+            @Override
+            public CompletableFuture<JsonObject> call(String action, Map<String, Object> data) {
+                if ("GROUP_LIST".equals(action)) {
+                    JsonObject res = new JsonObject();
+                    com.google.gson.JsonArray groups = new com.google.gson.JsonArray();
+                    JsonObject g = new JsonObject();
+                    g.addProperty("name", "数据结构 CS203-01");
+                    g.addProperty("ownerUid", "t001");
+                    groups.add(g);
+                    res.add("groups", groups);
+                    return CompletableFuture.completedFuture(res);
+                }
+                return CompletableFuture.completedFuture(new JsonObject());
+            }
+        };
+
+        TeacherOfferingController controller = new TeacherOfferingController(service, chatService, Runnable::run);
+        controller.activate(); // 自动触发 syncExistingGroups()
+
+        require(controller.isGroupCreated("数据结构 CS203-01"), "existing group must be detected from GROUP_LIST");
+    }
+
     // ------------------------------------------------------------------ 视图契约
 
     private static void viewIsTheOfferingListPage(Document view) throws Exception {
@@ -454,6 +577,8 @@ public final class TeacherOfferingControllerTest {
         private final Deque<CompletableFuture<TeacherPageDTO<TeacherOfferingDTO>>> offeringPages =
                 new ArrayDeque<>();
         private final List<String> offeringCalls = new ArrayList<>();
+        private final Map<String, TeacherPageDTO<TeacherRosterRowDTO>> studentPages = new HashMap<>();
+        private final Map<String, TeacherOfferingDetailDTO> offeringDetails = new HashMap<>();
 
         @Override
         public CompletableFuture<List<CourseTermDTO>> listTerms() {
@@ -472,12 +597,18 @@ public final class TeacherOfferingControllerTest {
 
         @Override
         public CompletableFuture<TeacherOfferingDetailDTO> getOffering(String offeringId) {
+            if (offeringDetails.containsKey(offeringId)) {
+                return CompletableFuture.completedFuture(offeringDetails.get(offeringId));
+            }
             throw new UnsupportedOperationException("the list page must not load details");
         }
 
         @Override
         public CompletableFuture<TeacherPageDTO<TeacherRosterRowDTO>> listOfferingStudents(
                 String offeringId, String query, Integer enrollmentStatus, int page, int size) {
+            if (studentPages.containsKey(offeringId)) {
+                return CompletableFuture.completedFuture(studentPages.get(offeringId));
+            }
             throw new UnsupportedOperationException("the list page must not load rosters");
         }
 

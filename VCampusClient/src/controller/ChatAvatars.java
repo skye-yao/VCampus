@@ -34,5 +34,15 @@ final class ChatAvatars implements AutoCloseable {
         }));
         return box;
     }
+    StackPane createGroup(String name, double size) {
+        Label fallback = new Label(name == null || name.isBlank() ? "群" : (name.length() > 2 ? name.substring(0, 2) : name));
+        fallback.setStyle("-fx-text-fill:#2b5435;-fx-font-size:" + (size * 0.36) + "px;-fx-font-weight:bold;");
+        StackPane box = new StackPane(fallback);
+        box.setMinSize(size, size);
+        box.setPrefSize(size, size);
+        box.setMaxSize(size, size);
+        box.setStyle("-fx-background-color:#d5e8d8;-fx-background-radius:100;");
+        return box;
+    }
     public void close(){cache.clear();}
 }

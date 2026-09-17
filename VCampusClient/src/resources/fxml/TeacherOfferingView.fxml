@@ -38,7 +38,7 @@
                         <TableColumn fx:id="creditColumn" prefWidth="70.0" text="学分" />
                         <TableColumn fx:id="countColumn" prefWidth="90.0" text="人数" />
                         <TableColumn fx:id="statusColumn" prefWidth="90.0" text="状态" />
-                        <TableColumn fx:id="actionColumn" prefWidth="90.0" text="操作" />
+                        <TableColumn fx:id="actionColumn" prefWidth="180.0" text="操作" />
                     </columns>
                 </TableView>
                 <VBox alignment="CENTER" maxHeight="-Infinity" spacing="10.0" styleClass="teacher-course-state-area" StackPane.alignment="TOP_CENTER">
