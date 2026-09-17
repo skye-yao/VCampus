@@ -29,6 +29,7 @@ import dto.course.admin.schedule.ScheduleResourceDTO;
 import dto.course.admin.schedule.ScheduleSlotDTO;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonType;
+import javafx.scene.control.Label;
 import model.course.admin.AdminCourseView;
 import model.course.admin.AdminOfferingView;
 import model.course.admin.AdminOperationResultView;
@@ -82,6 +83,8 @@ public final class ScheduleArrangementDialogControllerTest {
         testConflictTextCarriesThePosition();
         testConflictTextRendersTheMergedWeekRange();
         testOtherConflictsSummaryTextCountsOthers();
+        testEmptyArrangementSectionText();
+        testFilledArrangementSectionText();
         testSuccessfulWriteReloadsPlanState();
         testReadFailuresKeepTheirRetryTarget();
         testEditingCanReturnToANewArrangement();
@@ -496,6 +499,24 @@ public final class ScheduleArrangementDialogControllerTest {
                         .equals(ScheduleArrangementDialogController.otherConflictsSummaryText(2)),
                 "折叠行必须报出其他教学班的冲突条数，saw "
                         + ScheduleArrangementDialogController.otherConflictsSummaryText(2));
+    }
+
+    /**
+     * 甲3：零条安排时分区标题接管空态文案，不再由永远可见的静态「已有安排」与「暂无」打架。
+     */
+    private static void testEmptyArrangementSectionText() {
+        require("该教学班暂无排课安排"
+                        .equals(ScheduleArrangementDialogController.arrangementSectionText(true)),
+                "空态分区标题必须改说「暂无排课安排」，saw "
+                        + ScheduleArrangementDialogController.arrangementSectionText(true));
+    }
+
+    /** 甲3：有安排（或加载中、出错）时分区标题保持默认文案。 */
+    private static void testFilledArrangementSectionText() {
+        require("该教学班已有安排"
+                        .equals(ScheduleArrangementDialogController.arrangementSectionText(false)),
+                "非空态分区标题必须保持默认文案，saw "
+                        + ScheduleArrangementDialogController.arrangementSectionText(false));
     }
 
     private static void testSuccessfulWriteReloadsPlanState() {
@@ -1240,7 +1261,7 @@ public final class ScheduleArrangementDialogControllerTest {
 
     /**
      * FXML 的 fx:id / onAction 必须与控制器对得上。这个文件全仓只有生产路径与一个跑不起来的冒烟
-     * 测试会加载，打错一个字不会有任何能跑的测试变红，所以在这里用 DOM + 反射钉住新的入口按钮。
+     * 测试会加载，打错一个字不会有任何能跑的测试变红，所以在这里用 DOM + 反射钉住新的入口按钮与静态文案。
      *
      * 没有做全量扫描（TeacherGradeBookControllerTest.verifyBindings）：该 FXML 里
      * fx:id="scheduleContentScroll" 本来就没有对应的控制器字段（既有债，见 Task 7 报告），
@@ -1262,6 +1283,33 @@ public final class ScheduleArrangementDialogControllerTest {
                     "createDraftButton 必须声明为 Button，收到 " + button.getType());
             require(hasActionMethod(ScheduleArrangementDialogController.class, "handleCreateDraft"),
                     "onAction=\"#handleCreateDraft\" 在控制器里没有对应处理函数");
+            Element section = elementWithId(view, "arrangementSectionLabel");
+            require(section != null, "「该教学班已有安排」分区标题必须带 fx:id，控制器才能改写空态文案");
+            require("Label".equals(section.getTagName()),
+                    "分区标题必须是 Label，收到 <" + section.getTagName() + ">");
+            require("该教学班已有安排".equals(section.getAttribute("text")),
+                    "分区标题的 FXML 默认文案必须是非空态文案，收到 text=\""
+                            + section.getAttribute("text") + "\"");
+            Field sectionField = findField(ScheduleArrangementDialogController.class,
+                    "arrangementSectionLabel");
+            require(sectionField != null, "fx:id=\"arrangementSectionLabel\" 在控制器里没有对应字段");
+            require(Label.class.equals(sectionField.getType()),
+                    "arrangementSectionLabel 必须声明为 Label，收到 " + sectionField.getType());
+            require(elementWithId(view, "emptyArrangementLabel") == null,
+                    "空态文案已由分区标题接管，emptyArrangementLabel 节点必须从 FXML 删除");
+            Element legend = elementWithId(view, "conflictLegendLabel");
+            require(legend != null, "方案冲突区必须提供红/黄严重度图例");
+            require("Label".equals(legend.getTagName()),
+                    "冲突图例必须是 Label，收到 <" + legend.getTagName() + ">");
+            require(("红色为阻断性冲突：必须解决后才能保存或发布；黄色为可绕过冲突：填写原因后可保存或发布")
+                            .equals(legend.getAttribute("text")),
+                    "图例必须解释红/黄对保存与发布意味着什么，收到 text=\""
+                            + legend.getAttribute("text") + "\"");
+            Field legendField = findField(ScheduleArrangementDialogController.class,
+                    "conflictLegendLabel");
+            require(legendField != null, "fx:id=\"conflictLegendLabel\" 在控制器里没有对应字段");
+            require(Label.class.equals(legendField.getType()),
+                    "conflictLegendLabel 必须声明为 Label，收到 " + legendField.getType());
         } catch (Exception failure) {
             throw new AssertionError("排课对话框的 FXML 契约检查失败", failure);
         }

@@ -33,6 +33,7 @@ import javafx.scene.control.ComboBox;
 import javafx.scene.control.Hyperlink;
 import javafx.scene.control.Label;
 import javafx.scene.control.TextField;
+import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
@@ -132,6 +133,7 @@ public final class ScheduleArrangementDialogController {
     @FXML private Label planContextLabel;
     @FXML private Button createDraftButton;
     @FXML private Label planConflictSummaryLabel;
+    @FXML private Label conflictLegendLabel;
     @FXML private VBox planConflictArea;
     @FXML private ComboBox<ScheduleResourceDTO> teacherField;
     @FXML private ComboBox<ScheduleResourceDTO> assistantField;
@@ -140,7 +142,7 @@ public final class ScheduleArrangementDialogController {
     @FXML private TextField startWeekField;
     @FXML private TextField endWeekField;
     @FXML private VBox arrangementList;
-    @FXML private Label emptyArrangementLabel;
+    @FXML private Label arrangementSectionLabel;
     @FXML private VBox slotEditorList;
     @FXML private Button addSlotButton;
     @FXML private Button newArrangementButton;
@@ -1126,10 +1128,9 @@ public final class ScheduleArrangementDialogController {
             loadingLabel.setVisible(loading);
             loadingLabel.setManaged(loading);
         }
-        if (emptyArrangementLabel != null) {
+        if (arrangementSectionLabel != null) {
             boolean empty = !loadingArrangements && errorText() == null && arrangements.isEmpty();
-            emptyArrangementLabel.setVisible(empty);
-            emptyArrangementLabel.setManaged(empty);
+            arrangementSectionLabel.setText(arrangementSectionText(empty));
         }
         if (errorLabel != null) {
             boolean hasError = errorText() != null;
@@ -1349,6 +1350,9 @@ public final class ScheduleArrangementDialogController {
         Label label = new Label(text);
         label.getStyleClass().add(styleClass);
         label.setWrapText(true);
+        label.setTooltip(new Tooltip(conflict.getSeverity() == ScheduleConflictSeverityDTO.BLOCKING
+                ? "阻断性冲突：必须先解决才能保存或发布"
+                : "可绕过冲突：不阻止保存/发布，但需要填写原因"));
         return label;
     }
 
@@ -1364,6 +1368,11 @@ public final class ScheduleArrangementDialogController {
 
     static String otherConflictsSummaryText(int count) {
         return "本方案还有 " + count + " 条其他教学班的冲突（点击展开）";
+    }
+
+    /** 空态由分区标题接管：零条安排时标题改说「暂无」，不再与静态「已有安排」同屏打架。 */
+    static String arrangementSectionText(boolean empty) {
+        return empty ? "该教学班暂无排课安排" : "该教学班已有安排";
     }
 
     private void renderWriteControls() {
@@ -1421,6 +1430,10 @@ public final class ScheduleArrangementDialogController {
                     : "方案存在可绕过冲突，填写原因后可发布");
             planConflictSummaryLabel.setVisible(any);
             planConflictSummaryLabel.setManaged(any);
+        }
+        if (conflictLegendLabel != null) {
+            conflictLegendLabel.setVisible(any);
+            conflictLegendLabel.setManaged(any);
         }
         if (planConflictArea == null) return;
         planConflictArea.getChildren().clear();

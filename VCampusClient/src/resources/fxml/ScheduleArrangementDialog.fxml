@@ -32,16 +32,16 @@
                     <padding><Insets right="10.0" /></padding>
                     <children>
                         <Label fx:id="planConflictSummaryLabel" managed="false" styleClass="course-admin-conflict-summary" text="" visible="false" />
+                        <Label fx:id="conflictLegendLabel" managed="false" visible="false" wrapText="true" styleClass="course-admin-conflict-legend" text="红色为阻断性冲突：必须解决后才能保存或发布；黄色为可绕过冲突：填写原因后可保存或发布" />
                         <VBox fx:id="planConflictArea" managed="false" spacing="4.0" visible="false" />
                         <HBox alignment="CENTER_LEFT" spacing="8.0">
                             <children>
-                                <Label styleClass="course-admin-schedule-section" text="该教学班已有安排" />
+                                <Label fx:id="arrangementSectionLabel" styleClass="course-admin-schedule-section" text="该教学班已有安排" />
                                 <Region HBox.hgrow="ALWAYS" />
                                 <Button fx:id="newArrangementButton" onAction="#handleNewArrangement" styleClass="course-admin-action" text="新增安排" />
                             </children>
                         </HBox>
                         <VBox fx:id="arrangementList" spacing="6.0" styleClass="course-admin-arrangement-list" />
-                        <Label fx:id="emptyArrangementLabel" managed="false" styleClass="course-admin-placeholder-text" text="该教学班暂无排课安排" visible="false" />
                         <GridPane hgap="10.0" vgap="8.0">
                             <columnConstraints>
                                 <ColumnConstraints minWidth="70.0" prefWidth="70.0" />

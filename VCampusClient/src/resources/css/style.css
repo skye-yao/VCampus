@@ -2209,6 +2209,11 @@
     -fx-text-fill: #50351f;
 }
 
+.course-admin-conflict-legend {
+    -fx-font-size: 11px;
+    -fx-text-fill: #6b746c;
+}
+
 .course-admin-conflict-blocking {
     -fx-font-size: 12px;
     -fx-text-fill: #8a3d32;
