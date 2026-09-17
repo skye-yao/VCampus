@@ -2544,3 +2544,16 @@
 .course-approval-grade-table {
     -fx-font-size: 11px;
 }
+
+.nav-unread-badge {
+    -fx-background-color: #f04444;
+    -fx-background-radius: 100;
+    -fx-text-fill: white;
+    -fx-font-size: 10px;
+    -fx-font-weight: bold;
+    -fx-alignment: center;
+    -fx-min-width: 18px;
+    -fx-min-height: 18px;
+    -fx-pref-height: 18px;
+    -fx-padding: 0 5;
+}

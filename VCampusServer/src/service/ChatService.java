@@ -36,7 +36,15 @@ public final class ChatService {
             }
             case "SEARCH" -> {
                 String q = text(data,"query",50);
-                out.put("users",rows(c,"SELECT UID AS uid,name,role FROM tbl_user WHERE status='ACTIVE' AND UID<>? AND (UID=? OR LOCATE(?,name)>0) ORDER BY UID LIMIT 30",me,q,q));
+                out.put("users",rows(c,"""
+                    SELECT u.UID AS uid,u.name,u.role,f.status AS relationStatus,f.requester
+                    FROM tbl_user u
+                    LEFT JOIN tbl_chat_friend f
+                      ON (f.user_low=u.UID COLLATE utf8mb4_unicode_ci AND f.user_high=?)
+                      OR (f.user_high=u.UID COLLATE utf8mb4_unicode_ci AND f.user_low=?)
+                    WHERE u.status='ACTIVE' AND u.UID<>? AND (u.UID=? OR LOCATE(?,u.name)>0)
+                    ORDER BY u.UID LIMIT 30
+                """,me,me,me,q,q));
             }
             case "CONTACTS" -> {
                 out.put("friends",rows(c,"SELECT u.UID AS uid,u.name,u.role, (SELECT COUNT(*) FROM tbl_chat_message m WHERE m.sender=u.UID COLLATE utf8mb4_unicode_ci AND m.recipient=? AND m.read_at IS NULL) AS unread FROM tbl_chat_friend f JOIN tbl_user u ON u.UID COLLATE utf8mb4_unicode_ci=CASE WHEN f.user_low=? THEN f.user_high ELSE f.user_low END WHERE (f.user_low=? OR f.user_high=?) AND f.status='ACCEPTED' ORDER BY unread DESC,f.updated_at DESC",me,me,me,me));
@@ -249,6 +257,7 @@ public final class ChatService {
                         case "REQUEST" -> {
                             if ("ACCEPTED".equals(state)) throw new IllegalArgumentException("你们已经是好友");
                             if ("PENDING".equals(state) && !me.equals(link.get("requester"))) throw new IllegalArgumentException("对方已申请，请到好友申请中处理");
+                            if ("PENDING".equals(state)) throw new IllegalArgumentException("好友申请已发送，请等待对方处理");
                             if ("REJECTED".equals(state)) update(c,"UPDATE tbl_chat_friend SET status='PENDING',requester=? WHERE user_low=? AND user_high=?",me,low,high);
                         }
                         case "ACCEPT", "REJECT" -> {

@@ -1832,9 +1832,11 @@ CREATE TABLE IF NOT EXISTS `tbl_chat_group` (
     `group_id` BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     `name` VARCHAR(100) NOT NULL COMMENT '群聊名称',
     `owner_uid` VARCHAR(32) NOT NULL COMMENT '群主一卡通号',
+    `offering_id` BIGINT DEFAULT NULL COMMENT '课程教学班ID，普通群为空',
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    KEY `ix_chat_group_owner` (`owner_uid`)
+    KEY `ix_chat_group_owner` (`owner_uid`),
+    UNIQUE KEY `uq_chat_group_offering` (`offering_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `tbl_chat_group_member` (
@@ -1869,4 +1871,4 @@ CREATE TABLE IF NOT EXISTS `tbl_system_notification` (
     `is_read` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '0-未读, 1-已读',
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     KEY `ix_notif_recipient` (`recipient_uid`, `is_read`, `created_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

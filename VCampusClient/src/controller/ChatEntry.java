@@ -38,14 +38,13 @@ public final class ChatEntry implements AutoCloseable {
         new ChatClientService().call("SUMMARY",Map.of()).whenComplete((r,error)->Platform.runLater(()->{
             busy=false;if(closed||!Objects.equals(token,ClientSession.getInstance().getToken()))return;
             if(error!=null){
-                button.setText("☏   聊天 · 暂未连接");
+                button.setText("☏   聊天");
                 if(onSummary!=null)onSummary.accept(-1,-1);
                 return;
             }
             int unread=r.has("unread")?r.get("unread").getAsInt():0;
             int pending=r.has("pending")?r.get("pending").getAsInt():0;
-            int n=unread+pending;
-            button.setText("☏   聊天"+(n>0?"  ("+n+")":""));
+            button.setText("☏   聊天");
             if(onSummary!=null)onSummary.accept(unread,pending);
         }));
     }

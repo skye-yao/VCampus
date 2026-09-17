@@ -78,7 +78,14 @@
                 </VBox>
 
                 <!-- 9. 安全退出 -->
-                <Button fx:id="navChatBtn" maxWidth="1.7976931348623157E308" styleClass="main-nav-btn" text="☏   聊天" />
+                <StackPane maxWidth="1.7976931348623157E308">
+                    <children>
+                        <Button fx:id="navChatBtn" maxWidth="1.7976931348623157E308" styleClass="main-nav-btn" text="☏   聊天" />
+                        <Label fx:id="navChatBadge" managed="false" styleClass="nav-unread-badge" text="1" visible="false" StackPane.alignment="TOP_RIGHT">
+                            <StackPane.margin><Insets right="8.0" top="5.0" /></StackPane.margin>
+                        </Label>
+                    </children>
+                </StackPane>
                 <Button fx:id="navLogoutBtn" maxWidth="1.7976931348623157E308" onAction="#handleLogout" styleClass="main-nav-btn, main-nav-btn-exit" text="🚪   安全退出" />
             </children>
         </VBox>

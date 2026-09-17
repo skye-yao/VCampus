@@ -23,10 +23,30 @@ CREATE TABLE IF NOT EXISTS tbl_chat_group (
  group_id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
  name VARCHAR(100) NOT NULL,
  owner_uid VARCHAR(32) NOT NULL,
+ offering_id BIGINT NULL,
  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
- KEY ix_chat_group_owner(owner_uid)
+ KEY ix_chat_group_owner(owner_uid),
+ UNIQUE KEY uq_chat_group_offering(offering_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+SET @chat_group_offering_missing = (
+ SELECT COUNT(*) = 0 FROM information_schema.COLUMNS
+ WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tbl_chat_group' AND COLUMN_NAME = 'offering_id'
+);
+SET @chat_group_offering_ddl = IF(@chat_group_offering_missing,
+ 'ALTER TABLE tbl_chat_group ADD COLUMN offering_id BIGINT NULL AFTER owner_uid', 'SELECT 1');
+PREPARE chat_group_offering_stmt FROM @chat_group_offering_ddl;
+EXECUTE chat_group_offering_stmt;
+DEALLOCATE PREPARE chat_group_offering_stmt;
+SET @chat_group_offering_index_missing = (
+ SELECT COUNT(*) = 0 FROM information_schema.STATISTICS
+ WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tbl_chat_group' AND INDEX_NAME = 'uq_chat_group_offering'
+);
+SET @chat_group_offering_index_ddl = IF(@chat_group_offering_index_missing,
+ 'ALTER TABLE tbl_chat_group ADD UNIQUE KEY uq_chat_group_offering(offering_id)', 'SELECT 1');
+PREPARE chat_group_offering_index_stmt FROM @chat_group_offering_index_ddl;
+EXECUTE chat_group_offering_index_stmt;
+DEALLOCATE PREPARE chat_group_offering_index_stmt;
 CREATE TABLE IF NOT EXISTS tbl_chat_group_member (
  group_id BIGINT NOT NULL,
  uid VARCHAR(32) NOT NULL,
