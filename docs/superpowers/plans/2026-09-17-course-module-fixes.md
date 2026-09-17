@@ -1416,12 +1416,37 @@ pwsh -File scripts/test-teacher.ps1 -Suite Course -WithMySql -TestConfigPath .co
   2. 管理员「课程」→ 某教学班 →「添加学生」→ 输入学号前缀能搜到；
   3. 管理员「课程」→「排课」→ 能看到方案与既有安排（含一条「教师 待定」）→「创建草稿方案」→ 变为可编辑 → 新增一条排课并保存。
 
-  第 3 步的预期细节（对上真库）：进去应看到方案 `4001`（PUBLISHED）、**20 条安排**，其中 arrangement `4104`（offering 2004）显示为「教师 待定」——这条能在界面上正常渲染本身就是缺陷 3(a) 修好的证据（修复前这里整页报"排课方案加载失败，请重试"、安排列表全空）。点「创建草稿方案」后应出现一份新 DRAFT，复制到 19 条完整安排（4104 因缺教师被跳过，见 Task 6 `copyArrangements` 注释）。
+  第 3 步的预期细节（对上真库）：进去应看到方案 `4001`（PUBLISHED）、**20 条安排**，其中 arrangement `4104`（offering 2004）显示为「教师 待定」——这条能在界面上正常渲染本身就是缺陷 3(a) 修好的证据（修复前这里整页报"排课方案加载失败，请重试"、安排列表全空）。点「创建草稿方案」后应出现一份新 DRAFT，复制到 19 条完整安排（4104 因缺教师被跳过，见 Task 6 `copyArrangements` 注释），并在界面上看到结果文案 **「草稿方案已创建：已复制 19 条 / 跳过 1 条」**（修复轮的项 2/3 加的；看不到计数说明那两项目标未达成）。
 
-  **发布这条草稿会被拒绝**，消息是"教学安排缺少任课教师或时间段，无法发布"——这是**正确**行为，不是回归（`requirePublishable` 拦的就是 4104 这类半成品）。要验收发布，先给那条安排补上任课教师再发。
+  > **2026-09-18 更正（收尾前实查代码，原文这条写反了，而且后果是破坏性的）：**
+  >
+  > 原文写"**发布这条草稿会被拒绝**，消息是'教学安排缺少任课教师或时间段，无法发布'"。**这句是错的**，而且它把验收者引向一个会改坏演示库的动作。
+  >
+  > 实读代码：草稿里**只有**通过 `CourseConflictService.candidate()` 且教室非空、且时段有日历窗口的行
+  > （`ScheduleManagementService.copyArrangements:392-394` 两条 `continue`），而 `requirePublishable`
+  > （`CourseConflictService.java:214-229`）**拒绝的正是 `candidate() == null` 的行**。也就是说
+  > **草稿里的每一行按构造都必然通过那道门**，加上非空检查也过（19 ≠ 0）——所以
+  > **发布这份草稿会成功**。原文的预期来自更早的设计（那时草稿被认为会带着 4104 一起复制过来），
+  > Task 6 改成"跳过不完整行"之后这条预期就**失效了**，但没人回头改。
+  >
+  > **后果**：发布成功会把 `teaching_calendar.current_schedule_plan_id` 挪到这份新方案上
+  > （`ScheduleManagementService.java:288-290`），**学生端和教师端的课表都读这个指针**，
+  > 于是 offering 2004 的那一节会从两边**同时消失**。而全仓**没有任何删除/撤回方案的路径**
+  > （见 `follow-ups.md` 甲 1），演示库上**撤不回来**。
+  >
+  > **所以第 3 步的验收范围到此为止：创建草稿、看到计数、新增一条排课并保存。不要点「发布」。**
+  > "发布被拒"这条路径**不要**在演示库上试——它已由自动化覆盖，不必也不能靠手点验证：
+  > 不完整行被拒由 `CourseConflictMySqlTest` 钉着，空方案被拒由
+  > `ScheduleManagementMySqlTest` 的零安排用例钉着（修复轮项 4）；而**非空且全部合规**的草稿
+  > 本来就该发布成功，没有可拒绝的理由。
+  >
+  > 若确实想在演示库上验证发布链路，**先备份** `teaching_calendar` 与 `schedule_plan` 两张表，
+  > 并在心里默认"这一步之后演示库的课表少一节、且无法用界面恢复"。
 
 - [ ] **未纳入本次范围、但已确认存在的问题**（不要在这轮里顺手改，留作后续）：
-  - `ScheduleController.java:38-41` 的 `PERIOD_COLUMN_WIDTH` 注释写着"11px 字号约 120px 字形 **+ 12px 内边距**"——**那句内边距是从教师端常量文档抄来的，学生端没有**：`.course-period-label`（`style.css:1561-1569`）根本没声明 `-fx-padding`，有 padding 的是教师端的 `.teacher-schedule-period-label`（`teacher-course.css:331`，`4px 6px 4px 6px`）。**宽度 150 本身不受影响**（光字形就约 120px，远超原来的 50px，结论不变），错的只是理由里多算了 12px。纯注释错误，Task 3 review 的 Minor 1；**留到最终 review 的那一次统一修复轮里顺手改一行**，不为它单独开修复轮。
+  > **2026-09-18 收尾核对**：下面这条清单逐条复核过。第 1 条**已在统一修复轮里改掉**（标了 ✅），
+  > 其余各条在 `follow-ups.md` 里有对应的甲/乙编号与"为什么这轮不修"。
+  - ✅ **已修（修复轮项 5）** — `ScheduleController.java:37-45` 的 `PERIOD_COLUMN_WIDTH` 注释原写"11px 字号约 120px 字形 **+ 12px 内边距**"——**那句内边距是从教师端常量文档抄来的，学生端没有**：`.course-period-label`（`style.css:1561-1569`）根本没声明 `-fx-padding`，有 padding 的是教师端的 `.teacher-schedule-period-label`（`teacher-course.css:326-332`，`4px 6px 4px 6px`）。**宽度 150 本身不受影响**（光字形就约 120px，远超原来的 50px，结论不变），错的只是理由里多算了 12px。纯注释错误，Task 3 review 的 Minor 1；现已改为只声明字形宽度，并写明两侧 padding 的真实情况。
   - `ScheduleController.java:168,175,190-193`：若服务端把 `periods` 这个 key 改名或漏发，Gson 会把字段留成 null → `CourseScheduleWeekDTO.getPeriods()` 返回空列表 → `periodRows.isEmpty()` 提前返回 → **学生端整页空白**（无表头行、无行、无列），而修复前的学生端无论如何都会画出 13×5、教师端至少还留着星期表头；右侧通知栏仍显示"本周暂无调课通知"，界面上与"加载失败"（`:175` 的错误路径）无法区分。这是**本 Task 的 brief 明确要求的边界行为**（见 Task 3 步骤里的"边界"段），不是实现缺陷；但"契约漂移 ⇒ 静默空白"这个失败模式值得单独安排：一个可选项是空字典时也给一句可见提示。Task 3 review 的 Minor 2。
   - 学生端周次选择器仍写死 `1..20`（`ScheduleController.configureWeekSpinner` `:84-87`），教师端用服务端 `minWeek/maxWeek`。这是"两边不一致"的第三个轴，本轮只对齐了行与列。
   - `student_academic_profile` 没有任何生产写入路径——全 `VCampusServer/src` 只有读它的 SQL，没有一处 `INSERT INTO student_academic_profile`（注册流程写的是 `tblStudent`）。因此在一个只跑 `init.sql`、没有任何档案行的库上，「添加学生」会**合法地**返回 0 条（没有 ACTIVE 档案 = 不可选课，这是刻意的不变量，见"背景 · 缺陷 2"）。本轮只修了搜索的学号匹配，没有补建档案；根治要单独安排（注册链路补写 / 迁移回填）。演示库有 7/9 个学生带档案，所以修完即可用。
