@@ -1410,7 +1410,46 @@ pwsh -File scripts/test-teacher.ps1 -Suite Course -WithMySql -TestConfigPath .co
 ```
 （Apps/ImportExport 与本计划无交集，不跑——少跑冗余，不是少跑覆盖。）
 
-- [ ] **人工验收（需要用户参与）**：起服务器与客户端，用演示库 `virtual_campus`（注意它当前混了测试夹具，见下），走一遍：
+- [ ] **人工验收（需要用户参与）**：用演示库 `virtual_campus`，走一遍：
+
+  > **2026-09-18 更正（收尾前实测，原文漏了这一步，漏掉的后果是整轮验收白做）：必须先在 worktree 里重新打包，否则你看到的是旧界面。**
+  >
+  > **实测证据**（HEAD `8427a93`，打包产物在 `dist/`）：`dist/VCampusClient/VCampusClient.jar` 与
+  > `dist/VCampusServer/VCampusServer.jar` 的时间戳都是 **9月17 12:49**，早于本计划的全部改动，且——
+  >
+  > ```
+  > unzip -p dist/VCampusClient/VCampusClient.jar resources/fxml/ScheduleArrangementDialog.fxml | grep -c createDraftButton
+  >   → 0        （「创建草稿方案」按钮不在里面）
+  > unzip -l dist/VCampusClient/VCampusClient.jar | grep -c ScheduleWeekView
+  >   → 0        （Task 3 的视图类不在里面）
+  > unzip -l dist/VCampusServer/VCampusServer.jar | grep -c CourseScheduleWeekDTO
+  >   → 0        （Task 1/2 的新 DTO 不在里面）
+  > ```
+  >
+  > 也就是说：**照原文直接 `start_server`/`start_client` 跑起来，三个缺陷一个都不会变好**——
+  > 学生端仍是 13 行 × 5 列、学号前缀仍搜不到、排课对话框仍然空白且没有创建草稿的按钮——
+  > 验收者会合理地得出"这个计划整个没生效"的结论，而代码其实全对。
+  > 这条 2026-09-16 已经坑过一次，原文没有把它写进验收步骤。
+  >
+  > **打包命令**（在 worktree 根目录）：
+  > ```
+  > pwsh -File package.ps1 -JavaHome D:\DevTools\Java\jdk25
+  > ```
+  >
+  > **打包前后各有两条必须做的事，否则打包会"假成功"：**
+  >
+  > 1. **先关掉正在跑的客户端和服务器。** 它们占着自己的 jar，`jar -cfm` 会以
+  >    `FileSystemException: …另一个程序正在使用此文件` 失败，而 **`package.ps1` 照样打印
+  >    `[SUCCESS] Build and packaging complete!`**，jar 保持旧时间戳不变。**不要信横幅，打包后自己看
+  >    `ls -la dist/*/*.jar` 的时间戳。**
+  > 2. `package.ps1:109` 把 JavaFX 的 bin 目录**硬编码**成 `D:\JavaFX\javafx-sdk-25.0.4\bin`，
+  >    本机不存在该路径，于是 `*.dll` 的复制被**静默跳过**。**本 worktree 已经绕过这个问题**：
+  >    `dist/VCampusClient/bin/` 下已有 **59 个 DLL**（这是 JavaFX 认得的 SDK 布局，与启动 cwd 无关），
+  >    而 `package.ps1` 只往 dist 根写，不会清掉 `bin/`。打包后确认 `bin/` 里的 DLL 还在即可。
+  >
+  > 另：原文括号里"注意它当前混了测试夹具"这句**已被证伪**（见下方清单），演示库是干净的，已删去。
+
+  起服务器与客户端（打包之后），然后：
   1. 学生端「课表」节次行数 == 教师端「课程表」节次行数，**且星期列数也 == 教师端的星期列数**（切换几个周次，列数应当随该周日历变化，不是恒定 5 列）；
      > 这一条**必须人工数**：列与行的重建循环（`ScheduleController.java:198-205`）是全计划唯一没有任何自动断言的产码路径——`ScheduleControllerTest` 在离屏下 `scheduleGrid` 为 null，`renderSchedule` 根本不执行；`CourseUiSmokeTest` 是唯一真正加载该 FXML 的测试，却没登记进任何套件（`-WithGui` 也跑不到它）。把 `DAY_COLUMN_MIN_WIDTH`/`PREF` 对调、或者漏掉 `setHgrow(ALWAYS)`，全仓测试依然全绿，只有这一眼能看出来。
   2. 管理员「课程」→ 某教学班 →「添加学生」→ 输入学号前缀能搜到；
