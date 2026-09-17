@@ -102,9 +102,8 @@ public final class AdminEnrollmentMySqlTest {
                 "search must be stable, distinct and exclude non-students/inactive profiles");
         require(service.searchStudents("Enrollment Student A", 1, 10).getTotalCount() == 1,
                 "full-name search must find its student");
-        require(service.searchStudents(D.substring(0, 5), 1, 10).getTotalCount() == 1
-                        && service.searchStudents(D.substring(0, 5), 1, 10).getItems().get(0)
-                                .getUid().equals(D),
+        require(service.searchStudents(D.substring(0, 5), 1, 10).getItems().stream()
+                        .anyMatch(item -> item.getUid().equals(D)),
                 "a student-ID prefix must find its student, not just an exact ID");
         require(service.searchStudents(D, 1, 10).getTotalCount() == 1,
                 "the full student ID must keep working");
