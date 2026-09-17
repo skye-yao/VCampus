@@ -1135,8 +1135,17 @@ public final class TeacherCourseUiSmokeTest {
                         "第一次点击提交必须只进入可用的确认态");
                 require(!labelText("#gradeBookFeedbackLabel").contains("成绩批次已提交"),
                         "进入确认态时不得已经提交");
+                Button export = button("#gradeBookExportGradesButton", "导出成绩按钮");
+                require(!export.isDisabled(), "提交之前导出成绩必须是可用的");
                 snapshot("gradebook-submit-confirm.png");
                 confirm.fire();
+                // 与保存那条（本套件里 saving 的在途窗口）同一个道理：确认提交是本地同步走完的——
+                // submitting 置位并 render() 之后才发出请求，而响应要经 fxExecutor（Platform.runLater）
+                // 才回到 FX 线程，所以 confirm.fire() 一返回，提交就确实还在途。提交与保存是同一种写入，
+                // 导出的是服务端那份**已保存的草稿**，此刻它还没收到这一次写入；同一页的重新加载、
+                // 保存草稿、提交成绩都在看这对标志（saving || submitting），导出按钮不能只认一半。
+                require(export.isDisabled(),
+                        "提交请求在途时导出成绩必须禁用（服务端那份草稿还没收到这一次写入）");
             });
             steps.add(() -> {
                 require(labelText("#gradeBookFeedbackLabel").contains("成绩批次已提交"),

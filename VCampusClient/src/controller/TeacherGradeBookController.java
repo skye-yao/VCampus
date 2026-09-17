@@ -1424,9 +1424,10 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
             gradeBookDownloadTemplateButton.setDisable(!hasModel || importing || busy);
         }
         if (gradeBookExportGradesButton != null) {
-            // 保存请求在途时也禁用：导出的是服务端那份已保存的草稿，此时它还没有收到这一次写入，
-            // 允许导出就会得到一份与屏幕上不一样的成绩（重新加载按钮同一条道理）。
-            gradeBookExportGradesButton.setDisable(!hasModel || importing || busy || saving);
+            // 保存/提交请求在途时也禁用：导出的是服务端那份已保存的草稿，此时它还没有收到这一次写入，
+            // 允许导出就会得到一份与屏幕上不一样的成绩（重新加载按钮同一条道理：那一处同样同时看
+            // saving 与 submitting，两者是同一种「写入在途」）。
+            gradeBookExportGradesButton.setDisable(!hasModel || importing || busy || saving || submitting);
         }
         if (gradeBookImportButton != null) {
             gradeBookImportButton.setDisable(!hasModel || !model.canEdit() || importing || busy);
