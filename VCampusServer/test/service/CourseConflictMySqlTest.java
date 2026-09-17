@@ -189,7 +189,10 @@ public final class CourseConflictMySqlTest {
     }
 
     private static void verifySlotlessArrangementBlocksPublication(CourseConflictService conflicts) {
-        expect(IllegalArgumentException.class, () -> conflicts.checkPlan(SLOTLESS_PLAN),
+        // 读路径容忍不完整的安排，发布门不容忍——两半语义各自钉一条。
+        require(conflicts.checkPlan(SLOTLESS_PLAN).isEmpty(),
+                "a slotless arrangement must be skipped, not fatal, on the read path");
+        expect(IllegalArgumentException.class, () -> conflicts.requirePublishable(SLOTLESS_PLAN),
                 "an arrangement with no slots must not be invisible to the publication gate");
     }
 

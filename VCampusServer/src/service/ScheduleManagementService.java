@@ -272,6 +272,7 @@ public class ScheduleManagementService {
                 throw new ConflictException("选课窗口开放期间不能切换排课方案",
                         planDTO(connection, plan, List.of()));
             }
+            conflicts.requirePublishable(connection, id);
             List<ScheduleConflictDTO> found = conflicts.checkPlan(connection, id);
             for (ScheduleConflictDTO conflict : found) {
                 if (BLOCKING == conflict.getSeverity()) {

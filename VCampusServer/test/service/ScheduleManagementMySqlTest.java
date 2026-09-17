@@ -50,6 +50,10 @@ public final class ScheduleManagementMySqlTest {
     private static final long PLAN_SWITCH = 930102L;
     private static final long PLAN_OTHER = 930103L;
     private static final long PLAN_CONFLICT = 930005L;
+    // The demo shape: a draft plan whose row 930460 names no teacher while its sibling row is
+    // complete. Reading such a plan is what the admin dialog does; publishing it must still refuse.
+    private static final long PLAN_INCOMPLETE = 930104L;
+    private static final long CALENDAR_INCOMPLETE = 930110L;
     private static final long ROOM_A = 930200L;
     private static final long ROOM_B = 930201L;
     private static final long ROOM_SMALL = 930202L;
@@ -81,6 +85,7 @@ public final class ScheduleManagementMySqlTest {
             verifyPublish(service);
             verifyOfferingConflictRebuild(service);
             verifyLoadPlan(service);
+            verifyIncompleteArrangementReadsAndPublication(service);
         } finally {
             cleanup();
         }
@@ -511,6 +516,42 @@ public final class ScheduleManagementMySqlTest {
                 "a missing plan has no arrangements");
     }
 
+    /**
+     * A plan an admin is still assembling legitimately holds arrangements that cannot form a
+     * candidate — here one with no teacher at all. Reading such a plan must skip that row instead
+     * of running the publication gate, and the row must stay visible so the client can render it
+     * as pending. Publishing the very same plan must still refuse.
+     */
+    private static void verifyIncompleteArrangementReadsAndPublication(
+            ScheduleManagementService service) throws Exception {
+        SchedulePlanDTO plan = service.loadPlan(2027, 1);
+        require(Long.toString(PLAN_INCOMPLETE).equals(plan.getPlanId())
+                        && "DRAFT".equals(plan.getStatus()) && !plan.isCurrent(),
+                "loadPlan returns a draft plan holding an arrangement without a teacher");
+        require(plan.getConflicts().isEmpty(),
+                "an arrangement without a teacher is skipped, not reported as a conflict");
+        List<ScheduleArrangementDTO> arrangements =
+                service.listArrangements(Long.toString(PLAN_INCOMPLETE), null);
+        require(arrangements.size() == 2,
+                "the incomplete arrangement stays visible beside the complete one");
+        require(arrangements.get(0).getTeacher() == null
+                        && arrangements.get(0).getClassroom().getName().equals("Schedule Room A")
+                        && arrangements.get(0).getSlots().size() == 1,
+                "the client can still render the arrangement without a teacher as pending");
+        require("teacher-alpha".equals(arrangements.get(1).getTeacher().getBusinessId()),
+                "the complete arrangement of the same plan is unaffected");
+
+        IllegalArgumentException refusal = expect(IllegalArgumentException.class,
+                () -> service.publish(ADMIN, Long.toString(PLAN_INCOMPLETE), 1, op(61), false, null),
+                "an arrangement without a teacher must not be publishable");
+        require("教学安排缺少任课教师或时间段，无法发布".equals(refusal.getMessage()),
+                "publication refuses it with the message the gate has always used, got "
+                        + refusal.getMessage());
+        require(count("SELECT COUNT(*) FROM schedule_plan WHERE id=" + PLAN_INCOMPLETE
+                        + " AND status='DRAFT'") == 1,
+                "a refused publication leaves the plan in DRAFT");
+    }
+
     private static ScheduleSlotDTO slot(int dayOfWeek, int startPeriod, int endPeriod) {
         return new ScheduleSlotDTO(dayOfWeek, startPeriod, endPeriod);
     }
@@ -660,6 +701,34 @@ public final class ScheduleManagementMySqlTest {
                 + "classroom_id,status) VALUES(930910,930710,930650,'"
                 + utcText("2026-09-08", "08:00:00") + "','" + utcText("2026-09-08", "08:45:00")
                 + "','teacher-alpha',NULL," + ROOM_A + ",'ACTIVE')");
+
+        // The incomplete-plan fixture: a second draft plan in its own term, whose first
+        // arrangement carries slots but no teacher (the shape the demo seed ships in plan 4001)
+        // and whose second is complete. Written by hand rather than through scheduled() so the
+        // NULL teacher is explicit.
+        execute("INSERT INTO teaching_calendar(id,name,academic_year,semester,week1_start_date,"
+                + "timezone,version,status) VALUES(" + CALENDAR_INCOMPLETE
+                + ",'Schedule incomplete calendar',2027,1,'2026-09-07','Asia/Shanghai',1,"
+                + "'PUBLISHED')");
+        for (int day = 1; day <= 5; day++) {
+            execute("INSERT INTO calendar_date(id,calendar_id,local_date,week_no,"
+                    + "teaching_weekday,day_template_id,is_teaching_day) VALUES("
+                    + (930050 + day - 1) + "," + CALENDAR_INCOMPLETE + ",'"
+                    + LocalDate.parse("2026-09-07").plusDays(day - 1L) + "',1," + day + ","
+                    + TEMPLATE + ",1)");
+        }
+        execute("INSERT INTO schedule_plan(id,name,calendar_id,revision,status,created_at,"
+                + "updated_at) VALUES(" + PLAN_INCOMPLETE + ",'Schedule incomplete plan',"
+                + CALENDAR_INCOMPLETE + ",1,'DRAFT','2026-08-01 00:00:00','2026-08-01 00:00:00')");
+        execute("INSERT INTO course_schedule_arrangement(arrangement_id,plan_id,offering_id,"
+                + "teacher_uid,classroom_id,status,version) VALUES(930460," + PLAN_INCOMPLETE + ","
+                + OFFERING_SELF + ",NULL," + ROOM_A + ",'ACTIVE',1)");
+        execute("INSERT INTO course_schedule_rule(id,plan_id,course_offering_id,arrangement_id,"
+                + "weekday,start_period,end_period,status) VALUES(930560," + PLAN_INCOMPLETE + ","
+                + OFFERING_SELF + ",930460,2,1,2,'ACTIVE')");
+        execute("INSERT INTO course_schedule_rule_week(rule_id,week_no) VALUES(930560,1)");
+        scheduled(930461L, 930561L, 930661L, PLAN_INCOMPLETE, OFFERING_SELF, "teacher-alpha",
+                ROOM_B, 1, 4, 1, 2);
     }
 
     private static void scheduled(long arrangementId, long ruleId, long occurrenceId, long planId,

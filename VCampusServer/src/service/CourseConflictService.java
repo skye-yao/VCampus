@@ -153,7 +153,7 @@ public class CourseConflictService {
         return List.copyOf(conflicts);
     }
 
-    /** Full-plan effective check used before publication. */
+    /** 读路径用的整方案有效检查；不完整的安排会被跳过。 */
     public List<ScheduleConflictDTO> checkPlan(long planId) {
         try (Connection connection = DBUtil.getConnection()) {
             return checkPlan(connection, planId);
@@ -162,6 +162,21 @@ public class CourseConflictService {
         }
     }
 
+    /** Publication gate for callers that are not already inside a transaction. */
+    public void requirePublishable(long planId) {
+        try (Connection connection = DBUtil.getConnection()) {
+            requirePublishable(connection, planId);
+        } catch (SQLException failure) {
+            throw new DatabaseException("排课方案发布校验失败", failure);
+        }
+    }
+
+    /**
+     * Full-plan effective check used by reads and by publication. An arrangement that cannot form a
+     * candidate — no teacher, or no slots yet — is skipped rather than fatal: a plan that is being
+     * edited, or merely displayed, may legitimately contain unfinished rows. Publication still
+     * rejects them; see {@link #requirePublishable}.
+     */
     public List<ScheduleConflictDTO> checkPlan(Connection connection, long planId)
             throws SQLException {
         AdminScheduleDAO.PlanRow plan = scheduleDAO.findPlan(connection, planId);
@@ -175,13 +190,27 @@ public class CourseConflictService {
                 null)) {
             Candidate candidate = candidate(planId, arrangement);
             if (candidate == null) {
-                throw new IllegalArgumentException("教学安排缺少任课教师或时间段，无法发布");
+                continue;
             }
             for (ScheduleConflictDTO conflict : check(connection, candidate, calendar)) {
                 add(conflicts, seen, conflict);
             }
         }
         return List.copyOf(conflicts);
+    }
+
+    /**
+     * Publication gate: every arrangement must name a teacher and carry at least one slot. This is
+     * the only place the incompleteness is fatal — {@link #checkPlan} deliberately tolerates it so
+     * that reading a half-finished plan does not fail.
+     */
+    public void requirePublishable(Connection connection, long planId) throws SQLException {
+        for (ScheduleArrangementDTO arrangement : scheduleDAO.listArrangements(connection, planId,
+                null)) {
+            if (candidate(planId, arrangement) == null) {
+                throw new IllegalArgumentException("教学安排缺少任课教师或时间段，无法发布");
+            }
+        }
     }
 
     private static Candidate candidate(long planId, ScheduleArrangementDTO arrangement) {
