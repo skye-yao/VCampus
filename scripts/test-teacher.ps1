@@ -337,6 +337,27 @@ $suites = @(
             'service.TeacherApplicationsMySqlTest',
             'integration.TeacherCourseWorkflowEndToEndTest',
             'database.TeacherCourseMigrationMySqlTest') }
+    # 课程模块修复套件（2026-09-17）。本计划的三个缺陷分别落在学生课表读路径、管理员学生搜索、
+    # 管理员排课，下面这 13 个类此前一个套件都没有——改了也永远跑不到，等于不会失败的测试。
+    # 注意这里刻意不收已经在 Timetable/Adjustment/GradeBook 里的类，避免同一批 MySQL 用例跑两遍。
+    # MySql 列 = Server 列里需要活库（解析 mysql 参数 / 自带受保护库守卫）的类。
+    [pscustomobject]@{ Name = 'Course'
+        Common = @('dto.course.admin.AdminCatalogDtoJsonTest')
+        Client = @('service.SocketCourseServiceTest',
+            'service.MockCourseServiceTest',
+            'service.MockCourseScheduleTest',
+            'controller.ScheduleArrangementDialogControllerTest',
+            'controller.CourseManagementControllerTest',
+            'controller.CourseSelectionControllerTest',
+            'controller.TrainingPlanControllerTest',
+            'service.CoursePushCoordinatorTest')
+        Server = @('handler.CourseHandlerTest',
+            'handler.AdminScheduleHandlerTest',
+            'handler.AdminEnrollmentHandlerTest',
+            'service.ScheduleManagementMySqlTest')
+        Tcp = @()
+        Gui = @()
+        MySql = @('service.ScheduleManagementMySqlTest') }
 
 )
 
