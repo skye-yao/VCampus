@@ -340,7 +340,10 @@ $suites = @(
     # 课程模块修复套件（2026-09-17）。本计划的三个缺陷分别落在学生课表读路径、管理员学生搜索、
     # 管理员排课，下面这 13 个类此前一个套件都没有——改了也永远跑不到，等于不会失败的测试。
     # 注意这里刻意不收已经在 Timetable/Adjustment/GradeBook 里的类，避免同一批 MySQL 用例跑两遍。
-    # MySql 列 = Server 列里需要活库（解析 mysql 参数 / 自带受保护库守卫）的类。
+    # MySql 列 = Server 列里需要活库的类。这里的 `service.ScheduleManagementMySqlTest` **不解析**
+    # `mysql` 参数：它从 classpath 读 `resources/db.properties`，库不对时抛 `Refusing schedule test`
+    # （同形做法见 Adjustment 套件的 `service.CourseConflictMySqlTest`），所以必须靠 `-TestConfigPath`
+    # 指到受保护库，它不会因为漏传 `-WithMySql` 就降级成 SKIP。
     [pscustomobject]@{ Name = 'Course'
         Common = @('dto.course.admin.AdminCatalogDtoJsonTest')
         Client = @('service.SocketCourseServiceTest',

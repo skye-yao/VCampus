@@ -200,13 +200,27 @@ public class CourseConflictService {
     }
 
     /**
-     * Publication gate: every arrangement must name a teacher and carry at least one slot. This is
-     * the only place the incompleteness is fatal — {@link #checkPlan} deliberately tolerates it so
-     * that reading a half-finished plan does not fail.
+     * Publication gate: the plan must exist, hold at least one arrangement, and every arrangement
+     * must name a teacher and carry at least one slot. This is the only place the incompleteness is
+     * fatal — {@link #checkPlan} deliberately tolerates it so that reading a half-finished plan does
+     * not fail.
+     *
+     * <p>An empty plan is refused as well, and with its own message: publishing one advances
+     * {@code teaching_calendar.current_schedule_plan_id} onto a plan with no occurrences, and both
+     * the student and the teacher timetable read that pointer, so a single publish would blank both
+     * at once. The two refusals stay separate on purpose — an administrator told the arrangements
+     * are missing a teacher would look for a row that does not exist.
      */
     public void requirePublishable(Connection connection, long planId) throws SQLException {
-        for (ScheduleArrangementDTO arrangement : scheduleDAO.listArrangements(connection, planId,
-                null)) {
+        if (scheduleDAO.findPlan(connection, planId) == null) {
+            throw new IllegalArgumentException("排课方案不存在");
+        }
+        List<ScheduleArrangementDTO> arrangements = scheduleDAO.listArrangements(connection, planId,
+                null);
+        if (arrangements.isEmpty()) {
+            throw new IllegalArgumentException("该排课方案没有任何教学安排，无法发布");
+        }
+        for (ScheduleArrangementDTO arrangement : arrangements) {
             if (candidate(planId, arrangement) == null) {
                 throw new IllegalArgumentException("教学安排缺少任课教师或时间段，无法发布");
             }

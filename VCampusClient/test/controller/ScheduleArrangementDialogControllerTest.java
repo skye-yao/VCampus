@@ -26,6 +26,7 @@ import dto.course.admin.schedule.ScheduleConflictSeverityDTO;
 import dto.course.admin.schedule.SchedulePlanDTO;
 import dto.course.admin.schedule.ScheduleResourceDTO;
 import dto.course.admin.schedule.ScheduleSlotDTO;
+import javafx.scene.control.Button;
 import javafx.scene.control.ButtonType;
 import model.course.admin.AdminCourseView;
 import model.course.admin.AdminOfferingView;
@@ -43,6 +44,8 @@ public final class ScheduleArrangementDialogControllerTest {
     private static final String CONFLICT_MESSAGE = "数据已被其他管理员修改";
     private static final String SAVE_KEY = "schedule:save";
     private static final String DIALOG_VIEW = "/resources/fxml/ScheduleArrangementDialog.fxml";
+    /** 服务端 createDraftPlan 的结果文案形状：复制条数必须落到界面上。 */
+    private static final String CREATE_DRAFT_MESSAGE = "草稿方案已创建：已复制 3 条 / 跳过 1 条";
 
     public static void main(String[] args) {
         if (args.length > 0) {
@@ -95,6 +98,7 @@ public final class ScheduleArrangementDialogControllerTest {
         createDraftIsOfferedWhenNoPlanLoaded();
         createDraftReloadsThePlanOnSuccess();
         createDraftIsHiddenWhenADraftIsEditable();
+        createDraftFailureKeepsTheServerReason();
         loadPlanFailureSurfacesTheServerMessage();
         scheduleArrangementDialogViewKeepsItsBindings();
         System.out.println("ScheduleArrangementDialogControllerTest: PASS");
@@ -949,6 +953,8 @@ public final class ScheduleArrangementDialogControllerTest {
 
     /**
      * loadPlan 失败后仍必须给出创建草稿的出路，否则用户无路可走：整屏写控件都依赖方案。
+     * 同时钉住复制意图：加载失败时**信息不足**，必须按安全默认值传 true——该学期可能真有已发布
+     * 方案，传 false 会静默造出一份空草稿。只有确知没有方案（加载成功且返回空）才允许传 false。
      */
     private static void createDraftIsOfferedWhenNoPlanLoaded() {
         ControlledScheduleService service = new ControlledScheduleService();
@@ -962,10 +968,30 @@ public final class ScheduleArrangementDialogControllerTest {
                 "the failed plan load must stay visible with its retry action");
         require(createDraftOffered(controller),
                 "a dialog without a plan must still offer the create-draft entry");
+
+        invokeAction(controller, "handleCreateDraft");
+        require(service.createDraftRequests.size() == 1,
+                "the offered entry must create exactly one draft, saw "
+                        + service.createDraftRequests);
+        require("true".equals(service.createDraftRequests.get(0).split("\\|", -1)[2]),
+                "a failed plan load must still ask the server to copy: that term may well have a "
+                        + "published plan, saw " + service.createDraftRequests.get(0));
+
+        ControlledScheduleService emptyTerm = new ControlledScheduleService();
+        emptyTerm.plan = null;
+        ScheduleArrangementDialogController noPlan = controller(emptyTerm, new Recorder());
+        require(createDraftOffered(noPlan),
+                "a term that really has no plan must still offer the create-draft entry");
+        invokeAction(noPlan, "handleCreateDraft");
+        require(emptyTerm.createDraftRequests.size() == 1
+                        && "false".equals(emptyTerm.createDraftRequests.get(0).split("\\|", -1)[2]),
+                "only a successfully loaded term without a plan may pass false, saw "
+                        + emptyTerm.createDraftRequests);
     }
 
     /**
-     * 成功后要重新拉一次方案，否则界面仍停在「无方案」；请求本身必须带学期与复制意图。
+     * 成功后要重新拉一次方案，否则界面仍停在「无方案」；请求本身必须带学期与复制意图，
+     * 服务端的结果文案（已复制/跳过条数）必须留在界面上，空草稿才不会是静默的。
      */
     private static void createDraftReloadsThePlanOnSuccess() {
         ControlledScheduleService service = new ControlledScheduleService();
@@ -988,6 +1014,35 @@ public final class ScheduleArrangementDialogControllerTest {
         require(service.planCalls.size() == loads + 1,
                 "a created draft must be reloaded so the dialog shows the editable plan, saw "
                         + service.planCalls);
+        require(CREATE_DRAFT_MESSAGE.equals(controller.validationMessage())
+                        && validationShown(controller),
+                "the server's copy counts must be visible on the dialog, saw "
+                        + controller.validationMessage() + " (visible=" + validationShown(controller)
+                        + ")");
+    }
+
+    /**
+     * 失败分支（本计划新增的 validationVisible = true 之后才看得见）必须把服务端原因留在界面上，
+     * 否则按钮弹回去而用户不知道原因。
+     */
+    private static void createDraftFailureKeepsTheServerReason() {
+        ControlledScheduleService service = new ControlledScheduleService();
+        service.plan = new SchedulePlanDTO("7001", "published", 3, "PUBLISHED", true, List.of());
+        service.createDraftFailure = new AdminCourseServiceException(MessageCode.CONFLICT,
+                "该学期已有草稿方案");
+        ScheduleArrangementDialogController controller = controller(service, new Recorder());
+        require(createDraftOffered(controller),
+                "a published plan must still offer the create-draft entry");
+
+        invokeAction(controller, "handleCreateDraft");
+        require(service.createDraftRequests.size() == 1,
+                "the offered entry must ask the server once, saw " + service.createDraftRequests);
+        String message = controller.validationMessage();
+        require(message != null && message.contains("创建草稿方案失败")
+                        && message.contains("该学期已有草稿方案"),
+                "a refused create must surface the server reason, saw " + message);
+        require(validationShown(controller),
+                "the refusal must be visible rather than only computed");
     }
 
     /**
@@ -1040,8 +1095,10 @@ public final class ScheduleArrangementDialogControllerTest {
             require("#handleCreateDraft".equals(createDraft.getAttribute("onAction")),
                     "创建草稿入口必须接到 handleCreateDraft，收到 onAction=\""
                             + createDraft.getAttribute("onAction") + "\"");
-            require(findField(ScheduleArrangementDialogController.class, "createDraftButton") != null,
-                    "fx:id=\"createDraftButton\" 在控制器里没有对应字段");
+            Field button = findField(ScheduleArrangementDialogController.class, "createDraftButton");
+            require(button != null, "fx:id=\"createDraftButton\" 在控制器里没有对应字段");
+            require(Button.class.equals(button.getType()),
+                    "createDraftButton 必须声明为 Button，收到 " + button.getType());
             require(hasActionMethod(ScheduleArrangementDialogController.class, "handleCreateDraft"),
                     "onAction=\"#handleCreateDraft\" 在控制器里没有对应处理函数");
         } catch (Exception failure) {
@@ -1061,6 +1118,20 @@ public final class ScheduleArrangementDialogControllerTest {
         } catch (ReflectiveOperationException failure) {
             throw new AssertionError(
                     "the dialog must expose whether it offers the create-draft entry", failure);
+        }
+    }
+
+    /**
+     * 校验行是否真的显示：没有窗口时渲染结果读数不到，只能读控制器的开关。
+     */
+    private static boolean validationShown(ScheduleArrangementDialogController controller) {
+        try {
+            Field field = findField(ScheduleArrangementDialogController.class, "validationVisible");
+            field.setAccessible(true);
+            return field.getBoolean(controller);
+        } catch (ReflectiveOperationException failure) {
+            throw new AssertionError("the dialog must expose whether its validation line is shown",
+                    failure);
         }
     }
 
@@ -1224,6 +1295,7 @@ public final class ScheduleArrangementDialogControllerTest {
         private List<ScheduleConflictDTO> nextPreviewConflicts = List.of();
         private RuntimeException saveFailure;
         private RuntimeException publishFailure;
+        private RuntimeException createDraftFailure;
 
         private void enqueuePlan(CompletableFuture<SchedulePlanDTO> result) {
             planResults.addLast(result);
@@ -1330,8 +1402,13 @@ public final class ScheduleArrangementDialogControllerTest {
                 int academicYear, int semester, boolean copyPublished, String operationId) {
             createDraftRequests.add(academicYear + "|" + semester + "|" + copyPublished
                     + "|" + operationId);
+            if (createDraftFailure != null) {
+                RuntimeException failure = createDraftFailure;
+                createDraftFailure = null;
+                return CompletableFuture.failedFuture(failure);
+            }
             return CompletableFuture.completedFuture(new AdminOperationResultView<>(
-                    operationId, "OK", "草稿方案已创建", null));
+                    operationId, "OK", CREATE_DRAFT_MESSAGE, null));
         }
 
         @Override

@@ -1012,6 +1012,8 @@ public final class ScheduleArrangementDialogController {
      * 学期还没有方案（或只有已发布的方案）时，从服务端开一份草稿：这是本对话框里唯一能让整屏
      * 写控件重新可用的入口。创建结果本身不参与任何判断——它的 conflicts 在服务端固定为空，
      * 真正的权威冲突随 {@link #loadPlan()} 一起回来，所以成功一律以重新加载的方案为准。
+     * 服务端的结果文案（含已复制/跳过条数）则原样留在校验行上：看不到「复制了 0 条」正是空草稿
+     * 一直被静默的原因。
      */
     @FXML
     public void handleCreateDraft() {
@@ -1020,8 +1022,12 @@ public final class ScheduleArrangementDialogController {
         localMessage = null;
         render();
         String operationId = UUID.randomUUID().toString();
+        // 复制意图的真值来源：只有确知该学期没有方案（加载成功且返回空）时才传 false。加载失败
+        // 时信息不足，必须按服务端的「有则复制、无则照样建空」传 true——false 是在信息不足时
+        // 主动放弃一次可能存在的复制。也不要靠隐藏按钮回避：加载失败后仍给出出路是刻意做的。
+        boolean copyPublished = plan != null || readErrors.containsKey(ReadTarget.PLAN);
         service.createSchedulePlan(offering.getAcademicYear(), offering.getSemester(),
-                        plan != null, operationId)
+                        copyPublished, operationId)
                 .whenComplete((created, failure) -> fxExecutor.accept(() -> {
                     createDraftInFlight = false;
                     if (failure != null) {
@@ -1029,6 +1035,11 @@ public final class ScheduleArrangementDialogController {
                         localMessage = "创建草稿方案失败：" + errorMessage(failure);
                         render();
                         return;
+                    }
+                    String message = created == null ? null : created.getMessage();
+                    if (message != null && !message.isBlank()) {
+                        localMessage = message;
+                        validationVisible = true;
                     }
                     loadPlan();
                 }));

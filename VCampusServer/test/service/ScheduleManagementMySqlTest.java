@@ -58,6 +58,10 @@ public final class ScheduleManagementMySqlTest {
     // the demo seed ships in plan 4001 — so the copy has to skip that row.
     private static final long CALENDAR_COPY = 930120L;
     private static final long PLAN_COPY_SOURCE = 930121L;
+    // A term whose only plan is an empty draft: the state the new create-draft entry makes
+    // reachable, and the one publication must refuse before it moves the calendar pointer.
+    private static final long CALENDAR_EMPTY = 930140L;
+    private static final long PLAN_EMPTY = 930106L;
     private static final long ROOM_A = 930200L;
     private static final long ROOM_B = 930201L;
     private static final long ROOM_SMALL = 930202L;
@@ -90,6 +94,7 @@ public final class ScheduleManagementMySqlTest {
             verifyOfferingConflictRebuild(service);
             verifyLoadPlan(service);
             verifyIncompleteArrangementReadsAndPublication(service);
+            verifyEmptyPlanIsNotPublishable(service);
             verifyCreateDraftPlan(service);
         } finally {
             cleanup();
@@ -558,6 +563,39 @@ public final class ScheduleManagementMySqlTest {
     }
 
     /**
+     * An empty draft used to be a legal publication target — the new create-draft entry is what made
+     * that state reachable — and publishing one would advance the calendar pointer onto a plan with
+     * no occurrences, blanking the student and the teacher timetable at once. The refusal must also
+     * read differently from the incomplete-arrangement one, or the administrator is sent looking for
+     * an arrangement that does not exist.
+     */
+    private static void verifyEmptyPlanIsNotPublishable(ScheduleManagementService service)
+            throws Exception {
+        IllegalArgumentException refusal = expect(IllegalArgumentException.class,
+                () -> service.publish(ADMIN, Long.toString(PLAN_EMPTY), 1, op(63), false, null),
+                "an empty draft must not be publishable");
+        require("该排课方案没有任何教学安排，无法发布".equals(refusal.getMessage()),
+                "an empty plan is refused for its own reason, got " + refusal.getMessage());
+        require(!"教学安排缺少任课教师或时间段，无法发布".equals(refusal.getMessage()),
+                "the empty-plan refusal must not send the admin hunting for a missing arrangement");
+        require(count("SELECT COUNT(*) FROM schedule_plan WHERE id=" + PLAN_EMPTY
+                        + " AND status='DRAFT'") == 1,
+                "a refused publication leaves the empty plan in DRAFT");
+        require(count("SELECT COUNT(*) FROM teaching_calendar WHERE id=" + CALENDAR_EMPTY
+                        + " AND current_schedule_plan_id IS NULL") == 1,
+                "a refused publication never moves the calendar's published pointer");
+
+        // The gate also refuses a plan that is not there at all. Publication itself establishes the
+        // plan first, so this guard only speaks for callers that hold the gate directly.
+        IllegalArgumentException missing = expect(IllegalArgumentException.class,
+                () -> new CourseConflictService(new AdminScheduleDAO(), new AdminScheduleConflictDAO())
+                        .requirePublishable(999999999L),
+                "the publication gate must not pass a plan that does not exist");
+        require("排课方案不存在".equals(missing.getMessage()),
+                "the missing-plan refusal names the plan, got " + missing.getMessage());
+    }
+
+    /**
      * The new-draft path. A term that only has a published plan gains an editable draft carrying
      * that plan's complete arrangements over — while the calendar's published pointer stays on the
      * source, so the teacher-facing timetable never flips to an unedited draft.
@@ -585,8 +623,9 @@ public final class ScheduleManagementMySqlTest {
                 "creating a draft writes one operation row naming the new plan");
 
         require(count("SELECT COUNT(*) FROM course_schedule_arrangement WHERE plan_id="
-                        + PLAN_COPY_SOURCE) == 3,
-                "the source plan keeps all three arrangements, teacher-less one included");
+                        + PLAN_COPY_SOURCE) == 5,
+                "the source plan keeps all five arrangements, teacher-less and classroom-less ones"
+                        + " included");
         List<ScheduleArrangementDTO> copied = service.listArrangements(Long.toString(planId), null);
         require(copied.size() == 2 && copied.stream().allMatch(row -> row.getTeacher() != null),
                 "the draft copies exactly the published plan's complete arrangements, got "
@@ -594,6 +633,21 @@ public final class ScheduleManagementMySqlTest {
         require(copied.stream().anyMatch(row -> row.getAssistant() != null
                         && "teacher-beta".equals(row.getAssistant().getBusinessId())),
                 "the assistant of a copied arrangement comes along");
+        require(copied.stream().allMatch(row -> row.getClassroom() != null
+                        && row.getClassroom().getBusinessId() != null),
+                "every copied arrangement carries the classroom of its source row");
+        require(copied.stream().map(row -> row.getClassroom().getBusinessId()).sorted().toList()
+                        .equals(List.of("930200", "930201")),
+                "the two copied classrooms are the ones the source rows named, got "
+                        + copied.stream().map(row -> row.getClassroom().getBusinessId()).toList());
+        require(count("SELECT COUNT(*) FROM course_schedule_arrangement WHERE plan_id=" + planId
+                        + " AND classroom_id IS NULL") == 0,
+                "the classroom-less source row is skipped, not copied");
+        require(count("SELECT COUNT(*) FROM course_schedule_arrangement WHERE plan_id=" + planId)
+                        == 2,
+                "the out-of-calendar source row is skipped too: two rows land, three do not");
+        require("草稿方案已创建：已复制 2 条 / 跳过 3 条".equals(created.getMessage()),
+                "the result message reports what the copy did, got " + created.getMessage());
         require(count("SELECT COUNT(*) FROM course_schedule_rule WHERE plan_id=" + planId) == 2
                         && count("SELECT COUNT(*) FROM course_occurrence WHERE plan_id=" + planId)
                         == 2,
@@ -847,6 +901,30 @@ public final class ScheduleManagementMySqlTest {
                 + "weekday,start_period,end_period,status) VALUES(930582," + PLAN_COPY_SOURCE + ","
                 + OFFERING_SELF + ",930482,3,1,2,'ACTIVE')");
         execute("INSERT INTO course_schedule_rule_week(rule_id,week_no) VALUES(930582,1)");
+        // Two shapes the copy must skip instead of crashing on, both hand-written because the seed
+        // has neither: a classroom_id NULL row (V004 declares the column nullable for historical
+        // rows) and a row whose only week falls outside this term's teaching calendar. The two
+        // complete rows above must still come over untouched.
+        execute("INSERT INTO course_schedule_arrangement(arrangement_id,plan_id,offering_id,"
+                + "teacher_uid,classroom_id,status,version) VALUES(930483," + PLAN_COPY_SOURCE + ","
+                + OFFERING_OTHER + ",'teacher-beta',NULL,'ACTIVE',1)");
+        execute("INSERT INTO course_schedule_rule(id,plan_id,course_offering_id,arrangement_id,"
+                + "weekday,start_period,end_period,status) VALUES(930583," + PLAN_COPY_SOURCE + ","
+                + OFFERING_OTHER + ",930483,5,1,2,'ACTIVE')");
+        execute("INSERT INTO course_schedule_rule_week(rule_id,week_no) VALUES(930583,1)");
+        scheduled(930484L, 930584L, 930684L, PLAN_COPY_SOURCE, OFFERING_SELF, "teacher-alpha",
+                ROOM_B, 2, 5, 1, 2);
+
+        // Publication-gate fixture: a term whose only plan is an empty DRAFT, the shape the new
+        // create-draft entry leaves behind when there is nothing to copy. No calendar_date rows are
+        // written: a plan with no arrangements never resolves a window, so the refusal happens long
+        // before the calendar matters.
+        execute("INSERT INTO teaching_calendar(id,name,academic_year,semester,week1_start_date,"
+                + "timezone,version,status) VALUES(" + CALENDAR_EMPTY
+                + ",'Schedule empty calendar',2029,1,'2026-09-07','Asia/Shanghai',1,'PUBLISHED')");
+        execute("INSERT INTO schedule_plan(id,name,calendar_id,revision,status,created_at,"
+                + "updated_at) VALUES(" + PLAN_EMPTY + ",'Schedule empty plan'," + CALENDAR_EMPTY
+                + ",1,'DRAFT','2026-08-01 00:00:00','2026-08-01 00:00:00')");
     }
 
     private static void scheduled(long arrangementId, long ruleId, long occurrenceId, long planId,

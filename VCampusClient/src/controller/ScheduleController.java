@@ -35,9 +35,11 @@ import util.AlertUtil;
 
 public final class ScheduleController {
     /**
-     * 节次列的固定宽度：行头是 {@code 第 13 节 18:00:00-18:45:00}（11px 字号约 120px 字形 + 12px
-     * 内边距），窄了会被 {@code Label} 默认的 {@code TextOverrun.ELLIPSIS} 裁掉时刻。与教师端同值——
-     * 两边的行头文案与字号完全一样（原来 50px 只够放 {@code 第 N 节}，放不下本 Task 新增的时间区间）。
+     * 节次列的固定宽度：行头是 {@code 第 13 节 18:00:00-18:45:00}（11px 字号约 120px 字形），窄了
+     * 会被 {@code Label} 默认的 {@code TextOverrun.ELLIPSIS} 裁掉时刻。与教师端同值——两边的行头
+     * 文案与字号完全一样（原来 50px 只够放 {@code 第 N 节}，放不下本 Task 新增的时间区间）。教师端的
+     * 行头另有 {@code 4px 6px} 内边距，学生端的 {@code .course-period-label} 没有，150 只用字形宽度
+     * 解释。
      */
     private static final double PERIOD_COLUMN_WIDTH = 150.0;
     /** 日期列的最小宽度（同时是"铺满"的下限）与首选宽度，沿用学生端原有的观感。 */

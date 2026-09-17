@@ -330,14 +330,24 @@ public class ScheduleManagementService {
                     } + "排课方案";
             int revision = scheduleDAO.nextRevision(connection, calendarId, name);
             long planId = scheduleDAO.insertPlan(connection, name, calendarId, revision, adminUid);
+            int copied = 0;
+            int skipped = 0;
             if (copyPublished) {
                 Long sourcePlanId = scheduleDAO.findPublishedPlanId(connection, calendarId);
                 if (sourcePlanId != null) {
-                    copyArrangements(connection, sourcePlanId, planId, calendar, adminUid);
+                    List<ScheduleArrangementDTO> source =
+                            scheduleDAO.listArrangements(connection, sourcePlanId, null);
+                    copied = copyArrangements(connection, sourcePlanId, source, planId, calendar,
+                            adminUid);
+                    // The copy loop has exactly two outcomes per source row — copied or skipped —
+                    // so the remainder is the skip count the result message reports.
+                    skipped = source.size() - copied;
                 }
             }
             AdminScheduleDAO.PlanRow created = scheduleDAO.findPlan(connection, planId);
-            return new Outcome<>(new AdminOperationResultDTO<>(operationId, OK, "草稿方案已创建",
+            // 复制/跳过条数随结果消息回到界面：管理员看不到「复制了 0 条」正是空草稿被静默的原因。
+            return new Outcome<>(new AdminOperationResultDTO<>(operationId, OK,
+                    "草稿方案已创建：已复制 " + copied + " 条 / 跳过 " + skipped + " 条",
                     planDTO(connection, created, List.of()), List.of()), PLAN_TARGET,
                     Long.toString(planId), List.of(), false, null);
         };
@@ -347,29 +357,40 @@ public class ScheduleManagementService {
     }
 
     /**
-     * Copies every complete arrangement from {@code sourcePlanId} into {@code targetPlanId} by
-     * re-running the same child writer {@code save} uses, so the copied {@code course_occurrence}
+     * Copies every arrangement of {@code source} that can be carried over into {@code targetPlanId}
+     * by re-running the same child writer {@code save} uses, so the copied {@code course_occurrence}
      * UTC windows are derived from the calendar exactly as a hand-edited arrangement would be.
+     * Returns the number of rows copied; the caller reports the remainder of {@code source} as
+     * skipped.
      *
      * <p>Rows that cannot form a candidate — no teacher, or no slots — are skipped rather than
      * fatal. The demo seed's arrangement 4104 is deliberately teacher-less, and
      * {@code writeChildren} would hand a null business id to {@code ensureResource}. The skip also
      * keeps this consistent with the read path, which now tolerates exactly the same rows.
      *
+     * <p>Two more shapes are skipped instead of failing the whole copy. A null {@code classroom_id}
+     * is a legal historical row ({@code V004} declares the column nullable) that
+     * {@code writeChildren} would unbox while naming the classroom resource. And a row whose weeks
+     * or periods have no window in this term's teaching calendar would be dereferenced as null
+     * there; {@code save} refuses such rows up front through {@link #requireSlotWindows}, and this
+     * is the only other writer of child rows, so it vets them the same way and skips what fails.
+     * Skipping happens before the parent row is inserted, so a skipped row leaves nothing behind.
+     *
      * <p>{@code writeChildren} reads only offeringId/teacherUid/assistantUid/classroomId/slots/
      * startWeek/endWeek off the candidate — never {@code arrangementId()}, which it takes as its own
      * parameter. Reusing the source row's candidate is therefore safe; do not "fix" it by passing the
      * source arrangement id into {@code writeChildren}.
      */
-    private int copyArrangements(Connection connection, long sourcePlanId, long targetPlanId,
+    private int copyArrangements(Connection connection, long sourcePlanId,
+                                 List<ScheduleArrangementDTO> source, long targetPlanId,
                                  AdminScheduleDAO.CalendarContext calendar, String adminUid)
             throws SQLException {
         int copied = 0;
-        for (ScheduleArrangementDTO arrangement : scheduleDAO.listArrangements(connection,
-                sourcePlanId, null)) {
+        for (ScheduleArrangementDTO arrangement : source) {
             CourseConflictService.Candidate candidate =
                     CourseConflictService.candidate(sourcePlanId, arrangement);
-            if (candidate == null) continue;
+            if (candidate == null || candidate.classroomId() == null) continue;
+            if (!hasSlotWindows(calendar, candidate)) continue;
             long id = scheduleDAO.insertArrangement(connection, targetPlanId, candidate.offeringId(),
                     candidate.teacherUid(), candidate.assistantUid(), candidate.classroomId(),
                     adminUid);
@@ -441,14 +462,28 @@ public class ScheduleManagementService {
 
     private static void requireSlotWindows(AdminScheduleDAO.CalendarContext calendar,
                                            CourseConflictService.Candidate candidate) {
+        if (!hasSlotWindows(calendar, candidate)) {
+            throw new IllegalArgumentException("周次或节次超出教学日历范围");
+        }
+    }
+
+    /**
+     * The single predicate behind {@link #requireSlotWindows}: true when every week and slot of the
+     * candidate resolves to a window in the calendar. {@code save} refuses the candidate when it is
+     * false, the copy path skips the row instead, and only a candidate that passes reaches the
+     * windows {@link #writeChildren} dereferences.
+     */
+    private static boolean hasSlotWindows(AdminScheduleDAO.CalendarContext calendar,
+                                          CourseConflictService.Candidate candidate) {
         for (ScheduleSlotDTO slot : candidate.slots()) {
             for (int week = candidate.startWeek(); week <= candidate.endWeek(); week++) {
                 if (calendar.window(week, slot.getDayOfWeek(), slot.getStartPeriod(),
                         slot.getEndPeriod()) == null) {
-                    throw new IllegalArgumentException("周次或节次超出教学日历范围");
+                    return false;
                 }
             }
         }
+        return true;
     }
 
     private AdminScheduleDAO.PlanRow requireDraftPlan(Connection connection, long planId)
@@ -501,6 +536,11 @@ public class ScheduleManagementService {
         }
     }
 
+    /**
+     * Rebuilds the arrangement's normalized children. Callers must have vetted the candidate's slot
+     * windows first — {@code save} through {@link #requireSlotWindows}, the copy path through
+     * {@link #hasSlotWindows} — so every window dereferenced below is known non-null.
+     */
     private void writeChildren(Connection connection, long arrangementId, long planId,
                                CourseConflictService.Candidate candidate,
                                AdminScheduleDAO.CalendarContext calendar) throws SQLException {
