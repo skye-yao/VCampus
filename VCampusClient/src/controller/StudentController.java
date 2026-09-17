@@ -92,6 +92,7 @@ public class StudentController {
     private boolean enteringEdit;
     private long editEntryVersion;
     private StudentOverviewVO overview;
+    private boolean editFromDashboard;
     private List<Student> students=new ArrayList<>(),filteredStudents=new ArrayList<>();
     private final Set<String> selectedStudentIds=new LinkedHashSet<>();
     private CheckBox selectCurrentPageCheckBox;
@@ -198,6 +199,7 @@ public class StudentController {
         }
     }
     public void openReviewFromDashboard(){handleShowReview();}
+    public void openRejectedEditFromDashboard(){editFromDashboard=true;if(overview!=null&&overview.getStudent()!=null){editFromDashboard=false;handleViewDetails();beginGlobalEdit();}}
     //关闭维护模式
     @FXML private void handleShowStudentManagement(){exitDetailEditState();adminMaintenanceMode=false;applyAdminMode();}
     //开启维护模式
@@ -750,7 +752,7 @@ public class StudentController {
             overview=data(m,"overview",StudentOverviewVO.class);
             if(!isAdmin()&&overview!=null&&overview.getStudent()!=null&&safe(overview.getStudent().getUID()).isBlank())
                 overview.getStudent().setUID(safe(ClientSession.getInstance().getUsername()));
-            render(overview);setStatus("学籍信息已更新");
+            render(overview);setStatus("学籍信息已更新");if(editFromDashboard&&overview!=null&&overview.getStudent()!=null){editFromDashboard=false;handleViewDetails();beginGlobalEdit();}
         }
         );
     }

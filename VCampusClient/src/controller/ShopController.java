@@ -64,6 +64,8 @@ public class ShopController {
     @FXML private Tab adminTab;
     @FXML private Tab cartTab;
     @FXML private Tab orderTab;
+    @FXML private TabPane adminTabs;
+    @FXML private Tab refundTab;
     @FXML private Label shopSubtitleLabel;
 
     @FXML private TextField keywordField;
@@ -214,6 +216,16 @@ public class ShopController {
         refreshProducts();
         if (admin) { refreshAdminProducts(); refreshAdminDashboard(); }
         else { refreshCart(); refreshOrders(); }
+    }
+
+    public void openOrdersFromDashboard() {
+        if (orderTab != null && orderTab.getTabPane() != null) shopTabs.getSelectionModel().select(orderTab);
+    }
+
+    public void openRefundsFromDashboard() {
+        if (adminTab != null) shopTabs.getSelectionModel().select(adminTab);
+        if (adminTabs != null && refundTab != null) adminTabs.getSelectionModel().select(refundTab);
+        refreshAdminDashboard();
     }
 
     private void configureTables() {

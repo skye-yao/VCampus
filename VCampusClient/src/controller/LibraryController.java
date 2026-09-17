@@ -254,6 +254,10 @@ public class LibraryController {
         refreshMyLibrary();
     }
 
+    public void openMyLibraryFromDashboard() {
+        if (!administrator && myLibraryTab != null) libraryTabs.getSelectionModel().select(myLibraryTab);
+    }
+
     private void configureTables() {
         addBookNameColumn(currentBorrowTable, BorrowRecord::getBookId);
         addBookNameColumn(historyTable, BorrowRecord::getBookId);

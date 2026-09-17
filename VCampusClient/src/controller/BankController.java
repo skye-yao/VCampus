@@ -229,6 +229,10 @@ public class BankController {
         refreshAll();
     }
 
+    public void openBillsFromDashboard() {
+        if (billTab != null) billTab.getTabPane().getSelectionModel().select(billTab);
+    }
+
     @FXML private void handleBack() { ClientMain.switchScene("/resources/fxml/MainView.fxml"); }
     @FXML private void handleRefresh() { refreshAll(); }
 

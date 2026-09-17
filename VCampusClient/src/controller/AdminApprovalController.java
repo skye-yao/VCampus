@@ -137,6 +137,10 @@ public final class AdminApprovalController {
         if (gradePageController != null) gradePageController.activate(gradeFilter);
     }
 
+    public void openAdjustmentsFromDashboard() { showAdjustments(); }
+
+    public void openGradesFromDashboard() { showGrades(); }
+
     /**
      * 成绩页只有三态。共享筛选是它没有的已撤销时，把共享状态与组合框一起回落到成绩页实际加载的
      * PENDING，避免标签（已撤销）与已加载的行（待审批）不符；setValue 会经监听器回到

@@ -9,6 +9,7 @@ import javafx.scene.control.ToggleButton;
  * 管理员后台外壳：课程与审批导航，默认进入课程页面。
  */
 public final class AdminCourseManagementController {
+    private static volatile String requestedApprovalPage;
     private Runnable backAction =
             () -> ClientMain.switchScene("/resources/fxml/MainView.fxml");
 
@@ -21,7 +22,20 @@ public final class AdminCourseManagementController {
 
     @FXML
     public void initialize() {
-        showCourses();
+        String requested = requestedApprovalPage;
+        requestedApprovalPage = null;
+        if (requested == null) showCourses();
+        else {
+            showApproval();
+            if (approvalPageController != null) {
+                if ("grades".equals(requested)) approvalPageController.openGradesFromDashboard();
+                else approvalPageController.openAdjustmentsFromDashboard();
+            }
+        }
+    }
+
+    public static void requestApprovalPage(boolean grades) {
+        requestedApprovalPage = grades ? "grades" : "adjustments";
     }
 
     @FXML

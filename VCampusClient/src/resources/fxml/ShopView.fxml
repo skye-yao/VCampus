@@ -112,7 +112,7 @@
                     </BorderPane>
                 </Tab>
                 <Tab fx:id="adminTab" text="商店后台">
-                    <TabPane tabClosingPolicy="UNAVAILABLE" styleClass="admin-subtabs">
+                    <TabPane fx:id="adminTabs" tabClosingPolicy="UNAVAILABLE" styleClass="admin-subtabs">
                         <tabs>
                             <Tab text="商品维护">
                                 <BorderPane>
@@ -199,7 +199,7 @@
                                     </bottom>
                                 </BorderPane>
                             </Tab>
-                            <Tab text="退款审核">
+                            <Tab fx:id="refundTab" text="退款审核">
                                 <BorderPane>
                                     <center><TableView fx:id="adminRefundTable" styleClass="shop-table">
                                         <columns>

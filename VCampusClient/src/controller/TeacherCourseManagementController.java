@@ -30,6 +30,7 @@ import util.PageLeaveGuard;
  * {@code unload}/{@code release} 取消在途请求，因此不存在还在写界面的过期子页控制器。
  */
 public final class TeacherCourseManagementController {
+    private static volatile String requestedDashboardPage;
     /** 首页文案：四个入口全部已接入。 */
     static final String HOME_NOTICE = "教学班、教学课程表、成绩录入、我的申请已接入。";
     /** “返回首页”的目标视图。 */
@@ -92,6 +93,14 @@ public final class TeacherCourseManagementController {
         wire(homePanel, offeringsPage, offeringsPageController, detailPage, detailPageController,
                 schedulePage, schedulePageController, applicationsPage, applicationsPageController);
         wireGrades(gradesPage, gradesPageController, gradeBookPage, gradeBookPageController);
+        String requested = requestedDashboardPage;
+        requestedDashboardPage = null;
+        if (PAGE_APPLICATIONS.equals(requested)) openApplications();
+        else if (PAGE_GRADES.equals(requested)) openGrades(null);
+    }
+
+    public static void requestDashboardPage(String page) {
+        requestedDashboardPage = page;
     }
 
     /**
