@@ -1,14 +1,17 @@
 package service;
 
 import dto.course.CourseActions;
+import dto.course.CourseCalendarDateDTO;
 import dto.course.CourseDTO;
 import dto.course.CourseMeetingDTO;
 import dto.course.CourseMutationResultDTO;
 import dto.course.CourseNoticeDTO;
 import dto.course.CourseOfferingDTO;
+import dto.course.CoursePeriodDTO;
 import dto.course.CoursePlanSnapshotDTO;
 import dto.course.CoursePushEventDTO;
 import dto.course.CoursePushEventTypeDTO;
+import dto.course.CourseScheduleWeekDTO;
 import dto.course.CourseSelectionItemDTO;
 import dto.course.CourseTeacherDTO;
 import dto.course.CourseTermDTO;
@@ -39,6 +42,7 @@ import model.course.GradeRecordView;
 import model.course.GradeSummaryView;
 import model.course.ScheduleDisplayKind;
 import model.course.ScheduleEntryView;
+import model.course.ScheduleWeekView;
 import model.course.SelectionStatus;
 import model.course.TrainingPlanGroupView;
 import model.course.WaitlistDecision;
@@ -222,17 +226,24 @@ public final class SocketCourseServiceTest {
 
     private static void loadScheduleAndNoticesSendTermAndWeek() {
         FakeTransport transport = new FakeTransport();
-        transport.respond(message -> message.putData("schedule", List.of(
+        transport.respond(message -> message.putData("schedule", scheduleWeek(3, List.of(
                 new ScheduleEntryDTO("1001", "2026-2027 秋学期", "CS203", "数据结构",
-                        "张老师", "教四-201", 2, 3, 2, 1, 16))));
+                        "张老师", "教四-201", 2, 3, 2, 1, 16)))));
         SocketCourseService service = new SocketCourseService(transport);
-        List<ScheduleEntryView> schedule = service.loadSchedule(TERM, 3).join();
+        ScheduleWeekView week = service.loadSchedule(TERM, 3).join();
         Message request = transport.lastRequest;
         require(CourseActions.LOAD_SCHEDULE.equals(request.getAction()), "schedule action");
         require(Integer.valueOf(3).equals(request.getData("week")), "week key required");
         require(Integer.valueOf(2026).equals(request.getData("academicYear")), "year key");
-        require(schedule.size() == 1 && schedule.get(0).getOfferingId() == 1001L
-                        && schedule.get(0).getStartPeriod() == 3,
+        // 学生课表响应不再是裸数组：日期与节次字典随课次一起回来，网格几何由它们决定。
+        require(week.getWeek() == 3 && week.getDates().size() == 1
+                        && "2026-09-14".equals(week.getDates().get(0).getDate())
+                        && week.getPeriods().size() == 2
+                        && week.getPeriods().get(1).getPeriod() == 4
+                        && "10:50:00".equals(week.getPeriods().get(1).getStartTime()),
+                "the schedule object must carry the week's calendar geometry");
+        require(week.getEntries().size() == 1 && week.getEntries().get(0).getOfferingId() == 1001L
+                        && week.getEntries().get(0).getStartPeriod() == 3,
                 "schedule entry must map");
 
         transport.respond(message -> message.putData("notices", List.of(
@@ -250,7 +261,7 @@ public final class SocketCourseServiceTest {
     /** The paired display fields must survive the wire, and an absent kind must fail loudly. */
     private static void adjustmentScheduleEntriesMapExplicitly() {
         FakeTransport transport = new FakeTransport();
-        transport.respond(message -> message.putData("schedule", List.of(
+        transport.respond(message -> message.putData("schedule", scheduleWeek(13, List.of(
                 new ScheduleEntryDTO("1001", "2026-2027 秋学期", "CS203", "数据结构", "张老师",
                         "教四-201", 2, 3, 2, 1, 16, ScheduleDisplayKindDTO.ADJUSTED_ORIGINAL,
                         "9007199254740999", "周二 第3-4节 教四-201", "周五 第3-4节 教二-305",
@@ -258,9 +269,9 @@ public final class SocketCourseServiceTest {
                 new ScheduleEntryDTO("1001", "2026-2027 秋学期", "CS203", "数据结构", "李老师",
                         "教二-305", 5, 3, 2, 1, 16, ScheduleDisplayKindDTO.ADJUSTED_TARGET,
                         "9007199254740999", "周二 第3-4节 教四-201", "周五 第3-4节 教二-305",
-                        "教师出差"))));
+                        "教师出差")))));
         List<ScheduleEntryView> entries =
-                new SocketCourseService(transport).loadSchedule(TERM, 13).join();
+                new SocketCourseService(transport).loadSchedule(TERM, 13).join().getEntries();
         require(entries.size() == 2
                         && entries.get(0).getDisplayKind() == ScheduleDisplayKind.ADJUSTED_ORIGINAL
                         && entries.get(1).getDisplayKind() == ScheduleDisplayKind.ADJUSTED_TARGET,
@@ -277,19 +288,20 @@ public final class SocketCourseServiceTest {
                 "the adjustment identity, coordinates, resources and detail text must map");
 
         FakeTransport legacy = new FakeTransport();
-        legacy.respond(message -> message.putData("schedule", List.of(
+        legacy.respond(message -> message.putData("schedule", scheduleWeek(3, List.of(
                 new ScheduleEntryDTO("1001", "2026-2027 秋学期", "CS203", "数据结构", "张老师",
-                        "教四-201", 2, 3, 2, 1, 16))));
-        ScheduleEntryView plain = new SocketCourseService(legacy).loadSchedule(TERM, 3).join().get(0);
+                        "教四-201", 2, 3, 2, 1, 16)))));
+        ScheduleEntryView plain = new SocketCourseService(legacy)
+                .loadSchedule(TERM, 3).join().getEntries().get(0);
         require(plain.getDisplayKind() == ScheduleDisplayKind.NORMAL
                         && plain.getAdjustmentId() == null
                         && plain.getOriginalScheduleText() == null,
                 "the legacy DTO constructor must still map to a plain NORMAL entry");
 
         FakeTransport absent = new FakeTransport();
-        absent.respond(message -> message.putData("schedule", List.of(
+        absent.respond(message -> message.putData("schedule", scheduleWeek(3, List.of(
                 new ScheduleEntryDTO("1001", "2026-2027 秋学期", "CS203", "数据结构", "张老师",
-                        "教四-201", 2, 3, 2, 1, 16, null, null, null, null, null))));
+                        "教四-201", 2, 3, 2, 1, 16, null, null, null, null, null)))));
         try {
             new SocketCourseService(absent).loadSchedule(TERM, 3).join();
             throw new AssertionError("an absent display kind must not render as NORMAL");
@@ -454,6 +466,18 @@ public final class SocketCourseServiceTest {
         transport.reconnectListener.run();
         require(reconnects.get() == 1, "reconnect must reach the listener");
         subscription.close();
+    }
+
+    /**
+     * 学生课表响应：{@code schedule} 是一个对象，日期与节次字典随课次一起回来（不是裸数组）。
+     * 两天用不同天模板的情况在真服务上存在，因此节次按 {@code (date, period)} 成行。
+     */
+    private static CourseScheduleWeekDTO scheduleWeek(int week, List<ScheduleEntryDTO> entries) {
+        return new CourseScheduleWeekDTO(week,
+                List.of(new CourseCalendarDateDTO("2026-09-14", week, 1, true)),
+                List.of(new CoursePeriodDTO("2026-09-14", 3, "10:00:00", "10:45:00"),
+                        new CoursePeriodDTO("2026-09-14", 4, "10:50:00", "11:35:00")),
+                entries);
     }
 
     private static CourseSelectionItemDTO selectionItem() {

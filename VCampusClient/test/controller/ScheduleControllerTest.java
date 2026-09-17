@@ -1,5 +1,6 @@
 package controller;
 
+import dto.course.CoursePeriodDTO;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -20,6 +21,7 @@ import model.course.CourseView;
 import model.course.GradeSummaryView;
 import model.course.ScheduleDisplayKind;
 import model.course.ScheduleEntryView;
+import model.course.ScheduleWeekView;
 import model.course.TrainingPlanGroupView;
 import model.course.WaitlistDecision;
 import service.CoursePushListener;
@@ -40,7 +42,28 @@ public final class ScheduleControllerTest {
         weekSpinnerAcceptsTypedWeekNumbers();
         weekSpinnerArrowsRunBackwards();
         typedWeekTextIsClampedToTheSpinnerBounds();
+        periodRowsComeFromTheDictionary();
         System.out.println("ScheduleControllerTest: PASS");
+    }
+
+    /**
+     * 节次行来自服务端教学日历的节次字典，而不是客户端常量：同一节次跨多个教学日只占一行，
+     * 没有字典时一行都不画（旧实现恒定 13 行，正是缺陷 1 的客户端一半）。
+     */
+    static void periodRowsComeFromTheDictionary() {
+        List<Integer> rows = ScheduleController.periodNumbers(List.of(
+                new CoursePeriodDTO("2026-09-14", 1, "08:00:00", "08:45:00"),
+                new CoursePeriodDTO("2026-09-14", 2, "08:55:00", "09:40:00"),
+                new CoursePeriodDTO("2026-09-15", 1, "08:00:00", "08:45:00"),
+                new CoursePeriodDTO("2026-09-15", 2, "08:55:00", "09:40:00")));
+        require(rows.equals(List.of(1, 2)),
+                "两天的同一节次必须并成一行，实际 " + rows);
+        require(ScheduleController.periodNumbers(List.of()).isEmpty(),
+                "没有节次字典时不得回退到硬编码 13 行");
+        require(ScheduleController.periodHeader(3,
+                        new CoursePeriodDTO("2026-09-14", 3, "10:00:00", "10:45:00"))
+                        .equals("第 3 节 10:00:00-10:45:00"),
+                "节次行头必须带上定宽时刻");
     }
 
     /** 周次控件必须在视图里就可编辑，否则用户点进去也敲不进数字（输入约束由控制器再配置）。 */
@@ -165,18 +188,19 @@ public final class ScheduleControllerTest {
                 service, (title, message) -> { }, (title, message) -> { }, Runnable::run);
         AtomicReference<ScheduleController.ScheduleData> rendered = new AtomicReference<>();
 
-        service.scheduleResults.addLast(CompletableFuture.completedFuture(List.of(
-                entry(1001L, "数据结构"))));
+        service.scheduleResults.addLast(CompletableFuture.completedFuture(week(3, List.of(
+                entry(1001L, "数据结构")))));
         service.noticeResults.addLast(CompletableFuture.completedFuture(List.of(
                 new CourseNoticeView("2026-2027 秋学期", 3, "调课", "内容"))));
         controller.requestScheduleData(TERM, 3, rendered::set, error -> { });
 
         require(TERM.equals(service.lastTerm.get()), "server term must reach the service");
         require(Integer.valueOf(3).equals(service.lastWeek.get()), "week must reach the service");
-        require(rendered.get() != null && rendered.get().getEntries().size() == 1
+        require(rendered.get() != null && rendered.get().getSchedule().getEntries().size() == 1
                         && rendered.get().getNotices().size() == 1,
                 "schedule and notice results must be combined");
-        require("数据结构".equals(rendered.get().getEntries().get(0).getCourseName()),
+        require("数据结构".equals(
+                        rendered.get().getSchedule().getEntries().get(0).getCourseName()),
                 "schedule entry must be preserved");
     }
 
@@ -186,23 +210,23 @@ public final class ScheduleControllerTest {
                 service, (title, message) -> { }, (title, message) -> { }, Runnable::run);
         AtomicReference<String> rendered = new AtomicReference<>();
 
-        CompletableFuture<List<ScheduleEntryView>> olderSchedule = new CompletableFuture<>();
+        CompletableFuture<ScheduleWeekView> olderSchedule = new CompletableFuture<>();
         CompletableFuture<List<CourseNoticeView>> olderNotices = new CompletableFuture<>();
-        CompletableFuture<List<ScheduleEntryView>> newerSchedule = new CompletableFuture<>();
+        CompletableFuture<ScheduleWeekView> newerSchedule = new CompletableFuture<>();
         CompletableFuture<List<CourseNoticeView>> newerNotices = new CompletableFuture<>();
         service.scheduleResults.addLast(olderSchedule);
         service.noticeResults.addLast(olderNotices);
         service.scheduleResults.addLast(newerSchedule);
         service.noticeResults.addLast(newerNotices);
 
-        controller.requestScheduleData(TERM, 1,
-                data -> rendered.set(data.getEntries().get(0).getCourseName()), error -> { });
-        controller.requestScheduleData(TERM, 2,
-                data -> rendered.set(data.getEntries().get(0).getCourseName()), error -> { });
+        controller.requestScheduleData(TERM, 1, data -> rendered.set(
+                data.getSchedule().getEntries().get(0).getCourseName()), error -> { });
+        controller.requestScheduleData(TERM, 2, data -> rendered.set(
+                data.getSchedule().getEntries().get(0).getCourseName()), error -> { });
 
-        newerSchedule.complete(List.of(entry(2001L, "最新课表")));
+        newerSchedule.complete(week(2, List.of(entry(2001L, "最新课表"))));
         newerNotices.complete(Collections.emptyList());
-        olderSchedule.complete(List.of(entry(1001L, "过期课表")));
+        olderSchedule.complete(week(1, List.of(entry(1001L, "过期课表"))));
         olderNotices.complete(Collections.emptyList());
 
         require("最新课表".equals(rendered.get()),
@@ -236,7 +260,7 @@ public final class ScheduleControllerTest {
                 service, (title, message) -> { }, (title, message) -> { }, fxActions::addLast);
         AtomicReference<Throwable> failure = new AtomicReference<>();
 
-        CompletableFuture<List<ScheduleEntryView>> schedule = new CompletableFuture<>();
+        CompletableFuture<ScheduleWeekView> schedule = new CompletableFuture<>();
         service.scheduleResults.addLast(schedule);
         service.noticeResults.addLast(CompletableFuture.completedFuture(Collections.emptyList()));
         controller.requestScheduleData(TERM, 1, data -> { }, failure::set);
@@ -255,12 +279,17 @@ public final class ScheduleControllerTest {
                 name, "教师", "教室", 1, 1, 2, 1, 16);
     }
 
+    /** 只装课次的一周：这些用例只读取回的数据、不画网格，几何由其他的渲染用例负责。 */
+    private static ScheduleWeekView week(int week, List<ScheduleEntryView> entries) {
+        return new ScheduleWeekView(week, List.of(), List.of(), entries);
+    }
+
     private static void require(boolean condition, String message) {
         if (!condition) throw new AssertionError(message);
     }
 
     private static final class ControlledCourseService implements CourseService {
-        private final Deque<CompletableFuture<List<ScheduleEntryView>>> scheduleResults =
+        private final Deque<CompletableFuture<ScheduleWeekView>> scheduleResults =
                 new ArrayDeque<>();
         private final Deque<CompletableFuture<List<CourseNoticeView>>> noticeResults =
                 new ArrayDeque<>();
@@ -335,7 +364,7 @@ public final class ScheduleControllerTest {
             return () -> { };
         }
 
-        @Override public CompletableFuture<List<ScheduleEntryView>> loadSchedule(
+        @Override public CompletableFuture<ScheduleWeekView> loadSchedule(
                 CourseTermView term, int week) {
             lastTerm.set(term);
             lastWeek.set(week);

@@ -1,5 +1,8 @@
 package service;
 
+import dto.course.CourseCalendarDateDTO;
+import dto.course.CoursePeriodDTO;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -20,6 +23,7 @@ import model.course.GradeRecordView;
 import model.course.GradeSummaryView;
 import model.course.ScheduleDisplayKind;
 import model.course.ScheduleEntryView;
+import model.course.ScheduleWeekView;
 import model.course.SelectionStatus;
 import model.course.TrainingPlanCourseView;
 import model.course.TrainingPlanGroupView;
@@ -31,6 +35,17 @@ public final class MockCourseService implements CourseService {
             new CourseTermView(2026, 1, DEFAULT_TERM_NAME);
     private static final String OFFERED_AT = "2099-09-10T01:00:00Z";
     private static final String OFFER_EXPIRES_AT = "2099-09-10T01:05:00Z";
+    /** 教学日历夹具的第 1 周周一，与演示种子的 week1_start_date 同一天。 */
+    private static final LocalDate WEEK_ONE_MONDAY = LocalDate.of(2026, 9, 7);
+    /**
+     * 节次夹具：一天 8 节，时刻照演示种子唯一的 {@code day_template} 3101。学生端网格的行数
+     * 就是它的长度，因此这里同时是"行数不再写死 13"的离线证据。
+     */
+    private static final String[][] PERIOD_TIMES = {
+            {"08:00:00", "08:45:00"}, {"08:50:00", "09:35:00"},
+            {"10:00:00", "10:45:00"}, {"10:50:00", "11:35:00"},
+            {"13:30:00", "14:15:00"}, {"14:20:00", "15:05:00"},
+            {"15:30:00", "16:15:00"}, {"16:20:00", "17:05:00"}};
 
     private final Map<Long, CourseView> courses = new LinkedHashMap<>();
     private final Map<Long, CourseOfferingView> offerings = new LinkedHashMap<>();
@@ -256,8 +271,12 @@ public final class MockCourseService implements CourseService {
         };
     }
 
+    /**
+     * 与真服务同构：课次连同该周的日期与节次字典一起返回，学生端网格的行列因此由"教学日历"
+     * 决定而不是客户端常量。夹具的日历对任何周都成立，只按选课状态过滤课次。
+     */
     @Override
-    public synchronized CompletableFuture<List<ScheduleEntryView>> loadSchedule(
+    public synchronized CompletableFuture<ScheduleWeekView> loadSchedule(
             CourseTermView term, int week) {
         List<ScheduleEntryView> entries = new ArrayList<>();
         for (Map.Entry<Long, ScheduleEntryView> template : scheduleTemplates.entrySet()) {
@@ -276,7 +295,31 @@ public final class MockCourseService implements CourseService {
                 }
             }
         }
-        return CompletableFuture.completedFuture(List.copyOf(entries));
+        return CompletableFuture.completedFuture(new ScheduleWeekView(
+                week, weekDates(week), weekPeriods(week), List.copyOf(entries)));
+    }
+
+    /** 某一周的教学日夹具：周一至周五，全部是教学日。 */
+    private static List<CourseCalendarDateDTO> weekDates(int week) {
+        LocalDate monday = WEEK_ONE_MONDAY.plusWeeks(week - 1L);
+        List<CourseCalendarDateDTO> dates = new ArrayList<>();
+        for (int weekday = 1; weekday <= 5; weekday++) {
+            dates.add(new CourseCalendarDateDTO(monday.plusDays(weekday - 1L).toString(),
+                    week, weekday, true));
+        }
+        return List.copyOf(dates);
+    }
+
+    /** 某一周的节次夹具：每个教学日各一份 1..8 节的定义（两个日期可用不同天模板，故按日期成行）。 */
+    private static List<CoursePeriodDTO> weekPeriods(int week) {
+        List<CoursePeriodDTO> periods = new ArrayList<>();
+        for (CourseCalendarDateDTO date : weekDates(week)) {
+            for (int period = 1; period <= PERIOD_TIMES.length; period++) {
+                periods.add(new CoursePeriodDTO(date.getDate(), period,
+                        PERIOD_TIMES[period - 1][0], PERIOD_TIMES[period - 1][1]));
+            }
+        }
+        return List.copyOf(periods);
     }
 
     private ScheduleAdjustment adjustmentIn(long offeringId, int week) {

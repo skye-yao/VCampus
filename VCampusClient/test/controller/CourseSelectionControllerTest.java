@@ -25,7 +25,7 @@ import model.course.CourseTeacherView;
 import model.course.CourseTermView;
 import model.course.CourseView;
 import model.course.GradeSummaryView;
-import model.course.ScheduleEntryView;
+import model.course.ScheduleWeekView;
 import model.course.SelectionStatus;
 import model.course.TrainingPlanGroupView;
 import model.course.WaitlistDecision;
@@ -495,9 +495,10 @@ public final class CourseSelectionControllerTest {
         @Override public CourseSubscription subscribe(CoursePushListener listener) {
             return () -> { };
         }
-        @Override public CompletableFuture<List<ScheduleEntryView>> loadSchedule(
+        @Override public CompletableFuture<ScheduleWeekView> loadSchedule(
                 CourseTermView term, int week) {
-            return CompletableFuture.completedFuture(Collections.emptyList());
+            return CompletableFuture.completedFuture(
+                    new ScheduleWeekView(1, List.of(), List.of(), List.of()));
         }
         @Override public CompletableFuture<List<CourseNoticeView>> loadNotices(
                 CourseTermView term, int week) {

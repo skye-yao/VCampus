@@ -17,6 +17,7 @@ import dto.course.CourseNoticeDTO;
 import dto.course.CourseOfferingDTO;
 import dto.course.CoursePlanSnapshotDTO;
 import dto.course.CoursePushEventDTO;
+import dto.course.CourseScheduleWeekDTO;
 import dto.course.CourseSelectionItemDTO;
 import dto.course.CourseTeacherDTO;
 import dto.course.CourseTermDTO;
@@ -41,6 +42,7 @@ import model.course.GradeRecordView;
 import model.course.GradeSummaryView;
 import model.course.ScheduleDisplayKind;
 import model.course.ScheduleEntryView;
+import model.course.ScheduleWeekView;
 import model.course.SelectionStatus;
 import model.course.TrainingPlanCourseView;
 import model.course.TrainingPlanGroupView;
@@ -179,18 +181,26 @@ public final class SocketCourseService implements CourseService {
         };
     }
 
+    /**
+     * {@code schedule} 是一个对象（{@code CourseScheduleWeekDTO}），不是裸数组：日期与节次字典随课次
+     * 一起回来，网格的行列由服务端教学日历决定。读法与教师端读 {@code TeacherScheduleWeekDTO} 相同，
+     * 用的是本类既有的 {@code single(response, key, type)}。
+     */
     @Override
-    public CompletableFuture<List<ScheduleEntryView>> loadSchedule(
+    public CompletableFuture<ScheduleWeekView> loadSchedule(
             CourseTermView term, int week) {
         Message request = request(CourseActions.LOAD_SCHEDULE);
         putTerm(request, term);
         request.putData("week", week);
         return map(request, response -> {
+            CourseScheduleWeekDTO dto =
+                    single(response, "schedule", CourseScheduleWeekDTO.class);
             List<ScheduleEntryView> entries = new ArrayList<>();
-            for (ScheduleEntryDTO dto : list(response, "schedule", ScheduleEntryDTO.class)) {
-                entries.add(scheduleEntry(dto));
+            for (ScheduleEntryDTO entry : dto.getEntries()) {
+                entries.add(scheduleEntry(entry));
             }
-            return List.copyOf(entries);
+            return new ScheduleWeekView(dto.getWeek(), dto.getDates(), dto.getPeriods(),
+                    List.copyOf(entries));
         });
     }
 

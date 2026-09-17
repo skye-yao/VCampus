@@ -1,6 +1,10 @@
 package controller;
 
+import dto.course.CourseCalendarDateDTO;
+import dto.course.CoursePeriodDTO;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -24,19 +28,19 @@ import javafx.scene.layout.VBox;
 import model.course.CourseNoticeView;
 import model.course.CourseTermView;
 import model.course.ScheduleEntryView;
+import model.course.ScheduleWeekView;
 import service.CourseService;
 import service.CourseServices;
 import util.AlertUtil;
 
 public final class ScheduleController {
-    private static final int FIRST_PERIOD = 1;
-    private static final int LAST_PERIOD = 13;
-
     private final CourseService service;
     private final BiConsumer<String, String> infoReporter;
     private final BiConsumer<String, String> errorReporter;
     private final Consumer<Runnable> fxExecutor;
     private CourseTermView selectedTerm;
+    /** 当前这张表画了哪些节次行（不含表头行），由本教学周的节次字典决定。 */
+    private List<Integer> periodRows = List.of();
     private long loadGeneration; // 请求的版本管理，用来解决用户短时间多次点击，确认最终的返回结果
     private long termLoadGeneration; // 学期加载的版本管理，避免陈旧学期覆盖最新服务端学期
 
@@ -71,7 +75,7 @@ public final class ScheduleController {
                 refresh();
             }
         });
-        renderSchedule(Collections.emptyList());
+        renderSchedule(null);
         renderNotices(Collections.emptyList());
         loadTerms();
     }
@@ -96,7 +100,7 @@ public final class ScheduleController {
             termFilter.getItems().setAll(terms);
             if (terms.isEmpty()) {
                 selectedTerm = null;
-                renderSchedule(Collections.emptyList());
+                renderSchedule(null);
                 renderNotices(Collections.emptyList(), "暂无学期");
             } else {
                 termFilter.setValue(terms.get(0));
@@ -104,7 +108,7 @@ public final class ScheduleController {
         }, error -> {
             selectedTerm = null;
             termFilter.getItems().clear();
-            renderSchedule(Collections.emptyList());
+            renderSchedule(null);
             renderNotices(Collections.emptyList(), "加载失败，请刷新重试");
             errorReporter.accept("加载失败", errorMessage(error));
         });
@@ -126,7 +130,7 @@ public final class ScheduleController {
     void requestScheduleData(CourseTermView term, int week,
             Consumer<ScheduleData> onLoaded, Consumer<Throwable> onError) {
         long generation = ++loadGeneration;
-        CompletableFuture<List<ScheduleEntryView>> scheduleFuture =
+        CompletableFuture<ScheduleWeekView> scheduleFuture =
                 service.loadSchedule(term, week);
         CompletableFuture<List<CourseNoticeView>> noticeFuture =
                 service.loadNotices(term, week);
@@ -151,54 +155,123 @@ public final class ScheduleController {
         }
 
         // 清空旧数据并显示加载状态
-        renderSchedule(Collections.emptyList());
+        renderSchedule(null);
         renderNotices(Collections.emptyList(), "正在加载课表...");
         // 两个异步的加载请求
         requestScheduleData(term, selectedWeek, data -> {
-            renderSchedule(data.entries);
+            renderSchedule(data.schedule);
             renderNotices(data.notices);
         }, error -> {
-            renderSchedule(Collections.emptyList());
+            renderSchedule(null);
             renderNotices(Collections.emptyList(), "加载失败，请刷新重试");
             errorReporter.accept("加载失败", errorMessage(error));
         });
     }
 
-    private void renderSchedule(List<ScheduleEntryView> entries) {
+    /**
+     * 按教学日历画出这一周的网格：行 = 该周节次字典里出现过的节次，列 = 该周的每一个日期
+     * （含非教学日与周末）。几何规则与教师端 {@code TeacherScheduleController.rebuildGrid()} 同源，
+     * 客户端不再有节次/星期的常量。{@code week} 为 null 或该周没有节次定义时只清空网格。
+     */
+    private void renderSchedule(ScheduleWeekView week) {
         scheduleGrid.getChildren().clear();
         scheduleGrid.getRowConstraints().clear();
+        periodRows = week == null ? List.of() : periodNumbers(week.getPeriods());
+        if (periodRows.isEmpty()) {
+            return;
+        }
 
         RowConstraints headerRow = new RowConstraints(30.0);
         scheduleGrid.getRowConstraints().add(headerRow);
-        for (int period = FIRST_PERIOD; period <= LAST_PERIOD; period++) {
+        for (int row = 0; row < periodRows.size(); row++) {
             RowConstraints periodRow = new RowConstraints();
             periodRow.setMinHeight(30.0);
             periodRow.setVgrow(Priority.ALWAYS);
             scheduleGrid.getRowConstraints().add(periodRow);
         }
 
+        List<CourseCalendarDateDTO> dates = week.getDates();
         addGridLabel("节次", 0, 0, "course-schedule-header");
-        for (int day = 1; day <= 5; day++) {
-            addGridLabel(weekdayName(day), day, 0, "course-schedule-header");
+        for (int column = 0; column < dates.size(); column++) {
+            addGridLabel(dayHeader(dates.get(column)), column + 1, 0,
+                    "course-schedule-header");
         }
-        for (int period = FIRST_PERIOD; period <= LAST_PERIOD; period++) {
-            addGridLabel("第 " + period + " 节", 0, period, "course-period-label");
-            for (int day = 1; day <= 5; day++) {
-                addGridCell(day, period);
+        for (int row = 0; row < periodRows.size(); row++) {
+            int period = periodRows.get(row);
+            addGridLabel(periodHeader(period, firstPeriod(week, period)), 0, row + 1,
+                    "course-period-label");
+            for (int column = 0; column < dates.size(); column++) {
+                addGridCell(column + 1, row + 1);
             }
         }
 
-        for (int day = 1; day <= 5; day++) {
+        int firstPeriod = periodRows.get(0);
+        int lastPeriod = periodRows.get(periodRows.size() - 1);
+        for (int column = 0; column < dates.size(); column++) {
+            CourseCalendarDateDTO date = dates.get(column);
             for (ScheduleLayout.Component component : ScheduleLayout.layoutDay(
-                    entries, day, FIRST_PERIOD, LAST_PERIOD)) {
+                    week.getEntries(), date.getTeachingWeekday(), firstPeriod, lastPeriod)) {
                 GridPane componentGrid = createComponentGrid(component);
-                scheduleGrid.add(componentGrid, day, component.getStartPeriod());
+                scheduleGrid.add(componentGrid, column + 1, rowIndex(component.getStartPeriod()));
                 GridPane.setRowSpan(componentGrid,
                         component.getEndPeriod() - component.getStartPeriod() + 1);
                 GridPane.setHgrow(componentGrid, Priority.ALWAYS);
                 GridPane.setVgrow(componentGrid, Priority.ALWAYS);
             }
         }
+    }
+
+    /** 本周节次行的编号：响应里出现过的节次（按教学日模板可不同）的升序并集。 */
+    static List<Integer> periodNumbers(List<CoursePeriodDTO> periods) {
+        List<Integer> numbers = new ArrayList<>();
+        if (periods == null) return List.of();
+        for (CoursePeriodDTO period : periods) {
+            if (period == null || numbers.contains(period.getPeriod())) continue;
+            numbers.add(period.getPeriod());
+        }
+        numbers.sort(Comparator.naturalOrder());
+        return List.copyOf(numbers);
+    }
+
+    /** 节次行头：{@code 第 N 节} 加上该节次的时间区间（原样使用 DTO 的定宽 HH:mm:ss）。 */
+    static String periodHeader(int period, CoursePeriodDTO definition) {
+        String header = "第 " + period + " 节";
+        if (definition == null || definition.getStartTime() == null
+                || definition.getEndTime() == null) {
+            return header;
+        }
+        return header + " " + definition.getStartTime() + "-" + definition.getEndTime();
+    }
+
+    /** 日期列头：星期名 + 该日期的 MM-dd；非教学日照样成列。 */
+    static String dayHeader(CourseCalendarDateDTO date) {
+        if (date == null) return "";
+        String value = date.getDate() == null ? "" : date.getDate();
+        return weekdayName(date.getTeachingWeekday())
+                + (value.length() > 5 ? " " + value.substring(value.length() - 5) : "");
+    }
+
+    private static String weekdayName(int teachingWeekday) {
+        String[] weekdays = {"周一", "周二", "周三", "周四", "周五", "周六", "周日"};
+        return teachingWeekday >= 1 && teachingWeekday <= 7
+                ? weekdays[teachingWeekday - 1] : "周" + teachingWeekday;
+    }
+
+    /** 该节次在本周日历里的定义：同一节次可能因教学日模板不同而有多条，取第一条。 */
+    private static CoursePeriodDTO firstPeriod(ScheduleWeekView week, int period) {
+        if (week == null) return null;
+        for (CoursePeriodDTO candidate : week.getPeriods()) {
+            if (candidate != null && candidate.getPeriod() == period) return candidate;
+        }
+        return null;
+    }
+
+    /** 节次 → 网格行号（表头占第 0 行）。 */
+    private int rowIndex(int period) {
+        for (int index = 0; index < periodRows.size(); index++) {
+            if (periodRows.get(index) == period) return index + 1;
+        }
+        return -1;
     }
 
     private void addGridCell(int column, int row) {
@@ -359,11 +432,6 @@ public final class ScheduleController {
                 .append(entry.getEndWeek()).append(" 周").toString();
     }
 
-    private static String weekdayName(int dayOfWeek) {
-        String[] weekdays = {"", "周一", "周二", "周三", "周四", "周五"};
-        return dayOfWeek >= 1 && dayOfWeek <= 5 ? weekdays[dayOfWeek] : "未知";
-    }
-
     private static String errorMessage(Throwable error) {
         Throwable cause = error;
         while ((cause instanceof CompletionException || cause.getCause() != null)
@@ -382,17 +450,17 @@ public final class ScheduleController {
     }
 
     static final class ScheduleData {
-        private final List<ScheduleEntryView> entries;
+        private final ScheduleWeekView schedule;
         private final List<CourseNoticeView> notices;
 
-        private ScheduleData(List<ScheduleEntryView> entries,
+        private ScheduleData(ScheduleWeekView schedule,
                 List<CourseNoticeView> notices) {
-            this.entries = entries;
+            this.schedule = schedule;
             this.notices = notices;
         }
 
-        List<ScheduleEntryView> getEntries() {
-            return entries;
+        ScheduleWeekView getSchedule() {
+            return schedule;
         }
 
         List<CourseNoticeView> getNotices() {

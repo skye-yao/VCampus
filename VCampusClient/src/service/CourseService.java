@@ -9,7 +9,7 @@ import model.course.CoursePlanSnapshotView;
 import model.course.CourseTermView;
 import model.course.CourseView;
 import model.course.GradeSummaryView;
-import model.course.ScheduleEntryView;
+import model.course.ScheduleWeekView;
 import model.course.TrainingPlanGroupView;
 import model.course.WaitlistDecision;
 
@@ -49,7 +49,10 @@ public interface CourseService {
 
     CourseSubscription subscribe(CoursePushListener listener);
 
-    CompletableFuture<List<ScheduleEntryView>> loadSchedule(CourseTermView term, int week);
+    /**
+     * 某教学周的课表：课次连同该周的日期与节次字典一起返回，网格几何因此由服务端教学日历决定。
+     */
+    CompletableFuture<ScheduleWeekView> loadSchedule(CourseTermView term, int week);
 
     CompletableFuture<List<CourseNoticeView>> loadNotices(CourseTermView term, int week);
 

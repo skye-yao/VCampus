@@ -13,7 +13,7 @@ import model.course.CoursePlanSnapshotView;
 import model.course.CourseTermView;
 import model.course.CourseView;
 import model.course.GradeSummaryView;
-import model.course.ScheduleEntryView;
+import model.course.ScheduleWeekView;
 import model.course.TrainingPlanGroupView;
 import model.course.WaitlistDecision;
 import service.CoursePushListener;
@@ -136,9 +136,10 @@ public final class CourseManagementControllerTest {
             return closes::incrementAndGet;
         }
 
-        @Override public CompletableFuture<List<ScheduleEntryView>> loadSchedule(
+        @Override public CompletableFuture<ScheduleWeekView> loadSchedule(
                 CourseTermView term, int week) {
-            return CompletableFuture.completedFuture(Collections.emptyList());
+            return CompletableFuture.completedFuture(
+                    new ScheduleWeekView(1, List.of(), List.of(), List.of()));
         }
 
         @Override public CompletableFuture<List<CourseNoticeView>> loadNotices(
