@@ -1,5 +1,9 @@
 package controller;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -9,6 +13,10 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiFunction;
+import javax.xml.parsers.DocumentBuilderFactory;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.NodeList;
 
 import dto.course.admin.catalog.CourseEditorRequestDTO;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
@@ -34,6 +42,7 @@ import service.SocketAdminCourseService.AdminCourseServiceException;
 public final class ScheduleArrangementDialogControllerTest {
     private static final String CONFLICT_MESSAGE = "数据已被其他管理员修改";
     private static final String SAVE_KEY = "schedule:save";
+    private static final String DIALOG_VIEW = "/resources/fxml/ScheduleArrangementDialog.fxml";
 
     public static void main(String[] args) {
         if (args.length > 0) {
@@ -83,6 +92,11 @@ public final class ScheduleArrangementDialogControllerTest {
         testSuccessfulWritesReloadAuthoritativeArrangements();
         testWriteConflictTriggersPreviewAndAuthoritativeReload();
         testCatalogRefreshCallbackFiresOnlyAfterAMutation();
+        createDraftIsOfferedWhenNoPlanLoaded();
+        createDraftReloadsThePlanOnSuccess();
+        createDraftIsHiddenWhenADraftIsEditable();
+        loadPlanFailureSurfacesTheServerMessage();
+        scheduleArrangementDialogViewKeepsItsBindings();
         System.out.println("ScheduleArrangementDialogControllerTest: PASS");
     }
 
@@ -933,6 +947,166 @@ public final class ScheduleArrangementDialogControllerTest {
                         + refreshes.get());
     }
 
+    /**
+     * loadPlan 失败后仍必须给出创建草稿的出路，否则用户无路可走：整屏写控件都依赖方案。
+     */
+    private static void createDraftIsOfferedWhenNoPlanLoaded() {
+        ControlledScheduleService service = new ControlledScheduleService();
+        service.enqueuePlan(CompletableFuture.failedFuture(
+                new AdminCourseServiceException(MessageCode.NOT_FOUND, "该学期尚未创建教学日历")));
+        ScheduleArrangementDialogController controller = controller(service, new Recorder());
+
+        require(controller.plan() == null,
+                "a failed plan load must leave the dialog without a plan, saw " + controller.plan());
+        require(controller.errorText() != null,
+                "the failed plan load must stay visible with its retry action");
+        require(createDraftOffered(controller),
+                "a dialog without a plan must still offer the create-draft entry");
+    }
+
+    /**
+     * 成功后要重新拉一次方案，否则界面仍停在「无方案」；请求本身必须带学期与复制意图。
+     */
+    private static void createDraftReloadsThePlanOnSuccess() {
+        ControlledScheduleService service = new ControlledScheduleService();
+        service.plan = new SchedulePlanDTO("7001", "published", 3, "PUBLISHED", true, List.of());
+        ScheduleArrangementDialogController controller = controller(service, new Recorder());
+        int loads = service.planCalls.size();
+        require(createDraftOffered(controller),
+                "a published plan must still offer the create-draft entry");
+
+        invokeAction(controller, "handleCreateDraft");
+        require(service.createDraftRequests.size() == 1,
+                "the offered entry must create exactly one draft, saw "
+                        + service.createDraftRequests);
+        String[] request = service.createDraftRequests.get(0).split("\\|", -1);
+        require(request.length == 4 && "2026".equals(request[0]) && "1".equals(request[1])
+                        && "true".equals(request[2]),
+                "the request must carry the offering term and copy the published plan, saw "
+                        + service.createDraftRequests.get(0));
+        UUID.fromString(request[3]);
+        require(service.planCalls.size() == loads + 1,
+                "a created draft must be reloaded so the dialog shows the editable plan, saw "
+                        + service.planCalls);
+    }
+
+    /**
+     * 已有可编辑草稿时不该再给一个必然报「该学期已有草稿方案」的按钮。
+     */
+    private static void createDraftIsHiddenWhenADraftIsEditable() {
+        ControlledScheduleService service = new ControlledScheduleService();
+        ScheduleArrangementDialogController controller = controller(service, new Recorder());
+        require(controller.plan() != null && "DRAFT".equals(controller.plan().getStatus()),
+                "the fixture must load an editable draft, saw " + controller.plan());
+
+        require(!createDraftOffered(controller),
+                "an editable draft must hide the create-draft entry");
+        invokeAction(controller, "handleCreateDraft");
+        require(service.createDraftRequests.isEmpty(),
+                "the hidden entry must not ask the server for a second draft of the same term");
+    }
+
+    /**
+     * 丢掉服务端消息会让「缺失任课教师」这类真实原因永远看不见。
+     */
+    private static void loadPlanFailureSurfacesTheServerMessage() {
+        ControlledScheduleService service = new ControlledScheduleService();
+        String message = "教学安排缺少任课教师或时间段，无法发布";
+        service.enqueuePlan(CompletableFuture.failedFuture(
+                new AdminCourseServiceException(MessageCode.CONFLICT, message)));
+        ScheduleArrangementDialogController controller = controller(service, new Recorder());
+
+        require(controller.errorText() != null && controller.errorText().contains(message),
+                "the server message must survive the failed plan load, saw " + controller.errorText());
+        require(!"排课方案加载失败，请重试".equals(controller.errorText()),
+                "the failed plan load must not replace the server message with a generic one");
+    }
+
+    /**
+     * FXML 的 fx:id / onAction 必须与控制器对得上。这个文件全仓只有生产路径与一个跑不起来的冒烟
+     * 测试会加载，打错一个字不会有任何能跑的测试变红，所以在这里用 DOM + 反射钉住新的入口按钮。
+     *
+     * 没有做全量扫描（TeacherGradeBookControllerTest.verifyBindings）：该 FXML 里
+     * fx:id="scheduleContentScroll" 本来就没有对应的控制器字段（既有债，见 Task 7 报告），
+     * 全量扫描会因为这条既有不匹配直接报红，而修它不是本任务的范围。
+     */
+    private static void scheduleArrangementDialogViewKeepsItsBindings() {
+        try {
+            Document view = parseView(DIALOG_VIEW);
+            Element createDraft = elementWithId(view, "createDraftButton");
+            require(createDraft != null, "排课对话框必须提供创建草稿方案的入口按钮");
+            require("Button".equals(createDraft.getTagName()),
+                    "创建草稿入口必须是 Button，收到 <" + createDraft.getTagName() + ">");
+            require("#handleCreateDraft".equals(createDraft.getAttribute("onAction")),
+                    "创建草稿入口必须接到 handleCreateDraft，收到 onAction=\""
+                            + createDraft.getAttribute("onAction") + "\"");
+            require(findField(ScheduleArrangementDialogController.class, "createDraftButton") != null,
+                    "fx:id=\"createDraftButton\" 在控制器里没有对应字段");
+            require(hasActionMethod(ScheduleArrangementDialogController.class, "handleCreateDraft"),
+                    "onAction=\"#handleCreateDraft\" 在控制器里没有对应处理函数");
+        } catch (Exception failure) {
+            throw new AssertionError("排课对话框的 FXML 契约检查失败", failure);
+        }
+    }
+
+    /**
+     * 「创建草稿方案」是否提供，是控制器自己的判定：测试里没有真实窗口，读不到按钮节点。
+     */
+    private static boolean createDraftOffered(ScheduleArrangementDialogController controller) {
+        try {
+            Method method = ScheduleArrangementDialogController.class
+                    .getDeclaredMethod("isCreateDraftOffered");
+            method.setAccessible(true);
+            return (Boolean) method.invoke(controller);
+        } catch (ReflectiveOperationException failure) {
+            throw new AssertionError(
+                    "the dialog must expose whether it offers the create-draft entry", failure);
+        }
+    }
+
+    private static Document parseView(String path) throws Exception {
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(false);
+        try (InputStream stream = ScheduleArrangementDialogControllerTest.class
+                .getResourceAsStream(path)) {
+            if (stream == null) throw new IOException("Missing resource: " + path);
+            return factory.newDocumentBuilder().parse(stream);
+        }
+    }
+
+    private static Element elementWithId(Document view, String id) {
+        NodeList elements = view.getElementsByTagName("*");
+        for (int index = 0; index < elements.getLength(); index++) {
+            Element element = (Element) elements.item(index);
+            if (id.equals(element.getAttribute("fx:id"))) return element;
+        }
+        return null;
+    }
+
+    private static Field findField(Class<?> type, String name) {
+        for (Class<?> current = type; current != null; current = current.getSuperclass()) {
+            for (Field field : current.getDeclaredFields()) {
+                if (field.getName().equals(name)) return field;
+            }
+        }
+        return null;
+    }
+
+    private static boolean hasActionMethod(Class<?> type, String name) {
+        for (Class<?> current = type; current != null; current = current.getSuperclass()) {
+            for (Method method : current.getDeclaredMethods()) {
+                if (!method.getName().equals(name)) continue;
+                if (method.getParameterCount() == 0) return true;
+                if (method.getParameterCount() == 1
+                        && javafx.event.Event.class.isAssignableFrom(
+                                method.getParameterTypes()[0])) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     private static void setSlot(ScheduleArrangementDialogController controller, int index,
             int dayOfWeek, int startPeriod, int endPeriod) {
         ScheduleSlotEditor editor = controller.slotEditors().get(index);
@@ -1026,6 +1200,7 @@ public final class ScheduleArrangementDialogControllerTest {
         private final List<String> arrangementCalls = new ArrayList<>();
         private final List<String> deleteRequests = new ArrayList<>();
         private final List<String> publishRequests = new ArrayList<>();
+        private final List<String> createDraftRequests = new ArrayList<>();
         private final List<SaveArrangementRequestDTO> previewRequests = new ArrayList<>();
         private final List<SaveArrangementRequestDTO> saveRequests = new ArrayList<>();
         private final Deque<CompletableFuture<SchedulePlanDTO>> planResults = new ArrayDeque<>();
@@ -1148,6 +1323,14 @@ public final class ScheduleArrangementDialogControllerTest {
             }
             return CompletableFuture.completedFuture(new AdminOperationResultView<>(
                     operationId, "OK", "排课方案已发布", null));
+        }
+
+        public CompletableFuture<AdminOperationResultView<SchedulePlanView>> createSchedulePlan(
+                int academicYear, int semester, boolean copyPublished, String operationId) {
+            createDraftRequests.add(academicYear + "|" + semester + "|" + copyPublished
+                    + "|" + operationId);
+            return CompletableFuture.completedFuture(new AdminOperationResultView<>(
+                    operationId, "OK", "草稿方案已创建", null));
         }
 
         @Override
