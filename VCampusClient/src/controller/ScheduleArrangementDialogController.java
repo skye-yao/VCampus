@@ -1350,10 +1350,15 @@ public final class ScheduleArrangementDialogController {
         Label label = new Label(text);
         label.getStyleClass().add(styleClass);
         label.setWrapText(true);
-        label.setTooltip(new Tooltip(conflict.getSeverity() == ScheduleConflictSeverityDTO.BLOCKING
-                ? "阻断性冲突：必须先解决才能保存或发布"
-                : "可绕过冲突：不阻止保存/发布，但需要填写原因"));
+        label.setTooltip(new Tooltip(conflictTooltipText(conflict.getSeverity())));
         return label;
+    }
+
+    /** 冲突条目的悬停说明：严重度决定它是阻断保存/发布，还是填原因后可绕过。 */
+    static String conflictTooltipText(ScheduleConflictSeverityDTO severity) {
+        return severity == ScheduleConflictSeverityDTO.BLOCKING
+                ? "阻断性冲突：必须先解决才能保存或发布"
+                : "可绕过冲突：不阻止保存/发布，但需要填写原因";
     }
 
     /** 「其他教学班」条目的归属前缀：优先教学班代码，缺失时退回教学班号，绝不显示空标签。 */

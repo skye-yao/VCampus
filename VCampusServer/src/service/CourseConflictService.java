@@ -103,7 +103,7 @@ public class CourseConflictService {
                 scheduleDAO.offeringState(connection, candidate.offeringId());
         if (offering == null) throw new IllegalArgumentException("教学班不存在");
         String offeringId = Long.toString(candidate.offeringId());
-        String offeringLabel = offeringLabel(offering, candidate.offeringId());
+        String label = offeringLabel(offering, candidate.offeringId());
         Integer roomCapacity = candidate.classroomId() == null ? null
                 : scheduleDAO.classroomCapacity(connection, candidate.classroomId());
 
@@ -119,7 +119,7 @@ public class CourseConflictService {
                 if (roomCapacity != null && roomCapacity < offering.capacity()) {
                     add(conflicts, seen, new ScheduleConflictDTO(CLASSROOM_CAPACITY, OVERRIDABLE,
                             Long.toString(candidate.classroomId()), offeringId, offeringId,
-                            offeringLabel, week, slot.getDayOfWeek(), slot.getStartPeriod(),
+                            label, week, slot.getDayOfWeek(), slot.getStartPeriod(),
                             slot.getEndPeriod(),
                             "教室容量 " + roomCapacity + " 小于教学班容量 " + offering.capacity()));
                 }
@@ -127,8 +127,7 @@ public class CourseConflictService {
                         connection, candidate.planId(), window.start(), window.end(),
                         candidate.arrangementId())) {
                     if (excludedOccurrenceIds.contains(other.occurrenceId())) continue;
-                    classify(candidate, slot, week, other, conflicts, seen, offeringId,
-                            offeringLabel);
+                    classify(candidate, slot, week, other, conflicts, seen, offeringId, label);
                 }
             }
         }
@@ -293,11 +292,17 @@ public class CourseConflictService {
                 slot.getEndPeriod(), message);
     }
 
+    /**
+     * 去重键里带上产生该冲突的教学班：{@link #checkPlan} 的 {@code seen} 跨 candidate 共享，若只按
+     * 「类型 + 时间 + 对象 + 对方教学班」去重，三个教学班共用同一位教师（或同一教室）时，B 报出的
+     * 「与 C 冲突」会被 A 报出的同键条目顶掉，某个教学班在方案级列表里整个消失。
+     */
     private static void add(List<ScheduleConflictDTO> conflicts, Set<String> seen,
                             ScheduleConflictDTO conflict) {
         String key = conflict.getType() + "|" + conflict.getWeek() + "|" + conflict.getDayOfWeek()
                 + "|" + conflict.getStartPeriod() + "|" + conflict.getEndPeriod() + "|"
-                + conflict.getSubjectId() + "|" + conflict.getRelatedOfferingId();
+                + conflict.getSubjectId() + "|" + conflict.getRelatedOfferingId() + "|"
+                + conflict.getOfferingId();
         if (seen.add(key)) conflicts.add(conflict);
     }
 

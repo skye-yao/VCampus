@@ -85,6 +85,8 @@ public final class ScheduleArrangementDialogControllerTest {
         testOtherConflictsSummaryTextCountsOthers();
         testEmptyArrangementSectionText();
         testFilledArrangementSectionText();
+        testBlockingConflictTooltipText();
+        testOverridableConflictTooltipText();
         testSuccessfulWriteReloadsPlanState();
         testReadFailuresKeepTheirRetryTarget();
         testEditingCanReturnToANewArrangement();
@@ -517,6 +519,26 @@ public final class ScheduleArrangementDialogControllerTest {
                         .equals(ScheduleArrangementDialogController.arrangementSectionText(false)),
                 "非空态分区标题必须保持默认文案，saw "
                         + ScheduleArrangementDialogController.arrangementSectionText(false));
+    }
+
+    /** 甲3/甲5：阻断性冲突的悬停说明必须说清它拦下保存与发布。 */
+    private static void testBlockingConflictTooltipText() {
+        require("阻断性冲突：必须先解决才能保存或发布"
+                        .equals(ScheduleArrangementDialogController.conflictTooltipText(
+                                ScheduleConflictSeverityDTO.BLOCKING)),
+                "阻断性冲突的悬停文案必须说明保存与发布都被拦下，saw "
+                        + ScheduleArrangementDialogController.conflictTooltipText(
+                                ScheduleConflictSeverityDTO.BLOCKING));
+    }
+
+    /** 甲3/甲5：可绕过冲突的悬停说明必须说清填写原因后仍可保存/发布。 */
+    private static void testOverridableConflictTooltipText() {
+        require("可绕过冲突：不阻止保存/发布，但需要填写原因"
+                        .equals(ScheduleArrangementDialogController.conflictTooltipText(
+                                ScheduleConflictSeverityDTO.OVERRIDABLE)),
+                "可绕过冲突的悬停文案必须说明填写原因后可继续，saw "
+                        + ScheduleArrangementDialogController.conflictTooltipText(
+                                ScheduleConflictSeverityDTO.OVERRIDABLE));
     }
 
     private static void testSuccessfulWriteReloadsPlanState() {

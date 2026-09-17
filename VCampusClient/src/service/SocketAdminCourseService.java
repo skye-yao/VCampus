@@ -295,6 +295,7 @@ public final class SocketAdminCourseService implements AdminCourseService {
         message.putData("request", request);
         return map(message, response -> new CheckArrangementResultDTO(
                 list(response, "conflicts", ScheduleConflictDTO.class),
+                // CHECK_ARRANGEMENT 回包恒写 planConflicts（空列表也写）；缺键即版本错配，应响亮失败。
                 list(response, "planConflicts", ScheduleConflictDTO.class)));
     }
 
