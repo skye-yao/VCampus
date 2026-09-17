@@ -35,6 +35,7 @@ import entity.AdminPermission;
 import entity.Student;
 import entity.Teacher;
 import enums.OrderStatus;
+import enums.ReservationStatus;
 import enums.StudentChangeStatus;
 import vo.StudentOverviewVO;
 import vo.TeacherOverviewVO;
@@ -104,6 +105,7 @@ public class MainController {
     @FXML private Button permissionNavBtn;
     @FXML private Button navLogoutBtn;
     @FXML private Button navChatBtn;
+    @FXML private Label navChatBadge;
     private ChatEntry chatEntry;
 
     // ===== 课表卡片 (管理员隐藏，学生/教师动态载入对应课表) =====
@@ -171,6 +173,7 @@ public class MainController {
     @FXML private HBox noticeItemOne;
     @FXML private HBox noticeItemTwo;
     @FXML private HBox noticeItemThree;
+    @FXML private Label chatNoticeLabel;
     @FXML private StackPane noticeEmptyPane;
     @FXML private Hyperlink studentReviewNoticeLink;
     @FXML private Hyperlink teacherReviewNoticeLink;
@@ -183,6 +186,7 @@ public class MainController {
 
     private long noticeOneCount = Long.MIN_VALUE;
     private long noticeTwoCount = Long.MIN_VALUE;
+    private long chatNoticeCount = Long.MIN_VALUE;
     private final NotificationClientService notificationService = new NotificationClientService();
 
     // ===== 一卡通金额卡片 =====
@@ -192,7 +196,7 @@ public class MainController {
     @FXML
     public void initialize() {
         instance = this;
-        if (navChatBtn != null) chatEntry = new ChatEntry(navChatBtn,this::openChat);
+        if (navChatBtn != null) chatEntry = new ChatEntry(navChatBtn,this::openChat,this::updateChatSummary);
 
         // 1. 读取并显示当前用户本地 Session 数据
         loadUserData();
@@ -511,7 +515,7 @@ public class MainController {
         resetNoticeState();
         if (noticeBadgeOne != null) noticeBadgeOne.setText("学生信息");
         if (noticeBadgeTwo != null) noticeBadgeTwo.setText("教师信息");
-        setManagedVisible(noticeItemThree, false);
+        setManagedVisible(noticeItemThree, chatNoticeCount != 0 && chatNoticeCount != Long.MIN_VALUE);
         setManagedVisible(studentReviewNoticeLink, true);
         setManagedVisible(teacherReviewNoticeLink, true);
         setManagedVisible(libraryTaskNoticeLink, false);
@@ -578,7 +582,7 @@ public class MainController {
         resetNoticeState();
         if (noticeBadgeOne != null) noticeBadgeOne.setText("图书馆");
         if (noticeBadgeTwo != null) noticeBadgeTwo.setText("商店");
-        setManagedVisible(noticeItemThree, false);
+        setManagedVisible(noticeItemThree, chatNoticeCount != 0 && chatNoticeCount != Long.MIN_VALUE);
         setManagedVisible(studentReviewNoticeLink, false);
         setManagedVisible(teacherReviewNoticeLink, false);
         setManagedVisible(libraryTaskNoticeLink, true);
@@ -588,14 +592,30 @@ public class MainController {
         if (libraryBorrowNoticeLabel != null) libraryBorrowNoticeLabel.setText("正在读取未归还图书...");
         if (libraryReservationNoticeLabel != null) libraryReservationNoticeLabel.setText("正在读取未支付订单...");
 
-        // 1. 当前借阅记录就是尚未归还的图书。
-        LibraryClientService.getInstance().getCurrentBorrow().thenAccept(borrows -> {
-            Platform.runLater(() -> {
-                long count = borrows == null ? 0 : borrows.size();
-                updateUserTaskNotice(noticeItemOne, libraryBorrowNoticeLabel, count,
-                        "本图书未归还", "图书馆");
-            });
-        }).exceptionally(e -> {
+        // 1. 合并尚未归还的图书和仍在有效期内的预约，形成一条可处理的图书馆通知。
+        LibraryClientService.getInstance().getCurrentBorrow()
+                .thenCombine(LibraryClientService.getInstance().getReservations(), (borrows, reservations) -> {
+                    long borrowed = borrows == null ? 0 : borrows.size();
+                    long reserved = reservations == null ? 0 : reservations.stream()
+                            .filter(reservation -> reservation != null
+                                    && reservation.getStatus() == ReservationStatus.RESERVING.getCode())
+                            .count();
+                    return new long[]{borrowed, reserved};
+                }).thenAccept(counts -> Platform.runLater(() -> {
+                    long borrowed = counts[0], reserved = counts[1], total = borrowed + reserved;
+                    setManagedVisible(noticeItemOne, total > 0);
+                    recordNoticeCount(noticeItemOne, total);
+                    if (libraryBorrowNoticeLabel == null || total == 0) return;
+                    if (borrowed > 0 && reserved > 0) {
+                        libraryBorrowNoticeLabel.setText("你有 " + borrowed + " 本图书未归还，"
+                                + reserved + " 条预约待到馆办理");
+                    } else if (reserved > 0) {
+                        libraryBorrowNoticeLabel.setText("你有 " + reserved
+                                + " 条图书预约待到馆办理（预约后 12 小时内）");
+                    } else {
+                        libraryBorrowNoticeLabel.setText("你有 " + borrowed + " 本图书未归还");
+                    }
+                })).exceptionally(e -> {
             Platform.runLater(() -> updateUserTaskNotice(
                     noticeItemOne, libraryBorrowNoticeLabel, -1, "", "图书馆"));
             return null;
@@ -639,11 +659,47 @@ public class MainController {
         setManagedVisible(noticeItemTwo, true);
     }
 
+    private void updateChatSummary(Integer unreadValue, Integer pendingValue) {
+        int unread = unreadValue == null ? -1 : unreadValue;
+        int pending = pendingValue == null ? -1 : pendingValue;
+        if (unread < 0 || pending < 0) {
+            chatNoticeCount = -1;
+            setManagedVisible(navChatBadge, false);
+            setManagedVisible(noticeItemThree, true);
+            if (chatNoticeLabel != null) chatNoticeLabel.setText("聊天消息加载失败");
+            updateNoticeEmptyState();
+            return;
+        }
+
+        int total = unread + pending;
+        chatNoticeCount = total;
+        if (navChatBadge != null) navChatBadge.setText(total > 99 ? "99+" : String.valueOf(total));
+        setManagedVisible(navChatBadge, total > 0);
+        setManagedVisible(noticeItemThree, total > 0);
+        if (chatNoticeLabel != null && total > 0) {
+            if (unread > 0 && pending > 0) {
+                chatNoticeLabel.setText("你有 " + unread + " 条未读聊天消息，" + pending + " 条好友申请待处理");
+            } else if (pending > 0) {
+                chatNoticeLabel.setText("你有 " + pending + " 条好友申请待处理");
+            } else {
+                chatNoticeLabel.setText("你有 " + unread + " 条未读聊天消息");
+            }
+        }
+        updateNoticeEmptyState();
+    }
+
     private void recordNoticeCount(HBox item, long count) {
         if (item == noticeItemOne) noticeOneCount = count;
         if (item == noticeItemTwo) noticeTwoCount = count;
-        boolean loaded = noticeOneCount != Long.MIN_VALUE && noticeTwoCount != Long.MIN_VALUE;
-        setManagedVisible(noticeEmptyPane, loaded && noticeOneCount == 0 && noticeTwoCount == 0);
+        updateNoticeEmptyState();
+    }
+
+    private void updateNoticeEmptyState() {
+        boolean loaded = noticeOneCount != Long.MIN_VALUE
+                && noticeTwoCount != Long.MIN_VALUE
+                && chatNoticeCount != Long.MIN_VALUE;
+        setManagedVisible(noticeEmptyPane, loaded
+                && noticeOneCount == 0 && noticeTwoCount == 0 && chatNoticeCount == 0);
     }
 
     private void showAvatar(ImageView view, String base64) {
@@ -870,6 +926,10 @@ public class MainController {
             return;
         }
         loadCenterView("/resources/fxml/LibraryView.fxml");
+        if (event != null && event.getSource() == libraryTaskNoticeLink
+                && FXMLUtil.loadedController() instanceof LibraryController controller) {
+            controller.openMyLibraryFromDashboard();
+        }
     }
 
     @FXML

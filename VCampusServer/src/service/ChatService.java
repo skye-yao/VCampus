@@ -271,6 +271,7 @@ public final class ChatService {
                         case "REQUEST" -> {
                             if ("ACCEPTED".equals(state)) throw new IllegalArgumentException("你们已经是好友");
                             if ("PENDING".equals(state) && !me.equals(link.get("requester"))) throw new IllegalArgumentException("对方已申请，请到好友申请中处理");
+                            if ("PENDING".equals(state)) throw new IllegalArgumentException("好友申请已发送，请等待对方处理");
                             if ("REJECTED".equals(state)) update(c,"UPDATE tbl_chat_friend SET status='PENDING',requester=? WHERE user_low=? AND user_high=?",me,low,high);
                         }
                         case "ACCEPT", "REJECT" -> {

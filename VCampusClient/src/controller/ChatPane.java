@@ -26,6 +26,7 @@ public final class ChatPane implements AutoCloseable {
     private final ChatAvatars avatars;
     private final ListView<JsonObject> friends=new ListView<>();
     private final ListView<JsonObject> groups=new ListView<>();
+    private final Tab contactsTab=new Tab(), groupsTab=new Tab(), applicationsTab=new Tab();
     private final VBox requests=new VBox(10), results=new VBox(10), bubbles=new VBox(10);
     private final Label title=new Label("选择好友或群聊开始聊天"), status=new Label(""), count=new Label();
     private final TextArea input=new TextArea();
@@ -127,9 +128,12 @@ public final class ChatPane implements AutoCloseable {
         VBox.setVgrow(groups,Priority.ALWAYS);
 
         TabPane tabs=new TabPane();
-        Tab contacts=new Tab("好友",friends);
-        Tab groupsTab=new Tab("群聊",groupTabBox);
-        Tab applications=new Tab("好友申请",new ScrollPane(requests));
+        ScrollPane requestScroll=new ScrollPane(requests);requestScroll.setFitToWidth(true);
+        requests.setMaxWidth(Double.MAX_VALUE);
+        contactsTab.setContent(friends);
+        groupsTab.setContent(groupTabBox);
+        applicationsTab.setContent(requestScroll);
+        updateTabBadge(contactsTab,"好友",0);updateTabBadge(groupsTab,"群聊",0);updateTabBadge(applicationsTab,"好友申请",0);
         TextField query=new TextField();query.setPromptText("姓名或一卡通号");Button search=new Button("查找");
         HBox searchBar=new HBox(6,query,search);HBox.setHgrow(query,Priority.ALWAYS);
         ScrollPane resultScroll=new ScrollPane(results);resultScroll.setFitToWidth(true);
@@ -165,7 +169,7 @@ public final class ChatPane implements AutoCloseable {
             },()->search.setDisable(false));
         };
         search.setOnAction(e->lookup.run());query.setOnAction(e->lookup.run());
-        tabs.getTabs().addAll(contacts,groupsTab,applications,new Tab("添加好友",find));
+        tabs.getTabs().addAll(contactsTab,groupsTab,applicationsTab,new Tab("添加好友",find));
         tabs.getTabs().forEach(t->t.setClosable(false));
         tabs.setPrefWidth(300);tabs.setMinWidth(270);
         for(Tab tab:tabs.getTabs())if(tab.getContent() instanceof ScrollPane pane)pane.setFitToWidth(true);
@@ -186,11 +190,11 @@ public final class ChatPane implements AutoCloseable {
         subtitle.getStyleClass().add("chat-muted");
         conversationHeader.setAlignment(Pos.CENTER_LEFT);conversationHeader.getStyleClass().add("chat-conversation-header");conversationHeader.getChildren().add(new VBox(5,title,subtitle));
         VBox composer=new VBox(8,input,actions);composer.getStyleClass().add("chat-composer");
-        VBox chat=new VBox(10,conversationHeader,older,scroll,composer);VBox.setMargin(older,new Insets(0,20,0,20));VBox.setVgrow(scroll,Priority.ALWAYS);chat.setMinWidth(330);
-        SplitPane split=new SplitPane(tabs,chat);split.setDividerPositions(.30);split.getStyleClass().add("chat-card");
+        VBox chat=new VBox(10,conversationHeader,older,scroll,composer);VBox.setMargin(older,new Insets(0,20,0,20));VBox.setVgrow(scroll,Priority.ALWAYS);chat.setMinWidth(330);chat.setMaxSize(Double.MAX_VALUE,Double.MAX_VALUE);
+        SplitPane split=new SplitPane(tabs,chat);split.setDividerPositions(.30);split.getStyleClass().add("chat-card");split.setMaxSize(Double.MAX_VALUE,Double.MAX_VALUE);
         Label heading=new Label("校园聊天");heading.getStyleClass().add("chat-page-title");
         count.getStyleClass().add("chat-muted");VBox top=new VBox(6,heading,count);top.setPadding(new Insets(0,0,18,0));
-        root.setCenter(split);root.setTop(top);root.setPadding(new Insets(24,30,30,30));
+        root.setCenter(split);root.setTop(top);root.setPadding(new Insets(24,30,30,30));root.setMaxSize(Double.MAX_VALUE,Double.MAX_VALUE);
         root.getStyleClass().add("chat-root");
         var stylesheet=ChatPane.class.getResource("/resources/css/chat.css");
         if(stylesheet!=null)root.getStylesheets().add(stylesheet.toExternalForm());
@@ -208,6 +212,28 @@ public final class ChatPane implements AutoCloseable {
         Label detail=new Label(u.get("uid").getAsString());detail.getStyleClass().add("chat-muted");
         VBox info=new VBox(5,label,detail);HBox.setHgrow(info,Priority.ALWAYS);info.setMinWidth(0);
         HBox row=new HBox(10,avatars.create(u.get("uid").getAsString(),u.get("name").getAsString(),size),info);row.setAlignment(Pos.CENTER_LEFT);row.setMaxWidth(Double.MAX_VALUE);return row;
+    }
+    private void configureFriendRequestButton(Button button,JsonObject user){
+        String state=user.has("relationStatus")&&!user.get("relationStatus").isJsonNull()
+                ?user.get("relationStatus").getAsString():"";
+        String requester=user.has("requester")&&!user.get("requester").isJsonNull()
+                ?user.get("requester").getAsString():"";
+        switch(state){
+            case "ACCEPTED"->{button.setText("已是好友");button.setDisable(true);}
+            case "PENDING"->{button.setText(me.equals(requester)?"已申请":"对方已申请");button.setDisable(true);}
+            default->{button.setText("申请好友");button.setDisable(false);button.setOnAction(ev->{
+                button.setDisable(true);
+                call("REQUEST",Map.of("peer",user.get("uid").getAsString()),r->{
+                    button.setText("已申请");status.setText("好友申请已发送");refresh();
+                },()->{if(!"已申请".equals(button.getText()))button.setDisable(false);});
+            });}
+        }
+    }
+    private void updateTabBadge(Tab tab,String text,int value){
+        Label titleLabel=new Label(text);
+        HBox graphic=new HBox(5,titleLabel);graphic.setAlignment(Pos.CENTER);
+        if(value>0){Label badge=new Label(value>99?"99+":String.valueOf(value));badge.getStyleClass().add("chat-count-badge");graphic.getChildren().add(badge);}
+        tab.setText("");tab.setGraphic(graphic);
     }
     private void call(String action,Map<String,Object> data,Consumer<JsonObject> done,Runnable finish){
         if(!valid()){close();return;}
@@ -244,6 +270,9 @@ public final class ChatPane implements AutoCloseable {
             }
             if(requests.getChildren().isEmpty())requests.getChildren().add(new Label("暂无好友申请"));
             final int pendingCount=incoming;
+            int friendUnread=items.stream().mapToInt(u->u.has("unread")?u.get("unread").getAsInt():0).sum();
+            updateTabBadge(contactsTab,"好友",friendUnread);
+            updateTabBadge(applicationsTab,"好友申请",pendingCount);
 
             call("GROUP_LIST",Map.of(),gr->{
                 var groupItems=new ArrayList<JsonObject>();

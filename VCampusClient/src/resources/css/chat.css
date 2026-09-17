@@ -21,7 +21,18 @@
 .chat-root .chat-page-title { -fx-font-size: 26px; -fx-font-weight: bold; -fx-text-fill: #26352c; }
 .chat-root .chat-muted { -fx-text-fill: #83928b; -fx-font-size: 12px; }
 .chat-root .chat-person-name { -fx-font-size: 14px; -fx-font-weight: bold; -fx-text-fill: #293e30; }
-.chat-root .chat-badge { -fx-background-color: #df695e; -fx-background-radius: 14; -fx-text-fill: white; -fx-padding: 2 7; }
+.chat-root .chat-badge, .chat-root .chat-count-badge {
+    -fx-background-color: #f04444;
+    -fx-background-radius: 100;
+    -fx-text-fill: white;
+    -fx-font-size: 10px;
+    -fx-font-weight: bold;
+    -fx-alignment: center;
+    -fx-min-width: 18px;
+    -fx-min-height: 18px;
+    -fx-pref-height: 18px;
+    -fx-padding: 0 5;
+}
 .chat-root .chat-avatar { -fx-background-color: #e0eae1; -fx-background-radius: 100; }
 .chat-root .chat-card { -fx-background-color: white; -fx-background-radius: 12; -fx-border-color: #e3e9e5; -fx-border-radius: 12; -fx-padding: 1; }
 .chat-root .chat-conversation-header { -fx-background-color: white; -fx-padding: 18 20; -fx-border-color: transparent transparent #e4eae5 transparent; }
