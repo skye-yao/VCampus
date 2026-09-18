@@ -350,7 +350,8 @@ public final class AdminCourseHandlerTest {
         private Mode mode = Mode.SUCCESS;
 
         @Override
-        public List<AdminCourseDTO> list(String query, String status) {
+        public List<AdminCourseDTO> list(String query, String status, Integer academicYear,
+                                         Integer semester) {
             return List.of(course());
         }
 

@@ -118,7 +118,8 @@ public class AdminCourseHandler {
             String uid = session.getUsername();
             switch (action) {
                 case AdminCourseActions.LIST_COURSES -> response.putData("courses", catalog.list(
-                        optionalText(request, "query"), optionalText(request, "status")));
+                        optionalText(request, "query"), optionalText(request, "status"),
+                        null, null));
                 case AdminCourseActions.CREATE_COURSE -> mutation(response,
                         catalog.create(uid, payload(request, CourseEditorRequestDTO.class)));
                 case AdminCourseActions.UPDATE_COURSE -> mutation(response,
