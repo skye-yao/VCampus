@@ -329,12 +329,11 @@ public final class TeacherCourseUiSmokeTest {
                 List<String> periods = nodeTexts(".teacher-schedule-period-label");
                 require(periods.size() == 13,
                         "节次行应是本周出现过的节次并集（13 节），实际 " + periods);
-                require(periods.contains("第 13 节 18:00:00-18:45:00"),
-                        "第 13 节的时间必须是定宽 HH:mm:ss，实际 " + periods);
+                require(periods.contains("第 13 节\n18:00\n18:45"),
+                        "第 13 节的开始与结束时间必须各占一行且只到分钟，实际 " + periods);
                 for (String text : periods) {
-                    require(text.matches("第 [0-9]+ 节 [0-9]{2}:[0-9]{2}:[0-9]{2}-"
-                                    + "[0-9]{2}:[0-9]{2}:[0-9]{2}"),
-                            "节次行头必须是 第 N 节 HH:mm:ss-HH:mm:ss，实际 " + text);
+                    require(text.matches("第 [0-9]+ 节\\n[0-9]{2}:[0-9]{2}\\n[0-9]{2}:[0-9]{2}"),
+                            "节次行头必须是三行 第 N 节 / HH:mm / HH:mm，实际 " + text);
                 }
 
                 require(shownWeek() == CURRENT_WEEK,
@@ -360,17 +359,19 @@ public final class TeacherCourseUiSmokeTest {
 
             // ------------------------------------------------------------ 铺满 / 自适应（Task 2）
             // 用户要的是“跟着窗口变”：默认 860x580 横向装得下，网格宽度被拉到视口宽度（不再停在
-            // 自身 pref 尺寸），纵向 13 节装不下，于是按最小高度渲染并滚动；窗口拉大后两个方向都铺满
-            // （行高跟着长），拉窄到装不下时回落到最小宽度 + 滚动，而不是把列压到读不出来。
+            // 自身 pref 尺寸），纵向 13 节在 60px 最小行高下依旧装不下，于是按最小高度渲染并滚动；
+            // 窗口拉大后两个方向都铺满（高度取视口与网格最小高度的较大者），拉窄到装不下时回落到
+            // 最小宽度 + 滚动，而不是把列压到读不出来。
             steps.add(() -> requireGridFillsViewport("860x580 默认窗口"));
             steps.add(() -> resizeWindow(1180.0, 940.0));
             steps.add(() -> {
                 requireGridFillsViewport("放大到 1180x940");
-                // 纵向铺满的实证：节次行自己长高了（行约束不再被 max=44 钉死），而不是被别的
-                // 节点把网格撑大。节次标签带 vgrow + maxSize=MAX，高度就是那一行的高度。
+                // 节次行的高度实证：行头是三行（第 N 节 / HH:mm / HH:mm），最小行高 60px，节次标签
+                // 带 vgrow + maxSize=MAX，高度就是那一行的高度，因此不会被压到三行放不下。行再随
+                // 窗口长高与否由 requireGridFillsViewport 的 height = max(视口, 最小高度) 保证。
                 Node periodLabel = root.lookup(".teacher-schedule-period-label");
-                require(periodLabel != null && periodLabel.getLayoutBounds().getHeight() > 44.0,
-                        "窗口变高时节次行必须跟着长高，实际 "
+                require(periodLabel != null && periodLabel.getLayoutBounds().getHeight() >= 60.0,
+                        "节次行必须至少放得下三行行头（最小 60px），实际 "
                                 + (periodLabel == null
                                         ? "没有节次行"
                                         : periodLabel.getLayoutBounds().getHeight()));
@@ -1038,7 +1039,7 @@ public final class TeacherCourseUiSmokeTest {
                         "保存成功后版本必须前进到 v5，实际 " + labelText("#gradeBookStateLabel"));
             });
 
-            // 状态提示的落点与消退：与三个导入入口同排（按钮行里、撑开导入态的 Region 之前），
+            // 状态提示的落点与消退：与三个导入入口同排（按钮行里、撑开导入态的 Region 之后），
             // 新提示立刻可见，3 秒后渐变淡出并隐藏，隐藏时不透明度复位（下一次提示从全不透明开始）。
             steps.add(() -> {
                 Label feedback = requireNode("#gradeBookFeedbackLabel", Label.class, "状态提示");
@@ -2032,8 +2033,9 @@ public final class TeacherCourseUiSmokeTest {
 
         /**
          * 调课角标必须是课次块右侧的竖排一列：宽 < 高（三个字纵向排下来，而不是整体旋转 90°，
-         * 也不是原来那个横着占满一行的角标），并且不高于一个节次行（44px），因此不会撑高课次块。
-         * 角标文本仍是完整的 {@code 原安排}／{@code 调课后}（上面按 CSS 类取文本的断言）。
+         * 也不是原来那个横着占满一行的角标），并且不高于一个节次行（三行行头要求的最小 60px），
+         * 因此不会撑高课次块。角标文本仍是完整的 {@code 原安排}／{@code 调课后}（上面按 CSS 类
+         * 取文本的断言）。角标字号仍是 9px，不随课表其它文字一起 +2px。
          */
         private void requireVerticalBadges() {
             List<Node> badges = new ArrayList<>(root.lookupAll(".teacher-schedule-badge"));
@@ -2043,8 +2045,8 @@ public final class TeacherCourseUiSmokeTest {
                 require(bounds.getWidth() < bounds.getHeight(),
                         "角标必须竖排（宽 < 高），实际 " + bounds.getWidth() + "x"
                                 + bounds.getHeight());
-                require(bounds.getHeight() <= 44.0,
-                        "竖排角标不得撑高课次块（节次行 44px），实际高度 " + bounds.getHeight());
+                require(bounds.getHeight() <= 60.0,
+                        "竖排角标不得撑高课次块（节次行最小 60px），实际高度 " + bounds.getHeight());
             }
         }
 

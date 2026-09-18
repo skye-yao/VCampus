@@ -71,9 +71,10 @@ public final class TeacherScheduleController {
     static final String DIALOG_VIEW = "/resources/fxml/TeacherCourseDetailDialog.fxml";
 
     /**
-     * 节次列要放下 {@code 第 13 节 18:00:00-18:45:00}（11px 字号约 120px 字形 + 12px 内边距），
-     * 因此固定宽度必须比 96 宽，否则 {@code Label} 默认的 {@code TextOverrun.ELLIPSIS} 会把它裁成
-     * {@code 第 1 节 08:00…}——秒与结束时间都看不见。
+     * 节次列要放下三行里最宽的一行 {@code 第 13 节}（13px 字号约 60px 字形 + 12px 内边距）；
+     * 时间各占一行（{@code HH:mm}）之后不再有原来的 120px 单行宽度，但这个固定宽度维持 150：
+     * 整表最小宽度因此仍是 {@code 150 + 7 × 84 + 7 × 2 = 752}，小于 860 窗口里可用的约 810px，
+     * {@code fitToWidth} 才能把 7 个日期列拉伸到视口宽度（表格铺满）。
      */
     private static final double PERIOD_COLUMN_WIDTH = 150.0;
     /**
@@ -85,7 +86,13 @@ public final class TeacherScheduleController {
     private static final double DAY_COLUMN_MIN_WIDTH = 84.0;
     private static final double DAY_COLUMN_PREF_WIDTH = 112.0;
     private static final double HEADER_ROW_HEIGHT = 34.0;
-    private static final double PERIOD_ROW_HEIGHT = 44.0;
+    /**
+     * 节次行的最小高度：行头是三行（{@code 第 N 节} / 开始 / 结束），13px 字号的三行文本加 8px
+     * 上下内边距约 57px；课次卡片的两行正文（13px 标题 + 12px 地点）也与行头同处一行，取 60 留余量。
+     * 这只是下限：{@code GridPane} 取行约束与子节点最小高度的较大者，窗口变高时再按 {@code vgrow}
+     * 把多出来的高度分摊给各行。
+     */
+    private static final double PERIOD_ROW_HEIGHT = 60.0;
 
     private final TeacherCourseService service;
     private final Consumer<Runnable> fxExecutor;
@@ -381,8 +388,8 @@ public final class TeacherScheduleController {
                 dayColumn.setHgrow(Priority.ALWAYS);
                 scheduleGrid.getColumnConstraints().add(dayColumn);
             }
-            // 表头行固定 34px；节次行 44px 起、不设上限，窗口高过整表时由 vgrow 分摊多出来的高度
-            // （max 仍停在 44 的话 vgrow 是无效的，表格纵向永远铺不满）。
+            // 表头行固定 34px；节次行 60px 起、不设上限，窗口高过整表时由 vgrow 分摊多出来的高度
+            // （max 仍停在 60 的话 vgrow 是无效的，表格纵向永远铺不满）。
             scheduleGrid.getRowConstraints().add(new RowConstraints(HEADER_ROW_HEIGHT));
             for (int row = 0; row < periodRows.size(); row++) {
                 RowConstraints periodRow = new RowConstraints(PERIOD_ROW_HEIGHT);
@@ -552,6 +559,10 @@ public final class TeacherScheduleController {
      * 用独立 {@code WINDOW_MODAL} Stage 打开课次详情。标题固定为
      * {@link TeacherCourseDetailDialogController#TITLE}（GUI 冒烟测试靠它在窗口列表里认出弹窗），
      * 弹窗持有不可变的条目与周 DTO 引用，不重新推导展示字段。
+     *
+     * <p>窗口打开时就贴合内容：{@code sizeToScene()} 在窗口还没有 peer 时会被记下来，显示时再按
+     * 应用了样式之后的偏好尺寸执行一次——否则按默认尺寸打开的窗口会把底部按钮裁掉。教学班快照等
+     * 异步内容到达后，由 {@link TeacherCourseDetailDialogController} 自己重新贴合。
      */
     private void openDetailDialog(TeacherScheduleEntryDTO entry) {
         FXMLLoader loader = FXMLUtil.getLoader(DIALOG_VIEW);
@@ -574,6 +585,8 @@ public final class TeacherScheduleController {
         stage.setTitle(TeacherCourseDetailDialogController.TITLE);
         stage.setScene(new Scene(root));
         stage.setOnHidden(event -> dialog.dispose());
+        // 窗口还没显示（没有 peer）时记下这次请求，show() 时按样式应用之后的偏好尺寸执行。
+        stage.sizeToScene();
         stage.show();
     }
 
@@ -605,14 +618,35 @@ public final class TeacherScheduleController {
                 + (value.length() > 5 ? " " + value.substring(value.length() - 5) : "");
     }
 
-    /** 节次行头：{@code 第 N 节} 加上该节次的时间区间（原样使用 DTO 的定宽 HH:mm:ss）。 */
+    /**
+     * 节次行头三行：{@code 第 N 节} 一行，开始与结束时间各占一行（只到分钟，不显示秒、也不加横杠）。
+     * 时间是展示用的，兜底照旧：节次模板缺失或任一时间缺失、空白时只画 {@code 第 N 节} 一行，
+     * 而不是画一行半截的时间。
+     */
     static String periodHeader(int period, TeacherPeriodDTO definition) {
         String header = "第 " + period + " 节";
-        if (definition == null || definition.getStartTime() == null
-                || definition.getEndTime() == null) {
-            return header;
+        if (definition == null) return header;
+        String start = clockTime(definition.getStartTime());
+        String end = clockTime(definition.getEndTime());
+        if (start == null || end == null) return header;
+        return header + "\n" + start + "\n" + end;
+    }
+
+    /**
+     * 行头时间只取到分钟：定宽的 {@code HH:mm:ss} 截成 {@code HH:mm}；已经是 {@code HH:mm} 的短串
+     * 与占位符（如 {@code —}）原样保留；null 与空白返回 {@code null}，由调用方退回单行行头。
+     */
+    private static String clockTime(String value) {
+        if (value == null) return null;
+        String text = value.trim();
+        if (text.isEmpty()) return null;
+        if (text.length() >= 8 && text.charAt(2) == ':' && text.charAt(5) == ':'
+                && Character.isDigit(text.charAt(0)) && Character.isDigit(text.charAt(1))
+                && Character.isDigit(text.charAt(3)) && Character.isDigit(text.charAt(4))
+                && Character.isDigit(text.charAt(6)) && Character.isDigit(text.charAt(7))) {
+            return text.substring(0, 5);
         }
-        return header + " " + definition.getStartTime() + "-" + definition.getEndTime();
+        return text;
     }
 
     /** 本周节次行的编号：响应里出现过的节次（按教学日模板可不同）的升序并集。 */

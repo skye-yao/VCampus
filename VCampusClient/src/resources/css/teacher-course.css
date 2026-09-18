@@ -317,16 +317,17 @@
 .teacher-schedule-header {
     -fx-background-color: #eaf0ea;
     -fx-background-radius: 3px;
-    -fx-font-size: 12px;
+    -fx-font-size: 14px;
     -fx-font-weight: bold;
     -fx-text-fill: #3f553f;
     -fx-padding: 4px 6px 4px 6px;
 }
 
+/* 行头是三行（第 N 节 / 开始 / 结束），13px 三行加内边距对应控制器里的节次行最小高度 60px。 */
 .teacher-schedule-period-label {
     -fx-background-color: #f6f8f6;
     -fx-background-radius: 3px;
-    -fx-font-size: 11px;
+    -fx-font-size: 13px;
     -fx-text-fill: #657067;
     -fx-padding: 4px 6px 4px 6px;
 }
@@ -364,13 +365,13 @@
 }
 
 .teacher-schedule-card-title {
-    -fx-font-size: 11px;
+    -fx-font-size: 13px;
     -fx-font-weight: bold;
     -fx-text-fill: #151E49;
 }
 
 .teacher-schedule-card-meta {
-    -fx-font-size: 10px;
+    -fx-font-size: 12px;
     -fx-text-fill: #4f5b52;
 }
 

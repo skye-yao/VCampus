@@ -296,12 +296,20 @@ public final class TeacherScheduleControllerTest {
 
         TeacherPeriodDTO thirteenth = period(dateOf(CURRENT_WEEK, 1), PERIODS_PER_TEACHING_DAY);
         require(TeacherScheduleController.periodHeader(PERIODS_PER_TEACHING_DAY, thirteenth)
-                        .equals("第 13 节 18:00:00-18:45:00"),
-                "a period row must carry the DTO's fixed-width HH:mm:ss range, saw "
+                        .equals("第 13 节\n18:00\n18:45"),
+                "a period row must be three lines: 第 N 节 and the start/end HH:mm, saw "
                         + TeacherScheduleController.periodHeader(PERIODS_PER_TEACHING_DAY,
                                 thirteenth));
         require(TeacherScheduleController.periodHeader(1, null).equals("第 1 节"),
                 "a period without a definition must still render its own row header");
+        require(TeacherScheduleController.periodHeader(2, new TeacherPeriodDTO(
+                        dateOf(CURRENT_WEEK, 1), 2, "08:50:00", " "))
+                        .equals("第 2 节"),
+                "a blank time must fall back to the period-only header, never a half time range");
+        require(TeacherScheduleController.periodHeader(2, new TeacherPeriodDTO(
+                        dateOf(CURRENT_WEEK, 1), 2, "8:50", "9:35"))
+                        .equals("第 2 节\n8:50\n9:35"),
+                "a time that is not the DTO's fixed HH:mm:ss is shown as-is, never truncated");
 
         require(TeacherScheduleController.periodNumbers(List.of(
                         new TeacherPeriodDTO("2026-09-07", 5, "12:20:00", "13:05:00"),
