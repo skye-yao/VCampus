@@ -111,7 +111,7 @@ public final class SocketCourseServiceTest {
         FakeTransport transport = new FakeTransport();
         long courseId = 9007199254740993L;
         transport.respond(message -> message.putData("offerings", List.of(
-                new CourseOfferingDTO("9007199254740995", Long.toString(courseId),
+                new CourseOfferingDTO("9007199254740995", "CS203-2026-2-A", Long.toString(courseId),
                         List.of(new CourseTeacherDTO("T1", "张老师"),
                                 new CourseTeacherDTO("T2", "周老师")),
                         List.of(new CourseMeetingDTO(2, 3, 4, 1, 16, "ALL", "教四-201",
@@ -128,6 +128,9 @@ public final class SocketCourseServiceTest {
         require(offering.getOfferingId() == 9007199254740995L,
                 "offering ID must be parsed exactly from decimal text");
         require(offering.getCourseId() == courseId, "course ID must be parsed exactly");
+        require("CS203-2026-2-A".equals(offering.getOfferingCode()),
+                "the offering code must map to the view, observed "
+                        + offering.getOfferingCode());
         require(offering.getTeachers().size() == 2
                         && "张老师".equals(offering.getTeachers().get(0).getDisplayName()),
                 "teacher list must map structurally");
@@ -144,7 +147,8 @@ public final class SocketCourseServiceTest {
         List<CourseOfferingDTO> offeringDtos = new ArrayList<>();
         SelectionStateDTO[] states = SelectionStateDTO.values();
         for (int index = 0; index < states.length; index++) {
-            offeringDtos.add(new CourseOfferingDTO(Integer.toString(1000 + index), "101",
+            offeringDtos.add(new CourseOfferingDTO(Integer.toString(1000 + index),
+                    "CS101-2026-2-" + (char) ('A' + index), "101",
                     List.of(), List.of(), index, 50, states[index], null, null, null));
         }
         FakeTransport transport = new FakeTransport();
@@ -163,7 +167,7 @@ public final class SocketCourseServiceTest {
 
     private static void loadSelectionSnapshotMapsItemsAndTerm() {
         CourseDTO course = new CourseDTO("101", "CS203", "数据结构", "必修", 4.0, 64, "树", "无");
-        CourseOfferingDTO offering = new CourseOfferingDTO("1001", "101",
+        CourseOfferingDTO offering = new CourseOfferingDTO("1001", "CS203-2026-2-A", "101",
                 List.of(), List.of(), 30, 120, SelectionStateDTO.ENROLLED, null, null, null);
         CoursePlanSnapshotDTO snapshotDto = new CoursePlanSnapshotDTO(TERM_DTO,
                 List.of(new CourseSelectionItemDTO(course, offering)),
@@ -242,6 +246,20 @@ public final class SocketCourseServiceTest {
                         && week.getPeriods().get(1).getPeriod() == 4
                         && "10:50:00".equals(week.getPeriods().get(1).getStartTime()),
                 "the schedule object must carry the week's calendar geometry");
+        // 周次控件的范围与初值不在客户端写死：它们随响应一起回来（与教师端同三个字段）。
+        require(week.getMinWeek() == 1 && week.getMaxWeek() == 16
+                        && Integer.valueOf(8).equals(week.getCurrentWeek()),
+                "the week range and the current week must come from the server, observed "
+                        + week.getMinWeek() + ".." + week.getMaxWeek() + " current "
+                        + week.getCurrentWeek());
+        // 跟随当前周：请求里不带 week 键，由服务端决定（“回到本周”走的就是这条路径）。
+        transport.respond(message -> message.putData("schedule", scheduleWeek(8, List.of())));
+        ScheduleWeekView current = service.loadSchedule(TERM, null).join();
+        require(transport.lastRequest.getData("week") == null,
+                "a null week must not send a week key, observed "
+                        + transport.lastRequest.getData("week"));
+        require(current.getWeek() == 8,
+                "the server-decided week must be the one that gets rendered");
         require(week.getEntries().size() == 1 && week.getEntries().get(0).getOfferingId() == 1001L
                         && week.getEntries().get(0).getStartPeriod() == 3,
                 "schedule entry must map");
@@ -470,10 +488,11 @@ public final class SocketCourseServiceTest {
 
     /**
      * 学生课表响应：{@code schedule} 是一个对象，日期与节次字典随课次一起回来（不是裸数组）。
-     * 两天用不同天模板的情况在真服务上存在，因此节次按 {@code (date, period)} 成行。
+     * 两天用不同天模板的情况在真服务上存在，因此节次按 {@code (date, period)} 成行。周范围与当前周
+     * 照服务端的形状给（教学周 1..16，当前周 8），这样"范围来自响应"是能被断言的事实。
      */
     private static CourseScheduleWeekDTO scheduleWeek(int week, List<ScheduleEntryDTO> entries) {
-        return new CourseScheduleWeekDTO(week,
+        return new CourseScheduleWeekDTO(week, 1, 16, 8,
                 List.of(new CourseCalendarDateDTO("2026-09-14", week, 1, true)),
                 List.of(new CoursePeriodDTO("2026-09-14", 3, "10:00:00", "10:45:00"),
                         new CoursePeriodDTO("2026-09-14", 4, "10:50:00", "11:35:00")),
@@ -483,7 +502,7 @@ public final class SocketCourseServiceTest {
     private static CourseSelectionItemDTO selectionItem() {
         return new CourseSelectionItemDTO(
                 new CourseDTO("101", "CS203", "数据结构", "必修", 4.0, 64, "树", "无"),
-                new CourseOfferingDTO("1001", "101", List.of(), List.of(), 30, 120,
+                new CourseOfferingDTO("1001", "CS203-2026-2-A", "101", List.of(), List.of(), 30, 120,
                         SelectionStateDTO.ENROLLED, null, null, null));
     }
 

@@ -185,13 +185,16 @@ public final class SocketCourseService implements CourseService {
      * {@code schedule} 是一个对象（{@code CourseScheduleWeekDTO}），不是裸数组：日期与节次字典随课次
      * 一起回来，网格的行列由服务端教学日历决定。读法与教师端读 {@code TeacherScheduleWeekDTO} 相同，
      * 用的是本类既有的 {@code single(response, key, type)}。
+     *
+     * <p>{@code week} 为 null 时不发 {@code week} 键：服务端按教学日历与系统时钟取当前周，与教师端
+     * {@code SocketTeacherCourseService.loadTeachingSchedule} 同一约定。
      */
     @Override
     public CompletableFuture<ScheduleWeekView> loadSchedule(
-            CourseTermView term, int week) {
+            CourseTermView term, Integer week) {
         Message request = request(CourseActions.LOAD_SCHEDULE);
         putTerm(request, term);
-        request.putData("week", week);
+        if (week != null) request.putData("week", week);
         return map(request, response -> {
             CourseScheduleWeekDTO dto =
                     single(response, "schedule", CourseScheduleWeekDTO.class);
@@ -199,7 +202,8 @@ public final class SocketCourseService implements CourseService {
             for (ScheduleEntryDTO entry : dto.getEntries()) {
                 entries.add(scheduleEntry(entry));
             }
-            return new ScheduleWeekView(dto.getWeek(), dto.getDates(), dto.getPeriods(),
+            return new ScheduleWeekView(dto.getWeek(), dto.getMinWeek(), dto.getMaxWeek(),
+                    dto.getCurrentWeek(), dto.getDates(), dto.getPeriods(),
                     List.copyOf(entries));
         });
     }
@@ -338,7 +342,7 @@ public final class SocketCourseService implements CourseService {
             meetings.add(meeting(meeting));
         }
         return new CourseOfferingView(Long.parseLong(dto.getOfferingId()),
-                Long.parseLong(dto.getCourseId()), teachers, meetings,
+                dto.getOfferingCode(), Long.parseLong(dto.getCourseId()), teachers, meetings,
                 dto.getEnrolledCount(), dto.getCapacity(),
                 SelectionStatus.valueOf(dto.getSelectionState().name()),
                 dto.getFailureReason(), dto.getOfferedAt(), dto.getExpiresAt());

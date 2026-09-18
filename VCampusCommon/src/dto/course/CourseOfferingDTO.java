@@ -6,6 +6,8 @@ import java.util.List;
 
 public final class CourseOfferingDTO {
     private final String offeringId;
+    /** 教学班代码（如 {@code CS101-2026-2-A}），与教师端 {@code TeacherOfferingDTO} 同义同名。 */
+    private final String offeringCode;
     private final String courseId;
     private final List<CourseTeacherDTO> teachers;
     private final List<CourseMeetingDTO> meetings;
@@ -16,11 +18,12 @@ public final class CourseOfferingDTO {
     private final String offeredAt;
     private final String expiresAt;
 
-    public CourseOfferingDTO(String offeringId, String courseId,
+    public CourseOfferingDTO(String offeringId, String offeringCode, String courseId,
             List<CourseTeacherDTO> teachers, List<CourseMeetingDTO> meetings,
             int enrolledCount, int capacity, SelectionStateDTO selectionState,
             String failureReason, String offeredAt, String expiresAt) {
         this.offeringId = offeringId;
+        this.offeringCode = offeringCode;
         this.courseId = courseId;
         this.teachers = Collections.unmodifiableList(new ArrayList<>(teachers));
         this.meetings = Collections.unmodifiableList(new ArrayList<>(meetings));
@@ -34,6 +37,10 @@ public final class CourseOfferingDTO {
 
     public String getOfferingId() {
         return offeringId;
+    }
+
+    public String getOfferingCode() {
+        return offeringCode;
     }
 
     public String getCourseId() {

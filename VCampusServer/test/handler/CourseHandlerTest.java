@@ -70,6 +70,14 @@ public final class CourseHandlerTest {
             Message schedule = termRequest("loadSchedule", student.getToken());
             schedule.putData("week", 1);
             assertSuccessKey(handler, service, schedule, "schedule");
+            require(Integer.valueOf(1).equals(service.lastWeek),
+                    "an explicit week must travel to the service unchanged");
+            // 缺省 week = 由服务端按教学日历决定当前周：请求体里没有 week 键也必须成功，
+            // 且响应形状不变（仍然只有 schedule 一个键）。
+            assertSuccessKey(handler, service,
+                    termRequest("loadSchedule", student.getToken()), "schedule");
+            require(service.lastWeek == null,
+                    "a missing week must reach the service as null so the server picks the week");
             Message notices = termRequest("loadNotices", student.getToken());
             notices.putData("week", 1);
             assertSuccessKey(handler, service, notices, "notices");
@@ -122,6 +130,7 @@ public final class CourseHandlerTest {
 
     private static final class FakeCourseQueryService extends CourseQueryService {
         private String lastUid;
+        private Integer lastWeek;
         private boolean notFound;
 
         @Override
@@ -152,9 +161,14 @@ public final class CourseHandlerTest {
         }
 
         @Override
-        public CourseScheduleWeekDTO loadSchedule(String uid, int year, int semester, int week) {
+        public CourseScheduleWeekDTO loadSchedule(String uid, int year, int semester,
+                                                  Integer week) {
             record(uid);
-            return new CourseScheduleWeekDTO(week, List.of(), List.of(), List.of());
+            lastWeek = week;
+            // 真服务在 week 缺省时会自己解析出当前周；替身只要不把 null 当成周号即可。
+            int effective = week == null ? 1 : week;
+            return new CourseScheduleWeekDTO(effective, 1, 16, 8,
+                    List.of(), List.of(), List.of());
         }
 
         @Override

@@ -31,6 +31,14 @@ public final class MockCourseScheduleTest {
                         + initialWeek.getPeriods().size() + " 条节次");
         require(periodRows(initialWeek).equals(List.of(1, 2, 3, 4, 5, 6, 7, 8)),
                 "网格的节次行必须来自夹具字典而不是常量，实际 " + periodRows(initialWeek));
+        // 离线界面也要拿到服务端形状的周范围与当前周（"回到本周"与周次控件的来源）。
+        require(initialWeek.getMinWeek() == 1 && initialWeek.getMaxWeek() == 16
+                        && Integer.valueOf(3).equals(initialWeek.getCurrentWeek()),
+                "假体必须给出确定的周范围与当前周，实际 " + initialWeek.getMinWeek() + ".."
+                        + initialWeek.getMaxWeek() + " 当前 " + initialWeek.getCurrentWeek());
+        require(service.loadSchedule(TERM, null).get().getWeek() == 3
+                        && hasOffering(service.loadSchedule(TERM, null).get().getEntries(), 1005L),
+                "缺省周次必须回退到夹具的当前周，与真服务\"缺省即当前周\"同义");
         require(service.loadSchedule(OTHER_TERM, 3).get().getEntries().isEmpty(),
                 "schedule from another term must not appear");
         require(service.loadSchedule(TERM, 17).get().getEntries().isEmpty(),

@@ -560,13 +560,23 @@ public final class CourseSelectionController {
         return row;
     }
 
+    /**
+     * 教学班行的标题：展开在课程下面的教学班行（全部页签）显示**教学班代码**（如
+     * {@code CS101-2026-2-A}）——同一门课的多个教学班在课程代码之外还需要一个自己人认得的标识；
+     * 已选等页签的整行代表"我正在上的这门课"，标题仍是课程名。副标题两处都不变。
+     */
+    static String offeringRowTitle(CourseView course, CourseOfferingView offering, boolean nested) {
+        String code = offering == null ? null : offering.getOfferingCode();
+        return nested && code != null && !code.isBlank() ? code : course.getCourseName();
+    }
+
     private VBox createOfferingRow(CourseView course, CourseOfferingView offering,
             boolean nested) {
         VBox row = new VBox(5.0);
         row.getStyleClass().add(nested ? "course-offering-row" : "course-row");
 
         VBox titleBlock = new VBox(1.0,
-                styledLabel(course.getCourseName(), "course-row-title"),
+                styledLabel(offeringRowTitle(course, offering, nested), "course-row-title"),
                 styledLabel(course.getCourseCode() + " · 教学班 "
                         + offering.getOfferingId(), "course-row-code"));
         HBox.setHgrow(titleBlock, Priority.ALWAYS);

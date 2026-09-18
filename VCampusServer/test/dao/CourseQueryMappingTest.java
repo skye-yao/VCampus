@@ -92,7 +92,7 @@ public final class CourseQueryMappingTest {
         String[] columns = {
                 "course_id", "course_code", "course_name", "course_type", "credit",
                 "credit_hours", "description", "prerequisites", "offering_id",
-                "enrolled_count", "capacity", "plan_status", "failure_reason",
+                "offering_code", "enrolled_count", "capacity", "plan_status", "failure_reason",
                 "waitlist_status", "offered_at", "expires_at", "enrollment_id",
                 "teacher_uid", "teacher_name", "meeting_id", "day_of_week",
                 "start_period", "end_period", "start_week", "end_week", "week_pattern",
@@ -101,7 +101,7 @@ public final class CourseQueryMappingTest {
         int[] types = {
                 Types.BIGINT, Types.VARCHAR, Types.VARCHAR, Types.INTEGER, Types.DECIMAL,
                 Types.INTEGER, Types.VARCHAR, Types.VARCHAR, Types.BIGINT,
-                Types.INTEGER, Types.INTEGER, Types.VARCHAR, Types.VARCHAR,
+                Types.VARCHAR, Types.INTEGER, Types.INTEGER, Types.VARCHAR, Types.VARCHAR,
                 Types.VARCHAR, Types.TIMESTAMP, Types.TIMESTAMP, Types.BIGINT,
                 Types.VARCHAR, Types.VARCHAR, Types.BIGINT, Types.INTEGER,
                 Types.INTEGER, Types.INTEGER, Types.INTEGER, Types.INTEGER, Types.VARCHAR,
@@ -140,6 +140,9 @@ public final class CourseQueryMappingTest {
         List<CourseOfferingDTO> offerings = CourseQueryDAO.mapOfferingRows(rows);
         CourseOfferingDTO exact = find(offerings, BIG_ID);
         require(exact.getCourseId().equals(BIG_ID), "course BIGINT must remain exact");
+        // 全部页签的教学班行标题用教学班代码，因此它必须与教学班一起从同一行分组出来。
+        require("CS-BIG-A".equals(exact.getOfferingCode()),
+                "the offering code must survive grouping, observed " + exact.getOfferingCode());
         require(exact.getTeachers().size() == 2, "two teachers must be grouped once");
         require(exact.getMeetings().size() == 2, "two meetings must be grouped once");
         require(exact.getSelectionState() == SelectionStateDTO.ENROLLED,
@@ -234,9 +237,10 @@ public final class CourseQueryMappingTest {
                                      Object day, Object startPeriod, Object endPeriod,
                                      Object startWeek, Object endWeek, Object weekPattern,
                                      Object location, Object startsAt, Object endsAt) {
-        Object[] row = new Object[29];
+        Object[] row = new Object[30];
         System.arraycopy(course, 0, row, 0, course.length);
-        Object[] rest = {offeringId, 1, 30, planStatus, failureReason, waitlistStatus,
+        Object[] rest = {offeringId, course[1] + "-A", 1, 30, planStatus, failureReason,
+                waitlistStatus,
                 offeredAt, expiresAt, enrollmentId, teacherUid, teacherName, meetingId,
                 day, startPeriod, endPeriod, startWeek, endWeek, weekPattern, location,
                 startsAt, endsAt};

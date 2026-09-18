@@ -34,14 +34,28 @@ public final class MockCourseServiceTest {
                 "one course must expose multiple offerings");
 
         Set<SelectionStatus> states = new HashSet<>();
+        Set<String> offeringCodes = new HashSet<>();
+        int offeringsSeen = 0;
         for (CourseView course : courses) {
             for (CourseOfferingView offering :
                     service.loadCourseOfferings(term, course.getCourseId()).get()) {
                 states.add(offering.getSelectionStatus());
+                offeringsSeen++;
+                offeringCodes.add(offering.getOfferingCode());
+                // 全部页签的教学班行标题用教学班代码，因此每个假体教学班都得有一个：形态与演示种子
+                // 一致（课程代码 + 学年 + 学期 + 班号），且从代码能反推出课程。
+                require(offering.getOfferingCode() != null
+                                && offering.getOfferingCode()
+                                .startsWith(course.getCourseCode() + "-"),
+                        "mock offering must carry a code derived from its course code, observed "
+                                + offering.getOfferingCode() + " for " + course.getCourseCode());
             }
         }
         require(states.containsAll(Set.of(SelectionStatus.values())),
                 "mock catalog must expose all six selection states");
+        require(offeringCodes.size() == offeringsSeen,
+                "mock offering codes must be unique, observed " + offeringCodes.size()
+                        + " distinct codes for " + offeringsSeen + " offerings");
     }
 
     private static void testExplicitFullAndWaitlistTransitions() throws Exception {

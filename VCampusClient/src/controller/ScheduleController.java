@@ -6,7 +6,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -19,6 +18,7 @@ import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.Spinner;
+import javafx.scene.control.SpinnerValueFactory;
 import javafx.scene.layout.ColumnConstraints;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.Priority;
@@ -51,6 +51,12 @@ public final class ScheduleController {
     private final BiConsumer<String, String> errorReporter;
     private final Consumer<Runnable> fxExecutor;
     private CourseTermView selectedTerm;
+    /** 正在显示的那一周（未加载、加载中为 null）；周次控件与“回到本周”的可用性都由它决定。 */
+    private ScheduleWeekView week;
+    /** 最近一次请求的周次；null = 跟随服务端当前周（“回到本周”与刷新都用它）。 */
+    private Integer requestedWeek;
+    /** 同步周次控件（范围与值）时置位：那次值变化不是用户的选择，不得再发起一次加载。 */
+    private boolean syncingWeekSpinner;
     /** 当前这张表画了哪些节次行（不含表头行），由本教学周的节次字典决定。 */
     private List<Integer> periodRows = List.of();
     private long loadGeneration; // 请求的版本管理，用来解决用户短时间多次点击，确认最终的返回结果
@@ -58,6 +64,7 @@ public final class ScheduleController {
 
     @FXML private ComboBox<CourseTermView> termFilter;
     @FXML private Spinner<Integer> weekSpinner;
+    @FXML private Button currentWeekButton;
     @FXML private GridPane scheduleGrid;
     @FXML private VBox noticeList;
 
@@ -78,13 +85,15 @@ public final class ScheduleController {
     public void initialize() {
         if (weekSpinner != null) {
             configureWeekSpinner();
-            weekSpinner.valueProperty().addListener(
-                    (observable, oldValue, newValue) -> refresh());
+            weekSpinner.valueProperty().addListener((observable, oldValue, newValue) -> {
+                if (newValue != null) selectWeek(newValue);
+            });
         }
         termFilter.valueProperty().addListener((observable, oldValue, newValue) -> {
             if (newValue != null && !newValue.equals(selectedTerm)) {
                 selectedTerm = newValue;
-                refresh();
+                // 换学期：周次回到“由服务端决定”，否则会把上一个学期的周号带进新日历。
+                loadWeek(null);
             }
         });
         renderSchedule(null);
@@ -93,18 +102,47 @@ public final class ScheduleController {
     }
 
     /**
-     * 周次输入框：允许点进输入框直接敲周次。范围 1..20（学生端没有服务端的教学周范围）、只放行数字、
-     * 提交后夹取并回写文本——这三条规则与教师端的周次控件共用 {@link WeekSpinner}，两端同构；唯一的
-     * 非默认之处是上下箭头的方向反过来（向上 = 往前一周），同样由它统一提供。
+     * 周次输入框：允许点进输入框直接敲周次。只放行数字、提交后夹取并回写文本——这两条规则与教师端的
+     * 周次控件共用 {@link WeekSpinner}，两端同构；唯一的非默认之处是上下箭头的方向反过来
+     * （向上 = 往前一周），同样由它统一提供。
+     *
+     * <p>范围与初值不在客户端声明：它们来自服务端教学日历（{@link #renderWeekSpinner()} 在每次渲染后
+     * 同步），因此这里只装输入框，值工厂等第一次响应回来再建；此前控件是禁用的（原来的 1..20 是
+     * 学生端没有服务端周范围时的硬编码，与教师端不一致）。
      */
     private void configureWeekSpinner() {
-        weekSpinner.setValueFactory(WeekSpinner.valueFactory(1, 20, 3));
         WeekSpinner.installEditor(weekSpinner);
     }
 
     @FXML
     public void refresh() {
-        fxExecutor.accept(this::loadSchedule);
+        fxExecutor.accept(() -> loadWeek(requestedWeek));
+    }
+
+    /** 回到本周：以 {@code week=null} 请求，让服务端按教学日历与系统时钟决定。 */
+    @FXML
+    void handleBackToCurrentWeek() {
+        loadWeek(null);
+    }
+
+    /**
+     * 周次控件选定了一周（箭头、键盘或输入框提交）：请求那一周。
+     *
+     * <p>{@link #syncingWeekSpinner} 为真时直接返回：每次加载后写控件（范围与值）本身会触发值变化
+     * 监听，那一次不是用户的选择，不能再发起一次加载。没有范围时控件是禁用的，用户也点不到。
+     */
+    void selectWeek(int week) {
+        if (syncingWeekSpinner) return;
+        loadWeek(week);
+    }
+
+    /**
+     * “回到本周”是否可用：服务端给出了当前教学周才可以点。今天不在学期内时 {@code currentWeek} 为
+     * null，此时点了也没有意义；没有响应（未加载、加载中、加载失败）时同样不可用。与教师端
+     * {@code TeacherScheduleController.canGoCurrent()} 同义。
+     */
+    static boolean canGoCurrent(ScheduleWeekView week) {
+        return week != null && week.getCurrentWeek() != null;
     }
 
     private void loadTerms() {
@@ -139,38 +177,52 @@ public final class ScheduleController {
         }));
     }
 
-    void requestScheduleData(CourseTermView term, int week,
+    /**
+     * 课表与调课通知两个请求。{@code week} 为 null 时先问课表：服务端解析出的那一周才是通知该查的
+     * 周次，因此通知要等课表回来再发（否则只能猜一个周号，或者干脆不查）。
+     */
+    void requestScheduleData(CourseTermView term, Integer week,
             Consumer<ScheduleData> onLoaded, Consumer<Throwable> onError) {
         long generation = ++loadGeneration;
-        CompletableFuture<ScheduleWeekView> scheduleFuture =
-                service.loadSchedule(term, week);
-        CompletableFuture<List<CourseNoticeView>> noticeFuture =
-                service.loadNotices(term, week);
-        scheduleFuture.thenCombine(noticeFuture, ScheduleData::new)
-                .whenComplete((data, error) -> fxExecutor.accept(() -> {
+        service.loadSchedule(term, week).whenComplete((schedule, error) ->
+                fxExecutor.accept(() -> {
                     if (generation != loadGeneration) { // 忽略旧请求（用户多次快速点击refresh）
                         return;
                     }
                     if (error != null) {
                         onError.accept(error);
-                    } else {
-                        onLoaded.accept(data);
+                        return;
                     }
+                    Integer noticeWeek = week != null ? week
+                            : (schedule == null ? null : schedule.getWeek());
+                    if (noticeWeek == null) {
+                        onLoaded.accept(new ScheduleData(schedule, Collections.emptyList()));
+                        return;
+                    }
+                    service.loadNotices(term, noticeWeek).whenComplete((notices, noticeError) ->
+                            fxExecutor.accept(() -> {
+                                if (generation != loadGeneration) return;
+                                if (noticeError != null) {
+                                    onError.accept(noticeError);
+                                } else {
+                                    onLoaded.accept(new ScheduleData(schedule, notices));
+                                }
+                            }));
                 }));
     }
 
-    private void loadSchedule() {
+    /** 请求某一周（{@code targetWeek} 为 null 表示跟随服务端当前周）并重建整页。 */
+    private void loadWeek(Integer targetWeek) {
         CourseTermView term = selectedTerm != null ? selectedTerm : termFilter.getValue();
-        Integer selectedWeek = weekSpinner.getValue();
-        if (term == null || selectedWeek == null) {
+        if (term == null) {
             return;
         }
+        requestedWeek = targetWeek;
 
         // 清空旧数据并显示加载状态
         renderSchedule(null);
         renderNotices(Collections.emptyList(), "正在加载课表...");
-        // 两个异步的加载请求
-        requestScheduleData(term, selectedWeek, data -> {
+        requestScheduleData(term, targetWeek, data -> {
             renderSchedule(data.schedule);
             renderNotices(data.notices);
         }, error -> {
@@ -186,10 +238,12 @@ public final class ScheduleController {
      * 客户端与视图里都不再有节次/星期的常量。{@code week} 为 null 或该周没有节次定义时只清空网格。
      */
     private void renderSchedule(ScheduleWeekView week) {
+        this.week = week;
         scheduleGrid.getChildren().clear();
         scheduleGrid.getColumnConstraints().clear();
         scheduleGrid.getRowConstraints().clear();
         periodRows = week == null ? List.of() : periodNumbers(week.getPeriods());
+        renderWeekControls();
         if (periodRows.isEmpty()) {
             return;
         }
@@ -242,6 +296,41 @@ public final class ScheduleController {
                 GridPane.setHgrow(componentGrid, Priority.ALWAYS);
                 GridPane.setVgrow(componentGrid, Priority.ALWAYS);
             }
+        }
+    }
+
+    /** 周次控件与「回到本周」的可用性：两者都只由服务端响应决定，见 {@link #renderWeekSpinner()}。 */
+    private void renderWeekControls() {
+        renderWeekSpinner();
+        if (currentWeekButton != null) currentWeekButton.setDisable(!canGoCurrent(week));
+    }
+
+    /**
+     * 把周次控件同步到当前这一周：范围取响应里的 {@code minWeek}/{@code maxWeek}，值为正在显示的周。
+     *
+     * <p>写控件本身会触发值变化监听（首次 {@code setValueFactory} 的绑定、以及每一次 {@code setValue}），
+     * 因此整段都用 {@link #syncingWeekSpinner} 圈起来，加载不会因为同步控件而再发起一次。还没有范围
+     * （未加载、无数据、加载中）时控件禁用，而不是显示一个编造的周号——与教师端
+     * {@code TeacherScheduleController.renderWeekSpinner()} 同构。
+     */
+    private void renderWeekSpinner() {
+        if (weekSpinner == null) return;
+        Integer value = week == null ? null : week.getWeek();
+        weekSpinner.setDisable(value == null);
+        if (value == null) return;
+        SpinnerValueFactory<Integer> factory = weekSpinner.getValueFactory();
+        syncingWeekSpinner = true;
+        try {
+            if (factory instanceof SpinnerValueFactory.IntegerSpinnerValueFactory range) {
+                range.setMin(week.getMinWeek());
+                range.setMax(week.getMaxWeek());
+                range.setValue(value);
+            } else {
+                weekSpinner.setValueFactory(WeekSpinner.valueFactory(
+                        week.getMinWeek(), week.getMaxWeek(), value));
+            }
+        } finally {
+            syncingWeekSpinner = false;
         }
     }
 

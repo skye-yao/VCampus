@@ -35,6 +35,10 @@ public final class ScheduleControllerTest {
 
     public static void main(String[] args) throws Exception {
         requestScheduleDataSendsServerTermAndWeek();
+        backToCurrentWeekAsksForTheWeekTheServerResolved();
+        currentWeekButtonFollowsTheServerWeekRange();
+        currentWeekButtonSitsRightOfTheSpinner();
+        weekRangeComesFromTheServerInsteadOfAClientConstant();
         staleScheduleDataCannotReplaceNewerResult();
         requestTermsIgnoresStaleTermLoads();
         scheduleFailureIsDeliveredThroughFxExecutor();
@@ -46,6 +50,74 @@ public final class ScheduleControllerTest {
         gappedPeriodDictionarySnapsToTheNextRow();
         theViewDeclaresNoColumnGeometry();
         System.out.println("ScheduleControllerTest: PASS");
+    }
+
+    /**
+     * 「回到本周」= 请求里不带周次，周次由服务端按教学日历与系统时钟决定。调课通知是按周发表的，
+     * 因此它必须等课表回来、用服务端解析出的那一周去查，而不是客户端自己猜一个周号。
+     */
+    private static void backToCurrentWeekAsksForTheWeekTheServerResolved() {
+        ControlledCourseService service = new ControlledCourseService();
+        ScheduleController controller = new ScheduleController(
+                service, (title, message) -> { }, (title, message) -> { }, Runnable::run);
+        AtomicReference<ScheduleController.ScheduleData> rendered = new AtomicReference<>();
+
+        service.scheduleResults.addLast(CompletableFuture.completedFuture(
+                week(8, List.of(entry(1001L, "数据结构")))));
+        service.noticeResults.addLast(CompletableFuture.completedFuture(List.of(
+                new CourseNoticeView("2026-2027 秋学期", 8, "调课", "内容"))));
+        controller.requestScheduleData(TERM, null, rendered::set, error -> { });
+
+        require(service.lastScheduleWeek.get() == null,
+                "“回到本周”不得带上周次，实际 " + service.lastScheduleWeek.get());
+        require(Integer.valueOf(8).equals(service.lastNoticeWeek.get()),
+                "通知必须按服务端解析出的那一周去查，实际 " + service.lastNoticeWeek.get());
+        require(rendered.get() != null && rendered.get().getSchedule().getWeek() == 8
+                        && rendered.get().getNotices().size() == 1,
+                "解析出的周与它的通知必须一起交给渲染");
+    }
+
+    /**
+     * 「回到本周」的可用性只由服务端响应决定：没有响应（未加载/加载中/加载失败）或今天不在学期内
+     * （{@code currentWeek} 为 null）时不可用，与教师端 {@code canGoCurrent()} 同义。
+     */
+    private static void currentWeekButtonFollowsTheServerWeekRange() {
+        require(!ScheduleController.canGoCurrent(null),
+                "还没有响应时“回到本周”必须禁用");
+        require(!ScheduleController.canGoCurrent(
+                        new ScheduleWeekView(3, List.of(), List.of(), List.of())),
+                "服务端没有给出当前周（今天不在学期的教学周内）时必须禁用");
+        require(ScheduleController.canGoCurrent(week(3, List.of())),
+                "服务端给出当前周后“回到本周”必须可用");
+    }
+
+    /** 按钮紧跟在周次控件右侧、且仍在撑开的 Region 之前（「刷新」继续留在最右）。 */
+    private static void currentWeekButtonSitsRightOfTheSpinner() throws Exception {
+        String view = readResource("/resources/fxml/ScheduleView.fxml");
+        int spinner = view.indexOf("fx:id=\"weekSpinner\"");
+        int button = view.indexOf("fx:id=\"currentWeekButton\"");
+        require(spinner >= 0 && button > spinner,
+                "「回到本周」必须紧跟周次控件之后，实际 spinner=" + spinner + " button=" + button);
+        String buttonTag = view.substring(view.lastIndexOf('<', button), view.indexOf('>', button));
+        require(buttonTag.contains("text=\"回到本周\"")
+                        && buttonTag.contains("onAction=\"#handleBackToCurrentWeek\""),
+                "按钮文案与动作必须就位：" + buttonTag);
+        int grower = view.indexOf("HBox.hgrow=\"ALWAYS\"");
+        require(grower > button,
+                "按钮必须在撑开的 Region 之前，否则会被推到工具栏最右而不是周次控件旁边");
+    }
+
+    /**
+     * 周范围不再由客户端写死：控件范围与初值都来自服务端响应（1..20 的硬编码随本需求删除）。
+     * 这一条是源码级断言——真控件要起 JavaFX 工具包才能建，而本套件是无工具包运行的。
+     */
+    private static void weekRangeComesFromTheServerInsteadOfAClientConstant() throws Exception {
+        String source = readResource("/controller/ScheduleController.java");
+        require(!source.contains("valueFactory(1, 20, 3)"),
+                "周次控件的范围必须来自服务端，不得再写死 (1, 20, 3)");
+        require(source.contains("getMinWeek()") && source.contains("getMaxWeek()")
+                        && source.contains("getCurrentWeek()"),
+                "周范围与当前周必须读取响应里的三个字段");
     }
 
     /**
@@ -227,7 +299,10 @@ public final class ScheduleControllerTest {
         controller.requestScheduleData(TERM, 3, rendered::set, error -> { });
 
         require(TERM.equals(service.lastTerm.get()), "server term must reach the service");
-        require(Integer.valueOf(3).equals(service.lastWeek.get()), "week must reach the service");
+        require(Integer.valueOf(3).equals(service.lastScheduleWeek.get()),
+                "an explicit week must reach the schedule service");
+        require(Integer.valueOf(3).equals(service.lastNoticeWeek.get()),
+                "notices must be queried for the same explicit week");
         require(rendered.get() != null && rendered.get().getSchedule().getEntries().size() == 1
                         && rendered.get().getNotices().size() == 1,
                 "schedule and notice results must be combined");
@@ -311,9 +386,12 @@ public final class ScheduleControllerTest {
                 name, "教师", "教室", 1, 1, 2, 1, 16);
     }
 
-    /** 只装课次的一周：这些用例只读取回的数据、不画网格，几何由其他的渲染用例负责。 */
+    /**
+     * 只装课次的一周：这些用例只读取回的数据、不画网格，几何由其他的渲染用例负责。周范围照服务端
+     * 的形状给（教学周 1..16，当前周 8），因此“回到本周”在这些夹具里是可用状态。
+     */
     private static ScheduleWeekView week(int week, List<ScheduleEntryView> entries) {
-        return new ScheduleWeekView(week, List.of(), List.of(), entries);
+        return new ScheduleWeekView(week, 1, 16, 8, List.of(), List.of(), entries);
     }
 
     private static void require(boolean condition, String message) {
@@ -328,7 +406,8 @@ public final class ScheduleControllerTest {
         private final Deque<CompletableFuture<List<CourseTermView>>> termResults =
                 new ArrayDeque<>();
         private final AtomicReference<CourseTermView> lastTerm = new AtomicReference<>();
-        private final AtomicReference<Integer> lastWeek = new AtomicReference<>();
+        private final AtomicReference<Integer> lastScheduleWeek = new AtomicReference<>();
+        private final AtomicReference<Integer> lastNoticeWeek = new AtomicReference<>();
         private final AtomicInteger ignores = new AtomicInteger();
 
         @Override public CompletableFuture<List<CourseTermView>> loadTerms() {
@@ -397,16 +476,16 @@ public final class ScheduleControllerTest {
         }
 
         @Override public CompletableFuture<ScheduleWeekView> loadSchedule(
-                CourseTermView term, int week) {
+                CourseTermView term, Integer week) {
             lastTerm.set(term);
-            lastWeek.set(week);
+            lastScheduleWeek.set(week);
             return scheduleResults.removeFirst();
         }
 
         @Override public CompletableFuture<List<CourseNoticeView>> loadNotices(
                 CourseTermView term, int week) {
             lastTerm.set(term);
-            lastWeek.set(week);
+            lastNoticeWeek.set(week);
             return noticeResults.removeFirst();
         }
 

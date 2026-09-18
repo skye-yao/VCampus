@@ -89,7 +89,7 @@ public final class CourseDtoJsonTest {
     }
 
     private static void roundTripsCourseScheduleWeek() {
-        CourseScheduleWeekDTO week = new CourseScheduleWeekDTO(3,
+        CourseScheduleWeekDTO week = new CourseScheduleWeekDTO(3, 1, 16, 8,
                 Arrays.asList(new CourseCalendarDateDTO("2026-09-14", 3, 1, true)),
                 Arrays.asList(new CoursePeriodDTO("2026-09-14", 1, "08:00:00", "08:45:00")),
                 new ArrayList<>());
@@ -97,6 +97,9 @@ public final class CourseDtoJsonTest {
                 GSON.toJson(week), CourseScheduleWeekDTO.class);
 
         require(copy.getWeek() == 3, "the viewed week must round-trip");
+        require(copy.getMinWeek() == 1 && copy.getMaxWeek() == 16
+                        && Integer.valueOf(8).equals(copy.getCurrentWeek()),
+                "the week bounds and the current week must round-trip");
         require(copy.getDates().size() == 1
                         && "2026-09-14".equals(copy.getDates().get(0).getDate())
                         && copy.getDates().get(0).getWeek() == 3
@@ -114,6 +117,10 @@ public final class CourseDtoJsonTest {
         require(nullLists.getDates().isEmpty() && nullLists.getPeriods().isEmpty()
                         && nullLists.getEntries().isEmpty(),
                 "null lists must normalize to empty ones");
+        // 旧的 4 参构造仍然可用：范围退化为"只有这一周"，当前周为空（GUI 因此禁用“回到本周”）。
+        require(nullLists.getMinWeek() == 1 && nullLists.getMaxWeek() == 1
+                        && nullLists.getCurrentWeek() == null,
+                "the legacy constructor must not invent a week range or a current week");
         requireUnmodifiable(copy.getDates(), "deserialized dates must be unmodifiable");
         requireUnmodifiable(copy.getPeriods(), "deserialized periods must be unmodifiable");
         requireUnmodifiable(copy.getEntries(), "deserialized entries must be unmodifiable");
@@ -126,6 +133,8 @@ public final class CourseDtoJsonTest {
         CourseOfferingDTO copy = GSON.fromJson(GSON.toJson(source), CourseOfferingDTO.class);
 
         require("9007199254740993".equals(copy.getOfferingId()), "BIGINT must remain exact");
+        require("CS203-2026-2-A".equals(copy.getOfferingCode()),
+                "the offering code must round-trip: it is the teaching-class row title in the UI");
         require("course-203".equals(copy.getCourseId()), "course ID must round-trip");
         require(copy.getTeachers().size() == 2, "multiple teachers must survive JSON");
         require("teacher-2".equals(copy.getTeachers().get(1).getUid()),
@@ -140,7 +149,7 @@ public final class CourseDtoJsonTest {
         require("2026-09-10T02:05:00Z".equals(copy.getExpiresAt()), "deadline required");
 
         CourseOfferingDTO available = new CourseOfferingDTO(
-                "42", "course-101", new ArrayList<>(), new ArrayList<>(),
+                "42", "CS101-2026-2-A", "course-101", new ArrayList<>(), new ArrayList<>(),
                 10, 30, SelectionStateDTO.AVAILABLE, null, null, null);
         CourseOfferingDTO availableCopy = GSON.fromJson(
                 GSON.toJson(available), CourseOfferingDTO.class);
@@ -184,7 +193,7 @@ public final class CourseDtoJsonTest {
         List<CourseTeacherDTO> teachers = new ArrayList<>(teacherList());
         List<CourseMeetingDTO> meetings = new ArrayList<>(meetingList());
         CourseOfferingDTO offering = new CourseOfferingDTO(
-                "101", "course-203", teachers, meetings, 96, 120,
+                "101", "CS203-2026-2-A", "course-203", teachers, meetings, 96, 120,
                 SelectionStateDTO.AVAILABLE, null, null, null);
         teachers.clear();
         meetings.clear();
@@ -352,7 +361,7 @@ public final class CourseDtoJsonTest {
 
     private static CourseOfferingDTO offeredOffering() {
         return new CourseOfferingDTO(
-                "9007199254740993", "course-203", teacherList(), meetingList(),
+                "9007199254740993", "CS203-2026-2-A", "course-203", teacherList(), meetingList(),
                 96, 120, SelectionStateDTO.WAITLIST_OFFERED, null,
                 "2026-09-10T01:05:00Z", "2026-09-10T02:05:00Z");
     }
@@ -370,8 +379,8 @@ public final class CourseDtoJsonTest {
                 "course-203", "CS203", "Data Structures", "Required",
                 4.0, 64, "Lists, trees, and graphs", "Programming Fundamentals");
         CourseOfferingDTO offering = new CourseOfferingDTO(
-                "9007199254740993", course.getCourseId(), teacherList(), meetingList(),
-                96, 120, state, null,
+                "9007199254740993", "CS203-2026-2-A", course.getCourseId(), teacherList(),
+                meetingList(), 96, 120, state, null,
                 state == SelectionStateDTO.WAITLIST_OFFERED
                         ? "2026-09-10T01:05:00Z" : null,
                 state == SelectionStateDTO.WAITLIST_OFFERED

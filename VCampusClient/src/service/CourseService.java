@@ -51,8 +51,11 @@ public interface CourseService {
 
     /**
      * 某教学周的课表：课次连同该周的日期与节次字典一起返回，网格几何因此由服务端教学日历决定。
+     *
+     * <p>{@code week} 为 null 表示“跟随当前周”：请求里不带周次，由服务端按教学日历与系统时钟决定；
+     * 响应里的 {@code minWeek}/{@code maxWeek}/{@code currentWeek} 就是周次控件的范围与初值来源。
      */
-    CompletableFuture<ScheduleWeekView> loadSchedule(CourseTermView term, int week);
+    CompletableFuture<ScheduleWeekView> loadSchedule(CourseTermView term, Integer week);
 
     CompletableFuture<List<CourseNoticeView>> loadNotices(CourseTermView term, int week);
 

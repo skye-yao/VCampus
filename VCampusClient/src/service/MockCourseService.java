@@ -38,6 +38,13 @@ public final class MockCourseService implements CourseService {
     /** 教学日历夹具的第 1 周周一，与演示种子的 week1_start_date 同一天。 */
     private static final LocalDate WEEK_ONE_MONDAY = LocalDate.of(2026, 9, 7);
     /**
+     * 周次夹具：教学周 1..16（与 {@code scheduleTemplates} 的起止周一致），"当前周"取第 3 周——
+     * 一个确定性常量，离线界面因此也能拿到范围与初值，且不会因为跑测试的日期不同而漂移。
+     */
+    private static final int MIN_WEEK = 1;
+    private static final int MAX_WEEK = 16;
+    private static final int CURRENT_WEEK = 3;
+    /**
      * 节次夹具：一天 8 节，时刻照演示种子唯一的 {@code day_template} 3101。学生端网格的行数
      * 就是它的长度，因此这里同时是"行数不再写死 13"的离线证据。
      */
@@ -274,10 +281,14 @@ public final class MockCourseService implements CourseService {
     /**
      * 与真服务同构：课次连同该周的日期与节次字典一起返回，学生端网格的行列因此由"教学日历"
      * 决定而不是客户端常量。夹具的日历对任何周都成立，只按选课状态过滤课次。
+     *
+     * <p>{@code week} 为 null（或非正）时取夹具的固定当前周，与真服务"缺省即当前周"同义；
+     * 响应同样带上周范围与当前周，周次控件因此离线也能从服务端取值。
      */
     @Override
     public synchronized CompletableFuture<ScheduleWeekView> loadSchedule(
-            CourseTermView term, int week) {
+            CourseTermView term, Integer week) {
+        int effectiveWeek = week == null || week <= 0 ? CURRENT_WEEK : week;
         List<ScheduleEntryView> entries = new ArrayList<>();
         for (Map.Entry<Long, ScheduleEntryView> template : scheduleTemplates.entrySet()) {
             CourseOfferingView offering = offerings.get(template.getKey());
@@ -285,8 +296,8 @@ public final class MockCourseService implements CourseService {
             if (offering != null
                     && offering.getSelectionStatus() == SelectionStatus.ENROLLED
                     && scheduleEntry.getTerm().equals(term == null ? null : term.getDisplayName())
-                    && scheduleEntry.isActiveInWeek(week)) {
-                ScheduleAdjustment adjustment = adjustmentIn(template.getKey(), week);
+                    && scheduleEntry.isActiveInWeek(effectiveWeek)) {
+                ScheduleAdjustment adjustment = adjustmentIn(template.getKey(), effectiveWeek);
                 if (adjustment == null) {
                     entries.add(scheduleEntry);
                 } else {
@@ -296,7 +307,8 @@ public final class MockCourseService implements CourseService {
             }
         }
         return CompletableFuture.completedFuture(new ScheduleWeekView(
-                week, weekDates(week), weekPeriods(week), List.copyOf(entries)));
+                effectiveWeek, MIN_WEEK, MAX_WEEK, CURRENT_WEEK, weekDates(effectiveWeek),
+                weekPeriods(effectiveWeek), List.copyOf(entries)));
     }
 
     /** 某一周的教学日夹具：周一至周五，全部是教学日。 */
@@ -506,20 +518,20 @@ public final class MockCourseService implements CourseService {
             SelectionStatus status, int enrolledCount, String failureReason,
             String offeredAt, String expiresAt) {
         return new CourseOfferingView(
-                offering.getOfferingId(), offering.getCourseId(),
+                offering.getOfferingId(), offering.getOfferingCode(), offering.getCourseId(),
                 offering.getTeachers(), offering.getMeetings(),
                 enrolledCount, offering.getCapacity(), status, failureReason,
                 offeredAt, expiresAt);
     }
 
-    private static CourseOfferingView offering(long offeringId, long courseId,
+    private CourseOfferingView offering(long offeringId, long courseId,
             String teacher, int day, int startPeriod, int endPeriod,
             String location, int enrolledCount, int capacity,
             SelectionStatus status, String expiresAt) {
         String offeredAt = status == SelectionStatus.WAITLIST_OFFERED
                 ? OFFERED_AT : null;
         return new CourseOfferingView(
-                offeringId, courseId,
+                offeringId, nextOfferingCode(courseId), courseId,
                 List.of(new CourseTeacherView("T" + offeringId, teacher)),
                 List.of(new CourseMeetingView(
                         day, startPeriod, endPeriod, 1, 16, "ALL", location,
@@ -527,6 +539,22 @@ public final class MockCourseService implements CourseService {
                 enrolledCount, capacity, status,
                 status == SelectionStatus.FULL ? "教学班已满" : null,
                 offeredAt, expiresAt);
+    }
+
+    /**
+     * 教学班代码的夹具形态与演示种子一致（{@code CS101-2026-2-A}）：课程代码 + 学年 + 学期 + 班号。
+     * 班号按该课程已有的教学班数依次取 A、B…，因此同一课程下的代码唯一，且从代码能反推出课程——
+     * 这正是"全部页签的教学班行标题 = 教学班代码"要求的那条信息。
+     */
+    private String nextOfferingCode(long courseId) {
+        CourseView course = courses.get(courseId);
+        int section = 0;
+        for (CourseOfferingView existing : offerings.values()) {
+            if (existing.getCourseId() == courseId) section++;
+        }
+        return (course == null ? "COURSE" : course.getCourseCode()) + "-"
+                + DEFAULT_TERM.getAcademicYear() + "-" + DEFAULT_TERM.getSemester() + "-"
+                + (char) ('A' + section);
     }
 
     private static IllegalStateException stateError(

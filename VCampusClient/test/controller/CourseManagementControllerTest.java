@@ -137,7 +137,7 @@ public final class CourseManagementControllerTest {
         }
 
         @Override public CompletableFuture<ScheduleWeekView> loadSchedule(
-                CourseTermView term, int week) {
+                CourseTermView term, Integer week) {
             return CompletableFuture.completedFuture(
                     new ScheduleWeekView(1, List.of(), List.of(), List.of()));
         }
