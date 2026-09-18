@@ -1,5 +1,8 @@
 package service;
 
+import dao.CourseAcademicDAO;
+import dao.CourseQueryDAO;
+import dao.CourseScheduleDAO;
 import dto.course.CourseNoticeDTO;
 import dto.course.CourseOfferingDTO;
 import dto.course.CoursePlanSnapshotDTO;
@@ -13,6 +16,9 @@ import util.DBUtil;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -116,6 +122,9 @@ public final class CourseQueryMySqlTest {
      * 查询必须覆盖原周和目标周两个日期范围——原周只返回原标记、目标周只返回目标标记、中间的周次
      * 什么都不返回；关联调课申请的通知只在原周与目标周各出现一次（去重），普通通知仍只按自己的
      * week_no 出现。
+     *
+     * <p>本批再复用同一份日历夹具验证学生端的周导航（范围、当前周、缺省即当前周），见
+     * {@link #verifyWeekNavigationFollowsTheInjectedClock()}。
      */
     private static void verifyAdjustedWeekOverlaysTheEffectiveSchedule(CourseQueryService service)
             throws Exception {
@@ -224,6 +233,8 @@ public final class CourseQueryMySqlTest {
             require(service.loadSchedule(STUDENT, 2027, 3, 1).getEntries().size() == 3
                             && service.loadSchedule(STUDENT, 2027, 3, 4).getEntries().size() == 1,
                     "the overlay must be stable across repeated reads");
+
+            verifyWeekNavigationFollowsTheInjectedClock();
         } finally {
             cleanAdjustmentFixtures();
         }
@@ -242,6 +253,48 @@ public final class CourseQueryMySqlTest {
                         && count("SELECT COUNT(*) FROM enrollment WHERE enrollment_id=972901") == 0
                         && count("SELECT COUNT(*) FROM tbl_user WHERE UID LIKE 'query-adjust-%'") == 0,
                 "cleanup must leave no fixture row behind");
+    }
+
+    /**
+     * 学生端的周导航（{@code minWeek}/{@code maxWeek}/{@code currentWeek} 与"缺省即当前周"）必须由
+     * 教学日历与注入的时钟决定，而不是客户端常量——教师端 {@code TeacherScheduleMySqlTest} 有同形的
+     * 三组断言，这里是学生端的那一份。复用上面已经建好的 2027/3 夹具：教学周 1..4、第 1 周周一
+     * 2027-09-06、时区 Asia/Shanghai，因此 2027-09-15 落在第 2 周，2027-12-01 在学期之外。
+     */
+    private static void verifyWeekNavigationFollowsTheInjectedClock() {
+        CourseQueryService inTerm = serviceWithClock("2027-09-15T02:00:00Z");
+        CourseScheduleWeekDTO current = inTerm.loadSchedule(STUDENT, 2027, 3, null);
+        require(current.getCurrentWeek() != null && current.getCurrentWeek() == 2,
+                "2027-09-15 必须落在第 2 教学周，实际 " + current.getCurrentWeek());
+        require(current.getWeek() == current.getCurrentWeek(),
+                "缺省 week 必须取服务端当前周，实际 " + current.getWeek());
+        require(current.getMinWeek() == 1 && current.getMaxWeek() == 4,
+                "教学周范围必须来自教学日历，实际 "
+                        + current.getMinWeek() + ".." + current.getMaxWeek());
+        require(current.getWeek() >= current.getMinWeek()
+                        && current.getWeek() <= current.getMaxWeek(),
+                "解析出的周必须落在教学周范围内，实际 " + current.getWeek());
+        // 非正周次与缺省同义：handler 只允许"缺省或整数"，0 不该被当成第 0 周。
+        require(inTerm.loadSchedule(STUDENT, 2027, 3, 0).getWeek() == current.getWeek(),
+                "week=0 必须与缺省同义");
+        require(inTerm.loadSchedule(STUDENT, 2027, 3, 4).getWeek() == 4,
+                "明确的周次必须原样返回，与当前周无关");
+
+        // 学期之外：没有当前周（界面据此禁用"回到本周"），周次退回最小教学周。
+        CourseQueryService outOfTerm = serviceWithClock("2027-12-01T02:00:00Z");
+        CourseScheduleWeekDTO outside = outOfTerm.loadSchedule(STUDENT, 2027, 3, null);
+        require(outside.getCurrentWeek() == null,
+                "学期之外不得编造当前周，实际 " + outside.getCurrentWeek());
+        require(outside.getWeek() == outside.getMinWeek() && outside.getWeek() == 1,
+                "没有当前周时必须退回最小教学周，实际 " + outside.getWeek());
+        require(outOfTerm.loadSchedule(STUDENT, 2027, 3, 4).getWeek() == 4,
+                "明确的周次不受时钟影响");
+    }
+
+    /** 固定时刻的查询服务：Clock 注入让学生端的周解析不再依赖跑测试的当天日期。 */
+    private static CourseQueryService serviceWithClock(String instant) {
+        return new CourseQueryService(new CourseQueryDAO(), new CourseScheduleDAO(),
+                new CourseAcademicDAO(), Clock.fixed(Instant.parse(instant), ZoneOffset.UTC));
     }
 
     private static List<String> noticeIds(CourseQueryService service, int week) {

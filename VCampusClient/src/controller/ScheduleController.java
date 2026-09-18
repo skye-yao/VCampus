@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -178,23 +179,41 @@ public final class ScheduleController {
     }
 
     /**
-     * 课表与调课通知两个请求。{@code week} 为 null 时先问课表：服务端解析出的那一周才是通知该查的
-     * 周次，因此通知要等课表回来再发（否则只能猜一个周号，或者干脆不查）。
+     * 课表与调课通知两个请求。
+     *
+     * <p>明确给了周次时两者**并行**发出（通知查哪一周已经是已知的，没有理由让它跟着课表的往返
+     * 串行化）；{@code week} 为 null 时才两段式——服务端解析出的那一周才是通知该查的周次，通知因此
+     * 要等课表回来再发，否则只能猜一个周号。两种形态共用同一个 generation 守卫与同一套错误语义。
      */
     void requestScheduleData(CourseTermView term, Integer week,
             Consumer<ScheduleData> onLoaded, Consumer<Throwable> onError) {
         long generation = ++loadGeneration;
-        service.loadSchedule(term, week).whenComplete((schedule, error) ->
+        if (week != null) {
+            CompletableFuture<ScheduleWeekView> scheduleFuture = service.loadSchedule(term, week);
+            CompletableFuture<List<CourseNoticeView>> noticeFuture = service.loadNotices(term, week);
+            scheduleFuture.thenCombine(noticeFuture, ScheduleData::new)
+                    .whenComplete((data, error) -> fxExecutor.accept(() -> {
+                        if (generation != loadGeneration) { // 忽略旧请求（用户多次快速点击refresh）
+                            return;
+                        }
+                        if (error != null) {
+                            onError.accept(error);
+                        } else {
+                            onLoaded.accept(data);
+                        }
+                    }));
+            return;
+        }
+        service.loadSchedule(term, null).whenComplete((schedule, error) ->
                 fxExecutor.accept(() -> {
-                    if (generation != loadGeneration) { // 忽略旧请求（用户多次快速点击refresh）
+                    if (generation != loadGeneration) {
                         return;
                     }
                     if (error != null) {
                         onError.accept(error);
                         return;
                     }
-                    Integer noticeWeek = week != null ? week
-                            : (schedule == null ? null : schedule.getWeek());
+                    Integer noticeWeek = schedule == null ? null : schedule.getWeek();
                     if (noticeWeek == null) {
                         onLoaded.accept(new ScheduleData(schedule, Collections.emptyList()));
                         return;

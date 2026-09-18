@@ -35,6 +35,7 @@ public final class ScheduleControllerTest {
 
     public static void main(String[] args) throws Exception {
         requestScheduleDataSendsServerTermAndWeek();
+        explicitWeekLoadsScheduleAndNoticesInParallel();
         backToCurrentWeekAsksForTheWeekTheServerResolved();
         currentWeekButtonFollowsTheServerWeekRange();
         currentWeekButtonSitsRightOfTheSpinner();
@@ -50,6 +51,35 @@ public final class ScheduleControllerTest {
         gappedPeriodDictionarySnapsToTheNextRow();
         theViewDeclaresNoColumnGeometry();
         System.out.println("ScheduleControllerTest: PASS");
+    }
+
+    /**
+     * 明确给了周次时，课表与通知必须**并行**发出：通知查哪一周是已知的，让它等课表的往返等于把
+     * 一次页面加载的延迟翻倍。用可控 future 门控——课表还挂着没回来时通知就已经请求了；串行实现
+     * （先等课表再发通知）在这一刻 {@code lastNoticeWeek} 必然是 null。
+     */
+    private static void explicitWeekLoadsScheduleAndNoticesInParallel() {
+        ControlledCourseService service = new ControlledCourseService();
+        ScheduleController controller = new ScheduleController(
+                service, (title, message) -> { }, (title, message) -> { }, Runnable::run);
+        AtomicReference<ScheduleController.ScheduleData> rendered = new AtomicReference<>();
+
+        CompletableFuture<ScheduleWeekView> schedule = new CompletableFuture<>();
+        service.scheduleResults.addLast(schedule);
+        service.noticeResults.addLast(CompletableFuture.completedFuture(List.of(
+                new CourseNoticeView("2026-2027 秋学期", 3, "调课", "内容"))));
+        controller.requestScheduleData(TERM, 3, rendered::set, error -> { });
+
+        require(Integer.valueOf(3).equals(service.lastNoticeWeek.get()),
+                "明确周次时通知必须与课表并行发出，实际 lastNoticeWeek="
+                        + service.lastNoticeWeek.get());
+        require(rendered.get() == null,
+                "两个请求都回来之前不得渲染半张表");
+
+        schedule.complete(week(3, List.of(entry(1001L, "数据结构"))));
+        require(rendered.get() != null && rendered.get().getSchedule().getWeek() == 3
+                        && rendered.get().getNotices().size() == 1,
+                "课表回来之后两半必须合成一次渲染");
     }
 
     /**
