@@ -89,6 +89,19 @@ public final class AdminOfferingMySqlTest {
                             term.getAcademicYear() == 2031 && term.getSemester() == 2),
                     "a term whose only offering is cancelled must stay in the term list, saw "
                             + offerings.listTerms());
+
+            // 学期参数要么都给、要么都不给。只给一个必须当场拒绝，不能静默退化成"不限定学期"的
+            // 整表列表——那样管理员选了学期也看到全部学期，而课程行的计数是按学期走的，屏幕上
+            // 又会出现两个打架的数字，正是丁2 的翻版。
+            expect(IllegalArgumentException.class,
+                    () -> offerings.list("1001", 2027, null),
+                    "an academic year without a semester must be rejected");
+            expect(IllegalArgumentException.class,
+                    () -> offerings.list("1001", null, 3),
+                    "a semester without an academic year must be rejected");
+            expect(IllegalArgumentException.class,
+                    () -> offerings.list("1001", 2027, 4),
+                    "a semester outside 1..3 must be rejected");
         } finally {
             execute("DELETE FROM course_offering WHERE offering_code='CS999-T-Y'");
         }

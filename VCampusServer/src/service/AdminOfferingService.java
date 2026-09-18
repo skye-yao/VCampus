@@ -53,8 +53,10 @@ public class AdminOfferingService {
 
     public List<AdminOfferingDTO> list(String courseId, Integer academicYear, Integer semester) {
         long id = AdminOperationTransaction.parseId(courseId, "courseId");
-        if (academicYear != null && (academicYear <= 0 || semester == null
-                || semester < 1 || semester > 3)) {
+        if ((academicYear == null) != (semester == null)) {
+            throw new IllegalArgumentException("学期无效");
+        }
+        if (academicYear != null && (academicYear <= 0 || semester < 1 || semester > 3)) {
             throw new IllegalArgumentException("学期无效");
         }
         try (Connection connection = DBUtil.getConnection()) {
