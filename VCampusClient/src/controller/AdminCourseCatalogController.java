@@ -308,6 +308,11 @@ public final class AdminCourseCatalogController {
         return terms;
     }
 
+    /** 当前生效的学期；学期取不到时是 null，表示"不限定学期"。 */
+    CourseTermView term() {
+        return term;
+    }
+
     private void loadCourses(String nextQuery, String nextStatus) {
         loadCourses(nextQuery, nextStatus, term);
     }

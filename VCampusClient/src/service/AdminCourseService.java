@@ -66,9 +66,15 @@ public interface AdminCourseService {
         return listOfferings(courseId);
     }
 
-    /** 学期下拉的取值来源：全局所有教学班出现过的学期，最近优先。 */
+    /**
+     * 学期下拉的取值来源：全局所有教学班出现过的学期，最近优先。默认实现返回一个**已完成但异常**
+     * 的 future，而不是直接抛——直接抛会绕开调用方的 {@code whenComplete} 降级路径，把整页打红
+     * （{@code ui.AdminCourseUiSmokeTest} 在 Task 7 就是这样被弄红的）；异步失败则会被
+     * {@code AdminCourseCatalogController.loadTerms} 接住并退化成"不限定学期"，课程列表照常显示。
+     */
     default CompletableFuture<List<CourseTermView>> listOfferingTerms() {
-        throw new UnsupportedOperationException("listOfferingTerms");
+        return CompletableFuture.failedFuture(
+                new UnsupportedOperationException("listOfferingTerms"));
     }
 
     CompletableFuture<AdminOperationResultView<AdminOfferingView>> createOffering(

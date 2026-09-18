@@ -233,6 +233,17 @@ public final class AdminCourseCatalogMySqlTest {
                     "a term-scoped list must count only that term, expected " + scoped
                             + " but saw " + scopedRow.getOfferingCount());
 
+            // 计数子查询写在 SELECT 列表里，位置参数先于 WHERE 的；带 query 调用才会让两组
+            // 占位符**同时**出现，把绑定顺序钉住（两个学期参数都传 null 时 params 是空的）。
+            AdminCourseDTO queryScopedRow = catalog.list("CS", null, 2033, 1).stream()
+                    .filter(course -> "1001".equals(course.getCourseId()))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError(
+                            "a term-scoped list with a query must still match course 1001"));
+            require(queryScopedRow.getOfferingCount() == scoped,
+                    "a term-scoped list with a query must count only that term, expected "
+                            + scoped + " but saw " + queryScopedRow.getOfferingCount());
+
             int allTerms = count("SELECT COUNT(*) FROM course_offering WHERE course_id=1001"
                     + " AND status<>4");
             require(allTerms > scoped, "the fixture must add a term the course did not have");

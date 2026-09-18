@@ -16,6 +16,8 @@ public final class TermLabelsTest {
                 "an out-of-range semester must degrade to 第N学期, not throw");
         require("秋学期".equals(TermLabels.label(2)),
                 "the bare season label must be available without the year range");
+        require("第9学期".equals(TermLabels.label(9)),
+                "an out-of-range semester must degrade on label itself, not only via displayName");
         System.out.println("Term labels test passed.");
     }
 

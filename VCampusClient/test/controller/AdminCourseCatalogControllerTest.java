@@ -40,6 +40,10 @@ public final class AdminCourseCatalogControllerTest {
         testDistinctWriteIntentsUseDistinctOperationIds();
         testDisplayedCoursesAreImmutableCopies();
         testTermFilterDrivesBothLoads();
+        testRefreshReachesTheTermScopedCourseLoad();
+        testStaleTermLoadCannotReplaceNewerResult();
+        testFailedTermLoadStillLoadsCoursesUnscoped();
+        testDefaultTermLoadFailsThroughTheDegradePath();
         testOfferingTermTextMatchesThePicker();
         System.out.println("AdminCourseCatalogControllerTest: PASS");
     }
@@ -336,14 +340,111 @@ public final class AdminCourseCatalogControllerTest {
         AdminCourseCatalogController controller = controller(service, new Recorder());
         controller.loadTerms();
 
-        require(service.courseCalls.contains("null|null|2027|3"),
-                "the newest term must be selected by default, saw " + service.courseCalls);
+        require(service.listCalls.contains("null|null|2027|3"),
+                "the newest term must be selected by default, saw " + service.listCalls);
         require(controller.terms().size() == 2, "both terms must be offered");
 
         controller.selectTerm(1);
-        require(service.courseCalls.contains("null|null|2026|2"),
+        require(service.listCalls.contains("null|null|2026|2"),
                 "selecting a term must reload the course list with that term, saw "
-                        + service.courseCalls);
+                        + service.listCalls);
+    }
+
+    /**
+     * 生产入口是 {@code refresh()}，而 {@code refresh()} 必须先走学期加载、再发**带学期**的课程
+     * 请求。直接调 {@code loadTerms()} 的用例覆盖不到这条接线：把 {@code refresh()} 改回
+     * {@code loadCourses(query, status)} 时只有这一条会红。
+     */
+    private static void testRefreshReachesTheTermScopedCourseLoad() {
+        ControlledService service = new ControlledService();
+        service.setTerms(List.of(new CourseTermView(2027, 3, "2027-2028 春学期")));
+        service.setAuthoritative(List.of(course("101", "CS203", "数据结构", "ACTIVE")));
+        AdminCourseCatalogController controller = controller(service, new Recorder());
+
+        controller.refresh();
+
+        require(service.termCalls == 1, "refresh must request the offering terms");
+        require("null|null|2027|3".equals(service.listCalls.get(service.listCalls.size() - 1)),
+                "refresh must load the courses scoped to the selected term, saw "
+                        + service.listCalls);
+        require(controller.courses().size() == 1, "the term-scoped load must render the rows");
+    }
+
+    /**
+     * 两次学期加载乱序返回时，旧的不能覆盖新的：学期加载有自己的 generation 守卫。
+     */
+    private static void testStaleTermLoadCannotReplaceNewerResult() {
+        ControlledService service = new ControlledService();
+        AdminCourseCatalogController controller = controller(service, new Recorder());
+
+        CompletableFuture<List<CourseTermView>> older = new CompletableFuture<>();
+        CompletableFuture<List<CourseTermView>> newer = new CompletableFuture<>();
+        service.enqueueTerms(older);
+        service.enqueueTerms(newer);
+        controller.loadTerms();
+        controller.loadTerms();
+
+        newer.complete(List.of(new CourseTermView(2027, 3, "2027-2028 春学期")));
+        require(controller.terms().size() == 1 && 2027 == controller.terms().get(0).getAcademicYear(),
+                "the newest term load must be applied, saw " + controller.terms());
+
+        older.complete(List.of(new CourseTermView(2020, 2, "2020-2021 秋学期")));
+        require(controller.terms().size() == 1 && 2027 == controller.terms().get(0).getAcademicYear(),
+                "a stale term load must not replace the newest result, saw " + controller.terms());
+        require(controller.term() != null && 2027 == controller.term().getAcademicYear(),
+                "the selection must keep following the newest term load, saw " + controller.term());
+    }
+
+    /**
+     * 学期加载失败只降级，不打红整页：课程照常加载，学期退成"不限定"，不显示错误文案。
+     */
+    private static void testFailedTermLoadStillLoadsCoursesUnscoped() {
+        ControlledService service = new ControlledService();
+        service.setTerms(List.of(new CourseTermView(2027, 3, "2027-2028 春学期")));
+        service.setAuthoritative(List.of(course("101", "CS203", "数据结构", "ACTIVE")));
+        Recorder recorder = new Recorder();
+        AdminCourseCatalogController controller = controller(service, recorder);
+
+        CompletableFuture<List<CourseTermView>> failing = new CompletableFuture<>();
+        service.enqueueTerms(failing);
+        controller.refresh();
+
+        failing.completeExceptionally(new IllegalStateException("term endpoint down"));
+
+        require(controller.term() == null,
+                "a failed term load must degrade to no term, saw " + controller.term());
+        require(controller.errorText() == null,
+                "a failed term load must not raise the page error, saw " + controller.errorText());
+        require("null|null|null|null".equals(service.listCalls.get(service.listCalls.size() - 1)),
+                "a failed term load must still load the courses unscoped, saw " + service.listCalls);
+        require(controller.courses().size() == 1,
+                "a failed term load must still render the courses");
+        require(recorder.messages.isEmpty(),
+                "a failed term load must not alert the user, saw " + recorder.messages);
+    }
+
+    /**
+     * 接口 default 的失败必须**异步**：同步抛会绕开 {@code loadTerms()} 的 {@code whenComplete}
+     * 降级路径，整页打红。这条用例让 {@link ControlledService} 真的走那个 default——把 default
+     * 改回 {@code throw new UnsupportedOperationException(...)}，{@code refresh()} 就会在这里炸。
+     */
+    private static void testDefaultTermLoadFailsThroughTheDegradePath() {
+        ControlledService service = new ControlledService();
+        service.useDefaultTermLoad();
+        service.setAuthoritative(List.of(course("101", "CS203", "数据结构", "ACTIVE")));
+        AdminCourseCatalogController controller = controller(service, new Recorder());
+
+        controller.refresh();
+
+        require(controller.term() == null,
+                "the default term load must degrade to no term, saw " + controller.term());
+        require(controller.errorText() == null,
+                "the default term load must not raise the page error, saw " + controller.errorText());
+        require("null|null|null|null".equals(service.listCalls.get(service.listCalls.size() - 1)),
+                "the default term load must still load the courses unscoped, saw "
+                        + service.listCalls);
+        require(controller.courses().size() == 1,
+                "the default term load must still render the courses");
     }
 
     /**
@@ -394,19 +495,30 @@ public final class AdminCourseCatalogControllerTest {
     private static final class ControlledService implements AdminCourseService {
         private final Deque<CompletableFuture<List<AdminCourseView>>> courseResults =
                 new ArrayDeque<>();
+        private final Deque<CompletableFuture<List<CourseTermView>>> termResults =
+                new ArrayDeque<>();
         private final List<String> listCalls = new ArrayList<>();
         private final List<String> writeCalls = new ArrayList<>();
         private List<AdminCourseView> authoritative = List.of();
 
         private List<CourseTermView> terms = List.of();
-        final List<String> courseCalls = new ArrayList<>();
+        private int termCalls;
+        private boolean defaultTermLoad;
 
         void setTerms(List<CourseTermView> next) {
             terms = List.copyOf(next);
         }
 
+        /** 让假服务不覆写 {@code listOfferingTerms()}，直接走接口 default（会异步失败）。 */
+        void useDefaultTermLoad() {
+            defaultTermLoad = true;
+        }
+
         @Override
         public CompletableFuture<List<CourseTermView>> listOfferingTerms() {
+            termCalls++;
+            if (defaultTermLoad) return AdminCourseService.super.listOfferingTerms();
+            if (!termResults.isEmpty()) return termResults.removeFirst();
             return CompletableFuture.completedFuture(terms);
         }
 
@@ -418,6 +530,10 @@ public final class AdminCourseCatalogControllerTest {
             courseResults.addLast(result);
         }
 
+        private void enqueueTerms(CompletableFuture<List<CourseTermView>> result) {
+            termResults.addLast(result);
+        }
+
         /** 接口上的两参方法仍是抽象方法，所以假服务必须继续实现它；它表达的就是"不限定学期"。 */
         @Override
         public CompletableFuture<List<AdminCourseView>> listCourses(String query, String status) {
@@ -425,14 +541,12 @@ public final class AdminCourseCatalogControllerTest {
         }
 
         /**
-         * 学期由新签名承载，服务端回显的学期会出现在这里；两参/四参两条路径共用这一份记录，
-         * 断言里的第四段是学期而不是另一次调用。
+         * 学期由新签名承载，服务端回显的学期会出现在这里（第四段），而不是另一次调用。
          */
         @Override
         public CompletableFuture<List<AdminCourseView>> listCourses(String query, String status,
                 Integer academicYear, Integer semester) {
             listCalls.add(query + "|" + status + "|" + academicYear + "|" + semester);
-            courseCalls.add(query + "|" + status + "|" + academicYear + "|" + semester);
             if (!courseResults.isEmpty()) return courseResults.removeFirst();
             return CompletableFuture.completedFuture(authoritative);
         }
