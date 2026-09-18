@@ -351,8 +351,11 @@ public final class AdminCourseCatalogControllerTest {
      */
     private static void testOfferingTermTextMatchesThePicker() {
         require("2026-2027 秋学期".equals(
-                        AdminCourseCatalogController.termTextForTest(2026, 2)),
+                        AdminCourseCatalogController.termText(offering(2026, 2))),
                 "the offering row must use the same wording as the term picker");
+        require("2026-2027 暑期学校".equals(
+                        AdminCourseCatalogController.termText(offering(2026, 1))),
+                "the row must degrade with the shared labels, not a second spelling");
     }
 
     private static AdminCourseCatalogController controller(
@@ -364,6 +367,12 @@ public final class AdminCourseCatalogControllerTest {
     private static AdminCourseView course(String id, String code, String name, String status) {
         return new AdminCourseView(id, code, name, "必修", 3.0, 48, "简介", "无",
                 true, true, status, 0, 1);
+    }
+
+    /** 学期文案只取决于学年与学期，其余字段填占位值即可。 */
+    private static AdminOfferingView offering(int academicYear, int semester) {
+        return new AdminOfferingView("1001", "CS203-01", "101", academicYear, semester,
+                60, 0, "OPEN", null, null, null, null, "UNSCHEDULED", 1);
     }
 
     private static void require(boolean condition, String message) {

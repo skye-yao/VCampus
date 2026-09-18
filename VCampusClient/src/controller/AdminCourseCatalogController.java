@@ -768,11 +768,6 @@ public final class AdminCourseCatalogController {
         return TermLabels.displayName(offering.getAcademicYear(), offering.getSemester());
     }
 
-    /** 供测试直接钉住文案，不必构造整个 AdminOfferingView。 */
-    static String termTextForTest(int academicYear, int semester) {
-        return TermLabels.displayName(academicYear, semester);
-    }
-
     private static String displayName(String name, String uid) {
         if (name != null && !name.isBlank()) return name;
         if (uid != null && !uid.isBlank()) return uid;
