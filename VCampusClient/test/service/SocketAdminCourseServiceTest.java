@@ -9,6 +9,7 @@ import dto.course.admin.approval.AdjustmentTargetDTO;
 import dto.course.admin.approval.ApprovalDecisionRequestDTO;
 import dto.course.admin.approval.ApprovalStatusDTO;
 import dto.course.AdjustmentRequestStatusDTO;
+import dto.course.CourseTermDTO;
 import dto.course.admin.approval.GradeDistributionBucketDTO;
 import dto.course.admin.approval.GradeSubmissionDetailDTO;
 import dto.course.admin.approval.GradeSubmissionItemDTO;
@@ -39,6 +40,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import model.course.CourseTermView;
 import model.course.admin.AdminCourseView;
 import model.course.admin.AdminEnrollmentPageView;
 import model.course.admin.AdminOfferingView;
@@ -64,10 +66,13 @@ public final class SocketAdminCourseServiceTest {
         try {
             listCoursesSendsFiltersAndMapsBigIds();
             listCoursesOmitsNullFilters();
+            listCoursesSendsTheTermOnlyWhenSelected();
             createCourseSendsRequestInstanceAndMapsResult();
             updateCourseSendsRequestInstanceAndMapsResult();
             archiveAndRestoreCourseSendTargetKeys();
             listOfferingsMapsNullableAssistant();
+            listOfferingsSendsTheTermOnlyWhenSelected();
+            listOfferingTermsMapsTheServerTerms();
             createAndUpdateOfferingSendRequestInstance();
             cancelOfferingSendsTargetKeys();
             deleteDraftOfferingMapsNullEntity();
@@ -234,6 +239,77 @@ public final class SocketAdminCourseServiceTest {
                 "teacher must map");
         require(offering.getAssistantUid() == null && offering.getAssistantName() == null,
                 "a null assistant must survive the mapping");
+    }
+
+    /**
+     * 学期不是"可选值"而是"可选键"：服务端 {@code optionalInteger} 把"键在但畸形"（含空串）当
+     * 400，只有键整个缺席才是"不限定学期"。所以旧签名（接口上的两参方法）也必须把它省略掉。
+     */
+    private static void listCoursesSendsTheTermOnlyWhenSelected() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("courses", List.of()));
+        SocketAdminCourseService service = new SocketAdminCourseService(transport);
+
+        service.listCourses("数据", "ACTIVE", 2027, 3).join();
+        requireEnvelope(transport, AdminCourseActions.LIST_COURSES);
+        require(Integer.valueOf(2027).equals(transport.lastRequest.getData("academicYear")),
+                "the selected academic year must travel as an Integer");
+        require(Integer.valueOf(3).equals(transport.lastRequest.getData("semester")),
+                "the selected semester must travel as an Integer");
+
+        transport.respond(message -> message.putData("courses", List.of()));
+        service.listCourses("数据", "ACTIVE").join();
+        require(!transport.lastRequest.getData().containsKey("academicYear")
+                        && !transport.lastRequest.getData().containsKey("semester"),
+                "an unscoped course list must leave both term keys out entirely, saw "
+                        + transport.lastRequest.getData());
+    }
+
+    /**
+     * 教学班列表同一份规则：选中时两个键都发，旧签名与空学期都一个键都不发。
+     */
+    private static void listOfferingsSendsTheTermOnlyWhenSelected() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("offerings", List.of(offeringDto())));
+        SocketAdminCourseService service = new SocketAdminCourseService(transport);
+
+        List<AdminOfferingView> offerings = service.listOfferings(COURSE_ID, 2027, 3).join();
+        requireEnvelope(transport, AdminCourseActions.LIST_OFFERINGS);
+        require(COURSE_ID.equals(transport.lastRequest.getData("courseId")),
+                "the offering list must still send the decimal courseId");
+        require(Integer.valueOf(2027).equals(transport.lastRequest.getData("academicYear"))
+                        && Integer.valueOf(3).equals(transport.lastRequest.getData("semester")),
+                "the selected term must travel on the offering list");
+        require(offerings.size() == 1 && OFFERING_ID.equals(offerings.get(0).getOfferingId()),
+                "a term-scoped offering list must still map its rows");
+
+        transport.respond(message -> message.putData("offerings", List.of()));
+        service.listOfferings(COURSE_ID, null, null).join();
+        require(!transport.lastRequest.getData().containsKey("academicYear")
+                        && !transport.lastRequest.getData().containsKey("semester"),
+                "an unscoped offering list must leave both term keys out entirely, saw "
+                        + transport.lastRequest.getData());
+    }
+
+    /**
+     * 学期下拉的取值来源：action 是 listOfferingTerms，响应键是 terms，标签由服务端回显，
+     * 客户端不自己拼中文标签。
+     */
+    private static void listOfferingTermsMapsTheServerTerms() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("terms", List.of(
+                new CourseTermDTO(2027, 3, "2027-2028 春学期"),
+                new CourseTermDTO(2026, 1, "2026-2027 暑期学校"))));
+        SocketAdminCourseService service = new SocketAdminCourseService(transport);
+
+        List<CourseTermView> terms = service.listOfferingTerms().join();
+        requireEnvelope(transport, AdminCourseActions.LIST_OFFERING_TERMS);
+        require(terms.size() == 2, "both server terms must map");
+        require(terms.get(0).getAcademicYear() == 2027 && terms.get(0).getSemester() == 3
+                        && "2027-2028 春学期".equals(terms.get(0).getDisplayName()),
+                "the term number and the server-echoed label must map, saw " + terms.get(0));
+        require(terms.get(1).getAcademicYear() == 2026 && terms.get(1).getSemester() == 1,
+                "the server ordering must survive the mapping");
     }
 
     private static void createAndUpdateOfferingSendRequestInstance() {

@@ -49,14 +49,14 @@ public final class AdminCourseCatalogControllerTest {
 
         controller.applyFilters("CS", "ARCHIVED");
         require(service.listCalls.size() == 1, "applying filters must trigger one load");
-        require("CS|ARCHIVED".equals(service.listCalls.get(0)),
+        require("CS|ARCHIVED|null|null".equals(service.listCalls.get(0)),
                 "the selected query and status must reach the service unchanged, saw "
                         + service.listCalls);
         require(controller.courses().size() == 1, "the loaded catalog must be rendered");
 
         controller.refresh();
         require(service.listCalls.size() == 2, "refresh must issue a new load");
-        require("CS|ARCHIVED".equals(service.listCalls.get(1)),
+        require("CS|ARCHIVED|null|null".equals(service.listCalls.get(1)),
                 "refresh must preserve the current query and status, saw " + service.listCalls);
         require("CS".equals(controller.query()), "query selection must be preserved");
         require("ARCHIVED".equals(controller.status()), "status selection must be preserved");
@@ -67,7 +67,7 @@ public final class AdminCourseCatalogControllerTest {
         AdminCourseCatalogController controller = controller(service, new Recorder());
         controller.applyFilters("", "全部");
         require(service.listCalls.size() == 1, "applying 全部 must trigger one load");
-        require("null|null".equals(service.listCalls.get(0)),
+        require("null|null|null|null".equals(service.listCalls.get(0)),
                 "全部 and a blank query must be sent as unfiltered, saw " + service.listCalls);
     }
 
@@ -151,7 +151,7 @@ public final class AdminCourseCatalogControllerTest {
         service.setAuthoritative(List.of(course("101", "CS203", "数据结构", "ACTIVE"),
                 course("201", "CS301", "操作系统", "ACTIVE")));
         controller.refresh();
-        require("CS|ACTIVE".equals(service.listCalls.get(service.listCalls.size() - 1)),
+        require("CS|ACTIVE|null|null".equals(service.listCalls.get(service.listCalls.size() - 1)),
                 "retry must reuse the preserved query and status, saw " + service.listCalls);
         require(controller.errorText() == null,
                 "a successful retry must clear the error state, saw " + controller.errorText());
@@ -235,7 +235,7 @@ public final class AdminCourseCatalogControllerTest {
                         + recorder.lastMessage());
         require(service.listCalls.size() == loads + 1,
                 "a conflict must trigger an authoritative reload");
-        require("CS|ARCHIVED".equals(service.listCalls.get(service.listCalls.size() - 1)),
+        require("CS|ARCHIVED|null|null".equals(service.listCalls.get(service.listCalls.size() - 1)),
                 "a conflict reload must preserve the filters, saw " + service.listCalls);
         require(controller.courses().size() == 1,
                 "the authoritative reload must replace the displayed rows");
@@ -364,9 +364,20 @@ public final class AdminCourseCatalogControllerTest {
             courseResults.addLast(result);
         }
 
+        /** 接口上的两参方法仍是抽象方法，所以假服务必须继续实现它；它表达的就是"不限定学期"。 */
         @Override
         public CompletableFuture<List<AdminCourseView>> listCourses(String query, String status) {
-            listCalls.add(query + "|" + status);
+            return listCourses(query, status, null, null);
+        }
+
+        /**
+         * 学期由新签名承载，服务端回显的学期会出现在这里；两参/四参两条路径共用这一份记录，
+         * 断言里的第四段是学期而不是另一次调用。
+         */
+        @Override
+        public CompletableFuture<List<AdminCourseView>> listCourses(String query, String status,
+                Integer academicYear, Integer semester) {
+            listCalls.add(query + "|" + status + "|" + academicYear + "|" + semester);
             if (!courseResults.isEmpty()) return courseResults.removeFirst();
             return CompletableFuture.completedFuture(authoritative);
         }
@@ -401,6 +412,12 @@ public final class AdminCourseCatalogControllerTest {
 
         @Override
         public CompletableFuture<List<AdminOfferingView>> listOfferings(String courseId) {
+            return listOfferings(courseId, null, null);
+        }
+
+        @Override
+        public CompletableFuture<List<AdminOfferingView>> listOfferings(String courseId,
+                Integer academicYear, Integer semester) {
             return CompletableFuture.completedFuture(List.of());
         }
 

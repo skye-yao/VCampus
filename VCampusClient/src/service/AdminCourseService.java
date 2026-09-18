@@ -9,6 +9,7 @@ import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
 import dto.course.admin.approval.ApprovalDecisionRequestDTO;
 import dto.course.admin.approval.ApprovalStatusDTO;
 import dto.course.AdjustmentRequestStatusDTO;
+import dto.course.CourseTermDTO;
 import dto.course.admin.approval.GradeSubmissionDetailDTO;
 import dto.course.admin.approval.GradeSubmissionPageDTO;
 import dto.course.admin.approval.GradeSubmissionSummaryDTO;
@@ -20,6 +21,7 @@ import dto.course.admin.schedule.CheckArrangementResultDTO;
 import dto.course.admin.schedule.SaveArrangementRequestDTO;
 import dto.course.admin.schedule.SchedulePlanDTO;
 import dto.course.admin.schedule.ScheduleResourceDTO;
+import model.course.CourseTermView;
 import model.course.admin.AdminCourseView;
 import model.course.admin.AdminEnrollmentPageView;
 import model.course.admin.AdminOfferingView;
@@ -31,6 +33,18 @@ import model.course.admin.StudentSearchResultView;
 
 public interface AdminCourseService {
     CompletableFuture<List<AdminCourseView>> listCourses(String query, String status);
+
+    /**
+     * 带学期限定的课程列表：{@code academicYear}/{@code semester} 同时为 null 时等价于
+     * {@link #listCourses(String, String)}。
+     *
+     * <p>默认实现丢弃学期并委托给旧方法，这样十个与本批无关的测试假实现不必跟着改。
+     * 真正实现学期语义的是 {@link SocketAdminCourseService} 与 {@link MockAdminCourseService}。</p>
+     */
+    default CompletableFuture<List<AdminCourseView>> listCourses(String query, String status,
+            Integer academicYear, Integer semester) {
+        return listCourses(query, status);
+    }
 
     CompletableFuture<AdminOperationResultView<AdminCourseView>> createCourse(
             CourseEditorRequestDTO request);
@@ -45,6 +59,17 @@ public interface AdminCourseService {
             String courseId, int expectedVersion, String operationId);
 
     CompletableFuture<List<AdminOfferingView>> listOfferings(String courseId);
+
+    /** 带学期限定的教学班列表：两个学期参数同时为 null 时等价于 {@link #listOfferings(String)}。 */
+    default CompletableFuture<List<AdminOfferingView>> listOfferings(String courseId,
+            Integer academicYear, Integer semester) {
+        return listOfferings(courseId);
+    }
+
+    /** 学期下拉的取值来源：全局所有教学班出现过的学期，最近优先。 */
+    default CompletableFuture<List<CourseTermView>> listOfferingTerms() {
+        throw new UnsupportedOperationException("listOfferingTerms");
+    }
 
     CompletableFuture<AdminOperationResultView<AdminOfferingView>> createOffering(
             OfferingEditorRequestDTO request);
