@@ -391,7 +391,7 @@ public final class AdminCourseHandlerTest {
         private OfferingEditorRequestDTO lastRequest;
 
         @Override
-        public List<AdminOfferingDTO> list(String courseId) {
+        public List<AdminOfferingDTO> list(String courseId, Integer academicYear, Integer semester) {
             return List.of(offering());
         }
 

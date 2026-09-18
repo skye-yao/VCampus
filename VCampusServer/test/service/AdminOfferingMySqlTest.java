@@ -32,6 +32,7 @@ public final class AdminOfferingMySqlTest {
                 + " VALUES('CS998','Archived Course',1.00,16,3,'ARCHIVED')");
         try {
             AdminOfferingService offerings = new AdminOfferingService(CLOCK);
+            verifyTermFilter(offerings);
             String offeringId = verifyCreateAndReplay(offerings);
             verifyUpdateRules(offerings, offeringId);
             verifyCancelAndDelete(offerings, offeringId);
@@ -40,6 +41,57 @@ public final class AdminOfferingMySqlTest {
             cleanup();
         }
         System.out.println("Admin offering MySQL test passed.");
+    }
+
+    /**
+     * 学期筛选只返回该学期的教学班；不传学期时仍然是"全部学期"的旧行为；
+     * 已取消的教学班不出现在列表里——课程行的计数口径也是 status<>4，两边必须说同一个数。
+     *
+     * 注意 try/finally：这个 fixture 的代码前缀 `CS999-T-` 与 verifyCreateAndReplay 里
+     * "被拒的 create 什么都不插" 那条断言（`LIKE 'CS999-T-%'` 计数 == 1）共用，
+     * 不删掉它那条断言必红。cleanup() 只在 main 的两端跑，救不了中间这一步。
+     */
+    private static void verifyTermFilter(AdminOfferingService offerings) throws Exception {
+        execute("INSERT INTO course_offering(offering_code,course_id,academic_year,semester,"
+                + "capacity,status) VALUES('CS999-T-Y',1001,2031,2,10,4)");
+        try {
+            List<AdminOfferingDTO> unfiltered = offerings.list("1001", null, null);
+            require(unfiltered.stream().anyMatch(item -> "2001".equals(item.getOfferingId()))
+                            && unfiltered.stream().anyMatch(
+                                    item -> "2003".equals(item.getOfferingId())),
+                    "without a term the list keeps its old behaviour and stays unscoped: every"
+                            + " term's offerings are in it, saw " + unfiltered);
+            require(unfiltered.stream().noneMatch(
+                            item -> "CS999-T-Y".equals(item.getOfferingCode())),
+                    "the cancelled offering stays hidden without a term too, so the list and the"
+                            + " course row's count agree on the default screen as well, saw "
+                            + unfiltered);
+
+            List<AdminOfferingDTO> scoped = offerings.list("1001", 2027, 3);
+            require(scoped.stream().allMatch(item -> item.getAcademicYear() == 2027
+                            && item.getSemester() == 3),
+                    "a term filter must return that term only, saw " + scoped);
+            require(scoped.stream().noneMatch(item -> "2001".equals(item.getOfferingId())),
+                    "the seeded 2026-2 offering must not leak into a 2027-3 filter, saw " + scoped);
+
+            List<AdminOfferingDTO> cancelledOnly = offerings.list("1001", 2031, 2);
+            require(cancelledOnly.isEmpty(),
+                    "a cancelled offering is not part of its course's manageable offerings, saw "
+                            + cancelledOnly);
+            require(count("SELECT COUNT(*) FROM course_offering WHERE offering_code='CS999-T-Y'")
+                            == 1,
+                    "hiding a cancelled offering must not delete the row");
+
+            // 2031/2 这个学期**只**有上面那一个教学班，而它是已取消的。若 listTerms 带上 status 条件，
+            // 这个学期会从下拉里消失、管理员再也回不去——这正是 Task 2 那条"不过滤 status"的需求，
+            // 而 Task 2 自己的用例不可能失败地证明它（它插的行 status=1）。在这里用现成的 fixture 钉死。
+            require(offerings.listTerms().stream().anyMatch(term ->
+                            term.getAcademicYear() == 2031 && term.getSemester() == 2),
+                    "a term whose only offering is cancelled must stay in the term list, saw "
+                            + offerings.listTerms());
+        } finally {
+            execute("DELETE FROM course_offering WHERE offering_code='CS999-T-Y'");
+        }
     }
 
     private static String verifyCreateAndReplay(AdminOfferingService offerings) throws Exception {
@@ -111,7 +163,7 @@ public final class AdminOfferingMySqlTest {
         require(count("SELECT COUNT(*) FROM course_offering WHERE offering_code LIKE 'CS999-T-%'") == 1,
                 "rejected creates insert nothing");
 
-        List<AdminOfferingDTO> listed = offerings.list("1001");
+        List<AdminOfferingDTO> listed = offerings.list("1001", null, null);
         require(listed.stream().anyMatch(item -> item.getOfferingId().equals(offering.getOfferingId())),
                 "list includes new offering");
         require(listed.stream().filter(item -> item.getOfferingId().equals(offering.getOfferingId()))
@@ -260,7 +312,7 @@ public final class AdminOfferingMySqlTest {
         // Legacy data may carry two role-0 rows; list must still return the offering once.
         execute("INSERT INTO course_offering_teacher(offering_id,uid,role) VALUES("
                 + rawDraftId + ",'teacher-beta',0)");
-        require(offerings.list("1001").stream()
+        require(offerings.list("1001", null, null).stream()
                         .filter(item -> rawDraftId.equals(item.getOfferingId())).count() == 1,
                 "two role-0 teachers do not duplicate the offering in list");
         AdminOperationResultDTO<Void> rawDeleted = offerings.deleteDraft(ADMIN, rawDraftId, 1, op(25));

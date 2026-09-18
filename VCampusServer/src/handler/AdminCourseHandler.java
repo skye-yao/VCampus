@@ -130,7 +130,7 @@ public class AdminCourseHandler {
                         decimalId(request, "courseId"), integer(request, "expectedVersion"),
                         text(request, "operationId")));
                 case AdminCourseActions.LIST_OFFERINGS -> response.putData("offerings",
-                        offerings.list(decimalId(request, "courseId")));
+                        offerings.list(decimalId(request, "courseId"), null, null));
                 case AdminCourseActions.LIST_OFFERING_TERMS -> response.putData("terms",
                         offerings.listTerms());
                 case AdminCourseActions.CREATE_OFFERING -> mutation(response,

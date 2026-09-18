@@ -34,12 +34,25 @@ public class AdminOfferingDAO {
     private static final String LIFECYCLE_ACTIONS = "'" + AdminCourseActions.CREATE_OFFERING
             + "','" + AdminCourseActions.UPDATE_OFFERING + "'";
 
-    public List<AdminOfferingDTO> list(Connection connection, long courseId) throws SQLException {
-        String sql = SELECT + " WHERE o.course_id=?"
+    /**
+     * 教学班列表。学期参数同时为 {@code null} 时不按学期限定（旧行为）；
+     * 已取消（status=4）的行一律不返回——课程行的"教学班 N 个"也按 status<>4 计数，
+     * 两处口径必须一致，否则同一屏上会出现两个打架的数字。
+     */
+    public List<AdminOfferingDTO> list(Connection connection, long courseId, Integer academicYear,
+                                       Integer semester) throws SQLException {
+        boolean scoped = academicYear != null && semester != null;
+        String sql = SELECT + " WHERE o.course_id=? AND o.status<>4"
+                + (scoped ? " AND o.academic_year=? AND o.semester=?" : "")
                 + " ORDER BY o.academic_year DESC, o.semester DESC, o.offering_code";
         List<AdminOfferingDTO> offerings = new ArrayList<>();
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setLong(1, courseId);
+            int index = 1;
+            statement.setLong(index++, courseId);
+            if (scoped) {
+                statement.setInt(index++, academicYear);
+                statement.setInt(index, semester);
+            }
             try (ResultSet rows = statement.executeQuery()) {
                 while (rows.next()) offerings.add(map(rows));
             }

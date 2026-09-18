@@ -51,10 +51,14 @@ public class AdminOfferingService {
         this.clock = clock;
     }
 
-    public List<AdminOfferingDTO> list(String courseId) {
+    public List<AdminOfferingDTO> list(String courseId, Integer academicYear, Integer semester) {
         long id = AdminOperationTransaction.parseId(courseId, "courseId");
+        if (academicYear != null && (academicYear <= 0 || semester == null
+                || semester < 1 || semester > 3)) {
+            throw new IllegalArgumentException("学期无效");
+        }
         try (Connection connection = DBUtil.getConnection()) {
-            return offeringDAO.list(connection, id);
+            return offeringDAO.list(connection, id, academicYear, semester);
         } catch (SQLException failure) {
             throw new DatabaseException("教学班列表查询失败", failure);
         }
