@@ -561,8 +561,10 @@ public final class TeacherScheduleController {
      * 弹窗持有不可变的条目与周 DTO 引用，不重新推导展示字段。
      *
      * <p>窗口打开时就贴合内容：{@code sizeToScene()} 在窗口还没有 peer 时会被记下来，显示时再按
-     * 应用了样式之后的偏好尺寸执行一次——否则按默认尺寸打开的窗口会把底部按钮裁掉。教学班快照等
-     * 异步内容到达后，由 {@link TeacherCourseDetailDialogController} 自己重新贴合。
+     * 应用了样式之后的偏好尺寸执行一次（全新 Stage 的首次显示本来也会走这一步，这里显式写出来是
+     * 为了不依赖那一步的细节）。真正会把底部按钮裁掉的是打开之后才到达的异步内容——教学班快照、
+     * 提交提示与失败重试都会把内容顶出窗口，因此由 {@link TeacherCourseDetailDialogController}
+     * 在每次渲染后重新贴合（只增不减）。
      */
     private void openDetailDialog(TeacherScheduleEntryDTO entry) {
         FXMLLoader loader = FXMLUtil.getLoader(DIALOG_VIEW);

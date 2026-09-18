@@ -363,15 +363,16 @@ public final class TeacherCourseUiSmokeTest {
             // 窗口拉大后两个方向都铺满（高度取视口与网格最小高度的较大者），拉窄到装不下时回落到
             // 最小宽度 + 滚动，而不是把列压到读不出来。
             steps.add(() -> requireGridFillsViewport("860x580 默认窗口"));
-            steps.add(() -> resizeWindow(1180.0, 940.0));
+            steps.add(() -> resizeWindow(1180.0, 1050.0));
             steps.add(() -> {
-                requireGridFillsViewport("放大到 1180x940");
-                // 节次行的高度实证：行头是三行（第 N 节 / HH:mm / HH:mm），最小行高 60px，节次标签
-                // 带 vgrow + maxSize=MAX，高度就是那一行的高度，因此不会被压到三行放不下。行再随
-                // 窗口长高与否由 requireGridFillsViewport 的 height = max(视口, 最小高度) 保证。
+                requireGridFillsViewport("放大到 1180x1050");
+                // 纵向铺满的实证：这个窗口高度下视口已经高过整表的最小高度 34 + 13 × 60 + 26 = 840，
+                // 多出来的高度因此必须落到各行上（表头行固定 34px、没有 vgrow；节次行带 vgrow +
+                // maxSize=MAX，节次标签的高度就是那一行的高度），节次行因此要真的超过 60px，
+                // 而不是被别的节点把网格撑大。
                 Node periodLabel = root.lookup(".teacher-schedule-period-label");
-                require(periodLabel != null && periodLabel.getLayoutBounds().getHeight() >= 60.0,
-                        "节次行必须至少放得下三行行头（最小 60px），实际 "
+                require(periodLabel != null && periodLabel.getLayoutBounds().getHeight() > 60.0,
+                        "窗口高过整表时行高必须跟着长（> 60px），实际 "
                                 + (periodLabel == null
                                         ? "没有节次行"
                                         : periodLabel.getLayoutBounds().getHeight()));
@@ -2033,9 +2034,10 @@ public final class TeacherCourseUiSmokeTest {
 
         /**
          * 调课角标必须是课次块右侧的竖排一列：宽 < 高（三个字纵向排下来，而不是整体旋转 90°，
-         * 也不是原来那个横着占满一行的角标），并且不高于一个节次行（三行行头要求的最小 60px），
-         * 因此不会撑高课次块。角标文本仍是完整的 {@code 原安排}／{@code 调课后}（上面按 CSS 类
-         * 取文本的断言）。角标字号仍是 9px，不随课表其它文字一起 +2px。
+         * 也不是原来那个横着占满一行的角标），并且不高于 44px——角标高度就是它自己的偏好高度
+         * （三行 9px 文字约 38px），与课次块/节次行有多高无关，因此不会撑高课次块；44px 这个上界
+         * 顺带钉住角标字号仍是 9px（字号跟着课表一起变大就会撑过 44）。角标文本仍是完整的
+         * {@code 原安排}／{@code 调课后}（上面按 CSS 类取文本的断言）。
          */
         private void requireVerticalBadges() {
             List<Node> badges = new ArrayList<>(root.lookupAll(".teacher-schedule-badge"));
@@ -2045,8 +2047,9 @@ public final class TeacherCourseUiSmokeTest {
                 require(bounds.getWidth() < bounds.getHeight(),
                         "角标必须竖排（宽 < 高），实际 " + bounds.getWidth() + "x"
                                 + bounds.getHeight());
-                require(bounds.getHeight() <= 60.0,
-                        "竖排角标不得撑高课次块（节次行最小 60px），实际高度 " + bounds.getHeight());
+                require(bounds.getHeight() <= 44.0,
+                        "竖排角标不得撑高课次块（角标高约 38px，与行高无关），实际高度 "
+                                + bounds.getHeight());
             }
         }
 
