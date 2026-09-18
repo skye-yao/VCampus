@@ -118,7 +118,9 @@ public class AdminCourseHandler {
             String uid = session.getUsername();
             switch (action) {
                 case AdminCourseActions.LIST_COURSES -> response.putData("courses", catalog.list(
-                        optionalText(request, "query"), optionalText(request, "status")));
+                        optionalText(request, "query"), optionalText(request, "status"),
+                        optionalInteger(request, "academicYear"),
+                        optionalInteger(request, "semester")));
                 case AdminCourseActions.CREATE_COURSE -> mutation(response,
                         catalog.create(uid, payload(request, CourseEditorRequestDTO.class)));
                 case AdminCourseActions.UPDATE_COURSE -> mutation(response,
@@ -130,7 +132,11 @@ public class AdminCourseHandler {
                         decimalId(request, "courseId"), integer(request, "expectedVersion"),
                         text(request, "operationId")));
                 case AdminCourseActions.LIST_OFFERINGS -> response.putData("offerings",
-                        offerings.list(decimalId(request, "courseId")));
+                        offerings.list(decimalId(request, "courseId"),
+                                optionalInteger(request, "academicYear"),
+                                optionalInteger(request, "semester")));
+                case AdminCourseActions.LIST_OFFERING_TERMS -> response.putData("terms",
+                        offerings.listTerms());
                 case AdminCourseActions.CREATE_OFFERING -> mutation(response,
                         offerings.create(uid, payload(request, OfferingEditorRequestDTO.class)));
                 case AdminCourseActions.UPDATE_OFFERING -> mutation(response,
@@ -568,6 +574,16 @@ public class AdminCourseHandler {
             throw new IllegalArgumentException(key + " 必须为字符串");
         }
         return text.isBlank() ? null : text;
+    }
+
+    /**
+     * 可选整数：字段缺席或为 null 时返回 {@code null}，让调用方按"不限定"处理。
+     * 字段在但格式不对仍然抛——那是客户端 bug，不能静默降级成"不限定"。
+     */
+    private static Integer optionalInteger(Message request, String key) {
+        Map<String, Object> data = request.getData();
+        if (data == null || data.get(key) == null) return null;
+        return integer(request, key);
     }
 
     private static int integer(Message request, String key) {

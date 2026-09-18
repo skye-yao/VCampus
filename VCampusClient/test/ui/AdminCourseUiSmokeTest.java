@@ -49,6 +49,7 @@ import dto.course.admin.schedule.ScheduleConflictDTO;
 import dto.course.admin.schedule.ScheduleConflictSeverityDTO;
 import dto.course.admin.schedule.SchedulePlanDTO;
 import dto.course.admin.schedule.ScheduleResourceDTO;
+import model.course.CourseTermView;
 import model.course.admin.AdminCourseView;
 import model.course.admin.AdminEnrollmentPageView;
 import model.course.admin.AdminOfferingView;
@@ -2078,6 +2079,12 @@ public final class AdminCourseUiSmokeTest {
                 return held;
             }
             return listing(() -> delegate.listOfferings(courseId));
+        }
+
+        /** 学期下拉的取值来源；目录页刷新时会先取学期，缺了它整页加载会同步抛异常。 */
+        @Override
+        public CompletableFuture<List<CourseTermView>> listOfferingTerms() {
+            return delegate.listOfferingTerms();
         }
 
         @Override

@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -12,6 +13,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 import dto.course.AdjustmentRequestStatusDTO;
+import dto.course.TermLabels;
 import dto.course.admin.catalog.CourseEditorRequestDTO;
 import dto.course.admin.AdminCourseActions;
 import dto.course.admin.approval.AdjustmentRequestDetailDTO;
@@ -41,6 +43,7 @@ import dto.course.teacher.GradeSchemeDTO;
 import dto.course.teacher.GradeScoresDTO;
 import course.grade.GradeCalculator;
 import course.grade.GradePointScale;
+import model.course.CourseTermView;
 import model.course.admin.AdminCourseView;
 import model.course.admin.AdminEnrollmentPageView;
 import model.course.admin.AdminOfferingView;
@@ -125,6 +128,12 @@ public final class MockAdminCourseService implements AdminCourseService {
 
     @Override
     public CompletableFuture<List<AdminCourseView>> listCourses(String query, String status) {
+        return listCourses(query, status, null, null);
+    }
+
+    @Override
+    public CompletableFuture<List<AdminCourseView>> listCourses(String query, String status,
+            Integer academicYear, Integer semester) {
         String statusFilter = blankToNull(status);
         String queryFilter = blankToNull(query);
         List<AdminCourseView> result = new ArrayList<>();
@@ -134,7 +143,9 @@ public final class MockAdminCourseService implements AdminCourseService {
                     && !matches(course.getCourseName(), queryFilter)) {
                 continue;
             }
-            result.add(course);
+            result.add(academicYear == null || semester == null
+                    ? course : withOfferingCount(course,
+                            countOfferings(course.getCourseId(), academicYear, semester)));
         }
         return CompletableFuture.completedFuture(List.copyOf(result));
     }
@@ -236,11 +247,62 @@ public final class MockAdminCourseService implements AdminCourseService {
 
     @Override
     public CompletableFuture<List<AdminOfferingView>> listOfferings(String courseId) {
+        return listOfferings(courseId, null, null);
+    }
+
+    @Override
+    public CompletableFuture<List<AdminOfferingView>> listOfferings(String courseId,
+            Integer academicYear, Integer semester) {
         List<AdminOfferingView> result = new ArrayList<>();
         for (AdminOfferingView offering : offerings.values()) {
-            if (offering.getCourseId().equals(courseId)) result.add(offering);
+            if (!offering.getCourseId().equals(courseId)) continue;
+            // 与真实 DAO 同口径：已取消的不列出；两个学期参数都给了才按学期限定。
+            if ("CANCELLED".equals(offering.getStatus())) continue;
+            if (academicYear != null && semester != null
+                    && (offering.getAcademicYear() != academicYear
+                    || offering.getSemester() != semester)) {
+                continue;
+            }
+            result.add(offering);
         }
         return CompletableFuture.completedFuture(List.copyOf(result));
+    }
+
+    @Override
+    public CompletableFuture<List<CourseTermView>> listOfferingTerms() {
+        List<CourseTermView> terms = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
+        for (AdminOfferingView offering : offerings.values()) {
+            if (seen.add(offering.getAcademicYear() + "-" + offering.getSemester())) {
+                terms.add(new CourseTermView(offering.getAcademicYear(), offering.getSemester(),
+                        TermLabels.displayName(offering.getAcademicYear(), offering.getSemester())));
+            }
+        }
+        terms.sort((left, right) -> left.getAcademicYear() != right.getAcademicYear()
+                ? Integer.compare(right.getAcademicYear(), left.getAcademicYear())
+                : Integer.compare(right.getSemester(), left.getSemester()));
+        return CompletableFuture.completedFuture(List.copyOf(terms));
+    }
+
+    private int countOfferings(String courseId, int academicYear, int semester) {
+        int count = 0;
+        for (AdminOfferingView offering : offerings.values()) {
+            if (offering.getCourseId().equals(courseId)
+                    && !"CANCELLED".equals(offering.getStatus())
+                    && offering.getAcademicYear() == academicYear
+                    && offering.getSemester() == semester) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static AdminCourseView withOfferingCount(AdminCourseView course, int offeringCount) {
+        return new AdminCourseView(course.getCourseId(), course.getCourseCode(),
+                course.getCourseName(), course.getCourseType(), course.getCredit(),
+                course.getCreditHours(), course.getDescription(), course.getPrerequisites(),
+                course.isAllowCrossMajor(), course.isFinalExam(), course.getStatus(),
+                offeringCount, course.getVersion());
     }
 
     @Override

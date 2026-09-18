@@ -1893,7 +1893,8 @@
 }
 
 .course-admin-search-field,
-.course-admin-status-filter {
+.course-admin-status-filter,
+.course-admin-term-filter {
     -fx-background-color: #ffffff;
     -fx-border-color: #cbd5cb;
     -fx-border-radius: 4px;
@@ -1901,7 +1902,8 @@
 }
 
 .course-admin-search-field:focused,
-.course-admin-status-filter:focused {
+.course-admin-status-filter:focused,
+.course-admin-term-filter:focused {
     -fx-border-color: #587558;
 }
 

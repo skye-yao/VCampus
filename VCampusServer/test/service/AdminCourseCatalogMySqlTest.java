@@ -189,27 +189,84 @@ public final class AdminCourseCatalogMySqlTest {
                 && count("SELECT version FROM course WHERE course_id=" + courseId) == 2,
                 "archive replay does not bump version twice");
 
-        List<AdminCourseDTO> archivedOnly = catalog.list("CS99", "ARCHIVED");
+        List<AdminCourseDTO> archivedOnly = catalog.list("CS99", "ARCHIVED", null, null);
         require(archivedOnly.stream().anyMatch(course -> courseId.equals(course.getCourseId()))
                         && archivedOnly.stream().allMatch(course ->
                                 "ARCHIVED".equals(course.getStatus())
                                         && (course.getCourseCode().contains("CS99")
                                         || course.getCourseName().contains("CS99"))),
                 "list filters by query and status");
-        require(catalog.list("CS99_", null).stream()
+        require(catalog.list("CS99_", null, null, null).stream()
                         .noneMatch(course -> "CS999".equals(course.getCourseCode())),
                 "LIKE wildcards in the query are escaped");
-        require(catalog.list("测试课程", null).stream()
+        require(catalog.list("测试课程", null, null, null).stream()
                         .anyMatch(course -> "CS999".equals(course.getCourseCode())),
                 "list matches course name");
         int seededOfferings = count("SELECT COUNT(*) FROM course_offering o JOIN course c"
                 + " ON c.course_id=o.course_id WHERE c.course_code='CS101' AND o.status<>4");
-        require(catalog.list(null, null).stream()
+        require(catalog.list(null, null, null, null).stream()
                         .anyMatch(course -> "CS101".equals(course.getCourseCode())
                                 && course.getOfferingCount() == seededOfferings),
                 "list without filters includes seeded course with offering count");
-        expect(IllegalArgumentException.class, () -> catalog.list(null, "BOGUS"),
+        expect(IllegalArgumentException.class, () -> catalog.list(null, "BOGUS", null, null),
                 "unknown status filter rejected");
+
+        verifyTermScopedOfferingCount(catalog);
+    }
+
+    /**
+     * 按学期筛选时，课程行的 "教学班 N 个" 必须只数该学期的非取消教学班，
+     * 与展开后看到的行数一致——这正是丁2 里两个数字打架的地方。
+     */
+    private static void verifyTermScopedOfferingCount(AdminCourseCatalogService catalog)
+            throws Exception {
+        execute("INSERT INTO course_offering(offering_code,course_id,academic_year,semester,"
+                + "capacity,status) VALUES('CS999-C-2033',1001,2033,1,10,2)");
+        try {
+            int scoped = count("SELECT COUNT(*) FROM course_offering WHERE course_id=1001"
+                    + " AND status<>4 AND academic_year=2033 AND semester=1");
+            AdminCourseDTO scopedRow = catalog.list(null, null, 2033, 1).stream()
+                    .filter(course -> "1001".equals(course.getCourseId()))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("course 1001 must be listed"));
+            require(scopedRow.getOfferingCount() == scoped,
+                    "a term-scoped list must count only that term, expected " + scoped
+                            + " but saw " + scopedRow.getOfferingCount());
+
+            // 计数子查询写在 SELECT 列表里，位置参数先于 WHERE 的；带 query 调用才会让两组
+            // 占位符**同时**出现，把绑定顺序钉住（两个学期参数都传 null 时 params 是空的）。
+            AdminCourseDTO queryScopedRow = catalog.list("CS", null, 2033, 1).stream()
+                    .filter(course -> "1001".equals(course.getCourseId()))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError(
+                            "a term-scoped list with a query must still match course 1001"));
+            require(queryScopedRow.getOfferingCount() == scoped,
+                    "a term-scoped list with a query must count only that term, expected "
+                            + scoped + " but saw " + queryScopedRow.getOfferingCount());
+
+            int allTerms = count("SELECT COUNT(*) FROM course_offering WHERE course_id=1001"
+                    + " AND status<>4");
+            require(allTerms > scoped, "the fixture must add a term the course did not have");
+            AdminCourseDTO unscopedRow = catalog.list(null, null, null, null).stream()
+                    .filter(course -> "1001".equals(course.getCourseId()))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("course 1001 must be listed"));
+            require(unscopedRow.getOfferingCount() == allTerms,
+                    "a list without a term must keep counting every term, expected " + allTerms
+                            + " but saw " + unscopedRow.getOfferingCount());
+
+            expect(IllegalArgumentException.class,
+                    () -> catalog.list(null, null, 2027, null),
+                    "an academic year without a semester must be rejected");
+            expect(IllegalArgumentException.class,
+                    () -> catalog.list(null, null, null, 3),
+                    "a semester without an academic year must be rejected");
+            expect(IllegalArgumentException.class,
+                    () -> catalog.list(null, null, 2027, 4),
+                    "a semester outside 1..3 must be rejected");
+        } finally {
+            execute("DELETE FROM course_offering WHERE offering_code='CS999-C-2033'");
+        }
     }
 
     private static CourseEditorRequestDTO request(String operationId, String courseId,

@@ -10,6 +10,7 @@ import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
 import dto.course.AdjustmentRequestStatusDTO;
+import dto.course.CourseTermDTO;
 import dto.course.admin.AdminCourseActions;
 import dto.course.admin.approval.AdjustmentRequestDetailDTO;
 import dto.course.admin.approval.AdjustmentRequestPageDTO;
@@ -34,6 +35,7 @@ import dto.course.admin.schedule.ScheduleArrangementDTO;
 import dto.course.admin.schedule.ScheduleConflictDTO;
 import dto.course.admin.schedule.SchedulePlanDTO;
 import dto.course.admin.schedule.ScheduleResourceDTO;
+import model.course.CourseTermView;
 import model.course.admin.AdminCourseView;
 import model.course.admin.AdminEnrollmentPageView;
 import model.course.admin.AdminOfferingView;
@@ -80,9 +82,19 @@ public final class SocketAdminCourseService implements AdminCourseService {
 
     @Override
     public CompletableFuture<List<AdminCourseView>> listCourses(String query, String status) {
+        return listCourses(query, status, null, null);
+    }
+
+    @Override
+    public CompletableFuture<List<AdminCourseView>> listCourses(String query, String status,
+            Integer academicYear, Integer semester) {
         Message request = request(AdminCourseActions.LIST_COURSES);
         if (query != null) request.putData("query", query);
         if (status != null) request.putData("status", status);
+        // 必须整个键都不发：服务端的 optionalInteger 把"空串"当成**在但畸形** → 400，
+        // 只有键缺席才是"不限定学期"。（optionalText 对空串的处理相反，别照抄它的写法。）
+        if (academicYear != null) request.putData("academicYear", academicYear);
+        if (semester != null) request.putData("semester", semester);
         return map(request, response -> {
             List<AdminCourseView> courses = new ArrayList<>();
             for (AdminCourseDTO dto : list(response, "courses", AdminCourseDTO.class)) {
@@ -120,14 +132,36 @@ public final class SocketAdminCourseService implements AdminCourseService {
 
     @Override
     public CompletableFuture<List<AdminOfferingView>> listOfferings(String courseId) {
+        return listOfferings(courseId, null, null);
+    }
+
+    @Override
+    public CompletableFuture<List<AdminOfferingView>> listOfferings(String courseId,
+            Integer academicYear, Integer semester) {
         Message request = request(AdminCourseActions.LIST_OFFERINGS);
         request.putData("courseId", courseId);
+        // 同上：不选学期时两个键都**不发**，绝不发空串或 0。
+        if (academicYear != null) request.putData("academicYear", academicYear);
+        if (semester != null) request.putData("semester", semester);
         return map(request, response -> {
             List<AdminOfferingView> offerings = new ArrayList<>();
             for (AdminOfferingDTO dto : list(response, "offerings", AdminOfferingDTO.class)) {
                 offerings.add(offering(dto));
             }
             return List.copyOf(offerings);
+        });
+    }
+
+    @Override
+    public CompletableFuture<List<CourseTermView>> listOfferingTerms() {
+        Message request = request(AdminCourseActions.LIST_OFFERING_TERMS);
+        return map(request, response -> {
+            List<CourseTermView> terms = new ArrayList<>();
+            for (CourseTermDTO dto : list(response, "terms", CourseTermDTO.class)) {
+                terms.add(new CourseTermView(dto.getAcademicYear(), dto.getSemester(),
+                        dto.getDisplayName()));
+            }
+            return List.copyOf(terms);
         });
     }
 

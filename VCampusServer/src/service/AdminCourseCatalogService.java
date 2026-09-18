@@ -45,15 +45,23 @@ public class AdminCourseCatalogService {
         this.clock = clock;
     }
 
-    public List<AdminCourseDTO> list(String query, String status) {
+    public List<AdminCourseDTO> list(String query, String status, Integer academicYear,
+                                     Integer semester) {
         String statusFilter = AdminOperationTransaction.blankToNull(status);
         if (statusFilter != null && !"ACTIVE".equals(statusFilter)
                 && !"ARCHIVED".equals(statusFilter)) {
             throw new IllegalArgumentException("课程状态无效");
         }
+        if (academicYear != null && semester == null
+                || academicYear == null && semester != null) {
+            throw new IllegalArgumentException("学期无效");
+        }
+        if (academicYear != null && (academicYear <= 0 || semester < 1 || semester > 3)) {
+            throw new IllegalArgumentException("学期无效");
+        }
         try (Connection connection = DBUtil.getConnection()) {
             return catalogDAO.list(connection, AdminOperationTransaction.blankToNull(query),
-                    statusFilter);
+                    statusFilter, academicYear, semester);
         } catch (SQLException failure) {
             throw new DatabaseException("课程列表查询失败", failure);
         }

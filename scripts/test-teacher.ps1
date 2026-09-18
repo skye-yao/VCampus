@@ -361,6 +361,27 @@ $suites = @(
         Tcp = @()
         Gui = @()
         MySql = @('service.ScheduleManagementMySqlTest') }
+    # 管理员课程目录套件（2026-09-18）。下面四个类此前一个套件都没有——改了也永远跑不到，
+    # 等于不会失败的测试。Admin*MySqlTest 两个类同时出现在 Server 与 MySql：门控列只追加
+    # `mysql --config=` 参数、不产生运行项，放进 Server 列它们才真的会跑。
+    # 刻意不收已在 Adjustment 套件里的 handler.AdminCourseHandlerTest，避免同一批用例跑两遍。
+    [pscustomobject]@{ Name = 'AdminCatalog'
+        Common = @('dto.course.TermLabelsTest')
+        Client = @('controller.AdminCourseCatalogControllerTest',
+            'controller.OfferingEditorDialogControllerTest')
+        Server = @('service.AdminOfferingMySqlTest',
+            'service.AdminCourseCatalogMySqlTest')
+        Tcp = @()
+        # 本计划改了**两个** FXML（目录页加学期下拉、编辑器把学期改成下拉），而 FXML 的属性名只在
+        # 运行期校验：一个不可写的属性名（`disabled` 而不是 `disable`）会骗过 grep，直到
+        # `FXMLLoader.load()` 抛 PropertyNotFoundException 才炸。本套件的 Client 列全是无工具包测试，
+        # FXML 从来没被真正装载过；ui.AdminCourseUiSmokeTest 不能顶替——它有**既有红**（它的
+        # TogglableAdminCourseService 没委派 6 个审批方法），登记进 Gui 列只会让套件恒红。
+        # 所以单设一个只做装载门的类：装载外壳（含 fx:include 的目录页）与教学班编辑器，核对学期下拉
+        # 是控件、有选项、默认选中，并钉住 prepareForCreate 预选学期这条生产路径。它不做交互驱动。
+        Gui = @('ui.AdminCatalogFxmlLoadTest')
+        MySql = @('service.AdminOfferingMySqlTest',
+            'service.AdminCourseCatalogMySqlTest') }
 
 )
 

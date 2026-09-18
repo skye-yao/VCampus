@@ -17,6 +17,7 @@
             <children>
                 <HBox alignment="CENTER_LEFT" spacing="10.0" styleClass="course-admin-toolbar">
                     <children>
+                        <ComboBox fx:id="termFilter" prefWidth="176.0" promptText="学期" styleClass="course-admin-term-filter" />
                         <TextField fx:id="searchField" promptText="搜索课程名称或代码" styleClass="course-admin-search-field" HBox.hgrow="ALWAYS" />
                         <ComboBox fx:id="statusFilter" prefWidth="132.0" promptText="状态" styleClass="course-admin-status-filter" />
                         <Button fx:id="refreshButton" onAction="#refresh" styleClass="course-admin-refresh-button" text="刷新" />

@@ -15,14 +15,27 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class AdminCourseCatalogDAO {
-    private static final String SELECT = "SELECT c.course_id,c.course_code,c.course_name,"
-            + "c.course_type,c.credit,c.credit_hours,c.description,c.prerequisites,"
-            + "c.allow_cross_major,c.final_exam,c.status,c.version,"
-            + "(SELECT COUNT(*) FROM course_offering o WHERE o.course_id=c.course_id"
-            + " AND o.status<>4) AS offering_count FROM course c";
+    /**
+     * {@code offering_count} 的口径：只看非取消的教学班。学期化与否取决于调用方——
+     * 课程列表带学期参数时，行上的计数必须和展开后看到的行数一致。
+     */
+    private static String offeringCountExpression(boolean termScoped) {
+        return "(SELECT COUNT(*) FROM course_offering o WHERE o.course_id=c.course_id"
+                + " AND o.status<>4"
+                + (termScoped ? " AND o.academic_year=? AND o.semester=?" : "")
+                + ") AS offering_count";
+    }
 
-    public List<AdminCourseDTO> list(Connection connection, String query, String status)
-            throws SQLException {
+    private static String select(boolean termScoped) {
+        return "SELECT c.course_id,c.course_code,c.course_name,"
+                + "c.course_type,c.credit,c.credit_hours,c.description,c.prerequisites,"
+                + "c.allow_cross_major,c.final_exam,c.status,c.version,"
+                + offeringCountExpression(termScoped) + " FROM course c";
+    }
+
+    public List<AdminCourseDTO> list(Connection connection, String query, String status,
+                                     Integer academicYear, Integer semester) throws SQLException {
+        boolean termScoped = academicYear != null && semester != null;
         List<String> clauses = new ArrayList<>();
         List<String> params = new ArrayList<>();
         if (status != null) {
@@ -35,11 +48,18 @@ public class AdminCourseCatalogDAO {
             params.add(pattern);
             params.add(pattern);
         }
-        String sql = SELECT + (clauses.isEmpty() ? "" : " WHERE " + String.join(" AND ", clauses))
+        String sql = select(termScoped)
+                + (clauses.isEmpty() ? "" : " WHERE " + String.join(" AND ", clauses))
                 + " ORDER BY c.course_code";
         List<AdminCourseDTO> courses = new ArrayList<>();
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            for (int i = 0; i < params.size(); i++) statement.setString(i + 1, params.get(i));
+            // 子查询写在 SELECT 列表里，位置参数先于 WHERE 的参数，绑定顺序必须先学期后筛选。
+            int index = 1;
+            if (termScoped) {
+                statement.setInt(index++, academicYear);
+                statement.setInt(index++, semester);
+            }
+            for (String param : params) statement.setString(index++, param);
             try (ResultSet rows = statement.executeQuery()) {
                 while (rows.next()) courses.add(map(rows));
             }
@@ -59,7 +79,7 @@ public class AdminCourseCatalogDAO {
 
     public AdminCourseDTO find(Connection connection, long courseId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
-                SELECT + " WHERE c.course_id=?")) {
+                select(false) + " WHERE c.course_id=?")) {
             statement.setLong(1, courseId);
             try (ResultSet rows = statement.executeQuery()) {
                 return rows.next() ? map(rows) : null;

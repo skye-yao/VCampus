@@ -1,6 +1,7 @@
 package handler;
 
 import dto.course.AdjustmentRequestStatusDTO;
+import dto.course.CourseTermDTO;
 import dto.course.admin.approval.AdjustmentRequestPageDTO;
 import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
 import dto.course.admin.approval.ApprovalStatusDTO;
@@ -25,6 +26,7 @@ import session.UserSession;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -73,6 +75,8 @@ public final class AdminCourseHandlerTest {
             require(listed.getCode() == MessageCode.SUCCESS, "listCourses must succeed");
             require(listed.getData().size() == 1 && listed.getData().containsKey("courses"),
                     "listCourses must use response key courses");
+
+            testListCoursesPassesTheTermThrough(handler, catalog, administrator);
 
             Message create = request("createCourse", administrator.getToken());
             create.setSender("attacker");
@@ -132,6 +136,9 @@ public final class AdminCourseHandlerTest {
             require(offerings.lastRequest != null
                             && "CS900-01".equals(offerings.lastRequest.getOfferingCode()),
                     "typed offering payload must round-trip the offering code");
+
+            testListOfferingsPassesTheTermThrough(handler, offerings, administrator);
+            testListOfferingTermsReturnsTheTermKey(handler, administrator);
 
             Message malformedId = archiveRequest(administrator.getToken());
             malformedId.putData("courseId", "9.5");
@@ -219,6 +226,65 @@ public final class AdminCourseHandlerTest {
         Message request = new Message(MessageType.REQUEST, "courseAdmin", action);
         request.setToken(token);
         return request;
+    }
+
+    private static void testListCoursesPassesTheTermThrough(AdminCourseHandler handler,
+                                                            FakeCatalogService catalog,
+                                                            UserSession administrator) {
+        // 课程列表与教学班列表共用 optionalInteger：学期必须原样传到服务，不能被吞成 null。
+        Message scoped = request("listCourses", administrator.getToken());
+        scoped.putData("query", "数据");
+        scoped.putData("status", "ACTIVE");
+        scoped.putData("academicYear", 2027);
+        scoped.putData("semester", 3);
+        require(handler.handle(scoped).getCode() == MessageCode.SUCCESS,
+                "listCourses with a term must succeed");
+        require(catalog.listCalls.contains("数据|ACTIVE|2027|3"),
+                "the term must reach the catalog as a term, saw " + catalog.listCalls);
+
+        Message unscoped = request("listCourses", administrator.getToken());
+        require(handler.handle(unscoped).getCode() == MessageCode.SUCCESS,
+                "listCourses without a term must succeed");
+        require(catalog.listCalls.contains("null|null|null|null"),
+                "an absent term must reach the catalog as null, saw " + catalog.listCalls);
+    }
+
+    private static void testListOfferingsPassesTheTermThrough(AdminCourseHandler handler,
+                                                              FakeOfferingService offerings,
+                                                              UserSession administrator) {
+        // 请求不带学期时，服务端必须收到两个 null，而不是 0——0 会被当成"学年无效"拒掉。
+        Message unscoped = request("listOfferings", administrator.getToken());
+        unscoped.putData("courseId", "1001");
+        require(handler.handle(unscoped).getCode() == MessageCode.SUCCESS,
+                "listOfferings without a term must succeed");
+        require(offerings.listCalls.contains("1001|null|null"),
+                "an absent term must reach the service as null, saw " + offerings.listCalls);
+
+        Message scoped = request("listOfferings", administrator.getToken());
+        scoped.putData("courseId", "1001");
+        scoped.putData("academicYear", 2027);
+        scoped.putData("semester", 3);
+        require(handler.handle(scoped).getCode() == MessageCode.SUCCESS,
+                "listOfferings with a term must succeed");
+        require(offerings.listCalls.contains("1001|2027|3"),
+                "the term must reach the service unchanged, saw " + offerings.listCalls);
+
+        // 字段在但格式不对是客户端 bug，必须 400，不能被静默降级成"不限定"。
+        Message malformed = request("listOfferings", administrator.getToken());
+        malformed.putData("courseId", "1001");
+        malformed.putData("academicYear", "not-a-year");
+        Message rejected = handler.handle(malformed);
+        require(rejected.getCode() == MessageCode.BAD_REQUEST,
+                "a present but non-numeric term must be bad request, saw " + rejected.getCode());
+    }
+
+    private static void testListOfferingTermsReturnsTheTermKey(AdminCourseHandler handler,
+                                                               UserSession administrator) {
+        Message terms = request("listOfferingTerms", administrator.getToken());
+        Message response = handler.handle(terms);
+        require(response.getCode() == MessageCode.SUCCESS, "listOfferingTerms must succeed");
+        require(response.getData().size() == 1 && response.getData().containsKey("terms"),
+                "listOfferingTerms must use response key terms");
     }
 
     /**
@@ -347,10 +413,13 @@ public final class AdminCourseHandlerTest {
     private static final class FakeCatalogService extends AdminCourseCatalogService {
         private String lastAdminUid;
         private CourseEditorRequestDTO lastRequest;
+        final List<String> listCalls = new ArrayList<>();
         private Mode mode = Mode.SUCCESS;
 
         @Override
-        public List<AdminCourseDTO> list(String query, String status) {
+        public List<AdminCourseDTO> list(String query, String status, Integer academicYear,
+                                         Integer semester) {
+            listCalls.add(query + "|" + status + "|" + academicYear + "|" + semester);
             return List.of(course());
         }
 
@@ -389,10 +458,17 @@ public final class AdminCourseHandlerTest {
     private static final class FakeOfferingService extends AdminOfferingService {
         private String lastAdminUid;
         private OfferingEditorRequestDTO lastRequest;
+        final List<String> listCalls = new ArrayList<>();
 
         @Override
-        public List<AdminOfferingDTO> list(String courseId) {
+        public List<AdminOfferingDTO> list(String courseId, Integer academicYear, Integer semester) {
+            listCalls.add(courseId + "|" + academicYear + "|" + semester);
             return List.of(offering());
+        }
+
+        @Override
+        public List<CourseTermDTO> listTerms() {
+            return List.of(new CourseTermDTO(2027, 3, "2027-2028 春学期"));
         }
 
         @Override

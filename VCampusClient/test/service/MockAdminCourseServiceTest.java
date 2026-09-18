@@ -1,6 +1,7 @@
 package service;
 
 import dto.course.AdjustmentRequestStatusDTO;
+import dto.course.TermLabels;
 import dto.course.admin.approval.AdjustmentRequestDetailDTO;
 import dto.course.admin.approval.AdjustmentRequestPageDTO;
 import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
@@ -11,6 +12,7 @@ import dto.course.admin.schedule.SchedulePlanDTO;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import model.course.CourseTermView;
 import model.course.admin.AdminCourseView;
 import model.course.admin.AdminOfferingView;
 import model.course.admin.AdminOperationResultView;
@@ -22,6 +24,9 @@ public final class MockAdminCourseServiceTest {
 
     public static void main(String[] args) {
         listCoursesFiltersSeedsByStatusAndQuery();
+        listOfferingsHidesCancelledAndScopesByTerm();
+        listOfferingTermsListsEveryOfferingTermNewestFirst();
+        listCoursesCountsOfferingsWithinTheSelectedTerm();
         offeringCountMatchesServerDefinitionAndCancellation();
         createThenUpdateBumpsVersionAndStaleUpdateConflicts();
         duplicateCourseCodeConflictsAndCourseCodeIsImmutable();
@@ -185,6 +190,93 @@ public final class MockAdminCourseServiceTest {
         List<AdminCourseView> byName = service.listCourses("操作系统", null).join();
         require(byName.size() == 1 && "操作系统".equals(byName.get(0).getCourseName()),
                 "query must match the course name");
+    }
+
+    /**
+     * 教学班列表与真实 DAO 同口径：已取消的行不列出（否则课程行上的计数与展开列表会互相打架），
+     * 只有两个学期参数都给时才按学期限定。
+     */
+    private static void listOfferingsHidesCancelledAndScopesByTerm() {
+        MockAdminCourseService service = new MockAdminCourseService();
+
+        List<AdminOfferingView> seeded = service.listOfferings("201").join();
+        require(seeded.size() == 1 && "2002".equals(seeded.get(0).getOfferingId()),
+                "the cancelled offering must be hidden like the server's list, saw " + seeded);
+        require(service.listOfferings("201", 2026, 1).join().size() == 1,
+                "the selected term must keep the offering that belongs to it");
+        require(service.listOfferings("201", 2027, 2).join().isEmpty(),
+                "another term must not see this term's offerings");
+        require(service.listOfferings("201", null, null).join().size() == 1,
+                "a null term must mean every term rather than no term");
+    }
+
+    /**
+     * 学期下拉的取值来源：每个出现过教学班的学期都恰好列出一次、最近优先，标签走共享的 TermLabels；
+     * 只剩已取消教学班的学期仍要列出（服务端 listTerms 不带状态条件）。
+     */
+    private static void listOfferingTermsListsEveryOfferingTermNewestFirst() {
+        MockAdminCourseService service = new MockAdminCourseService();
+
+        List<CourseTermView> seeded = service.listOfferingTerms().join();
+        require(seeded.size() == 1 && seeded.get(0).getAcademicYear() == 2026
+                        && seeded.get(0).getSemester() == 1,
+                "every seeded offering lives in 2026/1, saw " + seeded);
+        require(TermLabels.displayName(2026, 1).equals(seeded.get(0).getDisplayName()),
+                "the term label must come from the shared TermLabels source");
+
+        createOffering(service, "op-term-2034", "OFF-T-2034", 2034, 2);
+        // 同一学期开两个教学班不能让这个学期在列表里出现两次。
+        createOffering(service, "op-term-2034-second", "OFF-T-2034B", 2034, 2);
+        // 只有已取消教学班的学期仍然可选，否则管理员既看不见、也回不到那个学期。
+        String cancelled = createOffering(service, "op-term-2025", "OFF-T-2025", 2025, 3);
+        require("CANCELLED".equals(service.cancelOffering(cancelled, 1, "op-term-cancel")
+                        .join().getEntity().getStatus()),
+                "the fixture itself must end up a cancelled offering");
+
+        List<CourseTermView> terms = service.listOfferingTerms().join();
+        List<String> listed = terms.stream()
+                .map(term -> term.getAcademicYear() + "/" + term.getSemester()).toList();
+        require(List.of("2034/2", "2026/1", "2025/3").equals(listed),
+                "distinct terms must be listed exactly once, newest first, saw " + listed);
+    }
+
+    /**
+     * 课程行上的"教学班 N 个"必须按选中的学期重算（与真实 DAO 的计数同口径）；
+     * 不选学期时才退回 mock 自己维护的总数。
+     */
+    private static void listCoursesCountsOfferingsWithinTheSelectedTerm() {
+        MockAdminCourseService service = new MockAdminCourseService();
+        createOffering(service, "op-count-2034", "OFF-C-2034", 2034, 2);
+
+        require(courseInTerm(service, "101", null, null).getOfferingCount() == 2,
+                "without a term the mock reports every teaching offering");
+        require(courseInTerm(service, "101", 2026, 1).getOfferingCount() == 1,
+                "the seeded term must count only its own teaching offering");
+        require(courseInTerm(service, "101", 2034, 2).getOfferingCount() == 1,
+                "the new term must count only its own teaching offering");
+        require(courseInTerm(service, "201", 2026, 1).getOfferingCount() == 1,
+                "the open draft must be counted inside its term");
+        require(courseInTerm(service, "201", 2027, 2).getOfferingCount() == 0,
+                "a term without any teaching offering must count zero");
+
+        service.cancelOffering("2002", 1, "op-count-cancel").join();
+        require(courseInTerm(service, "201", 2026, 1).getOfferingCount() == 0,
+                "a cancelled teaching offering must not be counted inside its term");
+    }
+
+    private static String createOffering(MockAdminCourseService service, String operationId,
+            String offeringCode, int academicYear, int semester) {
+        return service.createOffering(new OfferingEditorRequestDTO(operationId, null, 0, "101",
+                offeringCode, academicYear, semester, 100, "T1", null, 1)).join()
+                .getEntity().getOfferingId();
+    }
+
+    private static AdminCourseView courseInTerm(MockAdminCourseService service, String courseId,
+            Integer academicYear, Integer semester) {
+        for (AdminCourseView course : service.listCourses(null, null, academicYear, semester).join()) {
+            if (courseId.equals(course.getCourseId())) return course;
+        }
+        throw new AssertionError("missing course " + courseId);
     }
 
     private static void createThenUpdateBumpsVersionAndStaleUpdateConflicts() {
