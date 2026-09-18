@@ -64,6 +64,12 @@ public final class GradeBookEditorModel {
         private String text = "";
         private BigDecimal value;
         private String error;
+        /**
+         * 导入预览期间服务端在这格上报的问题（红框与提示文字）。它与 {@link #error} 是两回事：
+         * {@code error} 是本地校验（阻塞写请求），导入问题只由服务端的下一次预览消除——教师在
+         * 本格敲字不会把它抹掉，避免“只在本地删红框”。
+         */
+        private String importError;
 
         private ScoreCell() {
         }
@@ -78,9 +84,14 @@ public final class GradeBookEditorModel {
             return value;
         }
 
-        /** 非法原因；合法或留空时为 null。 */
+        /** 界面显示的原因：本地非法优先，其次是导入预览里服务端标出的问题。 */
         public String error() {
-            return error;
+            return error != null ? error : importError;
+        }
+
+        /** 导入预览期间服务端标在这格上的问题；没有时为 null。 */
+        public String importError() {
+            return importError;
         }
 
         public boolean valid() {
@@ -146,17 +157,35 @@ public final class GradeBookEditorModel {
         private final List<String> serverErrors;
 
         private Row(TeacherGradeRowDTO row) {
-            this.enrollmentId = row.getEnrollmentId();
-            this.studentUid = row.getStudentUid();
-            this.studentName = row.getStudentName();
-            this.serverErrors = List.copyOf(row.getErrors());
+            this(row.getEnrollmentId(), row.getStudentUid(), row.getStudentName(), row.getErrors());
             GradeScoresDTO scores = row.getScores();
             for (GradeComponentCodeDTO code : GradeComponentCodeDTO.values()) {
-                ScoreCell cell = new ScoreCell();
+                ScoreCell cell = cells.get(code);
                 cell.text = scoreText(scoreOf(code, scores));
                 cell.value = scoreOf(code, scores);
-                cells.put(code, cell);
             }
+        }
+
+        /** 身份 + 四个空格子：快照深拷贝与 DTO 构造共用它，两条路径的格子集合不会各自漂移。 */
+        private Row(String enrollmentId, String studentUid, String studentName,
+                List<String> serverErrors) {
+            this.enrollmentId = enrollmentId;
+            this.studentUid = studentUid;
+            this.studentName = studentName;
+            this.serverErrors = serverErrors == null ? List.of() : List.copyOf(serverErrors);
+            for (GradeComponentCodeDTO code : GradeComponentCodeDTO.values()) {
+                cells.put(code, new ScoreCell());
+            }
+        }
+
+        /** 深拷贝一格：原文、解析结果、本地错误与导入问题全部带走。 */
+        private static ScoreCell copyOf(ScoreCell original) {
+            ScoreCell copy = new ScoreCell();
+            copy.text = original.text;
+            copy.value = original.value;
+            copy.error = original.error;
+            copy.importError = original.importError;
+            return copy;
         }
 
         public String enrollmentId() {
@@ -598,6 +627,161 @@ public final class GradeBookEditorModel {
             components.add(new GradeComponentDTO(code, true, 0));
         }
         return components;
+    }
+
+    // ------------------------------------------------------------------ 导入预览
+
+    /**
+     * 导入前的编辑副本：一份完整的深拷贝（权重原文、分数原文、解析结果、本地错误、导入问题，
+     * 以及 dirty 标志）。取消导入恢复的就是它——只把值改回去而丢掉 dirty 会让“取消后没有未保存
+     * 修改”的假象掩盖教师导入前真实的未保存内容。
+     */
+    public static final class Snapshot {
+        private final List<Column> columns;
+        private final List<Row> rows;
+        private final String state;
+        private final int revision;
+        private final String rosterDigest;
+        private final boolean canEdit;
+        private final String correctionReason;
+        private final String lastSubmissionId;
+        private final String reviewComment;
+        private final boolean rosterChangedSinceSubmission;
+        private final boolean dirty;
+
+        private Snapshot(List<Column> columns, List<Row> rows, String state, int revision,
+                String rosterDigest, boolean canEdit, String correctionReason,
+                String lastSubmissionId, String reviewComment, boolean rosterChangedSinceSubmission,
+                boolean dirty) {
+            this.columns = columns;
+            this.rows = rows;
+            this.state = state;
+            this.revision = revision;
+            this.rosterDigest = rosterDigest;
+            this.canEdit = canEdit;
+            this.correctionReason = correctionReason;
+            this.lastSubmissionId = lastSubmissionId;
+            this.reviewComment = reviewComment;
+            this.rosterChangedSinceSubmission = rosterChangedSinceSubmission;
+            this.dirty = dirty;
+        }
+    }
+
+    /** 当前编辑副本的完整快照（导入前留底）。 */
+    public Snapshot snapshot() {
+        List<Column> columnCopies = new ArrayList<>();
+        for (Column column : columns) {
+            columnCopies.add(copyOf(column));
+        }
+        List<Row> rowCopies = new ArrayList<>();
+        for (Row row : rows) {
+            rowCopies.add(copyOf(row));
+        }
+        return new Snapshot(columnCopies, rowCopies, state, revision, rosterDigest, canEdit,
+                correctionReason, lastSubmissionId, reviewComment, rosterChangedSinceSubmission,
+                dirty);
+    }
+
+    /**
+     * 用快照整体覆盖编辑状态，dirty 标志一起恢复。快照在恢复时再拷一次，因此同一份快照可以
+     * 恢复多次，恢复后的模型也不会反过来改到快照里的对象。
+     */
+    public void restore(Snapshot snapshot) {
+        Objects.requireNonNull(snapshot, "Snapshot is required");
+        columns.clear();
+        columnsByCode.clear();
+        for (Column column : snapshot.columns) {
+            Column copy = copyOf(column);
+            columns.add(copy);
+            columnsByCode.put(copy.code(), copy);
+        }
+        rows.clear();
+        rowsByEnrollment.clear();
+        for (Row row : snapshot.rows) {
+            Row copy = copyOf(row);
+            rows.add(copy);
+            rowsByEnrollment.put(copy.enrollmentId(), copy);
+        }
+        state = snapshot.state;
+        revision = snapshot.revision;
+        rosterDigest = snapshot.rosterDigest;
+        canEdit = snapshot.canEdit;
+        correctionReason = snapshot.correctionReason;
+        lastSubmissionId = snapshot.lastSubmissionId;
+        reviewComment = snapshot.reviewComment;
+        rosterChangedSinceSubmission = snapshot.rosterChangedSinceSubmission;
+        dirty = snapshot.dirty;
+    }
+
+    /**
+     * 就地把导入预览的候选合并进这张表：<b>只改已有行对象的分数格子</b>，不新建行、不新建表格，
+     * 因此预览就在原成绩表里显示，表格不会被换掉。
+     *
+     * <p>候选里为 null 的组成表示“文件里没有这一格”，保留当前值——文件缺少的列与空白单元格绝不
+     * 擦掉原草稿的分数，也绝不折成 0；候选里没有的行同样原样保留。方案列（启用项与权重）不动：
+     * 预览期间切换方案会作废候选。合并进来的内容尚未落库，因此模型标记为 dirty。
+     */
+    public void applyCandidate(GradeBookContentDTO candidate) {
+        Objects.requireNonNull(candidate, "Import candidate is required");
+        for (GradeRowInputDTO input : candidate.getRows()) {
+            Row row = rowsByEnrollment.get(input.getEnrollmentId());
+            if (row == null) continue;
+            GradeScoresDTO scores = input.getScores();
+            for (GradeComponentCodeDTO code : GradeComponentCodeDTO.values()) {
+                BigDecimal value = scoreOf(code, scores);
+                if (value == null) continue;
+                ScoreCell cell = row.cell(code);
+                cell.text = scoreText(value);
+                cell.value = value;
+                cell.error = null;
+                cell.importError = null;
+            }
+        }
+        dirty = true;
+    }
+
+    /**
+     * 预览的红框：服务端报在哪一格的哪个问题上，就在那一格显示那句话。未知学生的行没有格子，
+     * 只出现在错误列表里（不在这里，也不进这张表）。
+     */
+    public void markImportIssues(Map<String, Map<GradeComponentCodeDTO, String>> byEnrollmentId) {
+        if (byEnrollmentId == null) return;
+        for (Map.Entry<String, Map<GradeComponentCodeDTO, String>> entry : byEnrollmentId.entrySet()) {
+            Row row = rowsByEnrollment.get(entry.getKey());
+            if (row == null || entry.getValue() == null) continue;
+            for (Map.Entry<GradeComponentCodeDTO, String> issue : entry.getValue().entrySet()) {
+                if (issue.getKey() != null) {
+                    row.cell(issue.getKey()).importError = issue.getValue();
+                }
+            }
+        }
+    }
+
+    /** 清掉预览留下的红框（本地校验错误不受影响）。 */
+    public void clearImportIssues() {
+        for (Row row : rows) {
+            for (GradeComponentCodeDTO code : GradeComponentCodeDTO.values()) {
+                row.cell(code).importError = null;
+            }
+        }
+    }
+
+    private static Column copyOf(Column column) {
+        Column copy = new Column(column.code());
+        copy.enabled = column.enabled;
+        copy.weightText = column.weightText;
+        copy.weightBasisPoints = column.weightBasisPoints;
+        copy.weightError = column.weightError;
+        return copy;
+    }
+
+    private static Row copyOf(Row row) {
+        Row copy = new Row(row.enrollmentId(), row.studentUid(), row.studentName(),
+                row.serverErrors());
+        for (GradeComponentCodeDTO code : GradeComponentCodeDTO.values()) {
+            copy.cells.put(code, Row.copyOf(row.cell(code)));
+        }
+        return copy;
     }
 
     private static GradeComponentDTO componentOf(List<GradeComponentDTO> components,

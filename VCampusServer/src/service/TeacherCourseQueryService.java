@@ -94,6 +94,30 @@ public class TeacherCourseQueryService {
     }
 
     /**
+     * 名单导出：按与 {@link #listOfferingStudents} **相同**的过滤条件一次取回全部结果，不是当前页。
+     *
+     * <p>归属校验与学生名单列表走同一个入口（{@link TeacherAccessPolicy#requireViewOffering}），
+     * 因此教师导不出别人的名单；导出文件是交给教师当作完整名单使用的，所以超过
+     * {@link TeacherSpreadsheetService#MAX_ROWS} 行时明确报错，绝不截断。
+     */
+    public List<TeacherRosterRowDTO> listAllOfferingStudents(String uid, String offeringId, String query,
+                                                             Integer enrollmentStatus) {
+        long id = parseOfferingId(offeringId);
+        requireEnrollmentStatus(enrollmentStatus);
+        return read(connection -> {
+            accessPolicy.requireViewOffering(connection, uid, id);
+            // 多取一行即是一次查询内的超限判定：没有第二次 COUNT，也就没有两次查询之间的名单窗口。
+            List<TeacherRosterRowDTO> roster = queryDAO.listStudentsForExport(connection, id, query,
+                    enrollmentStatus, TeacherSpreadsheetService.MAX_ROWS + 1);
+            if (roster.size() > TeacherSpreadsheetService.MAX_ROWS) {
+                throw new IllegalArgumentException("名单超过 " + TeacherSpreadsheetService.MAX_ROWS
+                        + " 行导出上限，请缩小筛选范围后重试");
+            }
+            return roster;
+        });
+    }
+
+    /**
      * 该教学班当前正式方案中的全部安排。没有 PUBLISHED 方案时返回空列表，绝不回退到管理员的
      * DRAFT 工作方案。
      */

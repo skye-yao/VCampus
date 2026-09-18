@@ -44,8 +44,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 方向不符是把下载票当上传用，长度不符是伪造声明，摘要不符是内容被替换。
  *
  * <p>上传先写 {@code .part} 临时文件，长度与 SHA-256 都核对通过后才原子改名到票据落点；提前
- * EOF、摘要不符、写盘失败都会删除半截文件，服务端不会留下半个工作簿。所有外部可见的错误文案
- * 都是固定中文短语，异常堆栈只进服务端日志。
+ * EOF、摘要不符、写盘失败都会删除半截文件，服务端不会留下半个工作簿。落盘成功之后才向票据服务
+ * 交接「已落地」状态，业务侧随后的导入预览据此拿到同一个文件；失败的上传不会交接。下载方向反过来：
+ * 票据一经消费（兑换成功）这份服务端生成的文件就再没人能领取，因此「字节发完（或中途断开）」与
+ * 「消费之后长度/摘要核对失败」两条路都会当场回收它——留着只会变成票据服务看不见的孤儿，
+ * 一份被下载过的模板会一直占到停服。所有外部可见的错误文案都是固定中文短语，异常堆栈只进服务端日志。
  */
 public final class CourseFileConnection implements AutoCloseable {
 
@@ -85,11 +88,23 @@ public final class CourseFileConnection implements AutoCloseable {
             out = new DataOutputStream(
                     new BufferedOutputStream(socket.getOutputStream(), BUFFER_BYTES));
 
-            Ticket ticket = claim(readMetadata(in));
+            Metadata metadata = readMetadata(in);
+            Ticket ticket = claim(metadata);
             if (TeacherFileTicketDTO.DIRECTION_UPLOAD.equals(ticket.direction())) {
                 receive(ticket, in);
+                // 只有长度与 SHA-256 都核对通过、.part 已经改名之后才交接：业务侧随后的预览
+                // 兑换到的必须是真正落盘的那个文件，中途失败的上传不许留下一张“已落地”的票。
+                tickets.markUploaded(metadata.ticket());
             } else {
-                send(ticket, out);
+                try {
+                    send(ticket, out);
+                } finally {
+                    // 下载只有一次：票据在这一步已经被消费（{@link TeacherFileTicketService#claim}
+                    // 对下载方向直接摘除条目），落点文件不再有人能领取，因此成功还是中途断开都
+                    // 立即回收。不回收就是孤儿——条目已不在票据表里，过期清理器再也看不见它，
+                    // 一份被下载过的模板会一直占到停服。
+                    TeacherFileTicketService.deleteQuietly(ticket.path());
+                }
             }
             respond(out, true, "OK");
         } catch (TransferFailure expected) {
@@ -137,7 +152,13 @@ public final class CourseFileConnection implements AutoCloseable {
     }
 
     /**
-     * 先按 Session 与票据核对身份，再逐项核对方向、长度与摘要；全部通过才消费票据。
+     * 先按 Session 与票据核对身份，再逐项核对方向、长度与摘要。
+     *
+     * <p>{@code tickets.claim} 在身份、有效期与用途通过之后就把票据消费掉了（下载方向是直接摘除
+     * 条目），长度与摘要是**消费之后**才核对的。所以这里每一条核对失败都必须顺手回收票据落点：
+     * 下载方向的条目已经不在票据表里，{@code purgeExpired} 再也看不见它，服务端自己生成的那份
+     * 工作簿会一直占到停服；上传方向的条目仍在（{@code TRANSFERRED}）由清理器兜底，而落点文件此时
+     * 根本还没写出来，删除是空操作。长度与摘要不符说明这次连接的声明不可信，它不配拿到那份文件。
      */
     private Ticket claim(Metadata metadata) throws TransferFailure {
         UserSession session = SessionManager.getInstance().getSession(metadata.token());
@@ -150,15 +171,21 @@ public final class CourseFileConnection implements AutoCloseable {
         } catch (IllegalArgumentException rejected) {
             throw new TransferFailure(rejected.getMessage());
         }
-        if (metadata.size() < 1 || metadata.size() > MAX_PAYLOAD_BYTES) {
-            throw new TransferFailure("文件大小超出上限");
-        }
-        if (metadata.size() != ticket.byteLength()) {
-            throw new TransferFailure("文件长度与票据不一致");
-        }
-        if (metadata.sha256() == null
-                || !metadata.sha256().equalsIgnoreCase(ticket.sha256())) {
-            throw new TransferFailure("文件摘要与票据不一致");
+        try {
+            if (metadata.size() < 1 || metadata.size() > MAX_PAYLOAD_BYTES) {
+                throw new TransferFailure("文件大小超出上限");
+            }
+            if (metadata.size() != ticket.byteLength()) {
+                throw new TransferFailure("文件长度与票据不一致");
+            }
+            if (metadata.sha256() == null
+                    || !metadata.sha256().equalsIgnoreCase(ticket.sha256())) {
+                throw new TransferFailure("文件摘要与票据不一致");
+            }
+        } catch (TransferFailure rejected) {
+            // 票据已经被消费：下载方向的条目不会再被清理器看到，当场回收才是唯一不留孤儿的地方。
+            TeacherFileTicketService.deleteQuietly(ticket.path());
+            throw rejected;
         }
         return ticket;
     }

@@ -8,9 +8,19 @@ import dto.course.CourseTermDTO;
 import dto.course.admin.approval.AdjustmentRequestDetailDTO;
 import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
 import dto.course.admin.schedule.ScheduleArrangementDTO;
+import dto.course.teacher.ConfirmGradeImportRequestDTO;
+import dto.course.teacher.GradeImportPreviewDTO;
+import dto.course.teacher.MarkTeacherApplicationReadDTO;
+import dto.course.teacher.PreviewGradeImportRequestDTO;
+import dto.course.teacher.ReviseGradeImportRequestDTO;
+import dto.course.teacher.StartGradeRevisionRequestDTO;
 import dto.course.teacher.TeacherAdjustmentOptionsDTO;
 import dto.course.teacher.TeacherAdjustmentPreviewDTO;
 import dto.course.teacher.TeacherAdjustmentWriteDTO;
+import dto.course.teacher.TeacherApplicationDTO;
+import dto.course.teacher.TeacherApplicationDetailDTO;
+import dto.course.teacher.TeacherFileTicketDTO;
+import dto.course.teacher.TeacherFileUploadRequestDTO;
 import dto.course.teacher.TeacherGradeBookDTO;
 import dto.course.teacher.TeacherGradeOfferingDTO;
 import dto.course.teacher.TeacherOfferingDTO;
@@ -92,6 +102,42 @@ public interface TeacherCourseService {
         throw new UnsupportedOperationException("listMyAdjustmentRequests");
     }
 
+    // ------------------------------------------------------------------ 我的申请与已读
+
+    /**
+     * 统一的「我的申请」：调课申请与成绩提交批次合并成一条按 {@code (submittedAt DESC, type, id DESC)}
+     * 稳定排序的分页流，合并、排序与分页都在服务端 SQL 里完成。
+     *
+     * <p>{@code type} 为 {@link TeacherApplicationDTO#SCHEDULE_ADJUSTMENT}/
+     * {@link TeacherApplicationDTO#GRADE_SUBMISSION} 或 null（不限类型）；{@code status} 按类型的
+     * 状态白名单解析（成绩提交没有 WITHDRAWN），null 表示不限状态。两个参数都是字符串而不是枚举：
+     * 两张事实表的状态字母表不一样，一个枚举装不下。
+     */
+    default CompletableFuture<TeacherPageDTO<TeacherApplicationDTO>> listMyApplications(
+            String type, String status, int page, int size) {
+        throw new UnsupportedOperationException("listMyApplications");
+    }
+
+    /**
+     * 一条本人申请的详情：{@code summary} 外加**恰好一个**类型化变体（调课详情或成绩提交快照）。
+     * 别人的申请与不存在的申请同样以 NOT_FOUND 结束。
+     */
+    default CompletableFuture<TeacherApplicationDetailDTO> getMyApplication(String type, String id) {
+        throw new UnsupportedOperationException("getMyApplication");
+    }
+
+    /**
+     * 标记一条本人的申请结果为已读，返回最新的申请行。
+     *
+     * <p>{@code expectedStateKey} 是客户端看到的那一行的状态键；服务端比对不一致时拒绝写入并以
+     * CONFLICT 结束，冲突携带的当前行可从
+     * {@link SocketTeacherCourseService.TeacherCourseServiceException#getLatestApplication()} 取出。
+     */
+    default CompletableFuture<TeacherApplicationDTO> markApplicationRead(
+            MarkTeacherApplicationReadDTO request) {
+        throw new UnsupportedOperationException("markApplicationRead");
+    }
+
     // ------------------------------------------------------------------ 成绩工作副本
 
     /**
@@ -124,5 +170,74 @@ public interface TeacherCourseService {
     default CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> submitGradeBook(
             WriteGradeBookRequestDTO request) {
         throw new UnsupportedOperationException("submitGradeBook");
+    }
+
+    /**
+     * 驳回重开：以本班最后一次<b>被驳回</b>的批次为来源重建工作副本（{@code draft_kind=RESUBMISSION}）。
+     *
+     * <p>草稿是从那一批的冻结快照重建的——提交时被禁用的组成没有进过批次，教师为它输入的值因此
+     * 不会回来。原因非必填。返回的是打开后的成绩表，随后的保存/提交走原有通路。
+     */
+    default CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>>
+            reopenRejectedGradeBook(StartGradeRevisionRequestDTO request) {
+        throw new UnsupportedOperationException("reopenRejectedGradeBook");
+    }
+
+    /**
+     * 发起更正：以本班最后一次<b>已通过</b>的批次为来源重建工作副本（{@code draft_kind=CORRECTION}），
+     * 并把原因复制到随后提交的新批次。原因必填、且不超过 500 字符（服务端也拒绝）。
+     */
+    default CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> beginGradeCorrection(
+            StartGradeRevisionRequestDTO request) {
+        throw new UnsupportedOperationException("beginGradeCorrection");
+    }
+
+    // ------------------------------------------------------------------ Excel 模板、导入与名单导出
+
+    /**
+     * 申请一张空白成绩模板的下载票据（方向 DOWNLOAD）。文件本身走独立文件端口，业务响应里只有票据。
+     */
+    default CompletableFuture<TeacherFileTicketDTO> requestGradeTemplate(String offeringId) {
+        throw new UnsupportedOperationException("requestGradeTemplate");
+    }
+
+    /** 申请一张完整名单导出的下载票据：过滤条件与名单列表相同，但取全部结果而不是当前页。 */
+    default CompletableFuture<TeacherFileTicketDTO> requestRosterExport(
+            String offeringId, String query, Integer enrollmentStatus) {
+        throw new UnsupportedOperationException("requestRosterExport");
+    }
+
+    /** 申请一张成绩导出的下载票据：名单 + 已保存草稿的四项成绩、总评与绩点（与名单导出各走各路）。 */
+    default CompletableFuture<TeacherFileTicketDTO> requestGradeExport(String offeringId) {
+        throw new UnsupportedOperationException("requestGradeExport");
+    }
+
+    /** 申请一张上传票据：客户端只声明教学班、草稿版本、文件名、字节数与摘要，不发送文件内容。 */
+    default CompletableFuture<TeacherFileTicketDTO> beginGradeUpload(
+            TeacherFileUploadRequestDTO request) {
+        throw new UnsupportedOperationException("beginGradeUpload");
+    }
+
+    /** 上传成功之后把文件兑换成一份可编辑的导入预览；预览不写草稿。 */
+    default CompletableFuture<GradeImportPreviewDTO> previewGradeImport(
+            PreviewGradeImportRequestDTO request) {
+        throw new UnsupportedOperationException("previewGradeImport");
+    }
+
+    /** 修订预览（修正异常行或明确排除它们），返回递增了 previewRevision 的新预览。 */
+    default CompletableFuture<GradeImportPreviewDTO> reviseGradeImport(
+            ReviseGradeImportRequestDTO request) {
+        throw new UnsupportedOperationException("reviseGradeImport");
+    }
+
+    /** 确认导入：把候选写成成绩草稿。它不是提交审批，也不包含任何成绩内容。 */
+    default CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> confirmGradeImport(
+            ConfirmGradeImportRequestDTO request) {
+        throw new UnsupportedOperationException("confirmGradeImport");
+    }
+
+    /** 取消导入：丢弃预览令牌；服务端本来就没写过任何东西，编辑副本由客户端自己恢复。 */
+    default CompletableFuture<Void> cancelGradeImport(String importToken) {
+        throw new UnsupportedOperationException("cancelGradeImport");
     }
 }

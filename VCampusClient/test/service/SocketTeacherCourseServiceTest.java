@@ -15,14 +15,26 @@ import dto.course.admin.schedule.ScheduleSlotDTO;
 import dto.course.teacher.GradeBookContentDTO;
 import dto.course.teacher.GradeComponentCodeDTO;
 import dto.course.teacher.GradeComponentDTO;
+import dto.course.teacher.GradeImportCorrectionDTO;
+import dto.course.teacher.GradeImportPreviewDTO;
+import dto.course.teacher.GradeImportRowIssueDTO;
 import dto.course.teacher.GradeRowInputDTO;
 import dto.course.teacher.GradeSchemeDTO;
 import dto.course.teacher.GradeScoresDTO;
+import dto.course.teacher.MarkTeacherApplicationReadDTO;
+import dto.course.teacher.ConfirmGradeImportRequestDTO;
+import dto.course.teacher.PreviewGradeImportRequestDTO;
+import dto.course.teacher.ReviseGradeImportRequestDTO;
+import dto.course.teacher.StartGradeRevisionRequestDTO;
+import dto.course.teacher.TeacherFileTicketDTO;
+import dto.course.teacher.TeacherFileUploadRequestDTO;
 import dto.course.teacher.TeacherAdjustmentOptionsDTO;
 import dto.course.teacher.TeacherAdjustmentPreviewDTO;
 import dto.course.teacher.TeacherAdjustmentTargetInputDTO;
 import dto.course.teacher.TeacherAdjustmentWriteDTO;
 import dto.course.teacher.TeacherCalendarDateDTO;
+import dto.course.teacher.TeacherApplicationDTO;
+import dto.course.teacher.TeacherApplicationDetailDTO;
 import dto.course.teacher.TeacherGradeBookDTO;
 import dto.course.teacher.TeacherGradeOfferingDTO;
 import dto.course.teacher.TeacherGradeRowDTO;
@@ -92,10 +104,21 @@ public final class SocketTeacherCourseServiceTest {
             adjustmentDetailMapsFourStateStatusAndTargetDate();
             adjustmentApplicationsParseTheGenericPageAndOmitNullStatus();
             adjustmentConflictKeepsTypedConflictsAndLatestDetail();
+            unifiedApplicationsSendTheirFiltersAndParseTheGenericPage();
+            applicationDetailMapsExactlyOneTypedVariant();
+            markApplicationReadMapsTheResultEnvelopeAndItsConflictCarrier();
             gradeOfferingsParseTheGenericPage();
             gradeBookMapsScoresSchemeAndNullableTotals();
             gradeWritesUseTheirOwnActionAndMapTheResult();
             gradeConflictKeepsTheLatestGradeBook();
+            gradeRevisionsUseTheirOwnActionsAndMapTheResult();
+            gradeRevisionConflictKeepsTheLatestGradeBook();
+            templateAndRosterDownloadsUseTheTicketKey();
+            rosterExportSendsTheSameFiltersAsTheList();
+            gradeExportAsksForTheDraftOfOneOffering();
+            uploadPreviewReviseAndConfirmUseTheirOwnShapes();
+            cancelSendsTheTokenScalarAndExpectsNoPayload();
+            expiredImportTokenKeepsTheServerMessage();
             requestsNeverCarryClientSuppliedIdentity();
             nonSuccessBecomesStableException();
             nullResponseBecomesError();
@@ -604,6 +627,135 @@ public final class SocketTeacherCourseServiceTest {
                 "a null status must be omitted so the server keeps its PENDING default");
     }
 
+    /**
+     * 统一「我的申请」：请求带类型与状态两个筛选，响应仍叫 {@code applications} 但页元素是
+     * {@link TeacherApplicationDTO}——与旧动作同键不同型，因此必须用各自的 TypeToken 解析。
+     */
+    private static void unifiedApplicationsSendTheirFiltersAndParseTheGenericPage() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("applications",
+                wireShaped(new TeacherPageDTO<>(List.of(applicationRow()), 9L, 1, 20))));
+        SocketTeacherCourseService service = new SocketTeacherCourseService(transport);
+
+        TeacherPageDTO<TeacherApplicationDTO> page = service.listMyApplications(
+                TeacherApplicationDTO.GRADE_SUBMISSION, "APPROVED", 1, 20).join();
+        requireEnvelope(transport, "listMyApplications");
+        require("GRADE_SUBMISSION".equals(transport.lastRequest.getData("type")),
+                "the type filter must travel as the shared constant");
+        require("APPROVED".equals(transport.lastRequest.getData("status")),
+                "the status filter must travel as a plain string, not a parsed enum");
+        require(Integer.valueOf(1).equals(transport.lastRequest.getData("page"))
+                        && Integer.valueOf(20).equals(transport.lastRequest.getData("size")),
+                "the paging must travel under page/size");
+
+        require(page.getTotalCount() == 9L && page.getPage() == 1 && page.getSize() == 20,
+                "totalCount must be the combined total, not the page length");
+        require(page.getItems().size() == 1, "one application row expected");
+        TeacherApplicationDTO row = page.getItems().get(0);
+        require(REQUEST_ID.equals(row.getId()) && OFFERING_ID.equals(row.getOfferingId()),
+                "both ids must stay the exact decimal strings");
+        require("APPROVED".equals(row.getStatus())
+                        && "APPROVED:2026-09-14T09:00:00Z".equals(row.getStateKey())
+                        && row.isUnread() && !row.isCanWithdraw(),
+                "the string status, the state key and the unread flag must survive the parse");
+        require("人机交互导论　CS352-01".equals(row.getTitle()),
+                "the title must survive the generic parse");
+
+        transport.respond(message -> message.putData("applications",
+                wireShaped(new TeacherPageDTO<>(List.of(), 0L, 1, 20))));
+        service.listMyApplications(null, null, 1, 20).join();
+        require(transport.lastRequest.getData("type") == null
+                        && transport.lastRequest.getData("status") == null,
+                "an unfiltered list must not invent type/status parameters");
+    }
+
+    /** 详情：{@code application}（单数）键上恰好一个类型化变体，另一个必须是 null。 */
+    private static void applicationDetailMapsExactlyOneTypedVariant() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("application", wireShaped(
+                new TeacherApplicationDetailDTO(applicationRow(), adjustmentDetail(), null))));
+        SocketTeacherCourseService service = new SocketTeacherCourseService(transport);
+
+        TeacherApplicationDetailDTO detail = service.getMyApplication(
+                TeacherApplicationDTO.SCHEDULE_ADJUSTMENT, REQUEST_ID).join();
+        requireEnvelope(transport, "getMyApplication");
+        require("SCHEDULE_ADJUSTMENT".equals(transport.lastRequest.getData("type")),
+                "the detail needs a concrete fact table");
+        require(REQUEST_ID.equals(transport.lastRequest.getData("id")),
+                "the id must travel as the exact decimal string");
+        require(detail.getSummary() != null && REQUEST_ID.equals(detail.getSummary().getId()),
+                "the detail must keep its summary row");
+        require(detail.getAdjustment() != null && detail.getGrade() == null
+                        && REQUEST_ID.equals(detail.getAdjustment().getRequestId()),
+                "the adjustment variant must be the only populated one");
+
+        FakeTransport gradeTransport = new FakeTransport();
+        gradeTransport.respond(message -> message.putData("application", wireShaped(
+                new TeacherApplicationDetailDTO(applicationRow(), null, null))));
+        TeacherApplicationDetailDTO gradeOnly = new SocketTeacherCourseService(gradeTransport)
+                .getMyApplication(TeacherApplicationDTO.GRADE_SUBMISSION, REQUEST_ID).join();
+        require(gradeOnly.getAdjustment() == null,
+                "a grade detail must never carry an adjustment variant");
+    }
+
+    /**
+     * 标记已读是写操作：请求体在 {@code data.request}，响应走 {@code result} 信封；过期确认的冲突
+     * 用 {@code application} 键带回当前行，而不是调课冲突的 {@code latest} 或成绩冲突的
+     * {@code gradeBook}。
+     */
+    private static void markApplicationReadMapsTheResultEnvelopeAndItsConflictCarrier() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("result",
+                wireShaped(new TeacherOperationResultDTO<>(null, "申请结果已标记为已读",
+                        readApplicationRow(), false))));
+        SocketTeacherCourseService service = new SocketTeacherCourseService(transport);
+
+        MarkTeacherApplicationReadDTO write = new MarkTeacherApplicationReadDTO(
+                TeacherApplicationDTO.SCHEDULE_ADJUSTMENT, REQUEST_ID,
+                "PENDING:2026-09-14T08:00:00Z");
+        TeacherApplicationDTO updated = service.markApplicationRead(write).join();
+        requireEnvelope(transport, "markApplicationRead");
+        require(transport.lastRequest.getData("request") == write,
+                "the confirmation must travel as the typed DTO under request");
+        java.util.Map<String, Object> wire =
+                new Gson().fromJson(new Gson().toJson(write), java.util.Map.class);
+        require(REQUEST_ID.equals(wire.get("id"))
+                        && "SCHEDULE_ADJUSTMENT".equals(wire.get("type"))
+                        && "PENDING:2026-09-14T08:00:00Z".equals(wire.get("expectedStateKey")),
+                "the wire body must carry the id, type and the key the page actually saw, saw "
+                        + wire);
+        require(updated != null && !updated.isUnread(),
+                "the result envelope must be unwrapped to the refreshed row");
+
+        FakeTransport conflict = new FakeTransport();
+        conflict.respond(message -> {
+            message.setCode(MessageCode.CONFLICT);
+            message.setMessage("申请结果已更新，请刷新后重试");
+            message.putData("application", wireShaped(applicationRow()));
+        });
+        try {
+            new SocketTeacherCourseService(conflict).markApplicationRead(
+                    new MarkTeacherApplicationReadDTO(TeacherApplicationDTO.SCHEDULE_ADJUSTMENT,
+                            REQUEST_ID, "PENDING:2026-09-14T08:00:00Z")).join();
+            throw new AssertionError("a conflict must fail the future");
+        } catch (CompletionException failure) {
+            if (!(failure.getCause()
+                    instanceof SocketTeacherCourseService.TeacherCourseServiceException error)) {
+                throw new AssertionError("unexpected cause " + failure.getCause(),
+                        failure.getCause());
+            }
+            require(error.getCode() == MessageCode.CONFLICT,
+                    "a stale confirmation must keep the CONFLICT code");
+            require(error.getLatestApplication() != null
+                            && "APPROVED:2026-09-14T09:00:00Z"
+                            .equals(error.getLatestApplication().getStateKey()),
+                    "the conflict must carry the current row for the page to reload");
+            require(error.getConflicts().isEmpty() && error.getLatest() == null
+                            && error.getLatestGradeBook() == null,
+                    "it must not fabricate the adjustment or grade conflict carriers");
+        }
+    }
+
     private static void adjustmentConflictKeepsTypedConflictsAndLatestDetail() {
         FakeTransport transport = new FakeTransport();
         transport.respond(message -> {
@@ -792,6 +944,256 @@ public final class SocketTeacherCourseServiceTest {
         }
     }
 
+    /**
+     * 驳回重开与发起更正是两个动作常量：请求体是起始版本写请求（教学班 + 来源批次 + 期望版本 +
+     * 原因），响应与两个成绩写动作同形——<b>result</b> 键上的操作结果信封。
+     */
+    private static void gradeRevisionsUseTheirOwnActionsAndMapTheResult() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("result", wireShaped(
+                new TeacherOperationResultDTO<>(OPERATION_ID, "已回到编辑状态", gradeBookDto(),
+                        false))));
+        SocketTeacherCourseService service = new SocketTeacherCourseService(transport);
+
+        StartGradeRevisionRequestDTO reopen = new StartGradeRevisionRequestDTO(OPERATION_ID,
+                OFFERING_ID, "9601", 4, null);
+        TeacherOperationResultDTO<TeacherGradeBookDTO> reopened =
+                service.reopenRejectedGradeBook(reopen).join();
+        requireEnvelope(transport, "reopenRejectedGradeBook");
+        require(transport.lastRequest.getData("request") == reopen,
+                "the typed revision DTO must travel under request unchanged");
+        require(transport.lastRequest.getData("uid") == null
+                        && transport.lastRequest.getData("teacherId") == null,
+                "a revision write must not carry a client-supplied identity");
+        require(OPERATION_ID.equals(reopened.getOperationId())
+                        && "已回到编辑状态".equals(reopened.getMessage())
+                        && !reopened.isReplayed(),
+                "the operation result envelope must map");
+        require(reopened.getValue() != null && reopened.getValue().getRevision() == 4,
+                "the write result must carry the reopened grade book");
+
+        transport.respond(message -> message.putData("result", wireShaped(
+                new TeacherOperationResultDTO<>(OPERATION_ID, "更正草稿已建立", gradeBookDto(),
+                        false))));
+        StartGradeRevisionRequestDTO correction = new StartGradeRevisionRequestDTO(OPERATION_ID,
+                OFFERING_ID, "9601", 4, "实验分录入有误");
+        TeacherOperationResultDTO<TeacherGradeBookDTO> corrected =
+                service.beginGradeCorrection(correction).join();
+        requireEnvelope(transport, "beginGradeCorrection");
+        require(transport.lastRequest.getData("request") == correction,
+                "the correction must travel as its typed DTO under request");
+        require("实验分录入有误".equals(correction.getReason())
+                        && correction.getExpectedRevision() == 4,
+                "the correction must carry its reason and the expected revision");
+        require(corrected.getValue() != null,
+                "the correction result must carry the new working copy");
+    }
+
+    /** 版本入口的拒绝同样带回最新成绩表：界面据此提示重新加载，而不是只拿到一句话。 */
+    private static void gradeRevisionConflictKeepsTheLatestGradeBook() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> {
+            message.setCode(MessageCode.CONFLICT);
+            message.setMessage("成绩草稿已经打开，请先提交或丢弃当前草稿");
+            message.putData("gradeBook", wireShaped(gradeBookDto()));
+        });
+        SocketTeacherCourseService service = new SocketTeacherCourseService(transport);
+
+        try {
+            service.beginGradeCorrection(new StartGradeRevisionRequestDTO(OPERATION_ID,
+                    OFFERING_ID, "9601", 4, "实验分录入有误")).join();
+            throw new AssertionError("a refused correction must fail the future");
+        } catch (CompletionException failure) {
+            if (!(failure.getCause()
+                    instanceof SocketTeacherCourseService.TeacherCourseServiceException error)) {
+                throw new AssertionError("unexpected cause " + failure.getCause(),
+                        failure.getCause());
+            }
+            require(error.getCode() == MessageCode.CONFLICT,
+                    "a refused version change must keep the CONFLICT code");
+            require(error.getLatestGradeBook() != null
+                            && error.getLatestGradeBook().getRevision() == 4,
+                    "the latest grade book must be available for the refresh hint");
+            require(error.getMessage().contains("已经打开"),
+                    "the server message must survive the mapping");
+        }
+    }
+
+    /** 模板下载：票据走 ticket 键。文件本身不在这条连接上，业务响应里只有票据。 */
+    private static void templateAndRosterDownloadsUseTheTicketKey() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("ticket", wireShaped(ticketDto(
+                TeacherFileTicketDTO.DIRECTION_DOWNLOAD))));
+        SocketTeacherCourseService service = new SocketTeacherCourseService(transport);
+
+        TeacherFileTicketDTO template = service.requestGradeTemplate(OFFERING_ID).join();
+        requireEnvelope(transport, "requestGradeTemplate");
+        require(OFFERING_ID.equals(transport.lastRequest.getData("offeringId")),
+                "the template ticket must name the offering as an exact decimal string");
+        require(transport.lastRequest.getData("request") == null,
+                "a download ticket request carries no request body");
+        require(TeacherFileTicketDTO.DIRECTION_DOWNLOAD.equals(template.getDirection())
+                        && template.getPort() == 8889
+                        && template.getByteLength() == 4096L,
+                "the download ticket fields must map");
+    }
+
+    /** 名单导出：过滤条件与名单列表同形，缺省时不发那两项。 */
+    private static void rosterExportSendsTheSameFiltersAsTheList() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("ticket", wireShaped(ticketDto(
+                TeacherFileTicketDTO.DIRECTION_DOWNLOAD))));
+        SocketTeacherCourseService service = new SocketTeacherCourseService(transport);
+
+        service.requestRosterExport(OFFERING_ID, "张", 2).join();
+        requireEnvelope(transport, "requestRosterExport");
+        require("张".equals(transport.lastRequest.getData("query"))
+                        && Integer.valueOf(2).equals(transport.lastRequest.getData("enrollmentStatus")),
+                "the roster export must carry the same filters as the list");
+
+        transport.respond(message -> message.putData("ticket", wireShaped(ticketDto(
+                TeacherFileTicketDTO.DIRECTION_DOWNLOAD))));
+        service.requestRosterExport(OFFERING_ID, null, null).join();
+        require(transport.lastRequest.getData("query") == null
+                        && transport.lastRequest.getData("enrollmentStatus") == null,
+                "an absent filter must be omitted so the server keeps its own default");
+    }
+
+    /** 成绩导出：只带教学班（成绩表是服务端的事实来源，没有任何可替换的过滤条件）。 */
+    private static void gradeExportAsksForTheDraftOfOneOffering() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("ticket", wireShaped(ticketDto(
+                TeacherFileTicketDTO.DIRECTION_DOWNLOAD))));
+        SocketTeacherCourseService service = new SocketTeacherCourseService(transport);
+
+        TeacherFileTicketDTO ticket = service.requestGradeExport(OFFERING_ID).join();
+        requireEnvelope(transport, "requestGradeExport");
+        require(OFFERING_ID.equals(transport.lastRequest.getData("offeringId")),
+                "the grade export must name the offering as an exact decimal string");
+        require(transport.lastRequest.getData("request") == null
+                        && transport.lastRequest.getData("query") == null,
+                "a grade export carries neither a write body nor list filters");
+        require(TeacherFileTicketDTO.DIRECTION_DOWNLOAD.equals(ticket.getDirection()),
+                "the grade export must be a download ticket");
+    }
+
+    /** 上传 → 预览 → 修订 → 确认：四种请求体与三种响应键（ticket/preview/result）各就各位。 */
+    private static void uploadPreviewReviseAndConfirmUseTheirOwnShapes() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> message.putData("ticket",
+                wireShaped(ticketDto(TeacherFileTicketDTO.DIRECTION_UPLOAD))));
+        SocketTeacherCourseService service = new SocketTeacherCourseService(transport);
+
+        TeacherFileUploadRequestDTO upload = new TeacherFileUploadRequestDTO(OFFERING_ID, 4,
+                "成绩.xlsx", 2048L, ROSTER_DIGEST);
+        TeacherFileTicketDTO ticket = service.beginGradeUpload(upload).join();
+        requireEnvelope(transport, "beginGradeUpload");
+        require(transport.lastRequest.getData("request") == upload,
+                "the upload request must travel as its typed DTO under request");
+        require(TeacherFileTicketDTO.DIRECTION_UPLOAD.equals(ticket.getDirection()),
+                "an upload ticket must be the UPLOAD direction");
+        require(transport.lastRequest.getData("sha256") == null,
+                "the file digest belongs to the typed body, not to a flat request field");
+
+        transport.respond(message -> message.putData("preview", wireShaped(importPreview(1, 2))));
+        GradeImportPreviewDTO preview = service.previewGradeImport(
+                new PreviewGradeImportRequestDTO("ticket-1", writeGradeDto().getContent())).join();
+        requireEnvelope(transport, "previewGradeImport");
+        require(transport.lastRequest.getData("request") instanceof PreviewGradeImportRequestDTO,
+                "the preview request must travel under request");
+        require(preview.getPreviewRevision() == 1 && preview.getCandidate() != null
+                        && preview.getIssues().size() == 1,
+                "the preview payload must map its revision, candidate and issues");
+        require("00005678".equals(preview.getIssues().get(0).getStudentUid())
+                        && GradeImportRowIssueDTO.FIELD_FINALTERM_SCORE.equals(
+                                preview.getIssues().get(0).getField()),
+                "an issue must keep its student and field names verbatim");
+
+        transport.respond(message -> message.putData("preview", wireShaped(importPreview(2, 0))));
+        ReviseGradeImportRequestDTO revise = new ReviseGradeImportRequestDTO("ticket-1", 1,
+                List.of(new GradeImportCorrectionDTO(3,
+                        java.util.Map.of(GradeImportRowIssueDTO.FIELD_FINALTERM_SCORE, "88"))),
+                List.of(5));
+        GradeImportPreviewDTO revised = service.reviseGradeImport(revise).join();
+        requireEnvelope(transport, "reviseGradeImport");
+        require(transport.lastRequest.getData("request") == revise,
+                "the revise must travel as its typed DTO under request");
+        require(revised.getPreviewRevision() == 2 && revised.getErrorRows() == 0,
+                "the revised preview must map its incremented revision and counters");
+
+        transport.respond(message -> message.putData("result", wireShaped(
+                new TeacherOperationResultDTO<>(OPERATION_ID, "导入已保存到成绩草稿",
+                        gradeBookDto(), false))));
+        ConfirmGradeImportRequestDTO confirm = new ConfirmGradeImportRequestDTO(OPERATION_ID,
+                "ticket-1", 2, 4);
+        TeacherOperationResultDTO<TeacherGradeBookDTO> confirmed =
+                service.confirmGradeImport(confirm).join();
+        requireEnvelope(transport, "confirmGradeImport");
+        require(transport.lastRequest.getData("request") == confirm,
+                "the confirm must travel as its typed DTO under request");
+        require(transport.lastRequest.getData("content") == null,
+                "a confirm request never carries grade content; the candidate stays on the server");
+        require(OPERATION_ID.equals(confirmed.getOperationId()) && confirmed.getValue() != null,
+                "the confirm result must map through the shared operation envelope");
+    }
+
+    /** 取消：请求体是「只有令牌」的 JSON 对象（服务端按标量读它），响应没有载荷。 */
+    private static void cancelSendsTheTokenScalarAndExpectsNoPayload() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> { });
+        SocketTeacherCourseService service = new SocketTeacherCourseService(transport);
+
+        service.cancelGradeImport("ticket-1").join();
+        requireEnvelope(transport, "cancelGradeImport");
+        Object body = transport.lastRequest.getData("request");
+        require(body instanceof java.util.Map<?, ?> values
+                        && "ticket-1".equals(values.get("importToken")),
+                "the cancel body must be the token object, saw " + body);
+        require(((java.util.Map<?, ?>) body).size() == 1,
+                "the cancel body must carry nothing but the token");
+    }
+
+    /** 过期/他人的导入令牌：NOT_FOUND 与它的中文原因原样到达界面，客户端不换成自己的话。 */
+    private static void expiredImportTokenKeepsTheServerMessage() {
+        FakeTransport transport = new FakeTransport();
+        transport.respond(message -> {
+            message.setCode(MessageCode.NOT_FOUND);
+            message.setMessage("导入预览已过期，请重新导入");
+        });
+        SocketTeacherCourseService service = new SocketTeacherCourseService(transport);
+
+        try {
+            service.reviseGradeImport(new ReviseGradeImportRequestDTO("gone", 1, List.of(),
+                    List.of())).join();
+            throw new AssertionError("an expired import token must fail the future");
+        } catch (CompletionException failure) {
+            if (!(failure.getCause()
+                    instanceof SocketTeacherCourseService.TeacherCourseServiceException error)) {
+                throw new AssertionError("unexpected cause " + failure.getCause(),
+                        failure.getCause());
+            }
+            require(error.getCode() == MessageCode.NOT_FOUND,
+                    "the expiry must keep the NOT_FOUND code");
+            require("导入预览已过期，请重新导入".equals(error.getMessage()),
+                    "the server message must survive the mapping");
+        }
+    }
+
+    private static TeacherFileTicketDTO ticketDto(String direction) {
+        return new TeacherFileTicketDTO("ticket-1", direction, 8889, 4096L, 5L * 1024 * 1024,
+                ROSTER_DIGEST, "2026-09-16T00:00:00Z");
+    }
+
+    private static GradeImportPreviewDTO importPreview(int revision, int errorRows) {
+        java.util.List<GradeImportRowIssueDTO> issues = errorRows == 0 ? java.util.List.of()
+                : java.util.List.of(new GradeImportRowIssueDTO(3, "00005678", "张三",
+                        GradeImportRowIssueDTO.FIELD_FINALTERM_SCORE, "abc",
+                        "期末成绩必须是 0..100 的数字", false));
+        return new GradeImportPreviewDTO("token-" + revision, revision,
+                writeGradeDto().getContent(), 2, 2 - errorRows, errorRows, issues,
+                "2026-09-16T00:10:00Z");
+    }
+
     private static WriteGradeBookRequestDTO writeGradeDto() {
         return new WriteGradeBookRequestDTO(OPERATION_ID, new GradeBookContentDTO(OFFERING_ID, 4,
                 ROSTER_DIGEST, new GradeSchemeDTO(List.of(
@@ -843,6 +1245,20 @@ public final class SocketTeacherCourseServiceTest {
                 List.of(new AdjustmentTargetDTO(OCCURRENCE_ID, 8, "2026-10-26T00:00:00Z",
                         "2026-10-26T01:35:00Z", "陈老师", null, "A-101", TARGET_DATE)),
                 List.of(), "2026-09-14T08:00:00Z", null, null, null);
+    }
+
+    /** 统一「我的申请」的一行：字符串状态、状态键与未读标志都来自服务端。 */
+    private static TeacherApplicationDTO applicationRow() {
+        return new TeacherApplicationDTO(TeacherApplicationDTO.SCHEDULE_ADJUSTMENT, REQUEST_ID,
+                OFFERING_ID, "人机交互导论　CS352-01", "APPROVED", "2026-09-14T08:00:00Z",
+                "2026-09-14T09:00:00Z", "同意", false, "APPROVED:2026-09-14T09:00:00Z", true);
+    }
+
+    /** 标记已读之后服务端返回的同一行：键不变，未读变为 false。 */
+    private static TeacherApplicationDTO readApplicationRow() {
+        return new TeacherApplicationDTO(TeacherApplicationDTO.SCHEDULE_ADJUSTMENT, REQUEST_ID,
+                OFFERING_ID, "人机交互导论　CS352-01", "APPROVED", "2026-09-14T08:00:00Z",
+                "2026-09-14T09:00:00Z", "同意", false, "APPROVED:2026-09-14T09:00:00Z", false);
     }
 
     private static AdjustmentRequestSummaryDTO adjustmentSummary() {

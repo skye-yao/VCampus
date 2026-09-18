@@ -5,6 +5,7 @@
 <?import javafx.scene.control.ComboBox?>
 <?import javafx.scene.control.Label?>
 <?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.control.Spinner?>
 <?import javafx.scene.layout.GridPane?>
 <?import javafx.scene.layout.HBox?>
 <?import javafx.scene.layout.Region?>
@@ -13,25 +14,24 @@
 
 <!--
   教师教学课程表（设计 §3）：日期列、节次行与可滚动网格都由控制器按响应动态生成，这里只声明外壳。
-  网格放进 ScrollPane（fitToWidth/fitToHeight 关闭），因此 860x580 里可以横向与纵向滚动；页面自身
-  不声明比外壳更大的 pref 尺寸。样式全部来自 teacher-course.css。
+  网格放进 ScrollPane，并且 fitToWidth/fitToHeight 都打开：网格因此会被拉伸到视口大小（铺满可用
+  区域），视口装不下时（例如窗口拉小）才按网格自己的最小尺寸渲染并滚动。页面自身不声明比外壳更大的
+  pref 尺寸。样式全部来自 teacher-course.css。
 -->
 <VBox spacing="10.0" styleClass="teacher-course-page" xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.TeacherScheduleController">
     <children>
         <HBox alignment="CENTER_LEFT" spacing="10.0" styleClass="teacher-course-toolbar">
             <children>
                 <ComboBox fx:id="termFilter" prefWidth="200.0" promptText="学期" styleClass="teacher-course-term-filter" />
-                <Region HBox.hgrow="ALWAYS" />
+                <Spinner fx:id="weekSpinner" editable="true" prefWidth="92.0" />
                 <Button fx:id="currentWeekButton" onAction="#handleBackToCurrentWeek" styleClass="teacher-course-page-button" text="回到本周" />
-                <Button fx:id="previousWeekButton" onAction="#handlePreviousWeek" styleClass="teacher-course-page-button" text="上一周" />
-                <Label fx:id="weekLabel" styleClass="teacher-schedule-week-label" text="" />
-                <Button fx:id="nextWeekButton" onAction="#handleNextWeek" styleClass="teacher-course-page-button" text="下一周" />
+                <Region HBox.hgrow="ALWAYS" />
                 <Button fx:id="refreshButton" onAction="#refresh" styleClass="teacher-course-refresh-button" text="刷新" />
             </children>
         </HBox>
         <StackPane styleClass="teacher-course-list-area" VBox.vgrow="ALWAYS">
             <children>
-                <ScrollPane fx:id="scheduleScroll" fitToHeight="false" fitToWidth="false" maxHeight="1.7976931348623157E308" maxWidth="1.7976931348623157E308" styleClass="teacher-schedule-scroll" StackPane.alignment="CENTER">
+                <ScrollPane fx:id="scheduleScroll" fitToHeight="true" fitToWidth="true" maxHeight="1.7976931348623157E308" maxWidth="1.7976931348623157E308" styleClass="teacher-schedule-scroll" StackPane.alignment="CENTER">
                     <content>
                         <GridPane fx:id="scheduleGrid" maxHeight="1.7976931348623157E308" maxWidth="1.7976931348623157E308" styleClass="teacher-schedule-grid" />
                     </content>

@@ -22,7 +22,7 @@ import model.course.CoursePushEventView;
 import model.course.CourseTermView;
 import model.course.CourseView;
 import model.course.GradeSummaryView;
-import model.course.ScheduleEntryView;
+import model.course.ScheduleWeekView;
 import model.course.TrainingPlanGroupView;
 import model.course.WaitlistDecision;
 
@@ -400,9 +400,10 @@ public final class CoursePushCoordinatorTest {
             return onSubscribe.apply(listener);
         }
 
-        @Override public CompletableFuture<List<ScheduleEntryView>> loadSchedule(
-                CourseTermView term, int week) {
-            return CompletableFuture.completedFuture(Collections.emptyList());
+        @Override public CompletableFuture<ScheduleWeekView> loadSchedule(
+                CourseTermView term, Integer week) {
+            return CompletableFuture.completedFuture(
+                    new ScheduleWeekView(1, List.of(), List.of(), List.of()));
         }
 
         @Override public CompletableFuture<List<CourseNoticeView>> loadNotices(

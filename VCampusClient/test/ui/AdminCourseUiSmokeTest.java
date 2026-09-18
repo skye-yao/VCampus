@@ -43,6 +43,7 @@ import dto.course.admin.catalog.CourseEditorRequestDTO;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
 import dto.course.admin.enrollment.AdminEnrollmentPreviewDTO;
 import dto.course.admin.enrollment.AdminEnrollmentRequestDTO;
+import dto.course.admin.schedule.CheckArrangementResultDTO;
 import dto.course.admin.schedule.SaveArrangementRequestDTO;
 import dto.course.admin.schedule.ScheduleConflictDTO;
 import dto.course.admin.schedule.ScheduleConflictSeverityDTO;
@@ -2203,11 +2204,13 @@ public final class AdminCourseUiSmokeTest {
         }
 
         @Override
-        public CompletableFuture<List<ScheduleConflictDTO>> checkArrangement(
+        public CompletableFuture<CheckArrangementResultDTO> checkArrangement(
                 SaveArrangementRequestDTO request) {
             lastArrangementPreview = request;
-            if (injectedConflicts != null) {
-                return CompletableFuture.completedFuture(injectedConflicts);
+            if (injectedConflicts != null || injectedPlanConflicts != null) {
+                return CompletableFuture.completedFuture(new CheckArrangementResultDTO(
+                        injectedConflicts == null ? List.of() : injectedConflicts,
+                        injectedPlanConflicts == null ? List.of() : injectedPlanConflicts));
             }
             return delegate.checkArrangement(request);
         }

@@ -43,19 +43,24 @@ public final class CourseConflictMySqlTest {
     private static final long ROOM_A = 900004L;
     private static final long ROOM_B = 900005L;
     private static final long ROOM_C = 900006L;
+    private static final long ROOM_D = 900007L;
     // A DST-observing calendar: 2026-03-08 turns US clocks forward, so week 1 and week 2 of the
     // same weekday resolve to different UTC offsets.
     private static final long DAYLIGHT_CALENDAR = 900100L;
     private static final long DAYLIGHT_PLAN = 900101L;
     // A plan holding one arrangement with no slots, used to prove the publication gate sees it.
     private static final long SLOTLESS_PLAN = 900103L;
+    // 甲1: three offerings sharing one teacher in the same week and slot.
+    private static final long SHARED_TEACHER_PLAN = 900104L;
 
     private static final String ACTIVE = "ACTIVE";
     private static final String DISABLED = "DISABLED";
 
     // Seeded test offerings: 2001 -> course 1001 (ACTIVE, capacity 30), 2004 -> course 1002.
+    // 2002 (course 1001, same capacity) is the third offering of the shared-teacher fixture.
     private static final long OFFERING_SELF = 2001L;
     private static final long OFFERING_OTHER = 2004L;
+    private static final long OFFERING_THIRD = 2002L;
 
     private CourseConflictMySqlTest() {
     }
@@ -74,12 +79,14 @@ public final class CourseConflictMySqlTest {
             verifyAssistantOverlap(conflicts);
             verifyClassroomOverlap(conflicts);
             verifyClassroomCapacity(conflicts);
+            verifyWeekRangeMerge(conflicts);
             verifyBoundaryTouch(conflicts);
             verifyEditingExcludesOwnOccurrences(conflicts);
             verifyActiveAdjustmentReplacesOriginal(conflicts);
             verifyDisabledRowsAreInvisible(conflicts);
             verifyDaylightSavingOffset(conflicts);
             verifySlotlessArrangementBlocksPublication(conflicts);
+            verifyPlanConflictsKeepEveryOffering(conflicts);
             verifyArrangementListingSkipsDisabled();
         } finally {
             cleanup();
@@ -95,11 +102,16 @@ public final class CourseConflictMySqlTest {
         requireOnly(result, "OFFERING_OVERLAP", BLOCKING, "self overlap");
     }
 
-    private static void verifyTeacherOverlap(CourseConflictService conflicts) {
+    private static void verifyTeacherOverlap(CourseConflictService conflicts) throws Exception {
         List<ScheduleConflictDTO> result =
                 conflicts.check(candidate(OFFERING_SELF, "teacher-alpha", null, ROOM_C,
                         slot(1, 1, 1), 1, 1, null));
         requireOnly(result, "TEACHER_OVERLAP", OVERRIDABLE, "teacher");
+        ScheduleConflictDTO overlap = result.get(0);
+        require(Long.toString(OFFERING_SELF).equals(overlap.getOfferingId())
+                        && offeringCode(OFFERING_SELF).equals(overlap.getOfferingLabel()),
+                "overlap conflicts must name the offering they belong to, got offering="
+                        + overlap.getOfferingId() + " label=" + overlap.getOfferingLabel());
     }
 
     private static void verifyAssistantOverlap(CourseConflictService conflicts) {
@@ -116,11 +128,68 @@ public final class CourseConflictMySqlTest {
         requireOnly(result, "CLASSROOM_OVERLAP", OVERRIDABLE, "room");
     }
 
-    private static void verifyClassroomCapacity(CourseConflictService conflicts) {
+    private static void verifyClassroomCapacity(CourseConflictService conflicts) throws Exception {
         List<ScheduleConflictDTO> result =
                 conflicts.check(candidate(OFFERING_SELF, "teacher-alpha", null, ROOM_B,
                         slot(3, 1, 1), 2, 2, null));
         requireOnly(result, "CLASSROOM_CAPACITY", OVERRIDABLE, "capacity");
+        ScheduleConflictDTO capacity = result.get(0);
+        require(Long.toString(OFFERING_SELF).equals(capacity.getRelatedOfferingId())
+                        && Long.toString(OFFERING_SELF).equals(capacity.getOfferingId())
+                        && offeringCode(OFFERING_SELF).equals(capacity.getOfferingLabel()),
+                "the capacity conflict must name its own offering, got related="
+                        + capacity.getRelatedOfferingId() + " offering="
+                        + capacity.getOfferingId() + " label=" + capacity.getOfferingLabel());
+    }
+
+    /** 归属标签的期望值：不硬编码种子代码，直接读受保护测试库里的真实值。 */
+    private static String offeringCode(long offeringId) throws SQLException {
+        return text("SELECT offering_code FROM course_offering WHERE offering_id=" + offeringId);
+    }
+
+    /**
+     * 甲4：跨 N 周的一条安排会把同一条冲突按周各报一次，mergeWeekRanges 把连续周次合并成区间；
+     * 但「第 1 周和第 3 周」这种不相邻的周次必须保持两条——按 min..max 合并会凭空造出第 2 周的课。
+     * 引擎本身（check）不改：合并只发生在消费点，所以这里显式调用助手。
+     */
+    private static void verifyWeekRangeMerge(CourseConflictService conflicts) {
+        List<ScheduleConflictDTO> weekly = conflicts.check(candidate(OFFERING_SELF,
+                "teacher-delta", null, ROOM_A, slot(3, 2, 2), 1, 2, null));
+        require(weekly.size() == 2 && weekly.get(0).getWeek() == 1 && weekly.get(1).getWeek() == 2,
+                "the engine still reports one conflict per week, got " + positions(weekly));
+
+        List<ScheduleConflictDTO> merged = CourseConflictService.mergeWeekRanges(weekly);
+        require(merged.size() == 1,
+                "two contiguous weekly conflicts must merge into one range, got "
+                        + positions(merged));
+        ScheduleConflictDTO range = merged.get(0);
+        require("TEACHER_OVERLAP".equals(range.getType()) && range.getWeek() == 1
+                        && range.getEndWeek() == 2,
+                "the merged conflict must span weeks 1-2, got " + range.getType() + " "
+                        + range.getWeek() + "-" + range.getEndWeek());
+        require(CourseConflictService.mergeWeekRanges(merged).size() == 1,
+                "merging an already merged range must not split it again");
+
+        List<ScheduleConflictDTO> gapped = conflicts.check(candidate(OFFERING_SELF,
+                "teacher-epsilon", null, ROOM_A, slot(5, 2, 2), 1, 3, null));
+        require(gapped.size() == 2 && gapped.get(0).getWeek() == 1 && gapped.get(1).getWeek() == 3,
+                "the candidate spans 1..3 but the other arrangement only occupies 1 and 3, got "
+                        + positions(gapped));
+        List<ScheduleConflictDTO> separate = CourseConflictService.mergeWeekRanges(gapped);
+        require(separate.size() == 2,
+                "non-contiguous weeks must stay two conflicts, got " + positions(separate));
+        require(separate.get(0).getWeek() == 1 && separate.get(0).getEndWeek() == 1
+                        && separate.get(1).getWeek() == 3 && separate.get(1).getEndWeek() == 3,
+                "each non-contiguous week is its own single-week range, got "
+                        + positions(separate));
+    }
+
+    private static String positions(List<ScheduleConflictDTO> conflicts) {
+        List<String> parts = new ArrayList<>();
+        for (ScheduleConflictDTO conflict : conflicts) {
+            parts.add(conflict.getType() + "@" + conflict.getWeek() + "-" + conflict.getEndWeek());
+        }
+        return parts.toString();
     }
 
     private static void verifyBoundaryTouch(CourseConflictService conflicts) {
@@ -189,8 +258,55 @@ public final class CourseConflictMySqlTest {
     }
 
     private static void verifySlotlessArrangementBlocksPublication(CourseConflictService conflicts) {
-        expect(IllegalArgumentException.class, () -> conflicts.checkPlan(SLOTLESS_PLAN),
+        // 读路径容忍不完整的安排，发布门不容忍——两半语义各自钉一条。
+        require(conflicts.checkPlan(SLOTLESS_PLAN).isEmpty(),
+                "a slotless arrangement must be skipped, not fatal, on the read path");
+        expect(IllegalArgumentException.class, () -> conflicts.requirePublishable(SLOTLESS_PLAN),
                 "an arrangement with no slots must not be invisible to the publication gate");
+    }
+
+    /**
+     * 甲1：方案级 checkPlan 的 seen 跨 candidate 共享，去重键必须带上产生该冲突的教学班。三个教学班
+     * 共用同一位教师、同一周同一节次时，B 报出的「与 C 冲突」过去会被 A 报出的同键条目吞掉，某个
+     * 教学班在方案级列表里整个消失（界面上「其他教学班」区看不到它）。每张安排与另外两班各冲突一次，
+     * 三间教室互不相同且容量都够，所以恰好 6 条、每个教学班各占 2 条。
+     */
+    private static void verifyPlanConflictsKeepEveryOffering(CourseConflictService conflicts) {
+        List<String> offerings = List.of(Long.toString(OFFERING_SELF),
+                Long.toString(OFFERING_THIRD), Long.toString(OFFERING_OTHER));
+        List<ScheduleConflictDTO> plan = conflicts.checkPlan(SHARED_TEACHER_PLAN);
+        require(plan.size() == 6,
+                "three offerings sharing a teacher must keep two overlaps each, got "
+                        + ownership(plan));
+        for (String offeringId : offerings) {
+            int own = 0;
+            for (ScheduleConflictDTO conflict : plan) {
+                if (offeringId.equals(conflict.getOfferingId())) own++;
+            }
+            require(own == 2, "every offering must keep its own two entries, offering " + offeringId
+                    + " owns " + own + " in " + ownership(plan));
+        }
+        for (ScheduleConflictDTO conflict : plan) {
+            require("TEACHER_OVERLAP".equals(conflict.getType())
+                            && conflict.getSeverity() == OVERRIDABLE,
+                    "the shared teacher must be reported as an overridable overlap, got "
+                            + conflict.getType() + " " + conflict.getSeverity());
+            require(conflict.getWeek() == 1 && conflict.getEndWeek() == 1,
+                    "a one-week shared slot must stay a single week, got " + conflict.getWeek()
+                            + "-" + conflict.getEndWeek());
+            require(offerings.contains(conflict.getRelatedOfferingId())
+                            && !conflict.getRelatedOfferingId().equals(conflict.getOfferingId()),
+                    "each entry must name one of the other two offerings, got "
+                            + conflict.getOfferingId() + "->" + conflict.getRelatedOfferingId());
+        }
+    }
+
+    private static String ownership(List<ScheduleConflictDTO> conflicts) {
+        List<String> parts = new ArrayList<>();
+        for (ScheduleConflictDTO conflict : conflicts) {
+            parts.add(conflict.getOfferingId() + "->" + conflict.getRelatedOfferingId());
+        }
+        return parts.toString();
     }
 
     private static void verifyArrangementListingSkipsDisabled() throws Exception {
@@ -203,7 +319,7 @@ public final class CourseConflictMySqlTest {
                 : service.listArrangements(Long.toString(PLAN), null)) {
             listed.add(arrangement.getArrangementId());
         }
-        require(listed.size() == 6 && !listed.contains("910008"),
+        require(listed.size() == 8 && !listed.contains("910008"),
                 "listArrangements must report only ACTIVE arrangements, got " + listed);
     }
 
@@ -243,7 +359,10 @@ public final class CourseConflictMySqlTest {
 
     private static void insertFixtures() throws SQLException {
         execute("INSERT INTO tbl_user(UID,name,password,salt,role,college,major) VALUES"
-                + "('teacher-gamma','Course Test Teacher C','x','x',1,'Engineering','Lecturer')");
+                + "('teacher-gamma','Course Test Teacher C','x','x',1,'Engineering','Lecturer'),"
+                + "('teacher-delta','Course Test Teacher D','x','x',1,'Engineering','Lecturer'),"
+                + "('teacher-epsilon','Course Test Teacher E','x','x',1,'Engineering','Lecturer'),"
+                + "('teacher-zeta','Course Test Teacher Z','x','x',1,'Engineering','Lecturer')");
         execute("INSERT INTO teaching_calendar(id,name,academic_year,semester,week1_start_date,"
                 + "timezone,version,status) VALUES(" + CALENDAR + ",'Conflict test calendar',"
                 + "2026,3,'2026-09-07','Asia/Shanghai',1,'PUBLISHED')");
@@ -256,7 +375,9 @@ public final class CourseConflictMySqlTest {
                 + "(900012," + TEMPLATE + ",3,'09:30:00','10:15:00'),"
                 + "(900013," + TEMPLATE + ",4,'10:15:00','11:00:00')");
         int dateId = 900020;
-        for (int week = 1; week <= 2; week++) {
+        // Week 3 exists for the gap fixture: a candidate spanning 1..3 with the other arrangement
+        // occupying only weeks 1 and 3 proves the merge never fills week 2 in.
+        for (int week = 1; week <= 3; week++) {
             for (int day = 1; day <= 5; day++) {
                 String date = LocalDate.parse("2026-09-07")
                         .plusDays((week - 1) * 7L + day - 1).toString();
@@ -272,7 +393,8 @@ public final class CourseConflictMySqlTest {
         execute("INSERT INTO classroom(id,name,capacity,electric) VALUES"
                 + "(" + ROOM_A + ",'Conflict Room A',60,1),"
                 + "(" + ROOM_B + ",'Conflict Room B',5,1),"
-                + "(" + ROOM_C + ",'Conflict Room C',60,1)");
+                + "(" + ROOM_C + ",'Conflict Room C',60,1),"
+                + "(" + ROOM_D + ",'Conflict Room D',60,1)");
 
         // OFFERING_OVERLAP: same offering, different teacher, different room.
         scheduled(910001L, 911001L, 912001L, OFFERING_SELF, "teacher-alpha", null, ROOM_A,
@@ -308,6 +430,26 @@ public final class CourseConflictMySqlTest {
         // DISABLED rule and arrangement: the same window as the disabled-check candidate.
         scheduled(910008L, 911008L, 912008L, PLAN, OFFERING_SELF, "teacher-alpha", null, ROOM_C,
                 DISABLED, week(1, 5), slot(5, 1, 1));
+
+        // Week-range merge fixtures, both on windows no other fixture uses. 910010 spans weeks 1-2
+        // contiguously; 910011 occupies weeks 1 and 3 only, leaving week 2 free.
+        scheduledWeeks(910010L, 911010L, 912010L, OFFERING_OTHER, "teacher-delta", ROOM_C,
+                slot(3, 2, 2), 1, 2);
+        scheduledWeeks(910011L, 911011L, 912012L, OFFERING_OTHER, "teacher-epsilon", ROOM_C,
+                slot(5, 2, 2), 1, 3);
+
+        // 甲1: three offerings sharing one teacher in the same week and slot, each in its own room
+        // of sufficient capacity — so every arrangement reports exactly the two teacher overlaps it
+        // has with the other two, and nothing else.
+        execute("INSERT INTO schedule_plan(id,name,calendar_id,revision,status,created_at,"
+                + "updated_at) VALUES(" + SHARED_TEACHER_PLAN + ",'Conflict shared-teacher plan',"
+                + CALENDAR + ",1,'DRAFT','2026-08-01 00:00:00','2026-08-01 00:00:00')");
+        scheduled(910020L, 911020L, 912020L, SHARED_TEACHER_PLAN, OFFERING_SELF, "teacher-zeta",
+                null, ROOM_A, ACTIVE, week(1, 3), slot(3, 4, 4));
+        scheduled(910021L, 911021L, 912021L, SHARED_TEACHER_PLAN, OFFERING_THIRD, "teacher-zeta",
+                null, ROOM_D, ACTIVE, week(1, 3), slot(3, 4, 4));
+        scheduled(910022L, 911022L, 912022L, SHARED_TEACHER_PLAN, OFFERING_OTHER, "teacher-zeta",
+                null, ROOM_C, ACTIVE, week(1, 3), slot(3, 4, 4));
 
         // An arrangement that occupies nothing because it has no slots at all.
         execute("INSERT INTO schedule_plan(id,name,calendar_id,revision,status,created_at,"
@@ -353,6 +495,25 @@ public final class CourseConflictMySqlTest {
                 period(slot.getEndPeriod(), false));
         insertOccurrence(occurrenceId, ruleId, planId, range[0], range[1], at.week(),
                 slot.getDayOfWeek());
+    }
+
+    /**
+     * One ACTIVE arrangement in {@link #PLAN} covering exactly the given weeks — one rule, one
+     * rule_week row and one occurrence per week, with occurrence ids counting up from
+     * {@code occurrenceId}. Same-week gaps stay gaps.
+     */
+    private static void scheduledWeeks(long arrangementId, long ruleId, long occurrenceId,
+                                       long offeringId, String teacher, long classroomId,
+                                       ScheduleSlotDTO slot, int... weeks) throws SQLException {
+        insertArrangement(arrangementId, PLAN, offeringId, teacher, null, classroomId, ACTIVE);
+        insertRule(ruleId, PLAN, offeringId, arrangementId, slot, ACTIVE);
+        for (int index = 0; index < weeks.length; index++) {
+            insertRuleWeek(ruleId, weeks[index]);
+            String[] range = utc(week(weeks[index], slot.getDayOfWeek()).date(),
+                    period(slot.getStartPeriod(), true), period(slot.getEndPeriod(), false));
+            insertOccurrence(occurrenceId + index, ruleId, PLAN, range[0], range[1], weeks[index],
+                    slot.getDayOfWeek());
+        }
     }
 
     /** Inserts an arrangement in another calendar whose occurrence UTC window is written literally. */
@@ -439,7 +600,8 @@ public final class CourseConflictMySqlTest {
         execute("DELETE FROM period_definition WHERE id BETWEEN 900000 AND 900999");
         execute("DELETE FROM day_template WHERE id BETWEEN 900000 AND 900999");
         execute("DELETE FROM teaching_calendar WHERE id BETWEEN 900000 AND 900999");
-        execute("DELETE FROM tbl_user WHERE UID='teacher-gamma'");
+        execute("DELETE FROM tbl_user WHERE UID IN"
+                + " ('teacher-gamma','teacher-delta','teacher-epsilon','teacher-zeta')");
     }
 
     private static void requireTestDatabase() throws Exception {
@@ -498,7 +660,8 @@ public final class CourseConflictMySqlTest {
                 && count("SELECT COUNT(*) FROM classroom WHERE id BETWEEN 900000 AND 900999") == 0
                 && count("SELECT COUNT(*) FROM calendar_date"
                 + " WHERE calendar_id BETWEEN 900000 AND 900999") == 0
-                && count("SELECT COUNT(*) FROM tbl_user WHERE UID='teacher-gamma'") == 0,
+                && count("SELECT COUNT(*) FROM tbl_user WHERE UID IN"
+                + " ('teacher-gamma','teacher-delta','teacher-epsilon','teacher-zeta')") == 0,
                 "cleanup must leave no fixture row behind");
     }
 

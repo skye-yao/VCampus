@@ -21,7 +21,6 @@ import org.w3c.dom.NodeList;
 import com.google.gson.JsonObject;
 import dto.course.CourseTermDTO;
 import dto.course.admin.schedule.ScheduleArrangementDTO;
-import dto.course.admin.schedule.ScheduleResourceDTO;
 import dto.course.teacher.TeacherOfferingDTO;
 import dto.course.teacher.TeacherOfferingDetailDTO;
 import dto.course.teacher.TeacherPageDTO;
@@ -285,25 +284,20 @@ public final class TeacherOfferingControllerTest {
                 "2001", "CS203", "数据结构与算法基础", 4.0, 2025, 3, 2, 30, "OPEN");
         service.offeringPage = offeringPage(1, 1, 20, offering);
 
-        // 名单模拟：2 名学生
-        TeacherRosterRowDTO s1 = new TeacherRosterRowDTO("e1", "213001", "张三", "计算机", "ENROLLED", null, null);
-        TeacherRosterRowDTO s2 = new TeacherRosterRowDTO("e2", "213002", "李四", "软件", "ENROLLED", null, null);
-        service.studentPages.put(FULL_ROSTER, new TeacherPageDTO<>(List.of(s1, s2), 2, 1, 100));
-
-        // 详情模拟：1 名同班任课教师
-        ScheduleResourceDTO coTeacher = new ScheduleResourceDTO("t002", "t002", "王老师", "teacher", 0);
-        service.offeringDetails.put(FULL_ROSTER, new TeacherOfferingDetailDTO(offering, List.of(coTeacher), "计算机学院", "简介"));
-
-        // 模拟 ChatClientService
+        // 成员名单由服务端按教学班权威数据组装，客户端只发送 offeringId。
         List<Map<String, Object>> createdGroups = new ArrayList<>();
         ChatClientService chatService = new ChatClientService() {
             @Override
             public CompletableFuture<JsonObject> call(String action, Map<String, Object> data) {
-                if ("GROUP_CREATE".equals(action)) {
+                if ("COURSE_GROUP_CREATE".equals(action)) {
                     createdGroups.add(data);
                     JsonObject res = new JsonObject();
                     res.addProperty("groupId", 888L);
-                    res.addProperty("name", (String) data.get("name"));
+                    res.addProperty("name", offering.getOfferingName());
+                    res.addProperty("offeringId", offering.getOfferingId());
+                    res.addProperty("created", true);
+                    res.addProperty("studentCount", 2);
+                    res.addProperty("teacherCount", 1);
                     return CompletableFuture.completedFuture(res);
                 }
                 return CompletableFuture.completedFuture(new JsonObject());
@@ -313,22 +307,21 @@ public final class TeacherOfferingControllerTest {
         TeacherOfferingController controller = new TeacherOfferingController(service, chatService, Runnable::run);
         controller.activate();
 
-        require(!controller.isGroupCreated("数据结构 CS203-01"), "group should not be created initially");
+        require(!controller.isGroupCreated(FULL_ROSTER), "group should not be created initially");
 
         boolean success = controller.createGroupChat(offering).join();
         require(success, "createGroupChat should succeed");
 
         // 校验 ChatClientService 被正确调用
-        require(createdGroups.size() == 1, "GROUP_CREATE must be called once, saw " + createdGroups.size());
+        require(createdGroups.size() == 1,
+                "COURSE_GROUP_CREATE must be called once, saw " + createdGroups.size());
         Map<String, Object> createData = createdGroups.get(0);
-        require("数据结构 CS203-01".equals(createData.get("name")), "group name must be offering name");
-        @SuppressWarnings("unchecked")
-        List<String> members = (List<String>) createData.get("members");
-        require(members.contains("213001") && members.contains("213002"), "students must be added");
-        require(members.contains("t002"), "co-teachers must be added");
+        require(FULL_ROSTER.equals(createData.get("offeringId")),
+                "client must identify the teaching class and let the server derive its members");
+        require(createData.size() == 1, "course group creation must not trust client-supplied members");
 
         // 校验控制器状态
-        require(controller.isGroupCreated("数据结构 CS203-01"), "group must be recorded as created");
+        require(controller.isGroupCreated(FULL_ROSTER), "group must be recorded as created");
         require(!controller.isGroupCreating(FULL_ROSTER), "creating flag must be cleared");
     }
 
@@ -359,8 +352,8 @@ public final class TeacherOfferingControllerTest {
 
         boolean second = controller.createGroupChat(offering).join();
         require(!second, "second group creation must be rejected");
-        long createCalls = calls.stream().filter("GROUP_CREATE"::equals).count();
-        require(createCalls == 1, "GROUP_CREATE should only be called once, saw " + createCalls);
+        long createCalls = calls.stream().filter("COURSE_GROUP_CREATE"::equals).count();
+        require(createCalls == 1, "COURSE_GROUP_CREATE should only be called once, saw " + createCalls);
     }
 
     private static void existingGroupsAreSyncedAndRecognized() {
@@ -379,6 +372,8 @@ public final class TeacherOfferingControllerTest {
                     JsonObject g = new JsonObject();
                     g.addProperty("name", "数据结构 CS203-01");
                     g.addProperty("ownerUid", "t001");
+                    g.addProperty("offeringId", FULL_ROSTER);
+                    g.addProperty("groupId", 100L);
                     groups.add(g);
                     res.add("groups", groups);
                     return CompletableFuture.completedFuture(res);
@@ -390,7 +385,7 @@ public final class TeacherOfferingControllerTest {
         TeacherOfferingController controller = new TeacherOfferingController(service, chatService, Runnable::run);
         controller.activate(); // 自动触发 syncExistingGroups()
 
-        require(controller.isGroupCreated("数据结构 CS203-01"), "existing group must be detected from GROUP_LIST");
+        require(controller.isGroupCreated(FULL_ROSTER), "existing group must be detected from GROUP_LIST");
     }
 
     // ------------------------------------------------------------------ 视图契约

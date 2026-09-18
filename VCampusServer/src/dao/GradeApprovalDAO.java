@@ -34,7 +34,8 @@ public class GradeApprovalDAO {
             "s.submission_id,s.offering_id,c.course_name,o.offering_code,s.version,s.submitted_by,"
             + "u.name AS teacher_name,s.submitted_at,s.status,s.reviewed_by,s.reviewed_at,"
             + "s.review_comment,s.average_score,s.max_score,s.min_score,s.failed_count,s.total_count,"
-            + "s.scheme_snapshot_json,s.roster_digest,s.base_submission_id,s.submission_kind";
+            + "s.scheme_snapshot_json,s.roster_digest,s.base_submission_id,s.submission_kind,"
+            + "s.correction_reason";
 
     private static final String SUBMISSION_JOINS =
             " FROM grade_submission s"
@@ -246,7 +247,8 @@ public class GradeApprovalDAO {
                 rows.getBigDecimal("average_score"), rows.getBigDecimal("max_score"),
                 rows.getBigDecimal("min_score"), rows.getInt("failed_count"),
                 rows.getInt("total_count"), rows.getString("scheme_snapshot_json"),
-                rows.getString("roster_digest"), base, rows.getString("submission_kind"));
+                rows.getString("roster_digest"), base, rows.getString("submission_kind"),
+                rows.getString("correction_reason"));
     }
 
     private static ItemRow itemRow(ResultSet rows) throws SQLException {
@@ -286,13 +288,20 @@ public class GradeApprovalDAO {
         return Timestamp.valueOf(LocalDateTime.ofInstant(instant, ZoneOffset.UTC));
     }
 
+    /**
+     * {@code correctionReason} is the reason the teacher wrote when this batch was started as a
+     * correction; it is {@code NULL} for ordinary submissions and for resubmissions. The approval
+     * detail shows it next to the comparison, and it is read from the batch itself — never from the
+     * mutable working copy, which the teacher may already have moved on from.
+     */
     public record SubmissionRow(long submissionId, long offeringId, String courseName,
                                 String offeringCode, int version, String submittedBy,
                                 String teacherName, Timestamp submittedAt, ApprovalStatusDTO status,
                                 String reviewedBy, Timestamp reviewedAt, String reviewComment,
                                 BigDecimal averageScore, BigDecimal maxScore, BigDecimal minScore,
                                 int failedCount, int totalCount, String schemeSnapshotJson,
-                                String rosterDigest, Long baseSubmissionId, String submissionKind) {
+                                String rosterDigest, Long baseSubmissionId, String submissionKind,
+                                String correctionReason) {
     }
 
     /**

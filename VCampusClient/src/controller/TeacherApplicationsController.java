@@ -6,12 +6,15 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
 import java.util.function.Consumer;
-import dto.course.AdjustmentRequestStatusDTO;
 import dto.course.admin.approval.AdjustmentRequestDetailDTO;
-import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
 import dto.course.admin.approval.AdjustmentTargetDTO;
+import dto.course.admin.approval.GradeSubmissionDetailDTO;
+import dto.course.admin.approval.GradeSubmissionItemDTO;
 import dto.course.admin.schedule.ScheduleConflictDTO;
 import dto.course.admin.schedule.ScheduleResourceDTO;
+import dto.course.teacher.MarkTeacherApplicationReadDTO;
+import dto.course.teacher.TeacherApplicationDTO;
+import dto.course.teacher.TeacherApplicationDetailDTO;
 import dto.course.teacher.WithdrawTeacherAdjustmentRequestDTO;
 import javafx.application.Platform;
 import javafx.event.Event;
@@ -31,48 +34,62 @@ import service.TeacherCourseService;
 import service.TeacherCourseServices;
 
 /**
- * 我的调课申请页（设计 §5.3、§10 的调课部分）：按四态筛选本人的申请，右侧显示原/新时间地点、
- * 提交时间、状态与处理意见，PENDING 可以撤销。
+ * 我的申请页（设计 §10、§11）：把本人的<b>调课申请</b>与<b>成绩提交批次</b>合成一条时间线，
+ * 按类型与状态筛选、分页，右侧显示该条申请恰好一个类型化详情，未读结果带角标。
  *
- * <p>展示语义（T3 报告 §6.2）：教师申请的 {@code newTeacher}/{@code newAssistant} 恒为 null——
- * 教师不修改任课教师与助教，因此新安排的人员显示该目标的原快照；{@code newClassroom} 为 null
- * 表示沿用原教室；{@code targetDate} 是 ISO 本地日期，历史行没有日期时保留旧的星期显示。
- * PENDING 详情带一次实时冲突快照，终态没有冲突。
+ * <p>为什么是「一条时间线」而不是两张表拼在一起：两类事实表的状态字母表不同（调课四态含教师撤销，
+ * 成绩提交只有三态），如果各拉一页再由界面合并，页码与「共 N 条」就再也说不清了。合并、排序与
+ * 分页都发生在服务端 SQL 里，本页只负责把一行渲染成一行。
  *
- * <p>撤销：两步确认（第一次点击只是进入确认态，第二次才发送），发送时带详情里的 {@code version}
- * 作为 {@code expectedVersion}。审批通过后撤销会拿到 CONFLICT 与最新实体，页面渲染最新状态并
- * 刷新列表；申请不可见时服务端返回 NOT_FOUND，页面按“已不存在”的普通提示处理并刷新列表，
- * 绝不把它渲染成系统错误。成功与失败都在页面内联提示，不弹模态框（冒烟测试因此能无人值守地
- * 走完整个撤销流程）。
+ * <p>已读模型：{@code stateKey = status + ':' + (handledAt ?: submittedAt)}，服务端按
+ * 「已存回执 != 当前键」算出 {@code unread}，因此这里的角标完全由 DTO 驱动，不做任何客户端猜测。
+ * 详情加载成功后，如果那一行仍未读，页面发出一次 {@code markApplicationRead}（带**当时看到的**
+ * stateKey）；服务端比对不一致就以 CONFLICT 结束——那说明期间管理员处理了这条申请，页面据此
+ * 重新查询，绝不把更新后的结果当成已读。
+ *
+ * <p>撤销只对 PENDING 的调课申请开放（{@code canWithdraw}）；成绩提交没有撤销状态，服务端也没有
+ * {@code withdrawn_at} 列，所以成绩详情页不会出现一个没有后端定义的入口。撤销仍是两步确认。
  *
  * <p>分页与竞态沿用仓库约定：列表/详情各有 generation，页面被 {@link #unload()} 卸下或已经发出
  * 新请求时，迟到的旧响应一律丢弃。所有节点都可能为 {@code null}，控制器测试因此无需工具包。
  */
 public final class TeacherApplicationsController {
     static final int PAGE_SIZE = 20;
-    static final String LOAD_FAILURE_TEXT = "调课申请加载失败，请重试";
-    static final String DETAIL_FAILURE_TEXT = "调课申请详情加载失败，请重试";
-    static final String VANISHED_TEXT = "该调课申请不存在或已不再显示，列表已刷新";
+    static final String LOAD_FAILURE_TEXT = "我的申请加载失败，请重试";
+    static final String DETAIL_FAILURE_TEXT = "申请详情加载失败，请重试";
+    static final String VANISHED_TEXT = "该申请不存在或已不再显示，列表已刷新";
     static final String WITHDRAW_SUCCESS_TEXT = "调课申请已撤销，列表已刷新";
     static final String WITHDRAW_CONFLICT_PREFIX = "该申请已被处理，已刷新最新状态：";
     static final String WITHDRAW_FAILURE_TEXT = "撤销失败，请重试";
     static final String WITHDRAW_PROMPT_TEXT = "撤销后申请立即失效，确定要撤销吗？";
     static final String WITHDRAWING_TEXT = "正在撤销...";
-    static final String DETAIL_PLACEHOLDER_TEXT = "左侧选择一条申请后可查看原安排与处理结果";
+    static final String READ_CONFLICT_PREFIX = "该申请结果已更新，已刷新最新状态：";
+    static final String READ_FAILURE_TEXT = "标记已读失败，请刷新后重试";
+    static final String DETAIL_PLACEHOLDER_TEXT = "左侧选择一条申请后可查看提交内容与处理结果";
+    static final String UNREAD_BADGE_TEXT = "未读";
+    static final String NO_DETAIL_TEXT = "该申请没有可显示的详情";
+    /** 类型筛选：全部（不限类型）、调课申请、成绩提交。 */
+    static final String TYPE_ALL_LABEL = "全部";
+    static final String TYPE_ADJUSTMENT_LABEL = "调课申请";
+    static final String TYPE_GRADE_LABEL = "成绩提交";
 
     private final TeacherCourseService service;
     private final Consumer<Runnable> fxExecutor;
 
-    private AdjustmentRequestStatusDTO status = AdjustmentRequestStatusDTO.PENDING;
+    /** 当前类型筛选；null 表示不限类型（「全部」）。 */
+    private String type;
+    private String status = "PENDING";
     private int page = 1;
     private int loadedPage = 1;
     private long totalCount;
-    private List<AdjustmentRequestSummaryDTO> applications = List.of();
-    private AdjustmentRequestSummaryDTO selectedSummary;
-    private AdjustmentRequestDetailDTO detail;
+    private List<TeacherApplicationDTO> applications = List.of();
+    private TeacherApplicationDTO selectedSummary;
+    private TeacherApplicationDetailDTO detail;
     private boolean loading;
     private boolean loadingDetail;
     private boolean submitting;
+    /** 正在标记已读的那一行（{@code 类型|编号}）；同一行的重复确认不重发，另一行不受影响。 */
+    private String markingRead;
     private boolean confirmingWithdraw;
     private boolean active;
     private String errorText;
@@ -80,7 +97,11 @@ public final class TeacherApplicationsController {
     private long listGeneration;
     private long detailGeneration;
     private List<String> detailLines = List.of();
+    /** 最近一次成功加载的列表里未读的行数；工作台入口的结果角标据此显示。 */
+    private int unreadCount;
+    private Consumer<Integer> unreadListener = count -> { };
 
+    @FXML private ComboBox<String> applicationTypeFilter;
     @FXML private ComboBox<String> applicationStatusFilter;
     @FXML private Button applicationRefreshButton;
     @FXML private Label applicationSummaryLabel;
@@ -112,6 +133,12 @@ public final class TeacherApplicationsController {
 
     @FXML
     public void initialize() {
+        if (applicationTypeFilter != null) {
+            applicationTypeFilter.getItems().setAll(typeLabels());
+            applicationTypeFilter.setValue(TYPE_ALL_LABEL);
+            applicationTypeFilter.valueProperty().addListener(
+                    (observable, previous, next) -> applyType(next));
+        }
         if (applicationStatusFilter != null) {
             applicationStatusFilter.getItems().setAll(statusLabels());
             applicationStatusFilter.setValue(AdminApprovalController.PENDING_LABEL);
@@ -119,6 +146,12 @@ public final class TeacherApplicationsController {
                     (observable, previous, next) -> applyStatus(next));
         }
         render();
+    }
+
+    /** 工作台可用它把自己的入口角标接到本页的未读计数上。 */
+    void setUnreadListener(Consumer<Integer> listener) {
+        this.unreadListener = listener == null ? count -> { } : listener;
+        unreadListener.accept(unreadCount);
     }
 
     /** 工作台切换到本页时调用：每次进入都重新查询，保证看到写操作后的最新状态。 */
@@ -153,10 +186,25 @@ public final class TeacherApplicationsController {
         goToPage(page - 1);
     }
 
-    /** 四态筛选；重新选择当前状态不会重复加载。 */
+    /** 类型筛选；切换类型时把该类型没有的状态（例如成绩提交没有「已撤销」）从选项里去掉。 */
+    void applyType(String label) {
+        String next = toType(label);
+        if (Objects.equals(next, type)) return;
+        type = next;
+        if (!TeacherApplicationDTO.isStatus(next, status)) {
+            status = "PENDING";
+        }
+        if (applicationStatusFilter != null) {
+            applicationStatusFilter.getItems().setAll(statusLabels(next));
+            applicationStatusFilter.setValue(statusLabel(status));
+        }
+        goToPage(1);
+    }
+
+    /** 状态筛选；重新选择当前状态不会重复加载。 */
     void applyStatus(String label) {
-        AdjustmentRequestStatusDTO next = AdminApprovalController.toStatus(label);
-        if (next == status) return;
+        String next = toStatus(label);
+        if (next == null || next.equals(status)) return;
         status = next;
         goToPage(1);
     }
@@ -165,12 +213,60 @@ public final class TeacherApplicationsController {
         loadPage(Math.max(1, nextPage));
     }
 
-    /** 选中一条申请：加载详情（含 PENDING 的实时冲突快照与撤销所需的 version）。 */
-    void select(String requestId) {
-        if (requestId == null || requestId.isBlank()) return;
-        selectedSummary = summaryOf(requestId);
+    /** 选中一条申请：加载详情（调课含 PENDING 的实时冲突快照与撤销所需的 version）。 */
+    void select(String type, String id) {
+        if (type == null || id == null || id.isBlank()) return;
+        selectedSummary = summaryOf(type, id);
         confirmingWithdraw = false;
-        loadDetail(requestId);
+        // 换一条申请是用户的新动作，先把上一条留下的提示清掉；写操作自己触发的重新加载
+        // （撤销后、已读冲突后）必须保留它刚刚写下的那句话，所以清在这里而不是在响应回来时。
+        feedbackText = null;
+        loadDetail(type, id);
+    }
+
+    // ------------------------------------------------------------ 标记已读
+
+    /**
+     * 详情读到了，就把这一行结果标成已读：带的是**列表里看到的那一个** stateKey。
+     * 服务端比对不一致时以 CONFLICT 结束（说明期间结果变了），页面据此重新查询。
+     */
+    private void markRead(String type, String id, String expectedStateKey) {
+        String key = type + "|" + id;
+        if (expectedStateKey == null || key.equals(markingRead)) return;
+        markingRead = key;
+        service.markApplicationRead(new MarkTeacherApplicationReadDTO(type, id, expectedStateKey))
+                .whenComplete((updated, failure) -> fxExecutor.accept(() -> {
+                    markingRead = null;
+                    if (!active) return;
+                    if (failure != null) {
+                        handleReadFailure(failure, type, id);
+                        return;
+                    }
+                    if (updated != null && detail != null && detail.getSummary() != null
+                            && type.equals(detail.getSummary().getType())
+                            && id.equals(detail.getSummary().getId())) {
+                        detail = new TeacherApplicationDetailDTO(updated, detail.getAdjustment(),
+                                detail.getGrade());
+                    }
+                    // 写操作之后重新查询列表：角标与未读状态才是服务端的真实状态。
+                    loadPage(page);
+                    render();
+                }));
+    }
+
+    private void handleReadFailure(Throwable failure, String type, String id) {
+        Throwable cause = rootCause(failure);
+        if (cause instanceof TeacherCourseServiceException serviceFailure
+                && serviceFailure.getCode() == MessageCode.CONFLICT) {
+            // 结果在处理期间变了：拿服务端的权威状态重来一次，不在这里猜任何字段。
+            feedbackText = READ_CONFLICT_PREFIX + messageOf(cause);
+            render();
+            loadPage(page);
+            loadDetail(type, id);
+            return;
+        }
+        feedbackText = failureText(failure, READ_FAILURE_TEXT);
+        render();
     }
 
     // ------------------------------------------------------------ 撤销
@@ -201,30 +297,30 @@ public final class TeacherApplicationsController {
 
     /** 第二步：带详情里的 version 发送撤销；两步确认让一次误点不会直接撤销申请。 */
     void confirmWithdraw() {
-        if (!canWithdraw()) return;
+        AdjustmentRequestDetailDTO adjustment = adjustmentOf();
+        if (!canWithdraw() || adjustment == null) return;
         confirmingWithdraw = false;
         submitting = true;
         feedbackText = null;
         render();
-        AdjustmentRequestDetailDTO current = detail;
         WithdrawTeacherAdjustmentRequestDTO request = new WithdrawTeacherAdjustmentRequestDTO(
-                UUID.randomUUID().toString(), current.getRequestId(), current.getVersion());
+                UUID.randomUUID().toString(), adjustment.getRequestId(), adjustment.getVersion());
         long generation = ++detailGeneration;
         service.withdrawAdjustment(request).whenComplete((result, failure) ->
                 fxExecutor.accept(() -> {
                     if (!isCurrentDetail(generation)) return;
                     submitting = false;
                     if (failure != null) {
-                        handleWithdrawFailure(failure, current.getRequestId());
+                        handleWithdrawFailure(failure, adjustment.getRequestId());
                         return;
-                    }
-                    if (result != null && result.getValue() != null) {
-                        renderDetail(result.getValue());
                     }
                     feedbackText = WITHDRAW_SUCCESS_TEXT;
                     render();
-                    // 写操作之后重新查询列表：PENDING 列表里不再包含这条申请。
+                    // 写操作之后重新查询列表，并重新读一次详情：撤销带来的状态键变化必须由
+                    // 服务端重新算，页面不自己改写 status/stateKey。
                     loadPage(page);
+                    loadDetail(TeacherApplicationDTO.SCHEDULE_ADJUSTMENT,
+                            adjustment.getRequestId());
                 }));
     }
 
@@ -234,20 +330,18 @@ public final class TeacherApplicationsController {
     }
 
     /**
-     * 撤销失败分类：CONFLICT 渲染服务端带来的最新实体并刷新列表（审批通过后撤销就是这条路）；
-     * NOT_FOUND 是“申请不可见”，按普通提示处理，绝不显示成系统错误。
+     * 撤销失败分类：CONFLICT 说明这条申请已经被处理（例如管理员先通过了），页面按服务端的权威
+     * 状态重新加载；NOT_FOUND 是「申请不可见」，按普通提示处理，绝不显示成系统错误。
      */
     private void handleWithdrawFailure(Throwable failure, String requestId) {
         Throwable cause = rootCause(failure);
         if (cause instanceof TeacherCourseServiceException serviceFailure) {
             MessageCode code = serviceFailure.getCode();
             if (code == MessageCode.CONFLICT) {
-                if (serviceFailure.getLatest() != null) {
-                    renderDetail(serviceFailure.getLatest());
-                }
                 feedbackText = WITHDRAW_CONFLICT_PREFIX + messageOf(cause);
                 render();
                 loadPage(page);
+                loadDetail(TeacherApplicationDTO.SCHEDULE_ADJUSTMENT, requestId);
                 return;
             }
             if (code == MessageCode.NOT_FOUND) {
@@ -270,13 +364,14 @@ public final class TeacherApplicationsController {
         loading = true;
         errorText = null;
         render();
-        service.listMyAdjustmentRequests(status, page, PAGE_SIZE)
+        service.listMyApplications(type, status, page, PAGE_SIZE)
                 .whenComplete((result, failure) -> fxExecutor.accept(() -> {
                     if (!isCurrentList(generation)) return;
                     loading = false;
                     if (failure != null) {
                         page = loadedPage;
                         applications = List.of();
+                        updateUnreadCount(0);
                         errorText = failureText(failure, LOAD_FAILURE_TEXT);
                         render();
                         return;
@@ -285,15 +380,16 @@ public final class TeacherApplicationsController {
                     totalCount = result == null ? 0 : result.getTotalCount();
                     loadedPage = page;
                     errorText = null;
+                    updateUnreadCount(countUnread(applications));
                     render();
                 }));
     }
 
-    void loadDetail(String requestId) {
+    void loadDetail(String type, String id) {
         long generation = ++detailGeneration;
         loadingDetail = true;
         render();
-        service.getAdjustmentRequest(requestId).whenComplete((result, failure) ->
+        service.getMyApplication(type, id).whenComplete((result, failure) ->
                 fxExecutor.accept(() -> {
                     if (!isCurrentDetail(generation)) return;
                     loadingDetail = false;
@@ -310,9 +406,15 @@ public final class TeacherApplicationsController {
                         render();
                         return;
                     }
-                    renderDetail(result);
-                    feedbackText = null;
+                    detail = result;
+                    detailLines = result == null ? List.of() : detailLines(result);
                     render();
+                    if (result != null && result.getSummary() != null
+                            && result.getSummary().isUnread()) {
+                        // 详情已经读到了，把这一次看到的结果标成已读；旧的 stateKey 由服务端比对。
+                        markRead(result.getSummary().getType(), result.getSummary().getId(),
+                                result.getSummary().getStateKey());
+                    }
                 }));
     }
 
@@ -323,6 +425,20 @@ public final class TeacherApplicationsController {
 
     private boolean isCurrentDetail(long generation) {
         return active && generation == detailGeneration;
+    }
+
+    private int countUnread(List<TeacherApplicationDTO> rows) {
+        int unread = 0;
+        for (TeacherApplicationDTO row : rows) {
+            if (row != null && row.isUnread()) unread++;
+        }
+        return unread;
+    }
+
+    private void updateUnreadCount(int unread) {
+        if (unread == unreadCount) return;
+        unreadCount = unread;
+        unreadListener.accept(unread);
     }
 
     private void clearDetail() {
@@ -342,7 +458,8 @@ public final class TeacherApplicationsController {
         setActive(applicationErrorLabel, errorText != null);
         setActive(applicationErrorRetryButton, errorText != null);
         if (applicationSummaryLabel != null) {
-            applicationSummaryLabel.setText("共 " + totalCount + " 条" + statusLabel() + "申请");
+            applicationSummaryLabel.setText("共 " + totalCount + " 条" + typeLabelText()
+                    + statusLabelText() + "申请");
         }
         if (applicationPageLabel != null) applicationPageLabel.setText(pageText());
         if (applicationPreviousPageButton != null) applicationPreviousPageButton.setDisable(!hasPreviousPage());
@@ -358,16 +475,17 @@ public final class TeacherApplicationsController {
     private void renderList() {
         if (applicationList == null) return;
         applicationList.getChildren().clear();
-        for (AdjustmentRequestSummaryDTO application : applications) {
+        for (TeacherApplicationDTO application : applications) {
             applicationList.getChildren().add(row(application));
         }
     }
 
     /**
-     * 一行申请：两行文本加一颗“查看”按钮（与教学班列表的行内按钮同形）。整行可点，按钮供
+     * 一行申请：两行文本加一颗「查看」按钮（与教学班列表的行内按钮同形）。未读的行在「查看」左边
+     * 多一颗结果角标——它是服务端算出来的 {@code unread}，不是界面自己推的。整行可点，按钮供
      * 键盘/冒烟测试真实触发。
      */
-    private HBox row(AdjustmentRequestSummaryDTO application) {
+    private HBox row(TeacherApplicationDTO application) {
         Label title = new Label(summaryTitle(application));
         title.getStyleClass().add("teacher-course-application-row-title");
         title.setWrapText(true);
@@ -382,24 +500,31 @@ public final class TeacherApplicationsController {
         open.getStyleClass().add("teacher-course-row-detail-button");
         // HBox 会压缩能压缩的子节点；按钮必须保持自己的首选宽度，否则文本被裁成省略号。
         open.setMinWidth(Region.USE_PREF_SIZE);
-        open.setOnAction(event -> select(application.getRequestId()));
+        open.setOnAction(event -> select(application.getType(), application.getId()));
 
-        HBox row = new HBox(8.0, text, open);
+        HBox row = new HBox(8.0);
         row.setAlignment(Pos.CENTER_LEFT);
+        if (application.isUnread()) {
+            Label badge = new Label(UNREAD_BADGE_TEXT);
+            badge.getStyleClass().add("teacher-course-application-badge");
+            badge.setMinWidth(Region.USE_PREF_SIZE);
+            row.getChildren().add(badge);
+        }
+        row.getChildren().addAll(text, open);
         row.getStyleClass().add("teacher-course-application-row");
-        row.setOnMouseClicked(event -> select(application.getRequestId()));
+        row.setOnMouseClicked(event -> select(application.getType(), application.getId()));
         return row;
     }
 
     private void renderDetailPanel() {
+        TeacherApplicationDTO summary = detail == null ? null : detail.getSummary();
         if (applicationDetailTitleLabel != null) {
-            applicationDetailTitleLabel.setText(detail == null ? "请选择调课申请"
-                    : "调课申请 " + detail.getRequestId() + "（"
-                            + AdminApprovalController.statusLabel(detail.getStatus()) + "）");
+            applicationDetailTitleLabel.setText(summary == null ? "请选择申请"
+                    : typeLabel(summary.getType()) + " " + summary.getId() + "（"
+                            + statusLabel(summary.getStatus()) + "）");
         }
         setActive(applicationDetailPlaceholder, detail == null && !loadingDetail);
         if (applicationDetailPlaceholder != null) applicationDetailPlaceholder.setText(DETAIL_PLACEHOLDER_TEXT);
-        detailLines = detail == null ? List.of() : detailLines(detail, selectedSummary);
         if (applicationDetailBody != null) {
             applicationDetailBody.getChildren().clear();
             for (String line : detailLines) {
@@ -409,7 +534,7 @@ public final class TeacherApplicationsController {
                 applicationDetailBody.getChildren().add(label);
             }
         }
-        // 终态申请只读：撤销入口整个隐藏；提交在途时保留按钮但禁用。
+        // 终态申请只读：撤销入口整个隐藏；提交在途时保留按钮但禁用。成绩提交永远没有撤销。
         boolean withdrawable = canWithdraw();
         setActive(applicationWithdrawButton, detail != null && (withdrawable || submitting));
         if (applicationWithdrawButton != null) {
@@ -425,13 +550,8 @@ public final class TeacherApplicationsController {
 
     private String withdrawHintText() {
         if (submitting) return WITHDRAWING_TEXT;
-        if (detail == null || detail.getStatus() != AdjustmentRequestStatusDTO.PENDING) return null;
+        if (detail == null || !canWithdraw()) return null;
         return WITHDRAW_PROMPT_TEXT;
-    }
-
-    private void renderDetail(AdjustmentRequestDetailDTO value) {
-        detail = value;
-        detailLines = value == null ? List.of() : detailLines(value, selectedSummary);
     }
 
     private static void setActive(Node node, boolean active) {
@@ -442,52 +562,94 @@ public final class TeacherApplicationsController {
 
     // ------------------------------------------------------------ 纯文本
 
-    /** 行标题：课程名与教学班代码。 */
-    static String summaryTitle(AdjustmentRequestSummaryDTO request) {
-        return orDash(request.getCourseName()) + "　" + orDash(request.getOfferingCode());
+    /** 行标题：课程名与教学班代码。两类事实表的标题口径一致（都在服务端拼好）。 */
+    static String summaryTitle(TeacherApplicationDTO application) {
+        return orDash(application.getTitle());
     }
 
-    /** 行副标题：申请编号、状态、提交时间与目标周数。 */
-    static String summaryMeta(AdjustmentRequestSummaryDTO request) {
-        return "编号：" + orDash(request.getRequestId())
-                + "　状态：" + AdminApprovalController.statusLabel(request.getStatus())
-                + "　提交：" + orDash(request.getSubmittedAt())
-                + "　目标周数：" + request.getTargetWeekCount();
+    /** 行副标题：类型、编号、状态、提交时间与未读角标的文字形态。 */
+    static String summaryMeta(TeacherApplicationDTO application) {
+        return typeLabel(application.getType()) + "　编号：" + orDash(application.getId())
+                + "　状态：" + statusLabel(application.getStatus())
+                + "　提交：" + orDash(application.getSubmittedAt());
     }
 
     /**
-     * 详情行：课程、原因、提交时间、状态、审批信息、每个目标的原/新安排与（PENDING 的）实时冲突。
-     * 新安排的人员回落到目标原快照（教师不修改任课教师/助教），教室为 null 时显示原教室；
-     * 历史目标没有明确日期时保留“星期 + 节次”的旧显示。
+     * 详情行：公共头部（课程/编号/类型/状态/提交时间）加**恰好一个**类型化变体。
+     * 调课详情给出原/新安排、原因与（PENDING 的）实时冲突；成绩详情给出批次统计与逐行快照，
+     * 通篇只读——成绩批次是提交那一刻的冻结事实，这里没有任何编辑入口。
      */
-    static List<String> detailLines(AdjustmentRequestDetailDTO detail,
-            AdjustmentRequestSummaryDTO summary) {
+    static List<String> detailLines(TeacherApplicationDetailDTO detail) {
         List<String> lines = new ArrayList<>();
+        TeacherApplicationDTO summary = detail.getSummary();
         if (summary != null) {
-            lines.add("课程：" + orDash(summary.getCourseName()) + "　教学班："
-                    + orDash(summary.getOfferingCode()));
+            lines.add("课程：" + orDash(summary.getTitle()));
+            lines.add("编号：" + orDash(summary.getId()) + "　类型："
+                    + typeLabel(summary.getType()) + "　状态："
+                    + statusLabel(summary.getStatus()));
+            lines.add("提交时间：" + orDash(summary.getSubmittedAt()));
         }
-        lines.add("申请编号：" + orDash(detail.getRequestId()) + "　状态："
-                + AdminApprovalController.statusLabel(detail.getStatus())
-                + "　版本：v" + detail.getVersion());
-        lines.add("提交时间：" + orDash(detail.getSubmittedAt()));
-        lines.add("申请原因：" + orDash(detail.getReason()));
-        for (AdjustmentTargetDTO target : detail.getTargets()) {
-            lines.add(originalLine(target));
-            lines.add(targetLine(detail, target));
+        if (detail.getAdjustment() != null) {
+            lines.addAll(adjustmentLines(detail.getAdjustment()));
+        } else if (detail.getGrade() != null) {
+            lines.addAll(gradeLines(detail.getGrade()));
+        } else {
+            lines.add(NO_DETAIL_TEXT);
         }
-        for (ScheduleConflictDTO conflict : detail.getConflicts()) {
-            lines.add(conflictLine(conflict));
-        }
-        if (detail.getConflicts().isEmpty()) {
-            lines.add("冲突：无");
-        }
-        if (detail.getReviewedBy() != null || detail.getReviewedAt() != null
-                || detail.getReviewComment() != null) {
-            lines.add("处理时间：" + orDash(detail.getReviewedAt()));
-            lines.add("处理意见：" + orDash(detail.getReviewComment()));
+        if (summary != null && (summary.getHandledAt() != null
+                || summary.getReviewComment() != null)) {
+            lines.add("处理时间：" + orDash(summary.getHandledAt()));
+            lines.add("处理意见：" + orDash(summary.getReviewComment()));
         }
         return List.copyOf(lines);
+    }
+
+    /** 调课申请：原因、版本、每个目标的原/新安排与 PENDING 的实时冲突快照。 */
+    static List<String> adjustmentLines(AdjustmentRequestDetailDTO adjustment) {
+        List<String> lines = new ArrayList<>();
+        lines.add("申请原因：" + orDash(adjustment.getReason()) + "　版本：v"
+                + adjustment.getVersion());
+        for (AdjustmentTargetDTO target : adjustment.getTargets()) {
+            lines.add(originalLine(target));
+            lines.add(targetLine(adjustment, target));
+        }
+        for (ScheduleConflictDTO conflict : adjustment.getConflicts()) {
+            lines.add(conflictLine(conflict));
+        }
+        if (adjustment.getConflicts().isEmpty()) {
+            lines.add("冲突：无");
+        }
+        return lines;
+    }
+
+    /**
+     * 成绩提交：只读快照。批次的人数与三项统计来自不可变批次头，逐行来自批次的明细——
+     * 之后教师怎么改工作副本都不会回写这里，所以这页显示的永远是提交时的样子。
+     */
+    static List<String> gradeLines(GradeSubmissionDetailDTO grade) {
+        List<String> lines = new ArrayList<>();
+        if (grade.getSummary() != null) {
+            lines.add("批次：v" + grade.getSummary().getVersion() + "　人数："
+                    + grade.getSummary().getStudentCount()
+                    + "　平均分：" + grade.getSummary().getAverage()
+                    + "　最高分：" + grade.getSummary().getHighest()
+                    + "　最低分：" + grade.getSummary().getLowest()
+                    + "　不及格：" + grade.getSummary().getFailCount());
+        }
+        lines.add("成绩明细为提交时的只读快照，共 " + grade.getItems().size() + " 条");
+        for (GradeSubmissionItemDTO item : grade.getItems()) {
+            lines.add("学号 " + orDash(item.getStudentUid()) + "　" + orDash(item.getStudentName())
+                    + "　总评：" + score(item.getScore()) + "　绩点：" + score(item.getGradePoint()));
+        }
+        if (grade.getCorrectionComparison() != null) {
+            lines.add("本次更正相对基础批次的变化：" + grade.getCorrectionComparison().getChanges().size()
+                    + " 名学生");
+        }
+        return lines;
+    }
+
+    private static String score(Double value) {
+        return value == null ? "—" : String.valueOf(value);
     }
 
     /** 原安排：目标周与原课次快照，全部原样来自不可变 DTO。 */
@@ -530,17 +692,69 @@ public final class TeacherApplicationsController {
                 + conflict.getType() + "/" + conflict.getSeverity() + "]";
     }
 
+    static List<String> typeLabels() {
+        return List.of(TYPE_ALL_LABEL, TYPE_ADJUSTMENT_LABEL, TYPE_GRADE_LABEL);
+    }
+
+    /** 状态选项跟随类型：成绩提交没有「已撤销」，就不给它一个必然返回空的选项。 */
     static List<String> statusLabels() {
+        return statusLabels(null);
+    }
+
+    static List<String> statusLabels(String type) {
+        if (TeacherApplicationDTO.GRADE_SUBMISSION.equals(type)) {
+            return List.of(AdminApprovalController.PENDING_LABEL, AdminApprovalController.APPROVED_LABEL,
+                    AdminApprovalController.REJECTED_LABEL);
+        }
         return List.of(AdminApprovalController.PENDING_LABEL, AdminApprovalController.APPROVED_LABEL,
                 AdminApprovalController.REJECTED_LABEL, AdminApprovalController.WITHDRAWN_LABEL);
+    }
+
+    /** 类型标签 → 服务端的类型常量；「全部」是 null（不限类型）。 */
+    static String toType(String label) {
+        if (TYPE_ADJUSTMENT_LABEL.equals(label)) return TeacherApplicationDTO.SCHEDULE_ADJUSTMENT;
+        if (TYPE_GRADE_LABEL.equals(label)) return TeacherApplicationDTO.GRADE_SUBMISSION;
+        return null;
+    }
+
+    /** 类型常量 → 界面标签。 */
+    static String typeLabel(String type) {
+        if (TeacherApplicationDTO.SCHEDULE_ADJUSTMENT.equals(type)) return TYPE_ADJUSTMENT_LABEL;
+        if (TeacherApplicationDTO.GRADE_SUBMISSION.equals(type)) return TYPE_GRADE_LABEL;
+        return TYPE_ALL_LABEL;
+    }
+
+    /** 状态标签 → 服务端的状态字符串（两张表共用的三个名字加调课独有的「已撤销」）。 */
+    static String toStatus(String label) {
+        if (AdminApprovalController.PENDING_LABEL.equals(label)) return "PENDING";
+        if (AdminApprovalController.APPROVED_LABEL.equals(label)) return "APPROVED";
+        if (AdminApprovalController.REJECTED_LABEL.equals(label)) return "REJECTED";
+        if (AdminApprovalController.WITHDRAWN_LABEL.equals(label)) return "WITHDRAWN";
+        return null;
+    }
+
+    /** 状态字符串 → 界面标签；未知状态原样显示，不猜一个更好看的名字。 */
+    static String statusLabel(String status) {
+        if (status == null) return "—";
+        return switch (status) {
+            case "PENDING" -> AdminApprovalController.PENDING_LABEL;
+            case "APPROVED" -> AdminApprovalController.APPROVED_LABEL;
+            case "REJECTED" -> AdminApprovalController.REJECTED_LABEL;
+            case "WITHDRAWN" -> AdminApprovalController.WITHDRAWN_LABEL;
+            default -> status;
+        };
     }
 
     private static String orDash(String value) {
         return value == null || value.isBlank() ? "—" : value;
     }
 
-    private String statusLabel() {
-        return AdminApprovalController.statusLabel(status);
+    private String typeLabelText() {
+        return type == null ? "" : typeLabel(type);
+    }
+
+    private String statusLabelText() {
+        return status == null ? "" : statusLabel(status);
     }
 
     private String pageText() {
@@ -548,12 +762,14 @@ public final class TeacherApplicationsController {
         return "第 " + page + "/" + totalPages() + " 页　共 " + totalCount + " 条";
     }
 
-    private AdjustmentRequestSummaryDTO summaryOf(String requestId) {
-        for (AdjustmentRequestSummaryDTO application : applications) {
-            if (requestId.equals(application.getRequestId())) return application;
+    private TeacherApplicationDTO summaryOf(String type, String id) {
+        for (TeacherApplicationDTO application : applications) {
+            if (type.equals(application.getType()) && id.equals(application.getId())) {
+                return application;
+            }
         }
-        return selectedSummary != null && requestId.equals(selectedSummary.getRequestId())
-                ? selectedSummary : null;
+        return selectedSummary != null && type.equals(selectedSummary.getType())
+                && id.equals(selectedSummary.getId()) ? selectedSummary : null;
     }
 
     /** 业务拒绝原样显示服务端的话；其余只给可重试的通用文案，避免把内部细节当成用户提示。 */
@@ -588,15 +804,24 @@ public final class TeacherApplicationsController {
 
     // -------------------------------------------------------------- 测试访问器
 
-    List<AdjustmentRequestSummaryDTO> applications() {
+    List<TeacherApplicationDTO> applications() {
         return applications;
     }
 
-    AdjustmentRequestDetailDTO detail() {
+    TeacherApplicationDetailDTO detail() {
         return detail;
     }
 
-    AdjustmentRequestStatusDTO status() {
+    /** 撤销可用的调课详情；成绩提交没有撤销入口，这里必然为 null。 */
+    private AdjustmentRequestDetailDTO adjustmentOf() {
+        return detail == null ? null : detail.getAdjustment();
+    }
+
+    String type() {
+        return type;
+    }
+
+    String status() {
         return status;
     }
 
@@ -628,8 +853,16 @@ public final class TeacherApplicationsController {
         return active;
     }
 
+    int unreadCount() {
+        return unreadCount;
+    }
+
+    /** 只有 PENDING 的调课申请可撤销：成绩提交没有撤销状态，服务端也没有 withdrawn_at 列。 */
     boolean canWithdraw() {
-        return detail != null && detail.getStatus() == AdjustmentRequestStatusDTO.PENDING
+        TeacherApplicationDTO summary = detail == null ? null : detail.getSummary();
+        return adjustmentOf() != null && summary != null
+                && TeacherApplicationDTO.SCHEDULE_ADJUSTMENT.equals(summary.getType())
+                && "PENDING".equals(summary.getStatus())
                 && !submitting;
     }
 

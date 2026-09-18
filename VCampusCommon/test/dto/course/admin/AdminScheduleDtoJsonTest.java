@@ -30,6 +30,7 @@ public final class AdminScheduleDtoJsonTest {
         roundTripsArrangementWithNullableAssistant();
         roundTripsSaveRequestWithOperationIdentityAndForceReason();
         roundTripsPlanWithBlockingAndOverridableSeverities();
+        roundTripsConflictWithMergedWeekRange();
         normalizesNullListsToEmptyImmutableLists();
         slotListsAreDefensiveAndUnmodifiable();
         deserializedListsAreUnmodifiable();
@@ -156,7 +157,7 @@ public final class AdminScheduleDtoJsonTest {
     private static void roundTripsPlanWithBlockingAndOverridableSeverities() {
         SchedulePlanDTO source = new SchedulePlanDTO(
                 "9007199254740995", "2025-2026 学年第一学期", 4, "DRAFT", true,
-                Arrays.asList(blockingConflict(), overridableConflict()));
+                Arrays.asList(attributedConflict(), overridableConflict()));
         SchedulePlanDTO copy = GSON.fromJson(GSON.toJson(source), SchedulePlanDTO.class);
 
         require("9007199254740995".equals(copy.getPlanId()),
@@ -175,6 +176,13 @@ public final class AdminScheduleDtoJsonTest {
                 "OVERRIDABLE severity must survive JSON");
         require("TEACHER_OVERLAP".equals(copy.getConflicts().get(1).getType()),
                 "conflict type must round-trip");
+        require("2004".equals(copy.getConflicts().get(0).getOfferingId()),
+                "the owning offering id must survive JSON");
+        require("CS202-2026-2-A".equals(copy.getConflicts().get(0).getOfferingLabel()),
+                "the owning offering label must survive JSON");
+        require(copy.getConflicts().get(1).getOfferingId() == null
+                        && copy.getConflicts().get(1).getOfferingLabel() == null,
+                "a conflict without attribution must keep both ownership fields null");
 
         SchedulePlanDTO published = new SchedulePlanDTO(
                 "9007199254740995", "Plan", 0, "PUBLISHED", false, null);
@@ -183,6 +191,41 @@ public final class AdminScheduleDtoJsonTest {
         require(!publishedCopy.isCurrent(), "false current flag must round-trip");
         require(publishedCopy.getConflicts().isEmpty(),
                 "a plan without conflicts must serialize an empty list");
+    }
+
+    /**
+     * 甲4：冲突的周次区间必须往返 JSON；旧构造（未给 endWeek）委托 endWeek=week，而在此之前写下的
+     * journal JSON 缺 endWeek 时反序列化为 0——渲染端一律按 max(week, endWeek) 当单周。
+     */
+    private static void roundTripsConflictWithMergedWeekRange() {
+        ScheduleConflictDTO range = new ScheduleConflictDTO("CLASSROOM_CAPACITY",
+                ScheduleConflictSeverityDTO.OVERRIDABLE, "3101", "2004", "2004",
+                "CS202-2026-2-A", 8, 16, 3, 3, 4, "教室容量 40 小于教学班容量 45");
+        ScheduleConflictDTO copy = GSON.fromJson(GSON.toJson(range), ScheduleConflictDTO.class);
+        require(copy.getWeek() == 8 && copy.getEndWeek() == 16,
+                "the merged week range must round-trip, got " + copy.getWeek() + "-"
+                        + copy.getEndWeek());
+
+        ScheduleConflictDTO single = new ScheduleConflictDTO("TEACHER_OVERLAP",
+                ScheduleConflictSeverityDTO.OVERRIDABLE, "T1001", "9007199254740997",
+                6, 3, 1, 2, "教师时间冲突");
+        require(single.getEndWeek() == 6,
+                "the constructor without endWeek must default it to week, got "
+                        + single.getEndWeek());
+        ScheduleConflictDTO singleCopy =
+                GSON.fromJson(GSON.toJson(single), ScheduleConflictDTO.class);
+        require(singleCopy.getWeek() == 6 && singleCopy.getEndWeek() == 6,
+                "a single-week conflict must round-trip as exactly one week, got "
+                        + singleCopy.getWeek() + "-" + singleCopy.getEndWeek());
+
+        ScheduleConflictDTO legacy = GSON.fromJson("{\"type\":\"TEACHER_OVERLAP\","
+                + "\"severity\":\"OVERRIDABLE\",\"subjectId\":\"T1001\","
+                + "\"relatedOfferingId\":\"9007199254740997\",\"week\":6,\"dayOfWeek\":3,"
+                + "\"startPeriod\":1,\"endPeriod\":2,\"message\":\"教师时间冲突\"}",
+                ScheduleConflictDTO.class);
+        require(legacy.getEndWeek() == 0,
+                "a journal JSON written before endWeek existed must deserialize it as 0, got "
+                        + legacy.getEndWeek());
     }
 
     private static void normalizesNullListsToEmptyImmutableLists() {
@@ -297,7 +340,7 @@ public final class AdminScheduleDtoJsonTest {
         String list = "java.util.List";
         String resource = "dto.course.admin.schedule.ScheduleResourceDTO";
         String plan = "dto.course.admin.schedule.SchedulePlanDTO";
-        String conflict = "dto.course.admin.schedule.ScheduleConflictDTO";
+        String check = "dto.course.admin.schedule.CheckArrangementResultDTO";
         String result = "model.course.admin.AdminOperationResultView";
         String arrangementView = "model.course.admin.ScheduleArrangementView";
         String planView = "model.course.admin.SchedulePlanView";
@@ -311,7 +354,7 @@ public final class AdminScheduleDtoJsonTest {
                 future + "<" + list + "<" + arrangementView + ">>",
                 String.class, String.class);
         requireMethod(AdminCourseService.class, "checkArrangement",
-                future + "<" + list + "<" + conflict + ">>", SaveArrangementRequestDTO.class);
+                future + "<" + check + ">", SaveArrangementRequestDTO.class);
         requireMethod(AdminCourseService.class, "saveArrangement",
                 future + "<" + result + "<" + arrangementView + ">>",
                 SaveArrangementRequestDTO.class);
@@ -466,6 +509,14 @@ public final class AdminScheduleDtoJsonTest {
         return new ScheduleConflictDTO(
                 "OFFERING_OVERLAP", ScheduleConflictSeverityDTO.BLOCKING,
                 "9007199254740993", "9007199254740997",
+                5, 1, 3, 4, "同一教学班排课重叠");
+    }
+
+    /** 带归属教学班的新构造：新增的 offeringId/offeringLabel 必须往返 JSON。 */
+    private static ScheduleConflictDTO attributedConflict() {
+        return new ScheduleConflictDTO(
+                "OFFERING_OVERLAP", ScheduleConflictSeverityDTO.BLOCKING,
+                "9007199254740993", "9007199254740997", "2004", "CS202-2026-2-A",
                 5, 1, 3, 4, "同一教学班排课重叠");
     }
 

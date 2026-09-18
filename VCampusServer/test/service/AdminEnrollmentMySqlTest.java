@@ -39,6 +39,7 @@ public final class AdminEnrollmentMySqlTest {
     private static final String A = "ae2-a";
     private static final String B = "ae2-b";
     private static final String C = "ae2-c";
+    private static final String D = "213242798";
     private static final long TARGET = 820011;
     private static final long SAME_COURSE = 820012;
     private static final long OTHER = 820013;
@@ -101,6 +102,13 @@ public final class AdminEnrollmentMySqlTest {
                 "search must be stable, distinct and exclude non-students/inactive profiles");
         require(service.searchStudents("Enrollment Student A", 1, 10).getTotalCount() == 1,
                 "full-name search must find its student");
+        require(service.searchStudents(D.substring(0, 5), 1, 10).getItems().stream()
+                        .anyMatch(item -> item.getUid().equals(D)),
+                "a student-ID prefix must find its student, not just an exact ID");
+        require(service.searchStudents(D, 1, 10).getTotalCount() == 1,
+                "the full student ID must keep working");
+        require(service.searchStudents(D + "9", 1, 10).getTotalCount() == 0,
+                "a non-matching ID must stay empty");
         require(service.searchStudents("Enrollment Student", 3, 2).getItems().isEmpty(),
                 "a page beyond the end must be empty");
         require(service.searchStudents("' OR 1=1 --", 1, 100).getTotalCount() == 0,
@@ -553,6 +561,7 @@ public final class AdminEnrollmentMySqlTest {
         user(C, "Enrollment Student C", 2, true, "ACTIVE");
         user("ae2-suspended", "Enrollment Student Suspended", 2, true, "SUSPENDED");
         user("ae2-no-profile", "Enrollment Student Missing", 2, false, "ACTIVE");
+        user(D, "Delta Student Nine", 2, true, "ACTIVE");
         execute("INSERT INTO course(course_id,course_code,course_name,credit,credit_hours,"
                 + "course_type,allow_cross_major,status) VALUES"
                 + "(820001,'AE2-TARGET','Enrollment Target',2,32,3,1,'ACTIVE'),"
@@ -648,8 +657,8 @@ public final class AdminEnrollmentMySqlTest {
         execute("DELETE FROM course_offering WHERE offering_id BETWEEN 820011 AND 820015");
         execute("DELETE FROM course WHERE course_id BETWEEN 820001 AND 820004");
         execute("DELETE FROM student_academic_profile WHERE major_id=820001");
-        execute("DELETE FROM tbl_user WHERE UID IN (?,?,?,?,?,?,?,?)", ADMIN, ADMIN_B, TEACHER,
-                A, B, C, "ae2-suspended", "ae2-no-profile");
+        execute("DELETE FROM tbl_user WHERE UID IN (?,?,?,?,?,?,?,?,?)", ADMIN, ADMIN_B, TEACHER,
+                A, B, C, D, "ae2-suspended", "ae2-no-profile");
         execute("DELETE FROM major WHERE major_id=820001");
     }
 

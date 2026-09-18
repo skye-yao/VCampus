@@ -20,9 +20,17 @@ import service.TeacherCourseServices;
  * Mock 驱动：成绩录入还包括教学班列表与逐班的成绩编辑表（草稿、只读、驳回三类状态都在 Mock 里），
  * 可以在这里逐页人工查看。
  *
+ * <p>四个入口自 T5 起全部接通，工作台不再有分阶段占位；「我的申请」入口的文案会跟随服务端算出的
+ * 本页未读条数变成 {@code 我的申请（本页未读 N）}。
+ *
+ * <p>这里<b>看不到</b>更正表单的「原分数 / 拟修改」对照：那条入口要求当前批次处于「已通过」，而
+ * Mock 里没有任何一个教学班是已通过的（草稿、待审核、已驳回各一个）。这条界面的证据由
+ * {@link TeacherCourseUiSmokeTest} 直接加载同一份 FXML 覆盖（它不注册进任何套件，理由见下）。
+ *
  * <p>与 {@link CourseUiPreview}/{@link AdminCourseUiPreview} 同形：正常启动保持窗口打开供人工查看，
  * 传 {@code --smoke} 时短暂显示后自动退出。自动化截图与断言由 {@link TeacherCourseUiSmokeTest}
- * 与 {@link AdminApprovalUiSmokeTest} 负责（它们在 {@code GradeBook} 套件的 Gui 列里运行），
+ * 与 {@link AdminApprovalUiSmokeTest} 负责（它们在 {@code Foundation}/{@code Timetable}/
+ * {@code Adjustment}/{@code GradeBook}/{@code ImportExport} 套件的 Gui 列里运行），
  * 本类不注册进任何测试套件：套件运行传的是 {@code --config} 而不是 {@code --smoke}，
  * 登记它会让一次无人值守运行停在打开着的窗口上永不退出。
  */

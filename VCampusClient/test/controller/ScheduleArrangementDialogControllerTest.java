@@ -1,5 +1,9 @@
 package controller;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -9,16 +13,23 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiFunction;
+import javax.xml.parsers.DocumentBuilderFactory;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.NodeList;
 
 import dto.course.admin.catalog.CourseEditorRequestDTO;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
+import dto.course.admin.schedule.CheckArrangementResultDTO;
 import dto.course.admin.schedule.SaveArrangementRequestDTO;
 import dto.course.admin.schedule.ScheduleConflictDTO;
 import dto.course.admin.schedule.ScheduleConflictSeverityDTO;
 import dto.course.admin.schedule.SchedulePlanDTO;
 import dto.course.admin.schedule.ScheduleResourceDTO;
 import dto.course.admin.schedule.ScheduleSlotDTO;
+import javafx.scene.control.Button;
 import javafx.scene.control.ButtonType;
+import javafx.scene.control.Label;
 import model.course.admin.AdminCourseView;
 import model.course.admin.AdminOfferingView;
 import model.course.admin.AdminOperationResultView;
@@ -34,6 +45,9 @@ import service.SocketAdminCourseService.AdminCourseServiceException;
 public final class ScheduleArrangementDialogControllerTest {
     private static final String CONFLICT_MESSAGE = "数据已被其他管理员修改";
     private static final String SAVE_KEY = "schedule:save";
+    private static final String DIALOG_VIEW = "/resources/fxml/ScheduleArrangementDialog.fxml";
+    /** 服务端 createDraftPlan 的结果文案形状：复制条数必须落到界面上。 */
+    private static final String CREATE_DRAFT_MESSAGE = "草稿方案已创建：已复制 3 条 / 跳过 1 条";
 
     public static void main(String[] args) {
         if (args.length > 0) {
@@ -63,6 +77,16 @@ public final class ScheduleArrangementDialogControllerTest {
         testClosingTwiceRefreshesCatalogOnce();
         testSaveCompletingAfterCloseRefreshesWithoutReloadingDialog();
         testPublishUsesWholePlanConflictsAndTrimmedReason();
+        testPlanConflictsArePartitionedByOffering();
+        testPreviewSuccessRefreshesPlanConflicts();
+        testPreviewFailureKeepsPlanConflicts();
+        testConflictTextCarriesThePosition();
+        testConflictTextRendersTheMergedWeekRange();
+        testOtherConflictsSummaryTextCountsOthers();
+        testEmptyArrangementSectionText();
+        testFilledArrangementSectionText();
+        testBlockingConflictTooltipText();
+        testOverridableConflictTooltipText();
         testSuccessfulWriteReloadsPlanState();
         testReadFailuresKeepTheirRetryTarget();
         testEditingCanReturnToANewArrangement();
@@ -83,6 +107,12 @@ public final class ScheduleArrangementDialogControllerTest {
         testSuccessfulWritesReloadAuthoritativeArrangements();
         testWriteConflictTriggersPreviewAndAuthoritativeReload();
         testCatalogRefreshCallbackFiresOnlyAfterAMutation();
+        createDraftIsOfferedWhenNoPlanLoaded();
+        createDraftReloadsThePlanOnSuccess();
+        createDraftIsHiddenWhenADraftIsEditable();
+        createDraftFailureKeepsTheServerReason();
+        loadPlanFailureSurfacesTheServerMessage();
+        scheduleArrangementDialogViewKeepsItsBindings();
         System.out.println("ScheduleArrangementDialogControllerTest: PASS");
     }
 
@@ -307,6 +337,8 @@ public final class ScheduleArrangementDialogControllerTest {
         blocking.plan = new SchedulePlanDTO("7001", "draft", 2, "DRAFT", false,
                 List.of(blockingConflict(), overridableConflict()));
         ScheduleArrangementDialogController blocked = validForm(loaded(blocking, new Recorder()));
+        // 甲2 之后预检查也会刷新方案级冲突：服务端快照仍是这份方案的冲突，预检查改变不了它。
+        blocking.setNextPreviewResult(List.of(), blocking.plan.getConflicts());
         blocked.previewArrangement();
         blocked.setOverrideReason("不能绕过阻断冲突");
         blocked.requestPublishPlan();
@@ -321,6 +353,192 @@ public final class ScheduleArrangementDialogControllerTest {
         require(clean.publishRequests.size() == 1
                         && clean.publishRequests.get(0).endsWith("@false@null"),
                 "an unsaved editor conflict must not block publication of a clean stored plan");
+    }
+
+    /**
+     * 甲1(b)：方案级冲突按归属教学班分区；归属不明的旧数据一律算「其他教学班」。
+     */
+    private static void testPlanConflictsArePartitionedByOffering() {
+        ControlledScheduleService service = new ControlledScheduleService();
+        ScheduleConflictDTO ownBlocking = ownBlockingConflict();
+        ScheduleConflictDTO ownOverridable = ownOverridableConflict();
+        ScheduleConflictDTO otherBlocking = otherBlockingConflict();
+        ScheduleConflictDTO otherOverridable = otherOverridableConflict();
+        ScheduleConflictDTO unattributed = blockingConflict();
+        service.plan = new SchedulePlanDTO("7001", "draft", 1, "DRAFT", false,
+                List.of(ownBlocking, ownOverridable, otherBlocking, otherOverridable, unattributed));
+        ScheduleArrangementDialogController controller = controller(service, new Recorder());
+
+        require(controller.ownPlanConflicts(ScheduleConflictSeverityDTO.BLOCKING)
+                        .equals(List.of(ownBlocking)),
+                "本教学班的阻断冲突必须只含本班那条，saw "
+                        + controller.ownPlanConflicts(ScheduleConflictSeverityDTO.BLOCKING));
+        require(controller.ownPlanConflicts(ScheduleConflictSeverityDTO.OVERRIDABLE)
+                        .equals(List.of(ownOverridable)),
+                "本教学班的可绕过冲突必须只含本班那条，saw "
+                        + controller.ownPlanConflicts(ScheduleConflictSeverityDTO.OVERRIDABLE));
+        require(controller.otherPlanConflicts()
+                        .equals(List.of(otherBlocking, otherOverridable, unattributed)),
+                "其余冲突必须归入其他教学班，offeringId=null 的旧数据也不例外，saw "
+                        + controller.otherPlanConflicts());
+    }
+
+    /**
+     * 甲2：预检查的一次往返必须同时刷新表单级与方案级冲突——
+     * 对话框开着时点「预检查冲突」，顶部的方案级冲突不能再等关闭重开。
+     */
+    private static void testPreviewSuccessRefreshesPlanConflicts() {
+        ControlledScheduleService service = new ControlledScheduleService();
+        ScheduleConflictDTO stale = ownBlockingConflict();
+        service.plan = new SchedulePlanDTO("7001", "draft", 1, "DRAFT", false, List.of(stale));
+        ScheduleArrangementDialogController controller = validForm(loaded(service, new Recorder()));
+        require(controller.ownPlanConflicts(ScheduleConflictSeverityDTO.BLOCKING)
+                        .equals(List.of(stale)),
+                "the loaded plan conflicts must be visible before the preview, saw "
+                        + controller.ownPlanConflicts(ScheduleConflictSeverityDTO.BLOCKING));
+
+        ScheduleConflictDTO form = overridableConflict();
+        ScheduleConflictDTO fresh = ownOverridableConflict();
+        service.setNextPreviewResult(List.of(form), List.of(fresh));
+        controller.previewArrangement();
+
+        require(controller.conflicts().equals(List.of(form)),
+                "a successful preview must refresh the form-level conflicts, saw "
+                        + controller.conflicts());
+        require(controller.ownPlanConflicts(ScheduleConflictSeverityDTO.OVERRIDABLE)
+                        .equals(List.of(fresh)),
+                "a successful preview must refresh the plan-level conflicts, saw "
+                        + controller.ownPlanConflicts(ScheduleConflictSeverityDTO.OVERRIDABLE));
+        require(controller.ownPlanConflicts(ScheduleConflictSeverityDTO.BLOCKING).isEmpty(),
+                "the stale plan-level conflict must be gone after the preview, saw "
+                        + controller.ownPlanConflicts(ScheduleConflictSeverityDTO.BLOCKING));
+    }
+
+    /**
+     * 甲2：预检查失败时方案级冲突保持原样——旧数据仍然有效，
+     * 不能因为一次失败的刷新就把顶部的冲突清空。
+     */
+    private static void testPreviewFailureKeepsPlanConflicts() {
+        ControlledScheduleService service = new ControlledScheduleService();
+        ScheduleConflictDTO stale = ownBlockingConflict();
+        service.plan = new SchedulePlanDTO("7001", "draft", 1, "DRAFT", false, List.of(stale));
+        ScheduleArrangementDialogController controller = validForm(loaded(service, new Recorder()));
+        service.enqueuePreview(CompletableFuture.failedFuture(new IllegalStateException("offline")));
+        controller.previewArrangement();
+
+        require(!controller.isPreviewCurrent() && controller.conflicts().isEmpty(),
+                "a failed preview must clear the form-level conflicts, saw "
+                        + controller.conflicts());
+        require(controller.ownPlanConflicts(ScheduleConflictSeverityDTO.BLOCKING)
+                        .equals(List.of(stale)),
+                "a failed preview must keep the plan-level conflicts, saw "
+                        + controller.ownPlanConflicts(ScheduleConflictSeverityDTO.BLOCKING));
+    }
+
+    /**
+     * 甲1(a)：冲突文案必须渲染位置（周次/星期/节次），星期与节次复用 slotSummary 的格式化；
+     * 位置数据缺失的段直接省略。
+     */
+    private static void testConflictTextCarriesThePosition() {
+        ControlledScheduleService service = new ControlledScheduleService();
+        ScheduleArrangementDialogController controller = controller(service, new Recorder());
+
+        String text = controller.conflictText(ownBlockingConflict());
+        require(("同一教学班在该时间已有排课（第 3 周 周三 第3-4节）").equals(text),
+                "冲突文案必须带完整位置，saw " + text);
+        require(text.contains(controller.slotSummary(new ScheduleSlotDTO(3, 3, 4))),
+                "星期与节次必须复用 slotSummary 的格式化，saw " + text);
+
+        ScheduleConflictDTO positionless = new ScheduleConflictDTO("TEACHER_OVERLAP",
+                ScheduleConflictSeverityDTO.OVERRIDABLE, "1001", "2004", "2004", "CS202-2026-2-A",
+                0, 0, 0, 0, "任课教师在该时间已有其他课程");
+        require("任课教师在该时间已有其他课程".equals(controller.conflictText(positionless)),
+                "缺位置数据的冲突不得渲染空括号，saw " + controller.conflictText(positionless));
+    }
+
+    /**
+     * 甲4：服务端已把连续周次合并成区间，文案必须渲染成「第 8-16 周」；单周（endWeek==week，或旧
+     * journal JSON 缺失 endWeek 时的 0）仍是「第 8 周」，绝不出现「第 8-8 周」。
+     */
+    private static void testConflictTextRendersTheMergedWeekRange() {
+        ControlledScheduleService service = new ControlledScheduleService();
+        ScheduleArrangementDialogController controller = controller(service, new Recorder());
+
+        ScheduleConflictDTO range = weekRangeConflict(8, 16);
+        require("教室容量 40 小于教学班容量 45（第 8-16 周 周三 第3-4节）"
+                        .equals(controller.conflictText(range)),
+                "合并后的周次区间必须渲染成第 X-Y 周，saw " + controller.conflictText(range));
+
+        ScheduleConflictDTO single = weekRangeConflict(8, 8);
+        require("教室容量 40 小于教学班容量 45（第 8 周 周三 第3-4节）"
+                        .equals(controller.conflictText(single)),
+                "week==endWeek 的单周必须保持「第 8 周」，saw " + controller.conflictText(single));
+
+        ScheduleConflictDTO missing = weekRangeConflict(8, 0);
+        require("教室容量 40 小于教学班容量 45（第 8 周 周三 第3-4节）"
+                        .equals(controller.conflictText(missing)),
+                "缺失 endWeek（旧数据为 0）必须按单周归一，saw " + controller.conflictText(missing));
+    }
+
+    private static ScheduleConflictDTO weekRangeConflict(int week, int endWeek) {
+        return new ScheduleConflictDTO("CLASSROOM_CAPACITY",
+                ScheduleConflictSeverityDTO.OVERRIDABLE, "3101", "2004", "2004",
+                "CS202-2026-2-A", week, endWeek, 3, 3, 4, "教室容量 40 小于教学班容量 45");
+    }
+
+    /**
+     * 甲1(b)：折叠成一行的文案必须报出其他教学班冲突的条数。
+     */
+    private static void testOtherConflictsSummaryTextCountsOthers() {
+        ControlledScheduleService service = new ControlledScheduleService();
+        service.plan = new SchedulePlanDTO("7001", "draft", 1, "DRAFT", false,
+                List.of(ownBlockingConflict(), otherBlockingConflict(), otherOverridableConflict()));
+        ScheduleArrangementDialogController controller = controller(service, new Recorder());
+
+        require(controller.otherPlanConflicts().size() == 2,
+                "两条其他教学班的冲突必须都归入折叠区，saw " + controller.otherPlanConflicts());
+        require("本方案还有 2 条其他教学班的冲突（点击展开）"
+                        .equals(ScheduleArrangementDialogController.otherConflictsSummaryText(2)),
+                "折叠行必须报出其他教学班的冲突条数，saw "
+                        + ScheduleArrangementDialogController.otherConflictsSummaryText(2));
+    }
+
+    /**
+     * 甲3：零条安排时分区标题接管空态文案，不再由永远可见的静态「已有安排」与「暂无」打架。
+     */
+    private static void testEmptyArrangementSectionText() {
+        require("该教学班暂无排课安排"
+                        .equals(ScheduleArrangementDialogController.arrangementSectionText(true)),
+                "空态分区标题必须改说「暂无排课安排」，saw "
+                        + ScheduleArrangementDialogController.arrangementSectionText(true));
+    }
+
+    /** 甲3：有安排（或加载中、出错）时分区标题保持默认文案。 */
+    private static void testFilledArrangementSectionText() {
+        require("该教学班已有安排"
+                        .equals(ScheduleArrangementDialogController.arrangementSectionText(false)),
+                "非空态分区标题必须保持默认文案，saw "
+                        + ScheduleArrangementDialogController.arrangementSectionText(false));
+    }
+
+    /** 甲3/甲5：阻断性冲突的悬停说明必须说清它拦下保存与发布。 */
+    private static void testBlockingConflictTooltipText() {
+        require("阻断性冲突：必须先解决才能保存或发布"
+                        .equals(ScheduleArrangementDialogController.conflictTooltipText(
+                                ScheduleConflictSeverityDTO.BLOCKING)),
+                "阻断性冲突的悬停文案必须说明保存与发布都被拦下，saw "
+                        + ScheduleArrangementDialogController.conflictTooltipText(
+                                ScheduleConflictSeverityDTO.BLOCKING));
+    }
+
+    /** 甲3/甲5：可绕过冲突的悬停说明必须说清填写原因后仍可保存/发布。 */
+    private static void testOverridableConflictTooltipText() {
+        require("可绕过冲突：不阻止保存/发布，但需要填写原因"
+                        .equals(ScheduleArrangementDialogController.conflictTooltipText(
+                                ScheduleConflictSeverityDTO.OVERRIDABLE)),
+                "可绕过冲突的悬停文案必须说明填写原因后可继续，saw "
+                        + ScheduleArrangementDialogController.conflictTooltipText(
+                                ScheduleConflictSeverityDTO.OVERRIDABLE));
     }
 
     private static void testSuccessfulWriteReloadsPlanState() {
@@ -352,13 +570,13 @@ public final class ScheduleArrangementDialogControllerTest {
         require(service.previewRequests.size() == previews + 1 && controller.isPreviewCurrent(),
                 "retry after preview failure must actually rerun the preview");
 
-        CompletableFuture<List<ScheduleConflictDTO>> pending = new CompletableFuture<>();
+        CompletableFuture<CheckArrangementResultDTO> pending = new CompletableFuture<>();
         service.enqueuePreview(pending);
         controller.previewArrangement();
         controller.setWeekRange(2, 6);
         require(!controller.isPreviewPending() && !controller.isPreviewCurrent(),
                 "editing must invalidate both completed and pending preview state");
-        pending.complete(List.of());
+        pending.complete(new CheckArrangementResultDTO(List.of(), List.of()));
         require(!controller.canSave(), "a stale preview completion must not enable saving");
     }
 
@@ -551,32 +769,36 @@ public final class ScheduleArrangementDialogControllerTest {
         ScheduleArrangementDialogController controller = validForm(
                 loaded(service, new Recorder()));
 
-        CompletableFuture<List<ScheduleConflictDTO>> stale = new CompletableFuture<>();
-        CompletableFuture<List<ScheduleConflictDTO>> newest = new CompletableFuture<>();
+        CompletableFuture<CheckArrangementResultDTO> stale = new CompletableFuture<>();
+        CompletableFuture<CheckArrangementResultDTO> newest = new CompletableFuture<>();
         service.enqueuePreview(stale);
         service.enqueuePreview(newest);
         controller.previewArrangement();
         controller.previewArrangement();
         require(controller.isPreviewPending(), "two pending previews must report pending");
 
-        newest.complete(List.of());
+        newest.complete(new CheckArrangementResultDTO(List.of(), List.of()));
         require(!controller.isPreviewPending(), "the newest preview must clear the pending state");
         require(controller.isPreviewCurrent(), "the newest preview must authorize saving");
         require(controller.conflicts().isEmpty(), "the newest preview reported no conflicts");
 
-        stale.complete(List.of(blockingConflict()));
+        stale.complete(new CheckArrangementResultDTO(List.of(blockingConflict()),
+                List.of(otherBlockingConflict())));
         require(controller.conflicts().isEmpty(),
                 "a stale preview must not overwrite the newest conflict state, saw "
                         + controller.conflicts());
         require(!controller.hasBlockingConflicts(),
                 "a stale preview must not introduce blocking conflicts");
+        require(controller.otherPlanConflicts().isEmpty(),
+                "a stale preview must not overwrite the plan-level conflicts either, saw "
+                        + controller.otherPlanConflicts());
         require(controller.canSave(), "a stale preview must not revoke the newest authorization");
 
-        CompletableFuture<List<ScheduleConflictDTO>> orphaned = new CompletableFuture<>();
+        CompletableFuture<CheckArrangementResultDTO> orphaned = new CompletableFuture<>();
         service.enqueuePreview(orphaned);
         controller.previewArrangement();
         controller.setWeekRange(5, 10);
-        orphaned.complete(List.of());
+        orphaned.complete(new CheckArrangementResultDTO(List.of(), List.of()));
         require(!controller.isPreviewCurrent(),
                 "a preview whose form changed mid-flight must not authorize saving");
         require(!controller.canSave(),
@@ -933,6 +1155,260 @@ public final class ScheduleArrangementDialogControllerTest {
                         + refreshes.get());
     }
 
+    /**
+     * loadPlan 失败后仍必须给出创建草稿的出路，否则用户无路可走：整屏写控件都依赖方案。
+     * 同时钉住复制意图：加载失败时**信息不足**，必须按安全默认值传 true——该学期可能真有已发布
+     * 方案，传 false 会静默造出一份空草稿。只有确知没有方案（加载成功且返回空）才允许传 false。
+     */
+    private static void createDraftIsOfferedWhenNoPlanLoaded() {
+        ControlledScheduleService service = new ControlledScheduleService();
+        service.enqueuePlan(CompletableFuture.failedFuture(
+                new AdminCourseServiceException(MessageCode.NOT_FOUND, "该学期尚未创建教学日历")));
+        ScheduleArrangementDialogController controller = controller(service, new Recorder());
+
+        require(controller.plan() == null,
+                "a failed plan load must leave the dialog without a plan, saw " + controller.plan());
+        require(controller.errorText() != null,
+                "the failed plan load must stay visible with its retry action");
+        require(createDraftOffered(controller),
+                "a dialog without a plan must still offer the create-draft entry");
+
+        invokeAction(controller, "handleCreateDraft");
+        require(service.createDraftRequests.size() == 1,
+                "the offered entry must create exactly one draft, saw "
+                        + service.createDraftRequests);
+        require("true".equals(service.createDraftRequests.get(0).split("\\|", -1)[2]),
+                "a failed plan load must still ask the server to copy: that term may well have a "
+                        + "published plan, saw " + service.createDraftRequests.get(0));
+
+        ControlledScheduleService emptyTerm = new ControlledScheduleService();
+        emptyTerm.plan = null;
+        ScheduleArrangementDialogController noPlan = controller(emptyTerm, new Recorder());
+        require(createDraftOffered(noPlan),
+                "a term that really has no plan must still offer the create-draft entry");
+        invokeAction(noPlan, "handleCreateDraft");
+        require(emptyTerm.createDraftRequests.size() == 1
+                        && "false".equals(emptyTerm.createDraftRequests.get(0).split("\\|", -1)[2]),
+                "only a successfully loaded term without a plan may pass false, saw "
+                        + emptyTerm.createDraftRequests);
+    }
+
+    /**
+     * 成功后要重新拉一次方案，否则界面仍停在「无方案」；请求本身必须带学期与复制意图，
+     * 服务端的结果文案（已复制/跳过条数）必须留在界面上，空草稿才不会是静默的。
+     */
+    private static void createDraftReloadsThePlanOnSuccess() {
+        ControlledScheduleService service = new ControlledScheduleService();
+        service.plan = new SchedulePlanDTO("7001", "published", 3, "PUBLISHED", true, List.of());
+        ScheduleArrangementDialogController controller = controller(service, new Recorder());
+        int loads = service.planCalls.size();
+        require(createDraftOffered(controller),
+                "a published plan must still offer the create-draft entry");
+
+        invokeAction(controller, "handleCreateDraft");
+        require(service.createDraftRequests.size() == 1,
+                "the offered entry must create exactly one draft, saw "
+                        + service.createDraftRequests);
+        String[] request = service.createDraftRequests.get(0).split("\\|", -1);
+        require(request.length == 4 && "2026".equals(request[0]) && "1".equals(request[1])
+                        && "true".equals(request[2]),
+                "the request must carry the offering term and copy the published plan, saw "
+                        + service.createDraftRequests.get(0));
+        UUID.fromString(request[3]);
+        require(service.planCalls.size() == loads + 1,
+                "a created draft must be reloaded so the dialog shows the editable plan, saw "
+                        + service.planCalls);
+        require(CREATE_DRAFT_MESSAGE.equals(controller.validationMessage())
+                        && validationShown(controller),
+                "the server's copy counts must be visible on the dialog, saw "
+                        + controller.validationMessage() + " (visible=" + validationShown(controller)
+                        + ")");
+    }
+
+    /**
+     * 失败分支（本计划新增的 validationVisible = true 之后才看得见）必须把服务端原因留在界面上，
+     * 否则按钮弹回去而用户不知道原因。
+     */
+    private static void createDraftFailureKeepsTheServerReason() {
+        ControlledScheduleService service = new ControlledScheduleService();
+        service.plan = new SchedulePlanDTO("7001", "published", 3, "PUBLISHED", true, List.of());
+        service.createDraftFailure = new AdminCourseServiceException(MessageCode.CONFLICT,
+                "该学期已有草稿方案");
+        ScheduleArrangementDialogController controller = controller(service, new Recorder());
+        require(createDraftOffered(controller),
+                "a published plan must still offer the create-draft entry");
+
+        invokeAction(controller, "handleCreateDraft");
+        require(service.createDraftRequests.size() == 1,
+                "the offered entry must ask the server once, saw " + service.createDraftRequests);
+        String message = controller.validationMessage();
+        require(message != null && message.contains("创建草稿方案失败")
+                        && message.contains("该学期已有草稿方案"),
+                "a refused create must surface the server reason, saw " + message);
+        require(validationShown(controller),
+                "the refusal must be visible rather than only computed");
+    }
+
+    /**
+     * 已有可编辑草稿时不该再给一个必然报「该学期已有草稿方案」的按钮。
+     */
+    private static void createDraftIsHiddenWhenADraftIsEditable() {
+        ControlledScheduleService service = new ControlledScheduleService();
+        ScheduleArrangementDialogController controller = controller(service, new Recorder());
+        require(controller.plan() != null && "DRAFT".equals(controller.plan().getStatus()),
+                "the fixture must load an editable draft, saw " + controller.plan());
+
+        require(!createDraftOffered(controller),
+                "an editable draft must hide the create-draft entry");
+        invokeAction(controller, "handleCreateDraft");
+        require(service.createDraftRequests.isEmpty(),
+                "the hidden entry must not ask the server for a second draft of the same term");
+    }
+
+    /**
+     * 丢掉服务端消息会让「缺失任课教师」这类真实原因永远看不见。
+     */
+    private static void loadPlanFailureSurfacesTheServerMessage() {
+        ControlledScheduleService service = new ControlledScheduleService();
+        String message = "教学安排缺少任课教师或时间段，无法发布";
+        service.enqueuePlan(CompletableFuture.failedFuture(
+                new AdminCourseServiceException(MessageCode.CONFLICT, message)));
+        ScheduleArrangementDialogController controller = controller(service, new Recorder());
+
+        require(controller.errorText() != null && controller.errorText().contains(message),
+                "the server message must survive the failed plan load, saw " + controller.errorText());
+        require(!"排课方案加载失败，请重试".equals(controller.errorText()),
+                "the failed plan load must not replace the server message with a generic one");
+    }
+
+    /**
+     * FXML 的 fx:id / onAction 必须与控制器对得上。这个文件全仓只有生产路径与一个跑不起来的冒烟
+     * 测试会加载，打错一个字不会有任何能跑的测试变红，所以在这里用 DOM + 反射钉住新的入口按钮与静态文案。
+     *
+     * 没有做全量扫描（TeacherGradeBookControllerTest.verifyBindings）：该 FXML 里
+     * fx:id="scheduleContentScroll" 本来就没有对应的控制器字段（既有债，见 Task 7 报告），
+     * 全量扫描会因为这条既有不匹配直接报红，而修它不是本任务的范围。
+     */
+    private static void scheduleArrangementDialogViewKeepsItsBindings() {
+        try {
+            Document view = parseView(DIALOG_VIEW);
+            Element createDraft = elementWithId(view, "createDraftButton");
+            require(createDraft != null, "排课对话框必须提供创建草稿方案的入口按钮");
+            require("Button".equals(createDraft.getTagName()),
+                    "创建草稿入口必须是 Button，收到 <" + createDraft.getTagName() + ">");
+            require("#handleCreateDraft".equals(createDraft.getAttribute("onAction")),
+                    "创建草稿入口必须接到 handleCreateDraft，收到 onAction=\""
+                            + createDraft.getAttribute("onAction") + "\"");
+            Field button = findField(ScheduleArrangementDialogController.class, "createDraftButton");
+            require(button != null, "fx:id=\"createDraftButton\" 在控制器里没有对应字段");
+            require(Button.class.equals(button.getType()),
+                    "createDraftButton 必须声明为 Button，收到 " + button.getType());
+            require(hasActionMethod(ScheduleArrangementDialogController.class, "handleCreateDraft"),
+                    "onAction=\"#handleCreateDraft\" 在控制器里没有对应处理函数");
+            Element section = elementWithId(view, "arrangementSectionLabel");
+            require(section != null, "「该教学班已有安排」分区标题必须带 fx:id，控制器才能改写空态文案");
+            require("Label".equals(section.getTagName()),
+                    "分区标题必须是 Label，收到 <" + section.getTagName() + ">");
+            require("该教学班已有安排".equals(section.getAttribute("text")),
+                    "分区标题的 FXML 默认文案必须是非空态文案，收到 text=\""
+                            + section.getAttribute("text") + "\"");
+            Field sectionField = findField(ScheduleArrangementDialogController.class,
+                    "arrangementSectionLabel");
+            require(sectionField != null, "fx:id=\"arrangementSectionLabel\" 在控制器里没有对应字段");
+            require(Label.class.equals(sectionField.getType()),
+                    "arrangementSectionLabel 必须声明为 Label，收到 " + sectionField.getType());
+            require(elementWithId(view, "emptyArrangementLabel") == null,
+                    "空态文案已由分区标题接管，emptyArrangementLabel 节点必须从 FXML 删除");
+            Element legend = elementWithId(view, "conflictLegendLabel");
+            require(legend != null, "方案冲突区必须提供红/黄严重度图例");
+            require("Label".equals(legend.getTagName()),
+                    "冲突图例必须是 Label，收到 <" + legend.getTagName() + ">");
+            require(("红色为阻断性冲突：必须解决后才能保存或发布；黄色为可绕过冲突：填写原因后可保存或发布")
+                            .equals(legend.getAttribute("text")),
+                    "图例必须解释红/黄对保存与发布意味着什么，收到 text=\""
+                            + legend.getAttribute("text") + "\"");
+            Field legendField = findField(ScheduleArrangementDialogController.class,
+                    "conflictLegendLabel");
+            require(legendField != null, "fx:id=\"conflictLegendLabel\" 在控制器里没有对应字段");
+            require(Label.class.equals(legendField.getType()),
+                    "conflictLegendLabel 必须声明为 Label，收到 " + legendField.getType());
+        } catch (Exception failure) {
+            throw new AssertionError("排课对话框的 FXML 契约检查失败", failure);
+        }
+    }
+
+    /**
+     * 「创建草稿方案」是否提供，是控制器自己的判定：测试里没有真实窗口，读不到按钮节点。
+     */
+    private static boolean createDraftOffered(ScheduleArrangementDialogController controller) {
+        try {
+            Method method = ScheduleArrangementDialogController.class
+                    .getDeclaredMethod("isCreateDraftOffered");
+            method.setAccessible(true);
+            return (Boolean) method.invoke(controller);
+        } catch (ReflectiveOperationException failure) {
+            throw new AssertionError(
+                    "the dialog must expose whether it offers the create-draft entry", failure);
+        }
+    }
+
+    /**
+     * 校验行是否真的显示：没有窗口时渲染结果读数不到，只能读控制器的开关。
+     */
+    private static boolean validationShown(ScheduleArrangementDialogController controller) {
+        try {
+            Field field = findField(ScheduleArrangementDialogController.class, "validationVisible");
+            field.setAccessible(true);
+            return field.getBoolean(controller);
+        } catch (ReflectiveOperationException failure) {
+            throw new AssertionError("the dialog must expose whether its validation line is shown",
+                    failure);
+        }
+    }
+
+    private static Document parseView(String path) throws Exception {
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(false);
+        try (InputStream stream = ScheduleArrangementDialogControllerTest.class
+                .getResourceAsStream(path)) {
+            if (stream == null) throw new IOException("Missing resource: " + path);
+            return factory.newDocumentBuilder().parse(stream);
+        }
+    }
+
+    private static Element elementWithId(Document view, String id) {
+        NodeList elements = view.getElementsByTagName("*");
+        for (int index = 0; index < elements.getLength(); index++) {
+            Element element = (Element) elements.item(index);
+            if (id.equals(element.getAttribute("fx:id"))) return element;
+        }
+        return null;
+    }
+
+    private static Field findField(Class<?> type, String name) {
+        for (Class<?> current = type; current != null; current = current.getSuperclass()) {
+            for (Field field : current.getDeclaredFields()) {
+                if (field.getName().equals(name)) return field;
+            }
+        }
+        return null;
+    }
+
+    private static boolean hasActionMethod(Class<?> type, String name) {
+        for (Class<?> current = type; current != null; current = current.getSuperclass()) {
+            for (Method method : current.getDeclaredMethods()) {
+                if (!method.getName().equals(name)) continue;
+                if (method.getParameterCount() == 0) return true;
+                if (method.getParameterCount() == 1
+                        && javafx.event.Event.class.isAssignableFrom(
+                                method.getParameterTypes()[0])) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     private static void setSlot(ScheduleArrangementDialogController controller, int index,
             int dayOfWeek, int startPeriod, int endPeriod) {
         ScheduleSlotEditor editor = controller.slotEditors().get(index);
@@ -1004,6 +1480,32 @@ public final class ScheduleArrangementDialogControllerTest {
                 "8001", "1001", 1, 3, 3, 4, "任课教师在该时间段已有教学安排");
     }
 
+    /** 本教学班（1001）的冲突：带归属标识与完整位置（第 3 周 周三 第3-4节）。 */
+    private static ScheduleConflictDTO ownBlockingConflict() {
+        return new ScheduleConflictDTO("OFFERING_OVERLAP", ScheduleConflictSeverityDTO.BLOCKING,
+                "1001", "1001", "1001", "CS101-2026-2-A", 3, 3, 3, 4,
+                "同一教学班在该时间已有排课");
+    }
+
+    private static ScheduleConflictDTO ownOverridableConflict() {
+        return new ScheduleConflictDTO("TEACHER_OVERLAP",
+                ScheduleConflictSeverityDTO.OVERRIDABLE, "8001", "2004", "1001",
+                "CS101-2026-2-A", 3, 3, 3, 4, "任课教师在该时间已有其他课程");
+    }
+
+    /** 其他教学班（2004）的冲突。 */
+    private static ScheduleConflictDTO otherBlockingConflict() {
+        return new ScheduleConflictDTO("OFFERING_OVERLAP", ScheduleConflictSeverityDTO.BLOCKING,
+                "2004", "2004", "2004", "CS202-2026-2-A", 3, 3, 1, 2,
+                "同一教学班在该时间已有排课");
+    }
+
+    private static ScheduleConflictDTO otherOverridableConflict() {
+        return new ScheduleConflictDTO("CLASSROOM_CAPACITY",
+                ScheduleConflictSeverityDTO.OVERRIDABLE, "3101", "2004", "2004",
+                "CS202-2026-2-A", 3, 3, 3, 4, "教室容量 40 小于教学班容量 45");
+    }
+
     private static void require(boolean condition, String message) {
         if (!condition) throw new AssertionError(message);
     }
@@ -1026,6 +1528,7 @@ public final class ScheduleArrangementDialogControllerTest {
         private final List<String> arrangementCalls = new ArrayList<>();
         private final List<String> deleteRequests = new ArrayList<>();
         private final List<String> publishRequests = new ArrayList<>();
+        private final List<String> createDraftRequests = new ArrayList<>();
         private final List<SaveArrangementRequestDTO> previewRequests = new ArrayList<>();
         private final List<SaveArrangementRequestDTO> saveRequests = new ArrayList<>();
         private final Deque<CompletableFuture<SchedulePlanDTO>> planResults = new ArrayDeque<>();
@@ -1033,7 +1536,7 @@ public final class ScheduleArrangementDialogControllerTest {
                 new ArrayDeque<>();
         private final Deque<CompletableFuture<List<ScheduleArrangementView>>> arrangementResults =
                 new ArrayDeque<>();
-        private final Deque<CompletableFuture<List<ScheduleConflictDTO>>> previewResults =
+        private final Deque<CompletableFuture<CheckArrangementResultDTO>> previewResults =
                 new ArrayDeque<>();
         private final Deque<CompletableFuture<AdminOperationResultView<ScheduleArrangementView>>>
                 saveResults = new ArrayDeque<>();
@@ -1047,8 +1550,10 @@ public final class ScheduleArrangementDialogControllerTest {
         private List<ScheduleArrangementView> authoritativeArrangements =
                 List.of(arrangement("9001"));
         private List<ScheduleConflictDTO> nextPreviewConflicts = List.of();
+        private List<ScheduleConflictDTO> nextPreviewPlanConflicts = List.of();
         private RuntimeException saveFailure;
         private RuntimeException publishFailure;
+        private RuntimeException createDraftFailure;
 
         private void enqueuePlan(CompletableFuture<SchedulePlanDTO> result) {
             planResults.addLast(result);
@@ -1059,7 +1564,7 @@ public final class ScheduleArrangementDialogControllerTest {
             arrangementResults.addLast(result);
         }
 
-        private void enqueuePreview(CompletableFuture<List<ScheduleConflictDTO>> result) {
+        private void enqueuePreview(CompletableFuture<CheckArrangementResultDTO> result) {
             previewResults.addLast(result);
         }
 
@@ -1068,8 +1573,17 @@ public final class ScheduleArrangementDialogControllerTest {
             saveResults.addLast(result);
         }
 
+        /** 只关心表单级冲突的既有用例：方案级快照一律为空。 */
         private void setNextPreview(List<ScheduleConflictDTO> conflicts) {
             nextPreviewConflicts = List.copyOf(conflicts);
+            nextPreviewPlanConflicts = List.of();
+        }
+
+        /** 甲2：两处列表都能设，验证一次预检查刷新两处。 */
+        private void setNextPreviewResult(List<ScheduleConflictDTO> conflicts,
+                List<ScheduleConflictDTO> planConflicts) {
+            nextPreviewConflicts = List.copyOf(conflicts);
+            nextPreviewPlanConflicts = List.copyOf(planConflicts);
         }
 
         private void failNextSave(RuntimeException failure) {
@@ -1102,13 +1616,14 @@ public final class ScheduleArrangementDialogControllerTest {
         }
 
         @Override
-        public CompletableFuture<List<ScheduleConflictDTO>> checkArrangement(
+        public CompletableFuture<CheckArrangementResultDTO> checkArrangement(
                 SaveArrangementRequestDTO request) {
             previewRequests.add(request);
-            CompletableFuture<List<ScheduleConflictDTO>> held = previewResults.poll();
+            CompletableFuture<CheckArrangementResultDTO> held = previewResults.poll();
             return held != null
                     ? held
-                    : CompletableFuture.completedFuture(nextPreviewConflicts);
+                    : CompletableFuture.completedFuture(new CheckArrangementResultDTO(
+                            nextPreviewConflicts, nextPreviewPlanConflicts));
         }
 
         @Override
@@ -1148,6 +1663,20 @@ public final class ScheduleArrangementDialogControllerTest {
             }
             return CompletableFuture.completedFuture(new AdminOperationResultView<>(
                     operationId, "OK", "排课方案已发布", null));
+        }
+
+        @Override
+        public CompletableFuture<AdminOperationResultView<SchedulePlanView>> createSchedulePlan(
+                int academicYear, int semester, boolean copyPublished, String operationId) {
+            createDraftRequests.add(academicYear + "|" + semester + "|" + copyPublished
+                    + "|" + operationId);
+            if (createDraftFailure != null) {
+                RuntimeException failure = createDraftFailure;
+                createDraftFailure = null;
+                return CompletableFuture.failedFuture(failure);
+            }
+            return CompletableFuture.completedFuture(new AdminOperationResultView<>(
+                    operationId, "OK", CREATE_DRAFT_MESSAGE, null));
         }
 
         @Override

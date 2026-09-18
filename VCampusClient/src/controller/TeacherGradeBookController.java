@@ -1,8 +1,10 @@
 package controller;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -12,6 +14,7 @@ import java.util.concurrent.CompletionException;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import dto.course.teacher.GradeComponentCodeDTO;
+import dto.course.teacher.StartGradeRevisionRequestDTO;
 import dto.course.teacher.TeacherGradeBookDTO;
 import dto.course.teacher.TeacherOperationResultDTO;
 import dto.course.teacher.WriteGradeBookRequestDTO;
@@ -19,7 +22,10 @@ import javafx.application.Platform;
 import javafx.beans.property.ReadOnlyStringWrapper;
 import javafx.event.Event;
 import javafx.fxml.FXML;
+import javafx.fxml.FXMLLoader;
 import javafx.scene.Node;
+import javafx.scene.Parent;
+import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.CheckBox;
@@ -33,6 +39,9 @@ import javafx.scene.control.TextField;
 import javafx.scene.input.Clipboard;
 import javafx.scene.input.ClipboardContent;
 import javafx.scene.input.KeyEvent;
+import javafx.stage.Modality;
+import javafx.stage.Stage;
+import javafx.stage.Window;
 import model.course.teacher.GradeBookEditorModel;
 import model.course.teacher.GradeBookEditorModel.Column;
 import model.course.teacher.GradeBookEditorModel.Row;
@@ -42,9 +51,13 @@ import model.course.teacher.GradeBookNavigator.Move;
 import model.course.teacher.GradeBookNavigator.Position;
 import protocol.MessageCode;
 import service.SocketTeacherCourseService.TeacherCourseServiceException;
+import service.SocketTeacherFileTransport;
 import service.TeacherCourseService;
 import service.TeacherCourseServices;
+import service.TeacherFileTransport;
 import util.AlertUtil;
+import util.FXMLUtil;
+import util.FadingNotice;
 import util.PageLeaveGuard;
 
 /**
@@ -67,6 +80,13 @@ import util.PageLeaveGuard;
  * {@link #requestLeave()} 询问用户，拒绝返回 false 让调用方 {@code consume} 关闭事件或保持页面；
  * 允许离开后 {@link #onClosed()} 取消在途请求并保证之后的响应不再写界面。
  *
+ * <p>状态提示（{@code gradeBookFeedbackLabel}）落在按钮行右侧、撑开的 Region 之后（见
+ * {@code TeacherGradeBookView.fxml}）：新文本一到达就显示，留 {@link FadingNotice#VISIBLE_DURATION}
+ * 之后渐变淡出并隐藏，隐藏只是界面状态——{@link #feedbackText} 里那句话不会被清掉（换班与页面
+ * 重新进入才清）。每次到达都会取消上一次计时并重新计时，因此同一个字符串再次到达（连续两次
+ * 「成绩草稿已保存」）同样会重新显示。这套语义由 {@link FadingNotice} 实现，教学班页的名单导出
+ * 提示共用同一个工具。
+ *
  * <p>录入交互是“Excel 式”的（见 {@link ScoreEditCell}）：单击选中即编辑、输入即写入模型、
  * 方向键即导航、离开单元格即完成、只有非法输入才在本格标红打断。所有导航与剪贴板的判定都放在
  * 无工具包的 {@link GradeBookNavigator}/{@link GradeClipboardParser} 里，本类只负责接线与渲染。
@@ -75,10 +95,17 @@ import util.PageLeaveGuard;
  * 因此既没有“按回车才算数”的二次确认，也不会为每敲一个键发一次网络请求。以后要加防抖自动保存，
  * 只需在 {@link #liveScoreEdit} 之后挂一个定时器即可，模型与幂等 ID 的设计都不用动。
  *
+ * <p>批次另有 <b>两个新的版本入口</b>（设计 §8），各自只在一种状态下出现：被驳回显示
+ * 「重新编辑」（{@link #reopenRejected()}，按那一批的冻结快照重开，取消不建草稿），已通过显示
+ * 「申请修改」（{@link #beginCorrection()}，从表格里选中的那一位学生打开更正表单）。更正始终以整个
+ * 教学班为单位提交：表单只是把拟修改分数写回这张表，随后仍走同一套保存/提交，本页不新增第二条写库
+ * 通路，因而也不会把新增补录写成一行独立的已发布成绩。待审核时两个入口都不出现。
+ *
  * <p>所有节点都可能为 {@code null}，控制器测试因此无需 JavaFX 工具包；离开确认函数可注入，
  * 测试不会真的弹对话框。
  */
-public final class TeacherGradeBookController implements PageLeaveGuard {
+public final class TeacherGradeBookController implements PageLeaveGuard,
+        TeacherGradeImportController.Host {
     static final String LOAD_FAILURE_TEXT = "成绩表加载失败，请重试";
     static final String SAVE_SUCCESS_TEXT = "成绩草稿已保存";
     static final String SAVE_FAILURE_TEXT = "保存失败，已保留你的修改，请重试";
@@ -93,7 +120,43 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
     static final String CLEAN_TEXT = "没有未保存的修改";
     static final String LEAVE_PROMPT_TEXT = "成绩表有未保存的修改，离开将丢失这些修改。确定离开吗？";
     static final String RELOAD_PROMPT_TEXT = "重新加载会丢弃未保存的修改，确定重新加载吗？";
+    /**
+     * 有未保存的修改时导出的确认：导出**仍然可以**，但必须先把「导的是哪一份」说清楚。
+     *
+     * <p>服务端导出的永远是<b>已保存的草稿</b>，屏幕上那些还没保存的编辑一个都不在文件里。没有这句话，
+     * 教师会拿到一份与眼前列出来的数字不同的文件而完全无从察觉。
+     */
+    static final String EXPORT_PROMPT_TEXT =
+            "成绩表有未保存的修改，导出的是已保存的草稿、不包含这些修改。确定导出吗？";
+    static final String FROZEN_SCHEME_TEXT = "导入预览期间方案已冻结，取消导入后才能调整权重";
     static final String PLACEHOLDER = "—";
+
+    // ---- 两个版本入口（设计 §8：驳回重提与发起更正）。入口文案同时是结果提示的来源，
+    //      避免同一件事出现两套说法。
+    static final String REOPEN_PROMPT_TEXT = "重新编辑会按最后一次被驳回的批次重建草稿："
+            + "提交该批次时未启用的组成没有进过批次，你为它们输入的值不会回来。确定重新编辑吗？";
+    static final String REOPENING_TEXT = "正在按被驳回的批次重建草稿...";
+    static final String REOPEN_SUCCESS_TEXT = "已回到编辑状态，修改后重新提交";
+    static final String REOPEN_FAILURE_TEXT = "重新编辑失败，请重试";
+    static final String REOPEN_CONFLICT_PREFIX = "成绩表已被其他操作更新，请重新加载后再重新编辑：";
+    static final String CORRECTION_OPEN_FAILURE_TEXT = "无法打开更正表单，请重试";
+    /** 更正草稿建立且拟修改分数<b>真的写进了编辑模型</b>时的提示。 */
+    static final String CORRECTION_STARTED_TEXT = "更正草稿已建立，拟修改的分数已写入成绩表；保存或提交后等待管理员审核";
+    /**
+     * 更正草稿建立、但这名学生已经不在名单里时的提示。
+     *
+     * <p>它必须与 {@link #CORRECTION_STARTED_TEXT} 分开，而且是两句不同的话：那一条路<b>故意</b>什么都不写
+     * （见 {@link #applyCorrection} 里的分支注释「不把分数写到别处」）。共用一句「分数已写入成绩表」会让
+     * 教师在确认之后照常保存并提交一份<b>不含</b>这次更正的批次，还以为改到了——用一个说假话的提示去实现
+     * 「如实说明」的意图，等于白做。
+     */
+    static final String CORRECTION_STARTED_ROSTER_GONE_TEXT =
+            "更正草稿已建立，但这名学生已不在本教学班的名单里，你填写的分数没有写入成绩表";
+    /** 更正表单的资源路径；标题由 {@link TeacherGradeCorrectionDialogController#TITLE} 固定。 */
+    static final String CORRECTION_VIEW = "/resources/fxml/TeacherGradeCorrectionDialog.fxml";
+    /** 只有这两种批次状态各自有一个新的版本入口；其它状态下两个按钮都不出现。 */
+    private static final String STATE_APPROVED = "APPROVED";
+    private static final String STATE_REJECTED = "REJECTED";
 
     /** 导航到一个还没渲染出来的行时，等布局把它带进视口的重试次数上限。 */
     private static final int PENDING_EDIT_RETRIES = 5;
@@ -104,6 +167,11 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
     private final Consumer<Runnable> fxExecutor;
     /** 离开/重新加载确认：消息 → 是否同意。默认弹对话框，测试注入固定回答。 */
     private final Function<String, Boolean> confirmation;
+    /**
+     * Excel 导入的编排：票据、短连接传输、服务端预览与修订都归它管。本类只把它接到同一张成绩表
+     * （{@link TeacherGradeImportController.Host}），绝不复制第二张表。
+     */
+    private final TeacherGradeImportController importController;
 
     private Runnable onBack = () -> { };
     private GradeBookEditorModel model;
@@ -113,11 +181,47 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
     private boolean saving;
     private boolean submitting;
     private boolean confirmingSubmit;
+    private boolean reopening;
     private boolean syncingScheme;
-    private String feedbackText;
+    /**
+     * 更正入口选中的那一行：更正从某一位学生打开，但提交的仍是整个教学班的新版本。
+     *
+     * <p>它只在表格存在时由选中监听器推进，也由 {@link #selectRow(Row)} 直接注入——无工具包的
+     * 控制器测试因此不需要真的构造一棵表格树。
+     */
+    private Row selectedRow;
+    /** 打开更正表单的一方；默认弹窗口，测试注入替身（与课表页的弹窗打开方式一致）。 */
+    private Consumer<Row> correctionOpener = this::openCorrectionDialog;
+    /**
+     * 重新编辑的确认：<b>不与</b>{@link #confirmation}共用。那一个的标题是「未保存的成绩」，而重开
+     * 只出现在只读的被驳回批次上——那一刻证明得了「没有任何未保存的成绩」，用一个说自己有未保存内容的
+     * 标题去问要不要重建草稿，是标题在撒谎。这里给它自己的标题。
+     */
+    private Function<String, Boolean> reopenConfirmation = TeacherGradeBookController::confirmReopen;
+    /**
+     * 状态提示的显示与消退：文本到达、计时与“那句话还在不在”都归它管（与教学班页的名单导出提示
+     * 共用同一个 {@link FadingNotice}）。本类只负责在 {@link #render} 里把它的状态落到
+     * {@code gradeBookFeedbackLabel} 上——渲染出口仍然只有 {@link #render} 一个。
+     *
+     * <p>标签要等 FXML 注入完毕才存在，因此工具在第一次渲染时（{@link #initialize()} 的末尾）才
+     * 绑定；无工具包的控制器测试里标签是 null，工具退化成纯状态机，
+     * {@link #feedbackText()} 照旧读得到那句话。
+     */
+    private FadingNotice feedbackNotice;
     private String errorText;
     private String pendingSaveOperationId;
     private String pendingSubmitOperationId;
+    /**
+     * 重新编辑的幂等 ID：与保存/提交同一套语义——只在第一次真正发请求时生成，失败后重试复用同一个。
+     *
+     * <p>复用是必要的：服务端已经打开了草稿但响应在网络上丢了时，换一个新 ID 再按一次只会拿到
+     * 「成绩草稿已经打开」的冲突，而这个操作其实早就成功了；同一个 ID 换回来的是那次成功的重放。
+     *
+     * <p>作废它的只有三条路：{@link #showOffering(String)}（切换教学班）、{@link #loadBook()}（重新
+     * 加载）与重开成功之后。{@link #release()}（离开页面）<b>不</b>清它——离开只是把页面卸下并作废
+     * 在途响应，下一次进入这一页仍然先经过 {@code showOffering} 或 {@code loadBook}，那时才清。
+     */
+    private String pendingReopenOperationId;
     private long generation;
     /** 当前打开着编辑器的单元格；键盘事件据此决定“交给编辑器”还是“由表格处理”。 */
     private ScoreEditCell activeCell;
@@ -138,6 +242,8 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
     @FXML private Button gradeBookReloadButton;
     @FXML private Button gradeBookSaveButton;
     @FXML private Button gradeBookSubmitButton;
+    @FXML private Button gradeBookReopenButton;
+    @FXML private Button gradeBookCorrectionButton;
     @FXML private Button gradeBookConfirmSubmitButton;
     @FXML private Button gradeBookCancelSubmitButton;
     @FXML private Button gradeBookBackButton;
@@ -162,25 +268,71 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
     @FXML private TextField gradeBookExperimentWeight;
     @FXML private CheckBox gradeBookFinaltermEnabled;
     @FXML private TextField gradeBookFinaltermWeight;
+    @FXML private Label gradeBookImportSummaryLabel;
+    @FXML private Button gradeBookDownloadTemplateButton;
+    @FXML private Button gradeBookExportGradesButton;
+    @FXML private Button gradeBookImportButton;
+    @FXML private Button gradeBookImportIssuesButton;
+    @FXML private Button gradeBookCancelImportButton;
+    @FXML private Button gradeBookConfirmImportButton;
 
     public TeacherGradeBookController() {
-        this(TeacherCourseServices.current(), Platform::runLater, TeacherGradeBookController::confirm);
+        this(TeacherCourseServices.current(), new SocketTeacherFileTransport(), Platform::runLater,
+                TeacherGradeBookController::confirm, null);
     }
 
     TeacherGradeBookController(TeacherCourseService service, Consumer<Runnable> fxExecutor) {
-        this(service, fxExecutor, TeacherGradeBookController::confirm);
+        this(service, new SocketTeacherFileTransport(), fxExecutor, TeacherGradeBookController::confirm,
+                null);
     }
 
     TeacherGradeBookController(TeacherCourseService service, Consumer<Runnable> fxExecutor,
             Function<String, Boolean> confirmation) {
+        this(service, new SocketTeacherFileTransport(), fxExecutor, confirmation, null);
+    }
+
+    TeacherGradeBookController(TeacherCourseService service, TeacherFileTransport transport,
+            Consumer<Runnable> fxExecutor) {
+        this(service, transport, fxExecutor, TeacherGradeBookController::confirm, null);
+    }
+
+    /**
+     * @param dialogs 文件选择端口；null 表示用真实的 JavaFX 选择器（测试注入替身，不需要工具包）。
+     */
+    TeacherGradeBookController(TeacherCourseService service, TeacherFileTransport transport,
+            Consumer<Runnable> fxExecutor, Function<String, Boolean> confirmation,
+            TeacherGradeImportController.FileDialogs dialogs) {
+        this(service, transport, fxExecutor, confirmation, dialogs,
+                TeacherGradeImportController::confirmOverwrite);
+    }
+
+    /**
+     * @param overwriteConfirmation 下载目标已存在时的覆盖确认；与 {@code confirmation}（离开/重新加载
+     *                              未保存修改）刻意分开：同一个函数会让教师把覆盖问题当成丢修改的警告。
+     */
+    TeacherGradeBookController(TeacherCourseService service, TeacherFileTransport transport,
+            Consumer<Runnable> fxExecutor, Function<String, Boolean> confirmation,
+            TeacherGradeImportController.FileDialogs dialogs,
+            Function<String, Boolean> overwriteConfirmation) {
         this.service = Objects.requireNonNull(service, "Teacher course service is required");
         this.fxExecutor = Objects.requireNonNull(fxExecutor, "FX executor is required");
         this.confirmation = Objects.requireNonNull(confirmation, "Confirmation is required");
+        this.importController = new TeacherGradeImportController(service,
+                Objects.requireNonNull(transport, "File transport is required"), fxExecutor,
+                dialogs == null ? TeacherGradeImportController.fxDialogs(this::ownerWindow) : dialogs,
+                Objects.requireNonNull(overwriteConfirmation, "Overwrite confirmation is required"),
+                this::ownerWindow);
+        this.importController.attach(this);
     }
 
     /** 生产路径的确认对话框：在 FX 线程弹模态框，等待用户选择。 */
     private static boolean confirm(String message) {
         return AlertUtil.showConfirm("未保存的成绩", message) == ButtonType.OK;
+    }
+
+    /** 重新编辑的确认框：标题就是它正在问的那件事。 */
+    private static boolean confirmReopen(String message) {
+        return AlertUtil.showConfirm("重新编辑成绩表", message) == ButtonType.OK;
     }
 
     @FXML
@@ -190,6 +342,8 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
             // 九列在 860 宽的窗口里放不下：保留列宽并横向滚动，而不是把文字压成省略号。
             gradeBookTable.setColumnResizePolicy(TableView.UNCONSTRAINED_RESIZE_POLICY);
             bindTableKeyboard();
+            gradeBookTable.getSelectionModel().selectedItemProperty().addListener(
+                    (observable, previous, next) -> selectRow(next));
         }
         bindSchemeBarToTableScroll();
         bindTextColumn(gradeBookUidColumn, row -> row.studentUid());
@@ -288,6 +442,9 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
     /** 工作台打开某个教学班的成绩表：注册离开守卫并加载最新草稿。 */
     void showOffering(String offeringId) {
         if (offeringId == null || offeringId.isBlank()) return;
+        // 换班前先了结上一班的导入：取消在途短连接并丢弃预览。新班绝不能继承旧班的教学班、
+        // 版本或名单摘要。
+        importController.cancelOnLeave();
         this.offeringId = offeringId;
         // 换班即丢弃上一个班的编辑内容与幂等 ID：新班必须拿到自己的 revision 与名单摘要。
         closeActiveCell();
@@ -295,17 +452,23 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
         this.model = null;
         this.pendingSaveOperationId = null;
         this.pendingSubmitOperationId = null;
+        this.pendingReopenOperationId = null;
         this.confirmingSubmit = false;
-        this.feedbackText = null;
+        this.reopening = false;
+        // 选中行属于上一个班：新班的更正入口必须等到它自己的表格选中了人才可用。
+        this.selectedRow = null;
+        setFeedback(null);
         this.errorText = null;
         this.active = true;
+        // 同一个页面实例会被反复进出（打开教学班 → 返回列表 → 再打开），导入编排跟着重新激活。
+        importController.attach(this);
         PageLeaveGuard.install(this);
         render();
         loadBook();
     }
 
     /**
-     * 工作台离开本页：取消在途请求、注销离开守卫。页面被卸下之后响应不再写界面，
+     * 工作台离开本页：取消在途请求（含导入的短连接）、注销离开守卫。页面被卸下之后响应不再写界面，
      * 因此不需要（也不允许）在 {@code release()} 之后继续更新控件。
      */
     void release() {
@@ -314,10 +477,16 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
         saving = false;
         submitting = false;
         confirmingSubmit = false;
+        reopening = false;
+        selectedRow = null;
         generation++;
+        // 提示的消退计时也一起停掉：页面已卸下，不能留下一个还在跑的动画（同一个控制器实例
+        // 会被反复进出，计时器更不能跨页泄漏）。那句话本身留着不动：换班与重新进入时才清。
+        feedbackNotice().dispose();
         // 页面被卸下：把打开的编辑器收起来，也别让排队的“落到某一格”在页面之外生效。
         closeActiveCell();
         clearPendingEdit();
+        importController.release();
         PageLeaveGuard.clear(this);
     }
 
@@ -328,10 +497,36 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
         pendingEditRetries = 0;
     }
 
+    /**
+     * 离开保护：导入预览是临时的，离开本页要取消在途传输（关闭短连接）并恢复导入前的编辑副本，
+     * 然后按恢复出来的 {@code dirty} 决定要不要提示——教师原本的未保存修改如实被问一次。
+     *
+     * <p><b>顺序按「有没有教师的临时成果会丢」分开：</b>还没有预览时，取消只是关掉在途短连接
+     * （上传链的每一段都会先 {@code requireStillImporting} 再派发，因此票据不会被白花、也不会留下
+     * 孤儿文件），照旧在提问之前就取消；已经有预览时则先问、得到「确定离开」才取消——教师点返回
+     * 又回答「取消，不离开」的话，预览、修正与那份服务端候选必须原封不动地留在原地。
+     *
+     * <p><b>确认在途时直接拒绝离开：</b>{@link TeacherGradeImportController#confirming()} 期间那条
+     * 写请求可能已经在服务端写成草稿，此刻取消会给出「已恢复导入前的编辑内容」这句与数据库矛盾的
+     * 话。留在页面上等它落地是唯一不撒谎的选择（见 importController 里 {@code confirming} 的不变式）。
+     */
     @Override
     public boolean requestLeave() {
+        if (importController.confirming()) {
+            setFeedback(TeacherGradeImportController.CONFIRMING_TEXT);
+            render();
+            return false;
+        }
+        if (!importController.importing()) {
+            // 没有预览：先取消在途传输（关闭短连接），这里没有教师的临时成果会丢。
+            importController.cancelOnLeave();
+        }
         if (!dirty()) return true;
-        return confirmation.apply(LEAVE_PROMPT_TEXT);
+        if (!confirmation.apply(LEAVE_PROMPT_TEXT)) return false;
+        // 明确要离开才丢预览与修正：响应里的 dirty 随之回到导入前的真实状态（本方法已经问过，
+        // 因此这次恢复不再触发第二次提问）。
+        importController.cancelOnLeave();
+        return true;
     }
 
     @Override
@@ -361,10 +556,101 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
      * 而不是“离开页面”的措辞（同一个机制，两种说法）。被拒绝时保持当前内容不动。
      */
     void reload() {
+        if (importController.confirming()) {
+            // 确认在途时重新加载会丢掉那条写请求的结果（按钮此时本来也是禁用的，这里是第二道门）。
+            setFeedback(TeacherGradeImportController.CONFIRMING_TEXT);
+            render();
+            return;
+        }
         if (model != null && dirty() && !confirmation.apply(RELOAD_PROMPT_TEXT)) return;
         pendingSaveOperationId = null;
         pendingSubmitOperationId = null;
+        // 重新加载会拿到新的草稿版本，旧预览与旧候选一并作废。
+        importController.cancelOnLeave();
         loadBook();
+    }
+
+    // ------------------------------------------------------------------ Excel 模板、导入与名单导出
+
+    /** 下载成绩模板：导入控制器负责票据、覆盖确认与短连接传输，本类只提供教学班与窗口。 */
+    @FXML
+    void handleDownloadTemplate(Event event) {
+        importController.downloadTemplate(offeringId);
+    }
+
+    /**
+     * 导出成绩：本页导出的是**这张表当前的草稿**——名单三列加四项成绩、总评与绩点，未填写的成绩在
+     * 文件里写 0。要导出学生名单本身（含退课行、状态与选课/退课时间，并可按当前筛选）走教学班详情页
+     * 学生名单 Tab 的导出按钮，那是另一条路径、另一份文件。
+     *
+     * <p>导出的是<b>已保存的草稿</b>，所以有未保存的修改时先走一次离开/重新加载同款的
+     * {@link #confirmation}：导出不被禁止（用户明确选了「仍可导出，但先弹确认框」这一种），
+     * 只是先把文件里是哪一份数字说清楚；被拒绝就什么都不发。
+     */
+    @FXML
+    void handleExportGrades(Event event) {
+        if (dirty() && !confirmation.apply(EXPORT_PROMPT_TEXT)) return;
+        importController.exportGrades(offeringId);
+    }
+
+    /** 导入入口：FileChooser 在 FX 线程，上传与解析在后台，服务端预览回来后合并进这张表。 */
+    @FXML
+    void handleStartImport(Event event) {
+        importController.startImport();
+    }
+
+    /** 重新打开异常明细：关闭弹窗不影响同表预览，这里把它再叫回来。 */
+    @FXML
+    void handleShowImportIssues(Event event) {
+        importController.showIssues();
+    }
+
+    @FXML
+    void handleCancelImport(Event event) {
+        importController.cancelImport();
+    }
+
+    @FXML
+    void handleConfirmImport(Event event) {
+        importController.confirmImport();
+    }
+
+    // ------------------------------------------------------------------ 导入控制器对宿主的要求
+
+    @Override
+    public void feedback(String text) {
+        setFeedback(text);
+        render();
+    }
+
+    @Override
+    public void gradeBookChanged() {
+        render();
+    }
+
+    @Override
+    public void importStateChanged() {
+        render();
+    }
+
+    /**
+     * 确认成功的落点：用服务端返回的草稿整体替换编辑内容（dirty 随之清零），并作废旧幂等 ID——
+     * 导入之后的下一次写操作一定是新的 UUID，绝不复用导入时那个。
+     */
+    @Override
+    public void replaceWithServerDraft(TeacherGradeBookDTO book) {
+        if (model != null && book != null) {
+            model.applyServerSnapshot(book);
+        }
+        pendingSaveOperationId = null;
+        pendingSubmitOperationId = null;
+        render();
+    }
+
+    /** 弹窗的 owner 窗口：表格还没进场景时返回 null，弹窗仍然打开，只是不锁定父窗口。 */
+    private Window ownerWindow() {
+        if (gradeBookTable == null || gradeBookTable.getScene() == null) return null;
+        return gradeBookTable.getScene().getWindow();
     }
 
     private void loadBook() {
@@ -375,6 +661,11 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
         // 重新加载作废在途写请求的响应（generation 已经变了）；写入标志复位，按钮不会永久禁用。
         saving = false;
         submitting = false;
+        reopening = false;
+        // 行对象会被整份换掉，旧选中行不再属于这张表。
+        selectedRow = null;
+        // 重新加载拿到的是新快照：这条路走完，之前那次重开的意图与它的幂等 ID 都不再成立。
+        pendingReopenOperationId = null;
         render();
         service.getGradeBook(offeringId).whenComplete((book, failure) -> fxExecutor.accept(() -> {
             if (!isCurrent(current)) return;
@@ -400,9 +691,15 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
     /** 保存草稿：非法输入与只读状态在本地就被挡住，绝不发一个注定被拒绝的请求。 */
     void save() {
         if (model == null || saving || submitting) return;
+        // 导入预览期间只能取消或确认导入：草稿写入必须来自其中一条明确的路径。
+        if (importController.importing()) {
+            setFeedback(FROZEN_SCHEME_TEXT);
+            render();
+            return;
+        }
         String blocked = model.saveBlockReason();
         if (blocked != null) {
-            feedbackText = blocked;
+            setFeedback(blocked);
             render();
             return;
         }
@@ -411,7 +708,7 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
         try {
             request = model.writeRequest(pendingSaveOperationId);
         } catch (IllegalStateException refused) {
-            feedbackText = refused.getMessage();
+            setFeedback(refused.getMessage());
             render();
             return;
         }
@@ -420,7 +717,7 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
         // 一并复位，否则“正在加载成绩表...”会一直挂着、重新加载按钮永久禁用——与 loadBook 在开头
         // 复位写入标志是对称的同一件事。
         loading = false;
-        feedbackText = SAVING_TEXT;
+        setFeedback(SAVING_TEXT);
         errorText = null;
         render();
         long current = ++generation;
@@ -429,14 +726,14 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
             saving = false;
             if (failure != null) {
                 // 失败保留编辑内容：模型一个字段都不动，只把原因显示出来。
-                feedbackText = conflictPrefix(failure, SAVE_CONFLICT_PREFIX)
-                        + failureText(failure, SAVE_FAILURE_TEXT);
+                setFeedback(conflictPrefix(failure, SAVE_CONFLICT_PREFIX)
+                        + failureText(failure, SAVE_FAILURE_TEXT));
                 render();
                 return;
             }
             applySnapshot(result);
             pendingSaveOperationId = null;
-            feedbackText = SAVE_SUCCESS_TEXT;
+            setFeedback(SAVE_SUCCESS_TEXT);
             errorText = null;
             render();
         }));
@@ -450,8 +747,14 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
 
     void requestSubmit() {
         if (model == null || submitting || confirmingSubmit) return;
+        // 导入预览期间不进入提交确认：确认导入不是提交审批，两条流程不能混在一起。
+        if (importController.importing()) {
+            setFeedback(FROZEN_SCHEME_TEXT);
+            render();
+            return;
+        }
         confirmingSubmit = true;
-        feedbackText = null;
+        setFeedback(null);
         render();
     }
 
@@ -476,10 +779,15 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
 
     void confirmSubmit() {
         if (model == null || submitting) return;
+        if (importController.importing()) {
+            setFeedback(FROZEN_SCHEME_TEXT);
+            render();
+            return;
+        }
         String blocked = model.submitBlockReason();
         if (blocked != null) {
             confirmingSubmit = false;
-            feedbackText = blocked;
+            setFeedback(blocked);
             render();
             return;
         }
@@ -489,14 +797,14 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
         try {
             request = model.writeRequest(pendingSubmitOperationId);
         } catch (IllegalStateException refused) {
-            feedbackText = refused.getMessage();
+            setFeedback(refused.getMessage());
             render();
             return;
         }
         submitting = true;
         // 同 save()：提交同样作废在途加载的响应，加载标志必须一起复位，不能让它悬空。
         loading = false;
-        feedbackText = SUBMITTING_TEXT;
+        setFeedback(SUBMITTING_TEXT);
         errorText = null;
         render();
         long current = ++generation;
@@ -504,14 +812,14 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
             if (!isCurrent(current)) return;
             submitting = false;
             if (failure != null) {
-                feedbackText = conflictPrefix(failure, SUBMIT_CONFLICT_PREFIX)
-                        + failureText(failure, SUBMIT_FAILURE_TEXT);
+                setFeedback(conflictPrefix(failure, SUBMIT_CONFLICT_PREFIX)
+                        + failureText(failure, SUBMIT_FAILURE_TEXT));
                 render();
                 return;
             }
             applySnapshot(result);
             pendingSubmitOperationId = null;
-            feedbackText = SUBMIT_SUCCESS_TEXT;
+            setFeedback(SUBMIT_SUCCESS_TEXT);
             errorText = null;
             render();
         }));
@@ -522,6 +830,193 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
         if (result != null && result.getValue() != null) {
             model.applyServerSnapshot(result.getValue());
         }
+    }
+
+    // ------------------------------------------------------------------ 新的版本入口
+
+    /**
+     * 被驳回的批次：显式「重新编辑」。在此之前教师只能靠“再存一次”让草稿悄悄重开，现在有一个
+     * 说清楚发生了什么的入口。
+     *
+     * <p>它<b>不是</b>一次普通保存：草稿按那一批的冻结快照重建，因此提交时被禁用的组成如果当时
+     * 没进批次，教师为它输入的值不会回来——提示语必须如实这么说，不能承诺未提交的修改会幸存。
+     * 用户在这里点「取消」什么都不发生：不建草稿、不发请求、也不消耗 operationId。
+     */
+    @FXML
+    void handleReopenRejected(Event event) {
+        reopenRejected();
+    }
+
+    void reopenRejected() {
+        if (!canReopenRejected()) return;
+        if (!reopenConfirmation.apply(REOPEN_PROMPT_TEXT)) return;
+        if (pendingReopenOperationId == null) {
+            pendingReopenOperationId = UUID.randomUUID().toString();
+        }
+        StartGradeRevisionRequestDTO request = new StartGradeRevisionRequestDTO(
+                pendingReopenOperationId, offeringId, model.lastSubmissionId(), model.revision(),
+                null);
+        reopening = true;
+        loading = false;
+        setFeedback(REOPENING_TEXT);
+        errorText = null;
+        render();
+        long current = ++generation;
+        service.reopenRejectedGradeBook(request).whenComplete((result, failure) ->
+                fxExecutor.accept(() -> {
+                    if (!isCurrent(current)) return;
+                    reopening = false;
+                    if (failure != null) {
+                        // 与保存/提交同一套失败语义：保留编辑内容，只把原因和当前版本说清楚。
+                        setFeedback(conflictPrefix(failure, REOPEN_CONFLICT_PREFIX)
+                                + failureText(failure, REOPEN_FAILURE_TEXT));
+                        render();
+                        return;
+                    }
+                    applySnapshot(result);
+                    // 重开之后草稿是新的一份：上一次流程的幂等 ID 一律作废。
+                    pendingSaveOperationId = null;
+                    pendingSubmitOperationId = null;
+                    pendingReopenOperationId = null;
+                    setFeedback(REOPEN_SUCCESS_TEXT);
+                    errorText = null;
+                    render();
+                }));
+    }
+
+    /**
+     * 已通过的批次：唯一可编辑入口是「申请修改」——它打开更正表单，由表单建立更正草稿。更正从
+     * 表格里选中的那一位学生打开（表单要显示他的姓名、学号与原始分数），但提交的仍是整个教学班的
+     * 新版本，这一页不会因为“只改一个人”而多出一条写单行成绩的通路。
+     */
+    @FXML
+    void handleBeginCorrection(Event event) {
+        beginCorrection();
+    }
+
+    void beginCorrection() {
+        if (!canRequestCorrection()) return;
+        correctionOpener.accept(selectedRow);
+    }
+
+    /**
+     * 更正表单确认后的落点：先把服务端建立的更正草稿换成当前编辑内容（页面因此变成可编辑的
+     * DRAFT），再把教师在表单里填写的拟修改原文写进编辑模型。
+     *
+     * <p>只是写进模型：脏标记随之立起，随后照常走「保存草稿 / 提交成绩」，本页不新增第二条写入
+     * 通路，也绝不单独写一行已发布的成绩。
+     *
+     * <p>两条分支说<b>两句不同的话</b>：只有真把分数写进模型时才说「已写入成绩表」；学生已经不在名单里
+     * 时走 {@link #CORRECTION_STARTED_ROSTER_GONE_TEXT}，明说这次没有写。
+     */
+    void applyCorrection(TeacherGradeCorrectionDialogController.CorrectionOutcome outcome) {
+        if (model == null || outcome == null || outcome.book() == null) return;
+        model.applyServerSnapshot(outcome.book());
+        pendingSaveOperationId = null;
+        pendingSubmitOperationId = null;
+        if (!hasRow(outcome.enrollmentId())) {
+            // 更正草稿建立之后名单里已经没有这名学生（例如他退课了）：如实说明，不把分数写到别处。
+            setFeedback(CORRECTION_STARTED_ROSTER_GONE_TEXT);
+            render();
+            return;
+        }
+        for (GradeComponentCodeDTO code : GradeComponentCodeDTO.values()) {
+            model.setScore(outcome.enrollmentId(), code, outcome.proposed().get(code));
+        }
+        setFeedback(CORRECTION_STARTED_TEXT);
+        errorText = null;
+        render();
+    }
+
+    /**
+     * 用独立 {@code WINDOW_MODAL} Stage 打开更正表单。表单持有同一个教师课程服务实例
+     * （生产路径上是共享单例），确认成功后把新草稿与拟修改值交回本页。
+     */
+    private void openCorrectionDialog(Row row) {
+        if (row == null || model == null) return;
+        FXMLLoader loader = FXMLUtil.getLoader(CORRECTION_VIEW);
+        Parent root;
+        try {
+            root = loader.load();
+        } catch (IOException | RuntimeException failure) {
+            setFeedback(CORRECTION_OPEN_FAILURE_TEXT);
+            render();
+            return;
+        }
+        TeacherGradeCorrectionDialogController dialog = loader.getController();
+        dialog.setOnConfirmed(this::applyCorrection);
+        dialog.prepare(new TeacherGradeCorrectionDialogController.CorrectionTarget(offeringId,
+                model.lastSubmissionId(), model.revision(), row.enrollmentId(), row.studentUid(),
+                row.studentName(), originalsOf(row)));
+        Stage stage = new Stage();
+        stage.initModality(Modality.WINDOW_MODAL);
+        Window owner = ownerWindow();
+        if (owner != null) stage.initOwner(owner);
+        stage.setTitle(TeacherGradeCorrectionDialogController.TITLE);
+        stage.setScene(new Scene(root));
+        stage.setOnHidden(event -> dialog.dispose());
+        stage.show();
+    }
+
+    /**
+     * 被驳回且本班确实有那一批才可重开：没有批次就没有可回到的基线。
+     * 导入过程中的短连接在途时同样不给入口——同一个页面上两条写流程不能同时开跑。
+     */
+    boolean canReopenRejected() {
+        if (model == null || importBusy() || saving || submitting || reopening) return false;
+        return STATE_REJECTED.equals(model.state()) && model.lastSubmissionId() != null;
+    }
+
+    /** 更正要有个对象：已通过 + 表格里选中了一位学生，两个条件缺一不可。 */
+    boolean canRequestCorrection() {
+        if (model == null || importBusy() || saving || submitting || reopening) return false;
+        return STATE_APPROVED.equals(model.state()) && selectedRow != null
+                && model.lastSubmissionId() != null;
+    }
+
+    private boolean importBusy() {
+        return importController.importing() || importController.busy();
+    }
+
+    private boolean hasRow(String enrollmentId) {
+        if (enrollmentId == null) return false;
+        for (Row row : model.rows()) {
+            if (enrollmentId.equals(row.enrollmentId())) return true;
+        }
+        return false;
+    }
+
+    private static Map<GradeComponentCodeDTO, String> originalsOf(Row row) {
+        Map<GradeComponentCodeDTO, String> values = new LinkedHashMap<>();
+        for (GradeComponentCodeDTO code : GradeComponentCodeDTO.values()) {
+            values.put(code, row.cell(code).text());
+        }
+        return values;
+    }
+
+    /** 由表格的选中监听器与测试共用：选中一位学生，更正入口据此可用。 */
+    void selectRow(Row row) {
+        if (selectedRow == row) return;
+        selectedRow = row;
+        render();
+    }
+
+    Row selectedRow() {
+        return selectedRow;
+    }
+
+    /** 打开更正表单的一方；null 表示回到真实的弹窗口（见 {@link #openCorrectionDialog(Row)}）。 */
+    void setCorrectionOpener(Consumer<Row> opener) {
+        this.correctionOpener = opener == null ? this::openCorrectionDialog : opener;
+    }
+
+    /**
+     * 重新编辑的确认：消息 → 是否同意；null 表示回到真实的「重新编辑成绩表」对话框。
+     * 它与离开/重新加载那个确认刻意分开，理由见 {@link #reopenConfirmation}。
+     */
+    void setReopenConfirmation(Function<String, Boolean> confirmation) {
+        this.reopenConfirmation = confirmation == null
+                ? TeacherGradeBookController::confirmReopen : confirmation;
     }
 
     // ------------------------------------------------------------------ 编辑
@@ -542,6 +1037,14 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
         if (rowIndex < 0 || rowIndex >= model.rows().size()) return;
         GradeComponentCodeDTO code = codeOf(column);
         if (code == null || !isColumnEditable(code)) return;
+        if (importController.importing()
+                && !importController.isCorrectableCell(model.rows().get(rowIndex), code)) {
+            // 预览期间只有服务端报过问题的格子可以改：其它格子改了要么是本地假象，要么会被
+            // 服务端在确认时忽略，宁可不打开编辑器也不让教师白改。
+            setFeedback(TeacherGradeImportController.NO_ISSUE_CELL_TEXT);
+            render();
+            return;
+        }
         if (activeCell != null && activeCell.getIndex() == rowIndex
                 && activeCell.column() == column) {
             activeCell.typeIn(seedText);
@@ -603,15 +1106,32 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
      * 也就不需要“再按一次回车确认”。以后要加防抖自动保存，接在这句话后面即可。
      */
     void liveScoreEdit(Row row, GradeComponentCodeDTO code, String text) {
-        if (model == null || !model.canEdit() || row == null) return;
+        if (model == null || row == null) return;
+        if (importController.importing()) {
+            // 预览期间的修改不是本地编辑：原文本进模型，修正立刻发给服务端重新校验（revise），
+            // 红框只由服务端的下一次预览消除——绝不在本地把红框敲掉就算完事。
+            importController.correctionTyped(row, code, text);
+            return;
+        }
+        if (!model.canEdit()) return;
         model.setScore(row.enrollmentId(), code, text);
         refreshRowDisplay(row);
         render(false);
     }
 
-    /** {@code Esc}：把这一格恢复成编辑开始时的原文。 */
+    /**
+     * {@code Esc}：把这一格恢复成编辑开始时的原文。
+     *
+     * <p>导入预览期间「恢复」同样是一次修正（原文重新成为这次修订里该格的文本），因此走的是同一条
+     * revise 路径：撤销修正也要让服务端重新校验，不能只在本地改回去。
+     */
     void revertScore(Row row, GradeComponentCodeDTO code, String text) {
-        if (model == null || !model.canEdit() || row == null) return;
+        if (model == null || row == null) return;
+        if (importController.importing()) {
+            importController.correctionTyped(row, code, text);
+            return;
+        }
+        if (!model.canEdit()) return;
         model.setScore(row.enrollmentId(), code, text);
         refreshRowDisplay(row);
         render(false);
@@ -642,6 +1162,12 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
      */
     void pasteScoreBlock(Row startRow, GradeComponentCodeDTO startCode, String clipboardText) {
         if (model == null || !model.canEdit() || startRow == null || startCode == null) return;
+        // 导入预览期间不接收批量粘贴：一次铺开的格子大多不是异常格，改完也不会进候选。
+        if (importController.importing()) {
+            setFeedback(TeacherGradeImportController.NO_ISSUE_CELL_TEXT);
+            render();
+            return;
+        }
         List<List<String>> block = GradeClipboardParser.parse(clipboardText);
         if (block.isEmpty()) return;
         int startRowIndex = indexOfRow(startRow);
@@ -747,8 +1273,14 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
      * 也不重新渲染——发起回写的那次渲染还在进行，模型已经是最新状态。
      * 只读页面上的手势则相反：什么都不改，但要渲染一次把控件拨回模型状态。
      */
-    private void applyEnabled(GradeComponentCodeDTO code, boolean enabled) {
+    void applyEnabled(GradeComponentCodeDTO code, boolean enabled) {
         if (syncingScheme) return;
+        if (importController.importing()) {
+            // 冻结方案切换：控件会被 render 拨回模型状态，同时把原因说清楚。
+            setFeedback(FROZEN_SCHEME_TEXT);
+            render();
+            return;
+        }
         if (model == null || !model.canEdit()) {
             render();
             return;
@@ -757,8 +1289,13 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
         render();
     }
 
-    private void applyWeight(GradeComponentCodeDTO code, String text) {
+    void applyWeight(GradeComponentCodeDTO code, String text) {
         if (syncingScheme) return;
+        if (importController.importing()) {
+            setFeedback(FROZEN_SCHEME_TEXT);
+            render();
+            return;
+        }
         if (model == null || !model.canEdit()) {
             render();
             return;
@@ -779,6 +1316,35 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
     }
 
     // ------------------------------------------------------------------ 渲染
+
+    /**
+     * 状态提示的唯一写入口：交一条新提示给 {@link FadingNotice}（显示与计时由调用方紧随其后的
+     * {@link #render} 完成，渲染出口保持只有 {@link #render} 一个）。
+     */
+    private void setFeedback(String text) {
+        feedbackNotice().show(text);
+    }
+
+    /**
+     * 状态提示的工具实例（懒创建：标签要等 FXML 注入完毕才存在）。
+     *
+     * <p>调用时机是契约的一部分：本方法第一次被调用发生在 {@link #initialize()} 末尾的渲染里，
+     * 那一刻标签已经注入。谁都不许更早调用它（{@code release()}、{@code setFeedback()}、
+     * {@code feedbackText()} 都在内）——早一步就会把工具绑到 null 标签上，此后整页的提示只剩
+     * 状态、永远不再显示。
+     *
+     * <p>消退收尾保留重构前那句 {@code render(false)}：提示隐藏之外，这一页的其它界面状态照旧
+     * 重新对齐一次。
+     */
+    private FadingNotice feedbackNotice() {
+        FadingNotice current = feedbackNotice;
+        if (current == null) {
+            current = new FadingNotice(gradeBookFeedbackLabel);
+            current.onFaded(() -> render(false));
+            feedbackNotice = current;
+        }
+        return current;
+    }
 
     private void render() {
         render(true);
@@ -811,29 +1377,91 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
         }
         setActive(gradeBookNoticeLabel, notice != null);
         if (gradeBookSchemeLabel != null) gradeBookSchemeLabel.setText(schemeText());
-        if (gradeBookFeedbackLabel != null) {
-            gradeBookFeedbackLabel.setText(feedbackText == null ? "" : feedbackText);
-        }
-        setActive(gradeBookFeedbackLabel, feedbackText != null);
+        renderFeedback();
 
-        boolean editable = hasModel && model.canEdit();
+        // 导入预览期间方案与保存/提交都冻结：候选是按当前权重算出来的，改权重会让它作废；
+        // 而确认导入只写草稿，提交审批只能走原来的「提交成绩」流程。
+        boolean importing = importController.importing();
+        boolean editable = hasModel && model.canEdit() && !importing;
+        String state = hasModel ? model.state() : null;
         if (gradeBookReloadButton != null) {
             // 写请求在途时不许重新加载：否则会用旧快照覆盖刚提交的结果，写入标志也会被复位。
-            gradeBookReloadButton.setDisable(!hasModel || loading || saving || submitting);
+            gradeBookReloadButton.setDisable(!hasModel || loading || saving || submitting
+                    || reopening || importController.busy());
         }
         if (gradeBookSaveButton != null) {
-            gradeBookSaveButton.setDisable(!editable || saving || submitting);
+            gradeBookSaveButton.setDisable(!editable || saving || submitting || reopening);
         }
         if (gradeBookSubmitButton != null) {
-            gradeBookSubmitButton.setDisable(!editable || saving || submitting || confirmingSubmit);
+            gradeBookSubmitButton.setDisable(
+                    !editable || saving || submitting || reopening || confirmingSubmit);
+        }
+        // 两个版本入口各自只在一种批次状态下出现：PENDING 一个可编辑按钮都不给。
+        setActive(gradeBookReopenButton, STATE_REJECTED.equals(state));
+        setActive(gradeBookCorrectionButton, STATE_APPROVED.equals(state));
+        if (gradeBookReopenButton != null) {
+            gradeBookReopenButton.setDisable(!canReopenRejected());
+        }
+        if (gradeBookCorrectionButton != null) {
+            gradeBookCorrectionButton.setDisable(!canRequestCorrection());
         }
         setActive(gradeBookConfirmSubmitButton, confirmingSubmit);
         setActive(gradeBookCancelSubmitButton, confirmingSubmit);
         if (gradeBookConfirmSubmitButton != null) {
             gradeBookConfirmSubmitButton.setDisable(submitting);
         }
+        renderImportBar(hasModel, importing);
         syncSchemeControls();
         if (refreshTable) renderTable();
+    }
+
+    /**
+     * 成绩表底部的导入区：模板下载、导出成绩、导入入口，进入预览后换成取消/确认与异常明细。
+     * 确认按钮的可用性直接取最新服务端预览的有效性（没有未解决异常行），不看本地红框。
+     */
+    private void renderImportBar(boolean hasModel, boolean importing) {
+        if (gradeBookImportSummaryLabel != null) {
+            String summary = importing ? importController.summaryText() : null;
+            gradeBookImportSummaryLabel.setText(summary == null ? "" : summary);
+        }
+        setActive(gradeBookImportSummaryLabel, importing);
+        boolean busy = importController.busy();
+        if (gradeBookDownloadTemplateButton != null) {
+            gradeBookDownloadTemplateButton.setDisable(!hasModel || importing || busy);
+        }
+        if (gradeBookExportGradesButton != null) {
+            // 保存/提交请求在途时也禁用：导出的是服务端那份已保存的草稿，此时它还没有收到这一次写入，
+            // 允许导出就会得到一份与屏幕上不一样的成绩（重新加载按钮同一条道理：那一处同样同时看
+            // saving 与 submitting，两者是同一种「写入在途」）。
+            gradeBookExportGradesButton.setDisable(!hasModel || importing || busy || saving || submitting);
+        }
+        if (gradeBookImportButton != null) {
+            gradeBookImportButton.setDisable(!hasModel || !model.canEdit() || importing || busy);
+        }
+        setActive(gradeBookImportIssuesButton, importing);
+        setActive(gradeBookCancelImportButton, importing);
+        setActive(gradeBookConfirmImportButton, importing);
+        if (gradeBookImportIssuesButton != null) {
+            gradeBookImportIssuesButton.setDisable(!importing);
+        }
+        if (gradeBookCancelImportButton != null) {
+            gradeBookCancelImportButton.setDisable(!importing);
+        }
+        if (gradeBookConfirmImportButton != null) {
+            gradeBookConfirmImportButton.setDisable(!importController.confirmEnabled());
+        }
+    }
+
+    /**
+     * 状态提示：新文本一到达就显示，并在 {@link FadingNotice#VISIBLE_DURATION} 之后渐变淡出。
+     *
+     * <p>到达判定、计时与可见性都在 {@link FadingNotice} 里（只认“有新提示到达”，不认“这次渲染
+     * 和上次不一样”：页面上的任何一次重画都会走到这里来，按渲染次数重新计时会让提示永远等不到
+     * 消退）；这里只是把它接到本页唯一的渲染出口上。标签缺失（无工具包的控制器测试）时什么都不写，
+     * 那句话仍然留在 {@link #feedbackText()} 里，测试照旧读得到。
+     */
+    private void renderFeedback() {
+        feedbackNotice().render();
     }
 
     /** 方案区：开关与权重输入回写模型状态；回写期间禁止监听器把渲染当成用户输入。 */
@@ -845,16 +1473,18 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
                     CheckBox toggle = toggleOf(column.code());
                     TextField weight = weightFieldOf(column.code());
                     boolean enabled = column.enabled();
+                    // 导入预览期间方案冻结：候选是按当时的启用项与权重算出来的。
+                    boolean frozen = importController.importing();
                     if (toggle != null) {
                         toggle.setSelected(enabled);
                         // 只读状态（已提交/已通过）下开关不能再动；禁用项本身仍然可以重新启用。
-                        toggle.setDisable(!model.canEdit());
+                        toggle.setDisable(!model.canEdit() || frozen);
                     }
                     if (weight != null) {
                         if (!column.weightText().equals(weight.getText())) {
                             weight.setText(column.weightText());
                         }
-                        weight.setDisable(!enabled || !model.canEdit());
+                        weight.setDisable(!enabled || !model.canEdit() || frozen);
                         // 非法权重与非法单元格一样标红：否则“请修正标红的单元格”会把用户引到
                         // 四个长得一模一样的输入框前面，却没有任何一个被标出来。
                         weight.getStyleClass().remove(ERROR_FIELD_CLASS);
@@ -1086,8 +1716,15 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
 
     // -------------------------------------------------------------- 测试访问器
 
-    GradeBookEditorModel model() {
+    /** 当前编辑模型（同时是 {@link TeacherGradeImportController.Host} 的实现）：同一张表、同一个模型。 */
+    @Override
+    public GradeBookEditorModel model() {
         return model;
+    }
+
+    /** 导入编排器：测试直接驱动它与真实模型/假传输，验证「同一张表」的预览与取消。 */
+    TeacherGradeImportController importController() {
+        return importController;
     }
 
     String offeringId() {
@@ -1114,12 +1751,17 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
         return confirmingSubmit;
     }
 
+    boolean reopening() {
+        return reopening;
+    }
+
     boolean dirty() {
         return model != null && model.dirty();
     }
 
+    /** 最近一条状态提示：消退只隐藏标签，不改这句话（换班/重新进入才清）。 */
     String feedbackText() {
-        return feedbackText;
+        return feedbackNotice().text();
     }
 
     String errorText() {
@@ -1128,6 +1770,10 @@ public final class TeacherGradeBookController implements PageLeaveGuard {
 
     String pendingSubmitOperationId() {
         return pendingSubmitOperationId;
+    }
+
+    String pendingReopenOperationId() {
+        return pendingReopenOperationId;
     }
 
     List<Row> rows() {

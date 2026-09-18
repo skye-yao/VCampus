@@ -18,7 +18,7 @@ public final class CourseModelTest {
                 2, 3, 4, 1, 16, "ALL", "教四-201",
                 "2026-09-08T02:00:00Z", "2026-09-08T03:40:00Z"));
         CourseOfferingView offering = new CourseOfferingView(
-                1001L, 101L, teachers, meetings, 96, 120,
+                1001L, "CS203-2026-2-A", 101L, teachers, meetings, 96, 120,
                 SelectionStatus.PLANNED, null, null, null);
         teachers.clear();
         meetings.clear();

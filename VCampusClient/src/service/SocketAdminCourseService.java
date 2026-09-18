@@ -28,6 +28,7 @@ import dto.course.admin.enrollment.AdminEnrollmentRequestDTO;
 import dto.course.admin.enrollment.OfferingStudentDTO;
 import dto.course.admin.enrollment.StudentSearchResultDTO;
 import dto.course.admin.result.AdminOperationResultDTO;
+import dto.course.admin.schedule.CheckArrangementResultDTO;
 import dto.course.admin.schedule.SaveArrangementRequestDTO;
 import dto.course.admin.schedule.ScheduleArrangementDTO;
 import dto.course.admin.schedule.ScheduleConflictDTO;
@@ -288,12 +289,14 @@ public final class SocketAdminCourseService implements AdminCourseService {
     }
 
     @Override
-    public CompletableFuture<List<ScheduleConflictDTO>> checkArrangement(
+    public CompletableFuture<CheckArrangementResultDTO> checkArrangement(
             SaveArrangementRequestDTO request) {
         Message message = request(AdminCourseActions.CHECK_ARRANGEMENT);
         message.putData("request", request);
-        return map(message, response -> List.copyOf(
-                list(response, "conflicts", ScheduleConflictDTO.class)));
+        return map(message, response -> new CheckArrangementResultDTO(
+                list(response, "conflicts", ScheduleConflictDTO.class),
+                // CHECK_ARRANGEMENT 回包恒写 planConflicts（空列表也写）；缺键即版本错配，应响亮失败。
+                list(response, "planConflicts", ScheduleConflictDTO.class)));
     }
 
     @Override
@@ -330,6 +333,21 @@ public final class SocketAdminCourseService implements AdminCourseService {
         request.putData("operationId", operationId);
         request.putData("force", force);
         request.putData("overrideReason", overrideReason);
+        return map(request,
+                response -> planResult(read(response, "result", PLAN_RESULT_TYPE)),
+                this::latestPlan);
+    }
+
+    @Override
+    public CompletableFuture<AdminOperationResultView<SchedulePlanView>> createSchedulePlan(
+            int academicYear, int semester, boolean copyPublished, String operationId) {
+        Message request = request(AdminCourseActions.CREATE_SCHEDULE_PLAN);
+        request.putData("academicYear", academicYear);
+        request.putData("semester", semester);
+        request.putData("copyPublished", copyPublished);
+        request.putData("operationId", operationId);
+        // 服务端把它走 mutation(...)，因此信封放在 result 下（与 publishSchedulePlan 同形），
+        // 不是读路径的 plan 键。
         return map(request,
                 response -> planResult(read(response, "result", PLAN_RESULT_TYPE)),
                 this::latestPlan);

@@ -22,7 +22,7 @@ public class AdminEnrollmentDAO {
             + " LEFT JOIN major m ON m.major_id=sap.major_id";
     private static final String STUDENT_COLUMNS = "u.UID,u.name,u.role,sap.status AS academic_status,"
             + "COALESCE(m.major_name,u.major) AS major_name,sap.cohort_year";
-    private static final String SEARCH = " AND (?='' OR u.UID=? OR u.name LIKE ? ESCAPE '=')";
+    private static final String SEARCH = " AND (?='' OR u.UID LIKE ? ESCAPE '=' OR u.name LIKE ? ESCAPE '=')";
     private static final String GRADE_LOCKED = "(EXISTS (SELECT 1 FROM grade g"
             + " WHERE g.enrollment_id=e.enrollment_id AND g.is_published=1)"
             + " OR EXISTS (SELECT 1 FROM grade_submission_item gi"
@@ -276,9 +276,10 @@ public class AdminEnrollmentDAO {
     }
 
     private static void bindSearch(PreparedStatement statement, int first, String query) throws SQLException {
+        String pattern = "%" + query.replace("=", "==").replace("%", "=%").replace("_", "=_") + "%";
         statement.setString(first, query);
-        statement.setString(first + 1, query);
-        statement.setString(first + 2, "%" + query.replace("=", "==").replace("%", "=%").replace("_", "=_") + "%");
+        statement.setString(first + 1, pattern);
+        statement.setString(first + 2, pattern);
     }
 
     private static StudentRow student(ResultSet rows) throws SQLException {

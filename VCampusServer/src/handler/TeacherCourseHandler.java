@@ -4,11 +4,19 @@ import com.google.gson.Gson;
 import com.google.gson.JsonParseException;
 import dto.course.AdjustmentRequestStatusDTO;
 import dto.course.admin.approval.AdjustmentRequestDetailDTO;
+import dto.course.teacher.ConfirmGradeImportRequestDTO;
+import dto.course.teacher.MarkTeacherApplicationReadDTO;
+import dto.course.teacher.PreviewGradeImportRequestDTO;
+import dto.course.teacher.ReviseGradeImportRequestDTO;
+import dto.course.teacher.StartGradeRevisionRequestDTO;
 import dto.course.teacher.TeacherAdjustmentWriteDTO;
+import dto.course.teacher.TeacherApplicationDTO;
 import dto.course.teacher.TeacherCourseActions;
+import dto.course.teacher.TeacherFileTicketDTO;
 import dto.course.teacher.TeacherFileUploadRequestDTO;
 import dto.course.teacher.TeacherGradeBookDTO;
 import dto.course.teacher.TeacherOperationResultDTO;
+import dto.course.teacher.TeacherRosterRowDTO;
 import dto.course.teacher.WithdrawTeacherAdjustmentRequestDTO;
 import dto.course.teacher.WriteGradeBookRequestDTO;
 import exception.DatabaseException;
@@ -17,16 +25,21 @@ import protocol.MessageCode;
 import protocol.MessageType;
 import service.TeacherAccessPolicy;
 import service.TeacherAdjustmentApplicationService;
+import service.TeacherApplicationService;
 import service.TeacherCourseQueryService;
 import service.TeacherFileTicketService;
 import service.TeacherGradeBookService;
+import service.TeacherGradeImportService;
+import service.TeacherSpreadsheetService;
 import session.SessionManager;
 import session.UserSession;
 
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 
 /**
  * 教师端课程查询与调课（module {@code courseTeacher}）的 TCP 入口。
@@ -45,18 +58,35 @@ import java.util.Set;
  * 原课次快照派生。提交与撤销/保存与提交都是写操作，Handler 不做“先查后写”的归属判断，权限一律由
  * 服务端在事务内重新计算。
  *
- * <p>文件动作的响应键：{@code ticket}（上传票据）。Excel 文件本身绝不进业务 JSON，业务请求只带回
- * 一张绑定当前 Session、教师、教学班、用途与长度的短时票据，字节走独立文件端口。
+ * <p>文件动作的响应键：{@code ticket}（上传票据，以及成绩模板、名单导出、成绩导出三张下载票据）。
+ * Excel 文件本身绝不进业务 JSON，业务请求只带回一张绑定当前 Session、教师、教学班、用途与长度的
+ * 短时票据，字节走独立文件端口。下载票据的生成顺序固定为「校验归属 → 生成文件 → 签发票据」：
+ * 文件是从某个教学班的名单/成绩生成的，先发票据就等于先把别人的数据借出去。
  *
  * <p>成绩动作的响应键：{@code offerings}（成绩列表）、{@code gradeBook}（成绩表）、{@code result}
- * （保存/提交的操作结果信封）。成绩冲突用 {@code gradeBook} 带回最新成绩表，与调课冲突的
- * {@code conflicts}/{@code latest} 区分开，客户端不解析对方的类型。
+ * （保存/提交/驳回重开/发起更正/确认导入的操作结果信封）、{@code preview}（导入预览与修订）。成绩冲突用
+ * {@code gradeBook} 带回最新成绩表，与调课冲突的 {@code conflicts}/{@code latest} 区分开，
+ * 客户端不解析对方的类型。
+ *
+ * <p>「我的申请」动作的响应键沿用模块的「复数列表 / 单数详情」约定：{@code applications} 是合并了
+ * 调课申请与成绩提交的统一分页（元素是 {@link dto.course.teacher.TeacherApplicationDTO}，与旧动作
+ * {@code listMyAdjustmentRequests} 的 {@code applications} 同名但泛型实参不同，客户端各按自己的
+ * TypeToken 解析），{@code application} 是**单数**详情；标记已读是写操作，走 {@code result} 信封。
+ * 过期读取确认的冲突同样用 {@code application} 带回当前行——调课冲突的 {@code latest} 与成绩冲突的
+ * {@code gradeBook} 已各有所属，不能再塞进第三种实体。
+ *
+ * <p>导入动作（previewGradeImport/reviseGradeImport/confirmGradeImport/cancelGradeImport）走同一套
+ * 防线：身份只来自会话，写请求体不许带身份/人员/强制字段，预览的编辑副本与保存草稿的内容共用同一份
+ * 形状校验。预览请求里的 {@code baseDraft} 直接沿用成绩写入的字段约定（offeringId 与每行
+ * enrollmentId 只接受十进制字符串），因此导入不是绕过写请求校验的第二条入口。
  */
 public class TeacherCourseHandler {
     private static final String MODULE = "courseTeacher";
     /** 与设计第 3 节一致：size 为 1..100。 */
     private static final int MAX_PAGE_SIZE = 100;
     private static final String TEACHER_ROLE = "教师";
+    /** 选课记录状态：2 是「正常修读」，与成绩表取行集合时用的是同一个值（退课行不参与成绩）。 */
+    private static final int ENROLLED_STATUS = 2;
     /** 写请求体只做一次 JSON → 类型转换，转换失败统一按 BAD_REQUEST 返回。 */
     private static final Gson GSON = new Gson();
     /**
@@ -71,6 +101,17 @@ public class TeacherCourseHandler {
     private final TeacherAdjustmentApplicationService adjustments;
     private final TeacherGradeBookService grades;
     private final TeacherFileTicketService files;
+    private final TeacherGradeImportService imports;
+    /**
+     * 我的申请：查询与已读回执照旧由服务端在事务内重算归属。它没有外部资源依赖（不像票据服务要
+     * 临时目录），因此即使未显式接线也按默认实例可用，与只读查询服务同一口径。
+     */
+    private final TeacherApplicationService applications;
+    /**
+     * 表格读写本身不碰数据库也不碰票据，因此固定实例化，没有构造参数：调用方只需保证
+     * 「先校验归属、再生成文件、最后签发票据」的顺序（下载票据一旦签发，文件就已经是别人的名单了）。
+     */
+    private final TeacherSpreadsheetService spreadsheets = new TeacherSpreadsheetService();
 
     public TeacherCourseHandler() {
         this(new TeacherCourseQueryService(), new TeacherAdjustmentApplicationService(),
@@ -100,10 +141,37 @@ public class TeacherCourseHandler {
                                 TeacherAdjustmentApplicationService adjustments,
                                 TeacherGradeBookService grades,
                                 TeacherFileTicketService files) {
+        this(queries, adjustments, grades, files, null);
+    }
+
+    /**
+     * 生产装配：导入预览/修订/确认需要一个同时认识文件票据、成绩表与预览仓的服务。
+     * 未接线时导入动作报「尚未开放」，与其它可选服务的处理一致。
+     */
+    public TeacherCourseHandler(TeacherCourseQueryService queries,
+                                TeacherAdjustmentApplicationService adjustments,
+                                TeacherGradeBookService grades,
+                                TeacherFileTicketService files,
+                                TeacherGradeImportService imports) {
+        this(queries, adjustments, grades, files, imports, new TeacherApplicationService());
+    }
+
+    /**
+     * 全参构造：把「我的申请」也交给调用方决定（测试用它注入固定时钟或空实现）。
+     * 传 {@code null} 时该组动作报「尚未开放」，与其它可选服务一致。
+     */
+    public TeacherCourseHandler(TeacherCourseQueryService queries,
+                                TeacherAdjustmentApplicationService adjustments,
+                                TeacherGradeBookService grades,
+                                TeacherFileTicketService files,
+                                TeacherGradeImportService imports,
+                                TeacherApplicationService applications) {
         this.queries = queries == null ? new TeacherCourseQueryService() : queries;
         this.adjustments = adjustments;
         this.grades = grades;
         this.files = files;
+        this.imports = imports;
+        this.applications = applications;
     }
 
     public Message handle(Message request) {
@@ -176,6 +244,25 @@ public class TeacherCourseHandler {
                     response.putData("applications", service.listMine(uid,
                             adjustmentStatus(request), paging.number(), paging.size()));
                 }
+                case TeacherCourseActions.LIST_MY_APPLICATIONS -> {
+                    // 统一的「我的申请」：调课申请与成绩提交合并分页。类型/状态先过白名单，
+                    // 两张表的状态字母表不同，一个全局枚举会在这里把「已撤销」错配到成绩上。
+                    TeacherApplicationService service = applications();
+                    Paging paging = paging(request);
+                    response.putData("applications", service.listMyApplications(uid,
+                            applicationType(request), applicationStatus(request),
+                            paging.number(), paging.size()));
+                }
+                case TeacherCourseActions.GET_MY_APPLICATION -> response.putData("application",
+                        applications().getMyApplication(uid, requiredApplicationType(request),
+                                decimalId(request, "id")));
+                case TeacherCourseActions.MARK_APPLICATION_READ -> {
+                    // 写操作：过期确认由服务端比对 expectedStateKey，冲突时带回当前申请行。
+                    TeacherApplicationDTO latest = applications().markApplicationRead(uid,
+                            applicationRead(request));
+                    return mutation(response, new TeacherOperationResultDTO<>(null,
+                            "申请结果已标记为已读", latest, false));
+                }
                 case TeacherCourseActions.LIST_GRADE_OFFERINGS -> {
                     TeacherGradeBookService service = grades();
                     Paging paging = paging(request);
@@ -191,6 +278,15 @@ public class TeacherCourseHandler {
                 case TeacherCourseActions.SUBMIT_GRADE_BOOK -> {
                     return mutation(response, grades().submitGradeBook(uid, gradeWrite(request)));
                 }
+                case TeacherCourseActions.REOPEN_REJECTED_GRADE_BOOK -> {
+                    // 驳回重开与更正共用同一个请求体；来源批次与权限由服务端在事务内重新核验。
+                    return mutation(response,
+                            grades().reopenRejectedGradeBook(uid, revisionWrite(request)));
+                }
+                case TeacherCourseActions.BEGIN_GRADE_CORRECTION -> {
+                    return mutation(response,
+                            grades().beginGradeCorrection(uid, revisionWrite(request)));
+                }
                 case TeacherCourseActions.BEGIN_GRADE_UPLOAD -> {
                     // 只签发短时票据：文件字节走独立端口，业务 JSON 里绝不出现 Base64 文件内容。
                     TeacherFileTicketService service = files();
@@ -198,6 +294,53 @@ public class TeacherCourseHandler {
                     response.putData("ticket", service.issueUpload(session,
                             upload.getOfferingId(), upload.getExpectedRevision(),
                             upload.getFileName(), upload.getByteLength(), upload.getSha256()));
+                }
+                case TeacherCourseActions.REQUEST_GRADE_TEMPLATE -> {
+                    // 下载方向：先按归属校验入口取成绩表，再生成文件——模板里是学生名单，
+                    // 顺序反了就等于把别人的班级名单发出去。
+                    TeacherFileTicketService fileService = files();
+                    String offeringId = decimalId(request, "offeringId");
+                    TeacherGradeBookDTO gradeBook = grades().getGradeBook(uid, offeringId);
+                    response.putData("ticket", issueDownloadFile(fileService, session, offeringId,
+                            "成绩模板.xlsx",
+                            path -> spreadsheets.writeGradeTemplate(path, gradeBook)));
+                }
+                case TeacherCourseActions.REQUEST_ROSTER_EXPORT -> {
+                    // 与名单列表同一个归属校验入口；过滤条件相同，区别只是取全部结果而不是当前页。
+                    TeacherFileTicketService fileService = files();
+                    String offeringId = decimalId(request, "offeringId");
+                    List<TeacherRosterRowDTO> roster = queries.listAllOfferingStudents(uid, offeringId,
+                            optionalText(request, "query"), enrollmentStatus(request));
+                    response.putData("ticket", issueDownloadFile(fileService, session, offeringId,
+                            "学生名单.xlsx", path -> spreadsheets.writeRoster(path, roster)));
+                }
+                case TeacherCourseActions.REQUEST_GRADE_EXPORT -> {
+                    // 成绩导出的两个数据源都走各自的归属校验入口：成绩表给出要导出的行与总评口径，
+                    // 名单只补专业。两者都在生成文件之前取好——文件一旦生成，就已经是别人的成绩了。
+                    TeacherFileTicketService fileService = files();
+                    String offeringId = decimalId(request, "offeringId");
+                    TeacherGradeBookDTO gradeBook = grades().getGradeBook(uid, offeringId);
+                    // 成绩表的行集合是 status=2（正常修读）的学生，这里取同一份集合的专业。
+                    List<TeacherRosterRowDTO> roster =
+                            queries.listAllOfferingStudents(uid, offeringId, null, ENROLLED_STATUS);
+                    response.putData("ticket", issueDownloadFile(fileService, session, offeringId,
+                            "学生成绩.xlsx",
+                            path -> spreadsheets.writeGrades(path, gradeBook, roster)));
+                }
+                case TeacherCourseActions.PREVIEW_GRADE_IMPORT -> {
+                    // 预览不写库：兑换上传票据、解析、把候选与问题一起回给界面。
+                    response.putData("preview",
+                            imports().preview(uid, session, previewImport(request)));
+                }
+                case TeacherCourseActions.REVISE_GRADE_IMPORT -> {
+                    response.putData("preview", imports().revise(uid, reviseImport(request)));
+                }
+                case TeacherCourseActions.CONFIRM_GRADE_IMPORT -> {
+                    return mutation(response, imports().confirm(uid, confirmImport(request)));
+                }
+                case TeacherCourseActions.CANCEL_GRADE_IMPORT -> {
+                    // 取消只是丢弃令牌；客户端恢复自己的编辑副本，服务端本来就没写过任何东西。
+                    imports().cancel(uid, importToken(request));
                 }
                 default -> {
                     return failure(response, MessageCode.BAD_REQUEST, "不支持的教师课程操作");
@@ -216,6 +359,18 @@ public class TeacherCourseHandler {
             // 与管理员调课审批同形：冲突类型化列表 + 最新可见实体（可能没有）。
             response.putData("conflicts", conflict.getConflicts());
             if (conflict.getEntity() != null) response.putData("latest", conflict.getEntity());
+            return failure(response, MessageCode.CONFLICT, conflict.getMessage());
+        } catch (TeacherGradeImportService.NotFoundException expired) {
+            // 导入预览已过期或不属于本人：客户端据此回到「重新上传」这一步。
+            return failure(response, MessageCode.NOT_FOUND, expired.getMessage());
+        } catch (TeacherApplicationService.NotFoundException missing) {
+            // 别人的申请与不存在的申请对外同形：一律 NOT_FOUND，绝不透露「存在但不是你的」。
+            return failure(response, MessageCode.NOT_FOUND, missing.getMessage());
+        } catch (TeacherApplicationService.ConflictException conflict) {
+            // 过期读取确认：带回**当前**申请行（{@code application} 键），页面刷新后重新判断。
+            if (conflict.getEntity() != null) {
+                response.putData("application", conflict.getEntity());
+            }
             return failure(response, MessageCode.CONFLICT, conflict.getMessage());
         } catch (TeacherGradeBookService.ConflictException conflict) {
             // 成绩冲突只有“最新成绩表”一种附带实体：版本过期或名单变化时客户端据此提示重新加载。
@@ -249,6 +404,42 @@ public class TeacherCourseHandler {
             throw new IllegalArgumentException("该教师操作尚未开放");
         }
         return files;
+    }
+
+    private TeacherGradeImportService imports() {
+        if (imports == null) {
+            throw new IllegalArgumentException("该教师操作尚未开放");
+        }
+        return imports;
+    }
+
+    private TeacherApplicationService applications() {
+        if (applications == null) {
+            throw new IllegalArgumentException("该教师操作尚未开放");
+        }
+        return applications;
+    }
+
+    /**
+     * 在文件服务的临时目录里生成一个下载用的表格**并签发票据**，返回票据（响应键 {@code ticket}）。
+     *
+     * <p>文件名由服务端生成，客户端只贡献扩展名。生成与签发必须共用同一个收尾：写表失败与签发失败
+     * （工作簿超过 5 MiB、会话失效）都会留下一个**没有票据条目**的文件，而
+     * {@link TeacherFileTicketService#purgeExpired} 是按票据条目回收临时文件的——看不见它，就永远
+     * 收不走，一份这样的残件会一直占到停服。因此两步放在同一个 try 里，任何一步抛出都先删掉半成品
+     * 再抛。签发成功之后的回收有两条路，都归文件连接管：字节发完（或中途断开）当场回收，以及
+     * 兑换成功之后长度/摘要核对失败时当场回收——这两条路上的票据都已被消费，清理器看不见了。
+     */
+    private TeacherFileTicketDTO issueDownloadFile(TeacherFileTicketService fileService,
+            UserSession session, String offeringId, String clientFileName, Consumer<Path> writer) {
+        Path target = fileService.newTempFile(clientFileName);
+        try {
+            writer.accept(target);
+            return fileService.issueDownload(session, offeringId, target);
+        } catch (RuntimeException failure) {
+            TeacherFileTicketService.deleteQuietly(target);
+            throw failure;
+        }
     }
 
     /** 写操作响应：结果信封进 result，响应消息取自操作结果，与管理员课程写操作一致。 */
@@ -301,17 +492,48 @@ public class TeacherCourseHandler {
         if (!(rawContent instanceof Map<?, ?> content)) {
             throw new IllegalArgumentException("content 必须为 JSON 对象");
         }
-        // 内容里同样不许出现身份/人员/强制字段：成绩写入没有这些字段，出现即说明客户端在
-        // 试图自己指定归属，直接拒绝而不是静默忽略。
+        requireGradeContent(content, "content");
+        requireOptionalString(values, "operationId");
+        return payload(request, WriteGradeBookRequestDTO.class);
+    }
+
+    /**
+     * 解析版本变更请求体（驳回重开/发起更正）。
+     *
+     * <p>只有五个字段，但和别的写请求走同一套防线：身份/人员/force 伪造字段出现即拒绝；两个 BIGINT
+     * 标识（offeringId、sourceSubmissionId）只接受十进制字符串，避免 Gson 经 double 静默改写——
+     * 「来源批次」是这次操作唯一认准的历史依据，被悄悄改掉一个数字就等于换了一份基础。
+     * operationId/reason 必须是字符串，expectedRevision 必须是整数；原因是否为空由服务端判定（更正
+     * 必填、重提不要求），Handler 只保证形状。
+     */
+    private StartGradeRevisionRequestDTO revisionWrite(Message request) {
+        Map<String, Object> values = gradeValues(request);
+        requireDecimalText(values.get("offeringId"), "offeringId");
+        requireDecimalText(values.get("sourceSubmissionId"), "sourceSubmissionId");
+        requireOptionalString(values, "operationId");
+        requireOptionalString(values, "reason");
+        integerValue(values.get("expectedRevision"), "expectedRevision");
+        return payload(request, StartGradeRevisionRequestDTO.class);
+    }
+
+    /**
+     * 成绩内容（保存/提交的 {@code content} 与导入预览的 {@code baseDraft}）的形状校验：
+     * 同一份规则只写一次，两个入口不会各有一套取整与伪造字段口径。
+     *
+     * <p>内容里不许出现身份/人员/强制字段（出现即说明客户端在试图自己指定归属）；BIGINT 标识只接受
+     * 十进制字符串，避免 Gson 经 double 静默改写；内容里的 rows 必须是对象数组。归属与版本的真实性
+     * 由服务端在事务内重新校验，Handler 只保证形状。
+     */
+    private static void requireGradeContent(Map<?, ?> content, String label) {
         rejectForgedFields(content, "成绩");
         requireDecimalText(content.get("offeringId"), "offeringId");
         Object rawRows = content.get("rows");
         if (!(rawRows instanceof List<?> rows)) {
-            throw new IllegalArgumentException("content.rows 必须为数组");
+            throw new IllegalArgumentException(label + ".rows 必须为数组");
         }
         for (Object raw : rows) {
             if (!(raw instanceof Map<?, ?> row)) {
-                throw new IllegalArgumentException("content.rows 的元素必须为 JSON 对象");
+                throw new IllegalArgumentException(label + ".rows 的元素必须为 JSON 对象");
             }
             requireDecimalText(row.get("enrollmentId"), "enrollmentId");
             Object rawScores = row.get("scores");
@@ -319,9 +541,83 @@ public class TeacherCourseHandler {
                 throw new IllegalArgumentException("scores 必须为 JSON 对象");
             }
         }
-        requireOptionalString(values, "operationId");
         requireOptionalString(content, "rosterDigest");
-        return payload(request, WriteGradeBookRequestDTO.class);
+    }
+
+    /**
+     * 导入预览请求体：一张已经上传成功的票据 + 教师当前的编辑副本。副本走与成绩写入完全相同的内容
+     * 校验（含伪造字段防线），因此预览收到的 baseDraft 形状与保存草稿时一致。
+     */
+    private PreviewGradeImportRequestDTO previewImport(Message request) {
+        Map<String, Object> values = gradeValues(request);
+        requireOptionalString(values, "uploadTicket");
+        Object rawDraft = values.get("baseDraft");
+        if (!(rawDraft instanceof Map<?, ?> draft)) {
+            throw new IllegalArgumentException("baseDraft 必须为 JSON 对象");
+        }
+        requireGradeContent(draft, "baseDraft");
+        return payload(request, PreviewGradeImportRequestDTO.class);
+    }
+
+    /** 修订请求体：令牌、期望的预览版本、修正与排除行；行号只接受整数，不合法就直接拒绝。 */
+    private ReviseGradeImportRequestDTO reviseImport(Message request) {
+        Map<String, Object> values = gradeValues(request);
+        requireOptionalString(values, "importToken");
+        integerValue(values.get("expectedPreviewRevision"), "expectedPreviewRevision");
+        Object rawCorrections = values.get("corrections");
+        if (!(rawCorrections instanceof List<?> corrections)) {
+            throw new IllegalArgumentException("corrections 必须为数组");
+        }
+        for (Object raw : corrections) {
+            if (!(raw instanceof Map<?, ?> correction)) {
+                throw new IllegalArgumentException("corrections 的元素必须为 JSON 对象");
+            }
+            integerValue(correction.get("rowNumber"), "rowNumber");
+            Object rawCells = correction.get("correctedCells");
+            if (!(rawCells instanceof Map<?, ?> cells)) {
+                throw new IllegalArgumentException("correctedCells 必须为 JSON 对象");
+            }
+            for (Map.Entry<?, ?> entry : cells.entrySet()) {
+                if (!(entry.getKey() instanceof String)
+                        || !(entry.getValue() instanceof String)) {
+                    throw new IllegalArgumentException(
+                            "correctedCells 必须是「字段名 → 文本」的字符串映射");
+                }
+            }
+        }
+        Object rawExcluded = values.get("excludedRows");
+        if (rawExcluded != null) {
+            if (!(rawExcluded instanceof List<?> excluded)) {
+                throw new IllegalArgumentException("excludedRows 必须为数组");
+            }
+            for (Object raw : excluded) {
+                integerValue(raw, "excludedRows 的元素");
+            }
+        }
+        return payload(request, ReviseGradeImportRequestDTO.class);
+    }
+
+    /**
+     * 确认导入请求体：确认请求刻意不带成绩内容，因此这里只需要形状检查——候选只存在于服务端。
+     */
+    private ConfirmGradeImportRequestDTO confirmImport(Message request) {
+        Map<String, Object> values = gradeValues(request);
+        requireOptionalString(values, "operationId");
+        requireOptionalString(values, "importToken");
+        integerValue(values.get("expectedPreviewRevision"), "expectedPreviewRevision");
+        integerValue(values.get("expectedRevision"), "expectedRevision");
+        return payload(request, ConfirmGradeImportRequestDTO.class);
+    }
+
+    /** 取消导入请求体：只有一个令牌，与其它写请求共用伪造字段防线。 */
+    private static String importToken(Message request) {
+        Map<String, Object> values = gradeValues(request);
+        requireOptionalString(values, "importToken");
+        Object token = values.get("importToken");
+        if (!(token instanceof String text) || text.isBlank()) {
+            throw new IllegalArgumentException("importToken 不能为空");
+        }
+        return text.trim();
     }
 
     /**
@@ -339,6 +635,53 @@ public class TeacherCourseHandler {
         integerValue(values.get("expectedRevision"), "expectedRevision");
         integerValue(values.get("byteLength"), "byteLength");
         return payload(request, TeacherFileUploadRequestDTO.class);
+    }
+
+    /**
+     * 列表的类型筛选：缺省或空白表示两种都查；给了值就必须是白名单里的两种之一。
+     * 白名单本身只写在 {@link TeacherApplicationDTO} 里，服务层用的是同一份判断，不会各有一套口径。
+     */
+    private static String applicationType(Message request) {
+        String type = optionalText(request, "type");
+        if (type == null) return null;
+        String wanted = type.trim();
+        if (!TeacherApplicationDTO.isType(wanted)) {
+            throw new IllegalArgumentException(
+                    "type 必须为 SCHEDULE_ADJUSTMENT 或 GRADE_SUBMISSION");
+        }
+        return wanted;
+    }
+
+    /** 详情与已读必须落在一张具体的事实表上，因此这两个动作不接受空类型。 */
+    private static String requiredApplicationType(Message request) {
+        String type = applicationType(request);
+        if (type == null) throw new IllegalArgumentException("缺少参数: type");
+        return type;
+    }
+
+    /** 状态按类型白名单解析：给定类型时只接受该类型的状态，不限类型时接受两者的并集。 */
+    private static String applicationStatus(Message request) {
+        String status = optionalText(request, "status");
+        if (status == null) return null;
+        String type = applicationType(request);
+        String wanted = status.trim();
+        if (!TeacherApplicationDTO.isStatus(type, wanted)) {
+            throw new IllegalArgumentException("status 对该类型无效: " + wanted);
+        }
+        return wanted;
+    }
+
+    /**
+     * 标记已读的写请求体：类型、ID 与客户端看到的状态键。ID 必须是十进制字符串（BIGINT 在网络上的
+     * 唯一形态，数字会被 Gson 经 double 静默改写）；类型与状态键都必须在 Gson 之前就是字符串，
+     * 避免「数字放进字符串字段」这种输入变成一个看似合法的请求。归属由服务端在事务内重新校验。
+     */
+    private MarkTeacherApplicationReadDTO applicationRead(Message request) {
+        Map<String, Object> values = writeValues(request, "申请");
+        requireOptionalString(values, "type");
+        requireOptionalString(values, "expectedStateKey");
+        requireDecimalText(values.get("id"), "id");
+        return payload(request, MarkTeacherApplicationReadDTO.class);
     }
 
     private WithdrawTeacherAdjustmentRequestDTO withdrawal(Message request) {

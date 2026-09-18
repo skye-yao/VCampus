@@ -8,7 +8,7 @@ package dto.course.teacher;
  *
  * <p>{@code direction} 是 {@link #DIRECTION_UPLOAD} 或 {@link #DIRECTION_DOWNLOAD}；{@code byteLength}
  * 是本次要传输的精确字节数（上传＝客户端声明并核对过的本地文件长度，下载＝服务端临时文件长度）；
- * {@code maxBytes} 是协议上限，客户端据此在本地先拒绝超限文件；{@code sha256} 是小写十六进制摘要，
+ * {@code maxBytes} 是协议上限；{@code sha256} 是小写十六进制摘要，
  * 两个方向都必须核对；{@code expiresAt} 是 ISO-8601 瞬时字符串，票据 2 分钟有效且只能领取一次。
  *
  * <p>票据只服务于当前登录 Session：文件连接上的 token 必须与签发时的会话一致，其他教师无法兑换。

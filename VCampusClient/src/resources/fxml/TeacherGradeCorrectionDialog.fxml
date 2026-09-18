@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.TextArea?>
+<?import javafx.scene.control.TextField?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.layout.VBox?>
+
+<!--
+  成绩更正表单（设计 §8）：从成绩表里某一位学生打开，确认他的四项原始分数、填写拟修改后的分数与
+  更正原因；确认后由服务端以本班最后一次已通过的批次为来源建立一份更正草稿。
+  更正始终以整个教学班为单位提交——这里填写的只是这一名学生的拟修改值，它会被写回成绩编辑表，
+  再照常走保存/提交。控件都是可写的 disable 占位（JavaFX 的 disabled 是只读属性）。
+-->
+<VBox fx:id="dialogRoot" prefWidth="520.0" spacing="12.0" styleClass="teacher-course-dialog" stylesheets="@../css/style.css, @../css/teacher-course.css" xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.TeacherGradeCorrectionDialogController">
+    <children>
+        <Label fx:id="dialogTitleLabel" styleClass="teacher-course-dialog-title" text="申请更正成绩" />
+        <VBox spacing="6.0" styleClass="teacher-schedule-dialog-section">
+            <children>
+                <Label fx:id="studentLine" styleClass="teacher-schedule-dialog-line" text="" wrapText="true" />
+                <Label fx:id="correctionHintLabel" styleClass="teacher-schedule-dialog-hint" text="" wrapText="true" />
+            </children>
+        </VBox>
+        <VBox spacing="8.0" styleClass="teacher-schedule-dialog-section">
+            <children>
+                <HBox alignment="CENTER_LEFT" spacing="8.0">
+                    <children>
+                        <Label fx:id="dailyOriginalLabel" styleClass="teacher-course-field-label" minWidth="130.0" text="" />
+                        <TextField fx:id="dailyField" prefWidth="120.0" styleClass="teacher-course-correction-score-field" />
+                    </children>
+                </HBox>
+                <HBox alignment="CENTER_LEFT" spacing="8.0">
+                    <children>
+                        <Label fx:id="midtermOriginalLabel" styleClass="teacher-course-field-label" minWidth="130.0" text="" />
+                        <TextField fx:id="midtermField" prefWidth="120.0" styleClass="teacher-course-correction-score-field" />
+                    </children>
+                </HBox>
+                <HBox alignment="CENTER_LEFT" spacing="8.0">
+                    <children>
+                        <Label fx:id="experimentOriginalLabel" styleClass="teacher-course-field-label" minWidth="130.0" text="" />
+                        <TextField fx:id="experimentField" prefWidth="120.0" styleClass="teacher-course-correction-score-field" />
+                    </children>
+                </HBox>
+                <HBox alignment="CENTER_LEFT" spacing="8.0">
+                    <children>
+                        <Label fx:id="finaltermOriginalLabel" styleClass="teacher-course-field-label" minWidth="130.0" text="" />
+                        <TextField fx:id="finaltermField" prefWidth="120.0" styleClass="teacher-course-correction-score-field" />
+                    </children>
+                </HBox>
+            </children>
+        </VBox>
+        <VBox spacing="6.0" styleClass="teacher-schedule-dialog-section">
+            <children>
+                <Label styleClass="teacher-course-field-label" text="更正原因（必填）" />
+                <TextArea fx:id="reasonArea" prefRowCount="3" styleClass="teacher-course-reason-area" wrapText="true" />
+            </children>
+        </VBox>
+        <Label fx:id="errorLabel" managed="false" styleClass="teacher-course-error-text" text="" visible="false" wrapText="true" />
+        <HBox alignment="CENTER_RIGHT" spacing="10.0">
+            <children>
+                <Region HBox.hgrow="ALWAYS" />
+                <Button fx:id="submitButton" disable="true" onAction="#handleSubmit" styleClass="teacher-course-page-button" text="确认更正" />
+                <Button fx:id="cancelButton" onAction="#handleCancel" styleClass="teacher-course-back-button" text="取消" />
+            </children>
+        </HBox>
+    </children>
+    <padding>
+        <Insets bottom="16.0" left="20.0" right="20.0" top="16.0" />
+    </padding>
+</VBox>

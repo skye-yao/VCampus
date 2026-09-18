@@ -80,6 +80,18 @@ final class AdminOperationTransaction {
         return request;
     }
 
+    /**
+     * Request identity of a term-scoped plan mutation. The field names travel into both the
+     * replay digest and the audit {@code request_json}, so they have to be self-describing.
+     */
+    static Map<String, Object> termRequest(int academicYear, int semester, boolean copyPublished) {
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("academicYear", academicYear);
+        request.put("semester", semester);
+        request.put("copyPublished", copyPublished);
+        return request;
+    }
+
     static String requireText(String value, String label) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(label + "不能为空");

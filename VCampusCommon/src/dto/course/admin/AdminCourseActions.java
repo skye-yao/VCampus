@@ -18,6 +18,7 @@ public final class AdminCourseActions {
     public static final String SAVE_ARRANGEMENT = "saveArrangement";
     public static final String DELETE_ARRANGEMENT = "deleteArrangement";
     public static final String PUBLISH_SCHEDULE_PLAN = "publishSchedulePlan";
+    public static final String CREATE_SCHEDULE_PLAN = "createSchedulePlan";
     public static final String SEARCH_STUDENTS = "searchStudents";
     public static final String LIST_OFFERING_STUDENTS = "listOfferingStudents";
     public static final String PREVIEW_ADMIN_ENROLLMENT = "previewAdminEnrollment";

@@ -63,7 +63,7 @@
                         <!-- 4. 图书馆 -->
                         <Button fx:id="navLibraryBtn" maxWidth="1.7976931348623157E308" onAction="#openLibrary" styleClass="main-nav-btn" text="📚   图书馆" />
                         <!-- 5. 选课 -->
-                        <Button fx:id="navCourseBtn" maxWidth="1.7976931348623157E308" onAction="#openCourseSelection" styleClass="main-nav-btn" text="📝   选课" />
+                        <Button fx:id="navCourseBtn" maxWidth="1.7976931348623157E308" onAction="#openCourseSelection" styleClass="main-nav-btn" text="📝   教务管理" />
                         <!-- 6. 商店 -->
                         <Button fx:id="navStoreBtn" maxWidth="1.7976931348623157E308" onAction="#openStore" styleClass="main-nav-btn" text="🛒   商店" />
                         <!-- 7. 银行 -->
