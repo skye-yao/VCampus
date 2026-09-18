@@ -498,14 +498,10 @@ public final class ChatPane implements AutoCloseable {
             call("GROUP_CREATE",Map.of("name",gName,"members",selectedUids),res->{
                 stage.close();
                 status.setText("群聊【"+gName+"】创建成功！");
-                refresh();
                 if(res.has("groupId")){
-                    long newGid=res.get("groupId").getAsLong();
-                    Platform.runLater(()->{
-                        activeGroupId=newGid;
-                        refresh();
-                    });
-                }
+                    // Use normal selection so the composer and conversation state are initialized.
+                    openGroup(res.get("groupId").getAsLong());
+                } else refresh();
             },()->submitBtn.setDisable(false));
         });
 
