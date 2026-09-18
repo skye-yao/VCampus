@@ -130,16 +130,16 @@
         <!--
           成绩表底部的导入区（设计 §9）：模板下载、导出成绩、导入 Excel；一旦进入预览，右侧换成
           同表预览的摘要（总记录/有效/异常）与取消导入、确认导入。确认按钮的可用性来自最新一次
-          服务端预览，不看本地红框是否被敲掉。状态提示与这三个入口同排（3 秒后自动消退），
-          不再占页面最底部那一行。
+          服务端预览，不看本地红框是否被敲掉。状态提示落在这一行的右侧——撑开的 Region 之后、
+          摘要组之前（3 秒后自动消退），不再占页面最底部那一行，也不挤在三个入口中间。
         -->
         <HBox alignment="CENTER_LEFT" spacing="10.0" styleClass="teacher-course-toolbar">
             <children>
                 <Button fx:id="gradeBookDownloadTemplateButton" onAction="#handleDownloadTemplate" styleClass="teacher-course-refresh-button" text="下载成绩模板" />
                 <Button fx:id="gradeBookExportGradesButton" onAction="#handleExportGrades" styleClass="teacher-course-refresh-button" text="导出成绩" />
                 <Button fx:id="gradeBookImportButton" onAction="#handleStartImport" styleClass="teacher-course-save-button" text="导入 Excel" />
-                <Label fx:id="gradeBookFeedbackLabel" managed="false" maxWidth="840.0" styleClass="teacher-course-feedback-text" text="" visible="false" wrapText="true" />
                 <Region HBox.hgrow="ALWAYS" />
+                <Label fx:id="gradeBookFeedbackLabel" managed="false" maxWidth="840.0" styleClass="teacher-course-feedback-text" text="" visible="false" wrapText="true" />
                 <Label fx:id="gradeBookImportSummaryLabel" managed="false" styleClass="teacher-course-page-summary" text="" visible="false" />
                 <Button fx:id="gradeBookImportIssuesButton" managed="false" onAction="#handleShowImportIssues" styleClass="teacher-course-refresh-button" text="异常明细" visible="false" />
                 <Button fx:id="gradeBookCancelImportButton" managed="false" onAction="#handleCancelImport" styleClass="teacher-course-refresh-button" text="取消导入" visible="false" />

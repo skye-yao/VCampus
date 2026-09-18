@@ -18,9 +18,6 @@ import dto.course.teacher.StartGradeRevisionRequestDTO;
 import dto.course.teacher.TeacherGradeBookDTO;
 import dto.course.teacher.TeacherOperationResultDTO;
 import dto.course.teacher.WriteGradeBookRequestDTO;
-import javafx.animation.KeyFrame;
-import javafx.animation.KeyValue;
-import javafx.animation.Timeline;
 import javafx.application.Platform;
 import javafx.beans.property.ReadOnlyStringWrapper;
 import javafx.event.Event;
@@ -45,7 +42,6 @@ import javafx.scene.input.KeyEvent;
 import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.Window;
-import javafx.util.Duration;
 import model.course.teacher.GradeBookEditorModel;
 import model.course.teacher.GradeBookEditorModel.Column;
 import model.course.teacher.GradeBookEditorModel.Row;
@@ -61,6 +57,7 @@ import service.TeacherCourseServices;
 import service.TeacherFileTransport;
 import util.AlertUtil;
 import util.FXMLUtil;
+import util.FadingNotice;
 import util.PageLeaveGuard;
 
 /**
@@ -83,10 +80,12 @@ import util.PageLeaveGuard;
  * {@link #requestLeave()} 询问用户，拒绝返回 false 让调用方 {@code consume} 关闭事件或保持页面；
  * 允许离开后 {@link #onClosed()} 取消在途请求并保证之后的响应不再写界面。
  *
- * <p>状态提示（{@code gradeBookFeedbackLabel}）与三个导入入口同排：新文本一到达就显示，留
- * {@link #FEEDBACK_VISIBLE_DURATION} 之后渐变淡出并隐藏，隐藏只是界面状态——
- * {@link #feedbackText} 里那句话不会被清掉（换班与页面重新进入才清）。每次到达都会取消上一次
- * 计时并重新计时，因此同一个字符串再次到达（连续两次「成绩草稿已保存」）同样会重新显示。
+ * <p>状态提示（{@code gradeBookFeedbackLabel}）落在按钮行右侧、撑开的 Region 之后（见
+ * {@code TeacherGradeBookView.fxml}）：新文本一到达就显示，留 {@link FadingNotice#VISIBLE_DURATION}
+ * 之后渐变淡出并隐藏，隐藏只是界面状态——{@link #feedbackText} 里那句话不会被清掉（换班与页面
+ * 重新进入才清）。每次到达都会取消上一次计时并重新计时，因此同一个字符串再次到达（连续两次
+ * 「成绩草稿已保存」）同样会重新显示。这套语义由 {@link FadingNotice} 实现，教学班页的名单导出
+ * 提示共用同一个工具。
  *
  * <p>录入交互是“Excel 式”的（见 {@link ScoreEditCell}）：单击选中即编辑、输入即写入模型、
  * 方向键即导航、离开单元格即完成、只有非法输入才在本格标红打断。所有导航与剪贴板的判定都放在
@@ -163,9 +162,6 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
     private static final int PENDING_EDIT_RETRIES = 5;
     /** 权重输入框的非法样式：与单元格标红同一套视觉，用户一眼能找到是哪一列。 */
     private static final String ERROR_FIELD_CLASS = "teacher-course-weight-field-error";
-    /** 状态提示留在按钮行上的时长，以及随后渐变淡出的时长（3 秒后消退，不是瞬间隐藏）。 */
-    private static final Duration FEEDBACK_VISIBLE_DURATION = Duration.seconds(3);
-    private static final Duration FEEDBACK_FADE_DURATION = Duration.millis(400);
 
     private final TeacherCourseService service;
     private final Consumer<Runnable> fxExecutor;
@@ -203,25 +199,15 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
      */
     private Function<String, Boolean> reopenConfirmation = TeacherGradeBookController::confirmReopen;
     /**
-     * 状态提示的文本：本类的唯一事实来源（测试经 {@link #feedbackText()} 读取）。
+     * 状态提示的显示与消退：文本到达、计时与“那句话还在不在”都归它管（与教学班页的名单导出提示
+     * 共用同一个 {@link FadingNotice}）。本类只负责在 {@link #render} 里把它的状态落到
+     * {@code gradeBookFeedbackLabel} 上——渲染出口仍然只有 {@link #render} 一个。
      *
-     * <p>只经 {@link #setFeedback} 写入——它同时推进 {@link #feedbackRevision}，渲染因此能区分
-     * “这一次渲染之前有新提示到达”与“这只是一次重画”。
+     * <p>标签要等 FXML 注入完毕才存在，因此工具在第一次渲染时（{@link #initialize()} 的末尾）才
+     * 绑定；无工具包的控制器测试里标签是 null，工具退化成纯状态机，
+     * {@link #feedbackText()} 照旧读得到那句话。
      */
-    private String feedbackText;
-    /**
-     * 提示到达计数：每次 {@link #setFeedback} 前进一格。
-     *
-     * <p>触发条件是“到达”而不是“文本变化”：连续两次「成绩草稿已保存」是同一个字符串，按文本比较
-     * 会漏掉第二次到达，上一次消退的收尾就会把这条新提示连着一起清掉，用户从此看不到任何提示。
-     */
-    private long feedbackRevision;
-    /** 已经渲染过的到达计数：两者不等就是有新提示要显示并重新计时。 */
-    private long renderedFeedbackRevision;
-    /** 提示是否已经随渐变消退并隐藏；文本没再到达时 {@link #render} 不把它显示回来。 */
-    private boolean feedbackFaded;
-    /** 正在跑的那次消退（{@code null} 表示没有在跑的计时）；换新提示时取消旧的。 */
-    private Timeline feedbackFade;
+    private FadingNotice feedbackNotice;
     private String errorText;
     private String pendingSaveOperationId;
     private String pendingSubmitOperationId;
@@ -495,8 +481,8 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
         selectedRow = null;
         generation++;
         // 提示的消退计时也一起停掉：页面已卸下，不能留下一个还在跑的动画（同一个控制器实例
-        // 会被反复进出，计时器更不能跨页泄漏）。
-        stopFeedbackFade();
+        // 会被反复进出，计时器更不能跨页泄漏）。那句话本身留着不动：换班与重新进入时才清。
+        feedbackNotice().dispose();
         // 页面被卸下：把打开的编辑器收起来，也别让排队的“落到某一格”在页面之外生效。
         closeActiveCell();
         clearPendingEdit();
@@ -1332,12 +1318,32 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
     // ------------------------------------------------------------------ 渲染
 
     /**
-     * 状态提示的唯一写入口：置文本并推进到达计数（画由调用方紧随其后的 {@link #render} 完成，
-     * 渲染出口保持只有 {@link #render} 一个）。
+     * 状态提示的唯一写入口：交一条新提示给 {@link FadingNotice}（显示与计时由调用方紧随其后的
+     * {@link #render} 完成，渲染出口保持只有 {@link #render} 一个）。
      */
     private void setFeedback(String text) {
-        feedbackText = text;
-        feedbackRevision++;
+        feedbackNotice().show(text);
+    }
+
+    /**
+     * 状态提示的工具实例（懒创建：标签要等 FXML 注入完毕才存在）。
+     *
+     * <p>调用时机是契约的一部分：本方法第一次被调用发生在 {@link #initialize()} 末尾的渲染里，
+     * 那一刻标签已经注入。谁都不许更早调用它（{@code release()}、{@code setFeedback()}、
+     * {@code feedbackText()} 都在内）——早一步就会把工具绑到 null 标签上，此后整页的提示只剩
+     * 状态、永远不再显示。
+     *
+     * <p>消退收尾保留重构前那句 {@code render(false)}：提示隐藏之外，这一页的其它界面状态照旧
+     * 重新对齐一次。
+     */
+    private FadingNotice feedbackNotice() {
+        FadingNotice current = feedbackNotice;
+        if (current == null) {
+            current = new FadingNotice(gradeBookFeedbackLabel);
+            current.onFaded(() -> render(false));
+            feedbackNotice = current;
+        }
+        return current;
     }
 
     private void render() {
@@ -1447,66 +1453,15 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
     }
 
     /**
-     * 状态提示：新文本一到达就显示，并在 {@link #FEEDBACK_VISIBLE_DURATION} 之后渐变淡出。
+     * 状态提示：新文本一到达就显示，并在 {@link FadingNotice#VISIBLE_DURATION} 之后渐变淡出。
      *
-     * <p>只认“有新提示到达”（{@link #feedbackRevision} 前进），不认“这次渲染和上次不一样”：页面上的
-     * 任何一次重画（逐格录入、按钮可用性、导入态）都会走到 {@link #render} 里来，按渲染次数重新计时
-     * 会让提示永远等不到消退。
-     *
-     * <p>标签缺失（无工具包的控制器测试）时只保留 {@code feedbackText} 字段本身：它仍然是这条提示的
-     * 唯一事实来源，测试照旧读得到。
+     * <p>到达判定、计时与可见性都在 {@link FadingNotice} 里（只认“有新提示到达”，不认“这次渲染
+     * 和上次不一样”：页面上的任何一次重画都会走到这里来，按渲染次数重新计时会让提示永远等不到
+     * 消退）；这里只是把它接到本页唯一的渲染出口上。标签缺失（无工具包的控制器测试）时什么都不写，
+     * 那句话仍然留在 {@link #feedbackText()} 里，测试照旧读得到。
      */
     private void renderFeedback() {
-        if (gradeBookFeedbackLabel == null) return;
-        gradeBookFeedbackLabel.setText(feedbackText == null ? "" : feedbackText);
-        if (feedbackRevision != renderedFeedbackRevision) {
-            renderedFeedbackRevision = feedbackRevision;
-            feedbackFaded = false;
-            startFeedbackFade();
-        }
-        setActive(gradeBookFeedbackLabel, feedbackText != null && !feedbackFaded);
-    }
-
-    /**
-     * 按当前提示重新计时：非空则先原样留 {@link #FEEDBACK_VISIBLE_DURATION}，再
-     * {@link #FEEDBACK_FADE_DURATION} 之内淡出；提示被置空则只是取消在跑的那次消退。
-     *
-     * <p>旧计时一律先取消：新提示到家时，上一次的收尾既不能把它隐藏，也不能把不透明度留成 0。
-     * 收尾自身还有一道“我还是当前这次消退吗”的检查，因此即使某个实现会在 {@code stop()} 里同步
-     * 触发 {@code onFinished}，也清不掉刚落地的提示。
-     */
-    private void startFeedbackFade() {
-        stopFeedbackFade();
-        if (gradeBookFeedbackLabel == null || feedbackText == null) return;
-        gradeBookFeedbackLabel.setOpacity(1);
-        Timeline fade = new Timeline(
-                new KeyFrame(Duration.ZERO, new KeyValue(gradeBookFeedbackLabel.opacityProperty(), 1)),
-                new KeyFrame(FEEDBACK_VISIBLE_DURATION,
-                        new KeyValue(gradeBookFeedbackLabel.opacityProperty(), 1)),
-                new KeyFrame(FEEDBACK_VISIBLE_DURATION.add(FEEDBACK_FADE_DURATION),
-                        new KeyValue(gradeBookFeedbackLabel.opacityProperty(), 0)));
-        fade.setOnFinished(event -> {
-            if (feedbackFade != fade) return;
-            feedbackFade = null;
-            feedbackFaded = true;
-            // 复位不透明度：下一次提示从全不透明开始，不能继承上一轮淡出到 0 的那一帧。
-            gradeBookFeedbackLabel.setOpacity(1);
-            render(false);
-        });
-        feedbackFade = fade;
-        fade.play();
-    }
-
-    /**
-     * 取消在跑的消退并解绑。先解绑再停：解绑之后这次消退的收尾不再作数，与
-     * {@code stop()} 是否回调 {@code onFinished} 无关。
-     */
-    private void stopFeedbackFade() {
-        Timeline running = feedbackFade;
-        feedbackFade = null;
-        if (running != null) {
-            running.stop();
-        }
+        feedbackNotice().render();
     }
 
     /** 方案区：开关与权重输入回写模型状态；回写期间禁止监听器把渲染当成用户输入。 */
@@ -1804,9 +1759,9 @@ public final class TeacherGradeBookController implements PageLeaveGuard,
         return model != null && model.dirty();
     }
 
-    /** 最近一条状态提示：消退只隐藏标签，不改这个字段（换班/重新进入才清）。 */
+    /** 最近一条状态提示：消退只隐藏标签，不改这句话（换班/重新进入才清）。 */
     String feedbackText() {
-        return feedbackText;
+        return feedbackNotice().text();
     }
 
     String errorText() {

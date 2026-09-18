@@ -32,6 +32,7 @@ import service.TeacherCourseService;
 import service.TeacherCourseServices;
 import service.TeacherFileTransport;
 import util.AlertUtil;
+import util.FadingNotice;
 
 /**
  * 教学班详情页（设计 §5.1）：基本信息、学生名单、上课安排、成绩情况四个 Tab。
@@ -46,7 +47,9 @@ import util.AlertUtil;
  * <p>本页刻意保持只读：教师看不到任何添加/删除学生入口，成绩情况只显示只读摘要，登记成绩的入口
  * 只调用工作台的 {@code openGrades}（由工作台打开 {@link TeacherGradeBookController}），
  * 本页不发起任何写请求。名单导出按钮按设计 §9 接通：它按当前筛选导出售票，文件字节走独立短连接，
- * 不改变任何数据。开课学院缺值显示“未维护”，绝不用教师个人学院冒充。
+ * 不改变任何数据；导出提示（进行中 / 保存到哪 / 失败原因）走 {@link FadingNotice}，与成绩录入页
+ * 同一条消退规矩（约 3 秒后自动淡出并隐藏），不是一直挂着的说明文字。开课学院缺值显示“未维护”，
+ * 绝不用教师个人学院冒充。
  *
  * <p>打开另一个教学班或 {@link #release()} 之后，任何在途响应都被丢弃（generation + active 判定），
  * 页面也不会保留上一个教学班的数据。
@@ -80,7 +83,11 @@ public final class TeacherOfferingDetailController {
     private Runnable backAction = () -> { };
     private Consumer<String> openGrades = offeringId -> { };
     private boolean exporting;
-    private String exportFeedbackText;
+    /**
+     * 名单导出的提示：与成绩录入页共用同一个 {@link FadingNotice}（文本到达即显示，约 3 秒后自动
+     * 淡出并隐藏）。标签要等 FXML 注入完毕才存在，因此见 {@link #exportNotice()} 的懒创建。
+     */
+    private FadingNotice exportNotice;
     /** 每次导出派发递增：迟到的响应不能写到一个已经离开或换了教学班的页面上。 */
     private long exportGeneration;
 
@@ -230,7 +237,7 @@ public final class TeacherOfferingDetailController {
         // 回来后会把「已保存到 A 的文件」渲染到 B 的页面上。
         exportGeneration++;
         exporting = false;
-        exportFeedbackText = null;
+        exportNotice().reset();
         render();
     }
 
@@ -275,7 +282,7 @@ public final class TeacherOfferingDetailController {
     void handleExport(Event event) {
         if (offeringId == null || !active || exporting) return;
         exporting = true;
-        exportFeedbackText = EXPORTING_TEXT;
+        exportNotice().show(EXPORTING_TEXT);
         render();
         long current = ++exportGeneration;
         CompletableFuture<Path> download = TeacherGradeImportController.downloadTicketToFile(
@@ -288,13 +295,13 @@ public final class TeacherOfferingDetailController {
             if (!active || offeringId == null || current != exportGeneration) return;
             exporting = false;
             if (failure != null) {
-                exportFeedbackText = TeacherGradeImportController.failureText(failure,
-                        EXPORT_FAILURE_TEXT);
+                exportNotice().show(TeacherGradeImportController.failureText(failure,
+                        EXPORT_FAILURE_TEXT));
             } else if (saved != null) {
-                exportFeedbackText = TeacherGradeImportController.ROSTER_SUCCESS_TEXT + saved;
+                exportNotice().show(TeacherGradeImportController.ROSTER_SUCCESS_TEXT + saved);
             } else {
                 // 用户在选择或覆盖确认里取消：不留任何提示，就像没点过一样。
-                exportFeedbackText = null;
+                exportNotice().show(null);
             }
             render();
         }));
@@ -483,14 +490,12 @@ public final class TeacherOfferingDetailController {
         setActive(rosterEmptyLabel, !loadingRoster && rosterErrorText == null && roster.isEmpty());
         renderError(rosterErrorLabel, rosterErrorText);
         setActive(rosterRetryButton, rosterErrorText != null);
-        // 名单导出：有教学班且不在导出中才可点；反馈（保存路径或失败原因）与名单错误分开显示。
+        // 名单导出：有教学班且不在导出中才可点；反馈（保存路径或失败原因）与名单错误分开显示，
+        // 且与成绩录入页同一条消退规矩（约 3 秒后自动淡出并隐藏）。
         if (exportButton != null) {
             exportButton.setDisable(offeringId == null || !active || exporting);
         }
-        if (rosterExportLabel != null) {
-            rosterExportLabel.setText(exportFeedbackText == null ? "" : exportFeedbackText);
-        }
-        setActive(rosterExportLabel, exportFeedbackText != null);
+        exportNotice().render();
         if (rosterPageLabel != null) rosterPageLabel.setText(rosterPageText());
         if (previousRosterPageButton != null) {
             previousRosterPageButton.setDisable(!hasPreviousRosterPage());
@@ -714,10 +719,29 @@ public final class TeacherOfferingDetailController {
         return exporting;
     }
 
+    /** 最近一条导出提示：消退只隐藏标签，不改这句话（换教学班/离开页面才清）。 */
     String exportFeedbackText() {
-        return exportFeedbackText;
+        return exportNotice().text();
     }
 
+    /**
+     * 导出提示的工具（懒创建：{@code rosterExportLabel} 要等 FXML 注入完毕才存在，而本方法的
+     * 第一次取用就发生在 {@link #initialize()} 末尾的渲染里）。
+     *
+     * <p>调用时机是契约的一部分：本方法第一次被调用发生在 {@link #initialize()} 末尾的渲染里，
+     * 那一刻标签已经注入。谁都不许更早调用它（{@code release()}、{@code handleExport}、
+     * {@link #exportFeedbackText()} 都在内）——早一步就会把工具绑到 null 标签上，此后整页的提示
+     * 只剩状态、永远不再显示。
+     *
+     * <p>无工具包的控制器测试不会走到 {@code initialize()}，那时标签是 null，工具退化成纯状态机：
+     * {@link #exportFeedbackText()} 照旧读得到那句话，只是没有标签可写、也不会去构造计时器。
+     */
+    FadingNotice exportNotice() {
+        if (exportNotice == null) {
+            exportNotice = new FadingNotice(rosterExportLabel);
+        }
+        return exportNotice;
+    }
 
     boolean loadingRoster() {
         return loadingRoster;

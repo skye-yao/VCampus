@@ -917,9 +917,10 @@ public final class TeacherGradeBookControllerTest {
     }
 
     /**
-     * 状态提示与三个导入入口同排：{@code gradeBookFeedbackLabel} 必须是按钮行 HBox 的孩子，
-     * 位置在「导入 Excel」之后、撑开右侧导入态的 {@code Region} 之前，并且仍然只有它原来的
-     * fx:id／styleClass／wrapText。它不再挂在根 VBox 末尾（那正是“页面最底部”那一行）。
+     * 状态提示落在按钮行上：{@code gradeBookFeedbackLabel} 必须是按钮行 HBox 的孩子，
+     * 位置在「导入 Excel」之后、撑开右侧导入态的 {@code Region} **之后**（按钮行右侧，摘要组之前），
+     * 并且仍然只有它原来的 fx:id／styleClass／wrapText。它不再挂在根 VBox 末尾（那正是“页面最底部”
+     * 那一行），也不再挤在三个导入入口中间。
      */
     private static void theStatusLineSitsOnTheButtonRow() throws Exception {
         Document bookView = parseView(GRADE_BOOK_VIEW);
@@ -949,8 +950,8 @@ public final class TeacherGradeBookControllerTest {
         int grower = indexOfGrowRegion(children);
         require(importButton >= 0 && statusLine > importButton,
                 "状态提示必须排在「导入 Excel」之后，收到 " + importButton + " / " + statusLine);
-        require(grower >= 0 && statusLine < grower,
-                "状态提示必须排在撑开导入态的 Region 之前（与三个入口平齐），收到 "
+        require(grower >= 0 && statusLine > grower,
+                "状态提示必须排在撑开导入态的 Region 之后（落在按钮行右侧），收到 "
                         + statusLine + " / " + grower);
 
         // 根 VBox 里不再有它：状态提示已经离开“页面最底部”那一行。

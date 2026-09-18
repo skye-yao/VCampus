@@ -5,6 +5,8 @@ import java.io.InputStream;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -12,6 +14,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.BooleanSupplier;
 import javax.xml.parsers.DocumentBuilderFactory;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
@@ -20,6 +23,7 @@ import dto.course.CourseTermDTO;
 import dto.course.admin.schedule.ScheduleArrangementDTO;
 import dto.course.admin.schedule.ScheduleResourceDTO;
 import dto.course.admin.schedule.ScheduleSlotDTO;
+import dto.course.teacher.TeacherFileTicketDTO;
 import dto.course.teacher.TeacherOfferingDTO;
 import dto.course.teacher.TeacherOfferingDetailDTO;
 import dto.course.teacher.TeacherPageDTO;
@@ -28,6 +32,8 @@ import dto.course.teacher.TeacherScheduleWeekDTO;
 import javafx.event.ActionEvent;
 import javafx.event.Event;
 import service.TeacherCourseService;
+import service.TeacherFileTransport;
+import util.FadingNotice;
 
 /**
  * 无 JavaFX 工具包依赖的教学班详情页测试（基本信息 / 学生名单 / 上课安排 / 成绩情况 四个 Tab）。
@@ -54,6 +60,7 @@ public final class TeacherOfferingDetailControllerTest {
         anEmptyClassHasAnEmptyRoster();
         everyScheduleSlotIsRendered();
         theGradeEntryIsCapabilityGatedAndReadOnly();
+        rosterExportFeedbackGoesThroughTheFadingNotice();
         staleDetailResponseCannotReplaceTheNewerOffering();
         aFailedSectionKeepsItsDataAndOffersARetry();
         releasedPageDropsItsDataAndIgnoresLateResponses();
@@ -260,6 +267,59 @@ public final class TeacherOfferingDetailControllerTest {
                 "the read-only class must say so");
     }
 
+    /**
+     * 名单导出的提示走的是与成绩录入页同一个 {@link FadingNotice}：中间态、成功与复位都从这一条
+     * 通路出去，页面上不再有第二个“自己管自己”的提示字段。
+     *
+     * <p>消退的<b>时间</b>那一半在这里观察不到，也刻意不装作能观察：没有标签就没有计时器，所以
+     * {@code isFaded()} 在无工具包环境里恒为 false，拿它做断言等于什么都没测。3 秒后淡出并隐藏的
+     * 真实行为由成绩录入页的 GUI 冒烟步骤（3.6 秒后标签不可见、不透明度复位）覆盖，两个页面共用
+     * 同一个工具，计时逻辑不存在分叉。这里钉住的是这条通路本身：提示由工具持有、票据按当前筛选
+     * 申请、成功文案写明保存位置、离开页面时连话一起清掉。
+     */
+    private static void rosterExportFeedbackGoesThroughTheFadingNotice() throws Exception {
+        ControlledService service = new ControlledService();
+        // 目标文件刻意不存在：覆盖确认是真实对话框（无工具包环境里弹不出来），这条用例验证的是
+        // 提示通路，不是覆盖确认——任何让这个路径先被创建出来的改动都会把这里挂住。
+        Path target = Files.createTempDirectory("vcampus-detail-export").resolve("学生名单.xlsx");
+        ExportTransport transport = new ExportTransport();
+        SaveTo dialogs = new SaveTo(target);
+        TeacherOfferingDetailController controller = new TeacherOfferingDetailController(
+                service, Runnable::run, transport, dialogs);
+        controller.showOffering(OFFERING);
+        controller.selectTab(1);
+
+        require(controller.exportFeedbackText() == null,
+                "没有导出动作时不得有提示，收到 " + controller.exportFeedbackText());
+
+        controller.handleExport(new ActionEvent());
+        FadingNotice notice = controller.exportNotice();
+        require(TeacherOfferingDetailController.EXPORTING_TEXT.equals(controller.exportFeedbackText()),
+                "导出期间必须给出进行中的提示，收到 " + controller.exportFeedbackText());
+        require(TeacherOfferingDetailController.EXPORTING_TEXT.equals(notice.text()),
+                "进行中的提示必须由消退工具持有，而不是另存一处");
+        require(service.exportCalls.equals(List.of(OFFERING + "||")),
+                "导出必须按当前筛选条件申请票据，收到 " + service.exportCalls);
+        require(TeacherGradeImportController.EXPORT_FILENAME.equals(dialogs.suggestedFileName),
+                "名单导出的默认文件名不得改变，收到 " + dialogs.suggestedFileName);
+        // 传输在后台线程上派发：等它真的开始，再让这条下载结束。
+        waitUntil(() -> transport.ticket != null, "导出必须真的开始传输");
+
+        transport.download.complete(null);
+        waitUntil(() -> !TeacherOfferingDetailController.EXPORTING_TEXT.equals(
+                        controller.exportFeedbackText()),
+                "导出完成后必须换成结果提示");
+        require(controller.exportFeedbackText().equals(
+                        TeacherGradeImportController.ROSTER_SUCCESS_TEXT + target),
+                "成功提示必须写明保存位置，收到 " + controller.exportFeedbackText());
+        require(!controller.exporting(), "导出完成后必须回到非导出态");
+
+        // 复位：换教学班/离开页面把提示连话一起清掉（停表由工具负责）。
+        controller.release();
+        require(controller.exportFeedbackText() == null && notice.text() == null,
+                "离开页面必须清掉导出提示，收到 " + controller.exportFeedbackText());
+    }
+
     private static void staleDetailResponseCannotReplaceTheNewerOffering() {
         ControlledService service = new ControlledService();
         TeacherOfferingDetailController controller = controller(service);
@@ -436,6 +496,17 @@ public final class TeacherOfferingDetailControllerTest {
                 "a permanently disabled export button would be the old staged placeholder; "
                         + "its enabled state comes from render()");
 
+        // 导出提示的落点：同一个标签、同样的样式，默认隐藏且不占位——显示与隐藏都由
+        // FadingNotice 在渲染里决定，FXML 这边不得写死成“一直挂着”。
+        Element exportLabel = elementWithTagAndId(view, "Label", "rosterExportLabel");
+        require(exportLabel != null, "the roster tab must expose the export feedback label");
+        require("teacher-course-page-summary".equals(exportLabel.getAttribute("styleClass"))
+                        && "true".equals(exportLabel.getAttribute("wrapText")),
+                "the export feedback label must keep its style class and wrap long save paths");
+        require("false".equals(exportLabel.getAttribute("visible"))
+                        && "false".equals(exportLabel.getAttribute("managed")),
+                "the export feedback label must start hidden (the fading notice shows and hides it)");
+
         for (String forbidden : List.of("添加学生", "删除学生", "移除学生", "退课")) {
             require(buttonWithText(view, forbidden) == null,
                     "teachers must not see a " + forbidden + " entry");
@@ -513,6 +584,58 @@ public final class TeacherOfferingDetailControllerTest {
 
     private static TeacherOfferingDetailController controller(TeacherCourseService service) {
         return new TeacherOfferingDetailController(service, Runnable::run);
+    }
+
+    /** 假传输：下载挂在 Future 上，测试自己决定它什么时候完成（中途态才断言得下来）。 */
+    private static final class ExportTransport implements TeacherFileTransport {
+        private final CompletableFuture<Void> download = new CompletableFuture<>();
+        private TeacherFileTicketDTO ticket;
+
+        @Override
+        public CompletableFuture<Void> upload(TeacherFileTicketDTO uploaded, Path file) {
+            throw new UnsupportedOperationException("the detail page has no upload entry");
+        }
+
+        @Override
+        public CompletableFuture<Void> download(TeacherFileTicketDTO downloaded, Path file) {
+            this.ticket = downloaded;
+            return download;
+        }
+    }
+
+    /** 文件选择端口：总选到同一个目标文件（本页导出只需要目标路径，不弹真实选择器）。 */
+    private static final class SaveTo implements TeacherGradeImportController.FileDialogs {
+        private final Path target;
+        private String suggestedFileName;
+
+        SaveTo(Path target) {
+            this.target = target;
+        }
+
+        @Override
+        public Path chooseUploadSource() {
+            throw new UnsupportedOperationException("the detail page has no import entry");
+        }
+
+        @Override
+        public Path chooseSaveTarget(String suggestedFileName) {
+            this.suggestedFileName = suggestedFileName;
+            return target;
+        }
+    }
+
+    /** 后台线程上的回调（下载经 BACKGROUND 线程收尾）落地前，轮询等它一次。 */
+    private static void waitUntil(BooleanSupplier condition, String message) {
+        long deadline = System.currentTimeMillis() + 10000;
+        while (!condition.getAsBoolean()) {
+            if (System.currentTimeMillis() > deadline) throw new AssertionError(message);
+            try {
+                Thread.sleep(5);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(message);
+            }
+        }
     }
 
     private static TeacherOfferingDetailDTO detailOf(String offeringId, boolean canEditGrades) {
@@ -635,6 +758,7 @@ public final class TeacherOfferingDetailControllerTest {
         private final List<String> detailCalls = new ArrayList<>();
         private final List<String> rosterCalls = new ArrayList<>();
         private final List<String> scheduleCalls = new ArrayList<>();
+        private final List<String> exportCalls = new ArrayList<>();
 
         @Override
         public CompletableFuture<List<CourseTermDTO>> listTerms() {
@@ -676,6 +800,17 @@ public final class TeacherOfferingDetailControllerTest {
                     new ScheduleResourceDTO("8101", "3001", "A-101", "classroom", 120),
                     List.of(new ScheduleSlotDTO(1, 1, 2), new ScheduleSlotDTO(3, 3, 4)),
                     1, 16, "ACTIVE", 1)));
+        }
+
+        @Override
+        public CompletableFuture<TeacherFileTicketDTO> requestRosterExport(
+                String offeringId, String query, Integer enrollmentStatus) {
+            exportCalls.add(offeringId + "|" + (query == null ? "" : query) + "|"
+                    + (enrollmentStatus == null ? "" : enrollmentStatus));
+            return CompletableFuture.completedFuture(new TeacherFileTicketDTO("ticket-roster",
+                    TeacherFileTicketDTO.DIRECTION_DOWNLOAD, 9101, 0L, 1024L,
+                    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                    "2026-09-18T00:00:00Z"));
         }
 
         @Override
