@@ -13,6 +13,7 @@ import java.util.function.BiFunction;
 import javafx.scene.control.ButtonType;
 import dto.course.admin.catalog.CourseEditorRequestDTO;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
+import model.course.CourseTermView;
 import model.course.admin.AdminCourseView;
 import model.course.admin.AdminOfferingView;
 import model.course.admin.AdminOperationResultView;
@@ -38,6 +39,7 @@ public final class AdminCourseCatalogControllerTest {
         testCancelledDestructiveConfirmationDoesNotCallService();
         testDistinctWriteIntentsUseDistinctOperationIds();
         testDisplayedCoursesAreImmutableCopies();
+        testTermFilterDrivesBothLoads();
         System.out.println("AdminCourseCatalogControllerTest: PASS");
     }
 
@@ -322,6 +324,27 @@ public final class AdminCourseCatalogControllerTest {
         }
     }
 
+    /**
+     * 学期下拉的选项来自服务端回显的 displayName；下拉变化必须带着学期重新加载。
+     */
+    private static void testTermFilterDrivesBothLoads() {
+        ControlledService service = new ControlledService();
+        service.setTerms(List.of(
+                new CourseTermView(2027, 3, "2027-2028 春学期"),
+                new CourseTermView(2026, 2, "2026-2027 秋学期")));
+        AdminCourseCatalogController controller = controller(service, new Recorder());
+        controller.loadTerms();
+
+        require(service.courseCalls.contains("null|null|2027|3"),
+                "the newest term must be selected by default, saw " + service.courseCalls);
+        require(controller.terms().size() == 2, "both terms must be offered");
+
+        controller.selectTerm(1);
+        require(service.courseCalls.contains("null|null|2026|2"),
+                "selecting a term must reload the course list with that term, saw "
+                        + service.courseCalls);
+    }
+
     private static AdminCourseCatalogController controller(
             ControlledService service, Recorder recorder) {
         return new AdminCourseCatalogController(
@@ -356,6 +379,18 @@ public final class AdminCourseCatalogControllerTest {
         private final List<String> writeCalls = new ArrayList<>();
         private List<AdminCourseView> authoritative = List.of();
 
+        private List<CourseTermView> terms = List.of();
+        final List<String> courseCalls = new ArrayList<>();
+
+        void setTerms(List<CourseTermView> next) {
+            terms = List.copyOf(next);
+        }
+
+        @Override
+        public CompletableFuture<List<CourseTermView>> listOfferingTerms() {
+            return CompletableFuture.completedFuture(terms);
+        }
+
         private void setAuthoritative(List<AdminCourseView> courses) {
             authoritative = List.copyOf(courses);
         }
@@ -378,6 +413,7 @@ public final class AdminCourseCatalogControllerTest {
         public CompletableFuture<List<AdminCourseView>> listCourses(String query, String status,
                 Integer academicYear, Integer semester) {
             listCalls.add(query + "|" + status + "|" + academicYear + "|" + semester);
+            courseCalls.add(query + "|" + status + "|" + academicYear + "|" + semester);
             if (!courseResults.isEmpty()) return courseResults.removeFirst();
             return CompletableFuture.completedFuture(authoritative);
         }

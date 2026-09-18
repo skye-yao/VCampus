@@ -38,6 +38,7 @@ import javafx.scene.layout.VBox;
 import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.Window;
+import model.course.CourseTermView;
 import model.course.admin.AdminCourseView;
 import model.course.admin.AdminOfferingView;
 import protocol.MessageCode;
@@ -81,7 +82,13 @@ public final class AdminCourseCatalogController {
     private boolean syncingFilters;
     private long listGeneration;
 
+    private List<CourseTermView> terms = List.of();
+    private CourseTermView term;
+    private boolean syncingTerms;
+    private long termLoadGeneration;
+
     @FXML private TextField searchField;
+    @FXML private ComboBox<CourseTermView> termFilter;
     @FXML private ComboBox<String> statusFilter;
     @FXML private Button refreshButton;
     @FXML private Button createCourseButton;
@@ -116,6 +123,11 @@ public final class AdminCourseCatalogController {
         statusFilter.valueProperty().addListener((observable, oldValue, newValue) -> {
             if (!syncingFilters) applyFilters(searchField.getText(), newValue);
         });
+        if (termFilter != null) {
+            termFilter.getSelectionModel().selectedIndexProperty().addListener(
+                    (observable, oldValue, newValue) ->
+                            selectTerm(newValue == null ? -1 : newValue.intValue()));
+        }
         render();
     }
 
@@ -127,7 +139,7 @@ public final class AdminCourseCatalogController {
         if (statusFilter != null && statusFilter.getValue() != null) {
             status = statusFilter.getValue();
         }
-        loadCourses(query, status);
+        loadTerms();
     }
 
     /**
@@ -243,15 +255,73 @@ public final class AdminCourseCatalogController {
         }
     }
 
+    /**
+     * 重新取学期下拉。选择在刷新中保持不变；选中的学期消失了（只可能发生在演示库里）
+     * 就退回最近学期。学期加载与课程加载各有自己的 generation，互不覆盖。
+     */
+    void loadTerms() {
+        long generation = ++termLoadGeneration;
+        service.listOfferingTerms().whenComplete((loaded, failure) ->
+                fxExecutor.accept(() -> {
+                    if (generation != termLoadGeneration) return;
+                    if (failure != null) {
+                        // 学期取不到不该把整页打红：退化成"不限定学期"，课程列表照常显示。
+                        term = null;
+                        renderTerms();
+                        loadCourses(query, status, null);
+                        return;
+                    }
+                    terms = List.copyOf(loaded == null ? List.of() : loaded);
+                    CourseTermView keep = term;
+                    if (keep == null || !terms.contains(keep)) {
+                        keep = terms.isEmpty() ? null : terms.get(0);
+                    }
+                    term = keep;
+                    renderTerms();
+                    loadCourses(query, status, term);
+                }));
+    }
+
+    /** 下拉变化入口；下标越界或与当前相同都不触发加载。 */
+    void selectTerm(int index) {
+        if (syncingTerms || index < 0 || index >= terms.size()) return;
+        CourseTermView next = terms.get(index);
+        if (next.equals(term)) return;
+        term = next;
+        loadCourses(query, status, term);
+    }
+
+    private void renderTerms() {
+        if (termFilter == null) return;
+        syncingTerms = true;
+        try {
+            termFilter.getItems().setAll(terms);
+            termFilter.getSelectionModel().select(term == null ? -1 : terms.indexOf(term));
+            termFilter.setDisable(terms.isEmpty());
+        } finally {
+            syncingTerms = false;
+        }
+    }
+
+    List<CourseTermView> terms() {
+        return terms;
+    }
+
     private void loadCourses(String nextQuery, String nextStatus) {
+        loadCourses(nextQuery, nextStatus, term);
+    }
+
+    private void loadCourses(String nextQuery, String nextStatus, CourseTermView nextTerm) {
         String sentQuery = blankToNull(nextQuery);
         String sentStatus = STATUS_ALL.equals(nextStatus) ? null : blankToNull(nextStatus);
+        Integer sentYear = nextTerm == null ? null : nextTerm.getAcademicYear();
+        Integer sentSemester = nextTerm == null ? null : nextTerm.getSemester();
         long generation = ++listGeneration;
         loading = true;
         errorText = null;
         render();
-        service.listCourses(sentQuery, sentStatus).whenComplete((loaded, failure) ->
-                fxExecutor.accept(() -> {
+        service.listCourses(sentQuery, sentStatus, sentYear, sentSemester)
+                .whenComplete((loaded, failure) -> fxExecutor.accept(() -> {
                     if (generation != listGeneration) return;
                     loading = false;
                     if (failure != null) {
@@ -373,8 +443,10 @@ public final class AdminCourseCatalogController {
         if (!reload) return;
         container.getChildren().setAll(
                 styledLabel("正在加载教学班...", "course-admin-loading-text"));
-        service.listOfferings(course.getCourseId()).whenComplete((loaded, failure) ->
-                fxExecutor.accept(() -> {
+        service.listOfferings(course.getCourseId(),
+                        term == null ? null : term.getAcademicYear(),
+                        term == null ? null : term.getSemester())
+                .whenComplete((loaded, failure) -> fxExecutor.accept(() -> {
                     if (container.getScene() == null) return;
                     if (failure != null) {
                         failedOfferingCourses.add(course.getCourseId());
@@ -593,8 +665,10 @@ public final class AdminCourseCatalogController {
         String offeringId = offering.getOfferingId();
         String courseId = offering.getCourseId();
         long generation = offeringReloads.merge(offeringId, 1L, Long::sum);
-        service.listOfferings(courseId).whenComplete((loaded, failure) ->
-                fxExecutor.accept(() -> {
+        service.listOfferings(courseId,
+                        term == null ? null : term.getAcademicYear(),
+                        term == null ? null : term.getSemester())
+                .whenComplete((loaded, failure) -> fxExecutor.accept(() -> {
                     if (container.getScene() == null) return;
                     if (generation != offeringReloads.getOrDefault(offeringId, 0L)) return;
                     if (failure != null) {
