@@ -15,6 +15,7 @@ import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import dto.course.TermLabels;
 import dto.course.admin.catalog.CourseEditorRequestDTO;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
 import javafx.application.Platform;
@@ -762,8 +763,14 @@ public final class AdminCourseCatalogController {
         return scheduleStatus == null ? "排课未知" : scheduleStatus;
     }
 
-    private static String termText(AdminOfferingView offering) {
-        return offering.getAcademicYear() + " 学年 第 " + offering.getSemester() + " 学期";
+    /** 与学期下拉、学生端、教师端同源；不要在这里另拼一套中文。 */
+    static String termText(AdminOfferingView offering) {
+        return TermLabels.displayName(offering.getAcademicYear(), offering.getSemester());
+    }
+
+    /** 供测试直接钉住文案，不必构造整个 AdminOfferingView。 */
+    static String termTextForTest(int academicYear, int semester) {
+        return TermLabels.displayName(academicYear, semester);
     }
 
     private static String displayName(String name, String uid) {

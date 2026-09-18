@@ -40,6 +40,7 @@ public final class AdminCourseCatalogControllerTest {
         testDistinctWriteIntentsUseDistinctOperationIds();
         testDisplayedCoursesAreImmutableCopies();
         testTermFilterDrivesBothLoads();
+        testOfferingTermTextMatchesThePicker();
         System.out.println("AdminCourseCatalogControllerTest: PASS");
     }
 
@@ -343,6 +344,15 @@ public final class AdminCourseCatalogControllerTest {
         require(service.courseCalls.contains("null|null|2026|2"),
                 "selecting a term must reload the course list with that term, saw "
                         + service.courseCalls);
+    }
+
+    /**
+     * 教学班行上的学期文案必须与下拉项同源，否则同一屏上会出现两种写法。
+     */
+    private static void testOfferingTermTextMatchesThePicker() {
+        require("2026-2027 秋学期".equals(
+                        AdminCourseCatalogController.termTextForTest(2026, 2)),
+                "the offering row must use the same wording as the term picker");
     }
 
     private static AdminCourseCatalogController controller(
