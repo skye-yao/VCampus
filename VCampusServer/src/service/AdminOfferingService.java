@@ -3,6 +3,7 @@ package service;
 import com.google.gson.reflect.TypeToken;
 import dao.AdminCourseOperationDAO;
 import dao.AdminOfferingDAO;
+import dto.course.CourseTermDTO;
 import dto.course.admin.AdminCourseActions;
 import dto.course.admin.catalog.AdminOfferingDTO;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
@@ -56,6 +57,14 @@ public class AdminOfferingService {
             return offeringDAO.list(connection, id);
         } catch (SQLException failure) {
             throw new DatabaseException("教学班列表查询失败", failure);
+        }
+    }
+
+    public List<CourseTermDTO> listTerms() {
+        try (Connection connection = DBUtil.getConnection()) {
+            return offeringDAO.listTerms(connection);
+        } catch (SQLException failure) {
+            throw new DatabaseException("学期列表查询失败", failure);
         }
     }
 

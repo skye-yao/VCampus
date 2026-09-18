@@ -131,6 +131,8 @@ public class AdminCourseHandler {
                         text(request, "operationId")));
                 case AdminCourseActions.LIST_OFFERINGS -> response.putData("offerings",
                         offerings.list(decimalId(request, "courseId")));
+                case AdminCourseActions.LIST_OFFERING_TERMS -> response.putData("terms",
+                        offerings.listTerms());
                 case AdminCourseActions.CREATE_OFFERING -> mutation(response,
                         offerings.create(uid, payload(request, OfferingEditorRequestDTO.class)));
                 case AdminCourseActions.UPDATE_OFFERING -> mutation(response,

@@ -7,6 +7,7 @@ public final class AdminCourseActions {
     public static final String ARCHIVE_COURSE = "archiveCourse";
     public static final String RESTORE_COURSE = "restoreCourse";
     public static final String LIST_OFFERINGS = "listOfferings";
+    public static final String LIST_OFFERING_TERMS = "listOfferingTerms";
     public static final String CREATE_OFFERING = "createOffering";
     public static final String UPDATE_OFFERING = "updateOffering";
     public static final String CANCEL_OFFERING = "cancelOffering";

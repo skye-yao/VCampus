@@ -1,5 +1,6 @@
 package service;
 
+import dto.course.CourseTermDTO;
 import dto.course.admin.catalog.AdminOfferingDTO;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
 import dto.course.admin.result.AdminOperationResultDTO;
@@ -34,6 +35,7 @@ public final class AdminOfferingMySqlTest {
             String offeringId = verifyCreateAndReplay(offerings);
             verifyUpdateRules(offerings, offeringId);
             verifyCancelAndDelete(offerings, offeringId);
+            verifyTermList(offerings);
         } finally {
             cleanup();
         }
@@ -171,6 +173,38 @@ public final class AdminOfferingMySqlTest {
                 () -> offerings.update(ADMIN, request(op(15), "999999999", 1, "1001",
                         "CS999-T-X", 2027, 3, 10, "teacher-alpha", null, 1)),
                 "missing offering is not found");
+    }
+
+    /**
+     * 学期下拉的取值来源必须是库里真实存在的 (academic_year, semester)，按最近优先排列，
+     * 并且不受教学班状态影响——一个学期只要有过教学班就永远可选，否则下拉项会随时间消失。
+     */
+    private static void verifyTermList(AdminOfferingService offerings) throws Exception {
+        List<CourseTermDTO> terms = offerings.listTerms();
+        require(!terms.isEmpty(), "the seeded database must expose at least one term");
+        for (int i = 1; i < terms.size(); i++) {
+            CourseTermDTO previous = terms.get(i - 1);
+            CourseTermDTO current = terms.get(i);
+            boolean ordered = previous.getAcademicYear() > current.getAcademicYear()
+                    || (previous.getAcademicYear() == current.getAcademicYear()
+                    && previous.getSemester() > current.getSemester());
+            require(ordered, "terms must be ordered most recent first, saw " + terms);
+        }
+        for (CourseTermDTO term : terms) {
+            require(term.getDisplayName() != null && !term.getDisplayName().isBlank(),
+                    "every term must carry a display name, saw " + term);
+            require(count("SELECT COUNT(*) FROM course_offering WHERE academic_year="
+                    + term.getAcademicYear() + " AND semester=" + term.getSemester()) > 0,
+                    "every listed term must exist in course_offering, saw " + term);
+        }
+        execute("INSERT INTO course_offering(offering_code,course_id,academic_year,semester,"
+                + "capacity,status) VALUES('CS999-T-Z',1001,2029,1,10,1)");
+        List<CourseTermDTO> withDraft = offerings.listTerms();
+        require(withDraft.stream().anyMatch(term -> term.getAcademicYear() == 2029
+                        && term.getSemester() == 1),
+                "a brand new term must appear in the list, saw " + withDraft);
+        require(withDraft.get(0).getAcademicYear() == 2029,
+                "the newest term must sort first, saw " + withDraft);
     }
 
     private static void verifyCancelAndDelete(AdminOfferingService offerings, String offeringId)

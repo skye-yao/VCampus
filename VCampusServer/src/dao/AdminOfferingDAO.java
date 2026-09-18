@@ -1,5 +1,7 @@
 package dao;
 
+import dto.course.CourseTermDTO;
+import dto.course.TermLabels;
 import dto.course.admin.AdminCourseActions;
 import dto.course.admin.catalog.AdminOfferingDTO;
 
@@ -43,6 +45,27 @@ public class AdminOfferingDAO {
             }
         }
         return List.copyOf(offerings);
+    }
+
+    /**
+     * 学期下拉的取值来源：全局所有教学班出现过的 (academic_year, semester)，最近优先。
+     * 不过滤 status——取消掉最后一个教学班的学期也要留在下拉里，否则下拉项会随时间消失，
+     * 管理员再也回不到那个学期。
+     */
+    public List<CourseTermDTO> listTerms(Connection connection) throws SQLException {
+        String sql = "SELECT DISTINCT academic_year, semester FROM course_offering"
+                + " ORDER BY academic_year DESC, semester DESC";
+        List<CourseTermDTO> terms = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement(sql);
+             ResultSet rows = statement.executeQuery()) {
+            while (rows.next()) {
+                int academicYear = rows.getInt("academic_year");
+                int semester = rows.getInt("semester");
+                terms.add(new CourseTermDTO(academicYear, semester,
+                        TermLabels.displayName(academicYear, semester)));
+            }
+        }
+        return List.copyOf(terms);
     }
 
     public void lock(Connection connection, long offeringId) throws SQLException {
