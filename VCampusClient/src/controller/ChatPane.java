@@ -147,19 +147,78 @@ public final class ChatPane implements AutoCloseable {
                 results.getChildren().clear();
                 for(var e:r.getAsJsonArray("users")){
                     var u=e.getAsJsonObject();
-                    Button add=new Button("申请好友");
-                    String state=u.has("friendState")?u.get("friendState").getAsString():"NONE";
-                    if("FRIEND".equals(state)){add.setText("已是好友");add.setDisable(true);}
-                    if("SENT".equals(state)){add.setText("已发送申请");add.setDisable(true);}
-                    if("RECEIVED".equals(state)){add.setText("待处理申请");add.setDisable(true);}
+                    Button add = new Button();
+
+                    String state =
+                            u.has("friendState")
+                                    && !u.get("friendState").isJsonNull()
+                                    ? u.get("friendState").getAsString()
+                                    : "NONE";
+
+                    switch (state) {
+
+                        // 已经成为好友
+                        case "FRIEND" -> {
+                            add.setText("已是好友");
+                            add.setDisable(true);
+                        }
+
+                        // 我已经向对方发送申请，等待处理
+                        case "SENT" -> {
+                            add.setText("已申请");
+                            add.setDisable(true);
+                        }
+
+                        // 对方向我发来了好友申请
+                        case "RECEIVED" -> {
+                            add.setText("待处理申请");
+                            add.setDisable(true);
+                        }
+
+                        // 没有好友关系 / 之前被拒绝
+                        default -> {
+                            add.setText("申请好友");
+                            add.setDisable(false);
+
+                            add.setOnAction(ev -> {
+
+                                add.setText("发送中…");
+                                add.setDisable(true);
+
+                                call(
+                                        "REQUEST",
+                                        Map.of(
+                                                "peer",
+                                                u.get("uid").getAsString()
+                                        ),
+                                        reply -> {
+
+                                            // 请求发送成功后立即变成“已申请”
+                                            add.setText("已申请");
+                                            add.setDisable(true);
+
+                                            status.setText("好友申请已发送");
+
+                                            // 刷新好友申请等状态
+                                            refresh();
+                                        },
+                                        () -> {
+
+                                            /*
+                                             * 如果发送失败才恢复按钮。
+                                             * 如果已经成功，则保持“已申请”。
+                                             */
+                                            if (!"已申请".equals(add.getText())) {
+                                                add.setText("申请好友");
+                                                add.setDisable(false);
+                                            }
+                                        }
+                                );
+                            });
+                        }
+                    }
+
                     add.setMinWidth(110);
-                    add.setOnAction(ev->{
-                        add.setText("发送中…");add.setDisable(true);
-                        boolean[] sent={false};
-                        call("REQUEST",Map.of("peer",u.get("uid").getAsString()),reply->{sent[0]=true;add.setText("已发送申请");refresh();},()->{
-                            if(!sent[0]){add.setText("申请好友");add.setDisable(false);}
-                        });
-                    });
                     HBox personRow=person(u,38);personRow.setMinWidth(0);HBox.setHgrow(personRow,Priority.ALWAYS);
                     HBox card=new HBox(10,personRow,add);card.setAlignment(Pos.CENTER_LEFT);card.setMaxWidth(Double.MAX_VALUE);
                     card.getStyleClass().add("chat-person-card");
@@ -280,6 +339,19 @@ public final class ChatPane implements AutoCloseable {
                     for(var e:gr.getAsJsonArray("groups"))groupItems.add(e.getAsJsonObject());
                 }
                 groups.getItems().setAll(groupItems);
+                int groupUnread = groupItems.stream()
+                        .mapToInt(g ->
+                                g.has("unread")
+                                        ? g.get("unread").getAsInt()
+                                        : 0
+                        )
+                        .sum();
+
+                updateTabBadge(
+                        groupsTab,
+                        "群聊",
+                        groupUnread
+                );
                 if(requestedGroupId!=null){
                     for(var g:groupItems)if(g.get("groupId").getAsLong()==requestedGroupId){
                         requestedGroupId=null;groups.getSelectionModel().select(g);break;

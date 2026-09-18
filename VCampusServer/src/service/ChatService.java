@@ -262,11 +262,62 @@ public final class ChatService {
                 String low = me.compareTo(peer)<0?me:peer, high = me.compareTo(peer)<0?peer:me;
                 boolean old = c.getAutoCommit(); c.setAutoCommit(false);
                 try {
-                    if ("REQUEST".equals(action)) update(c,"INSERT IGNORE INTO tbl_chat_friend(user_low,user_high,requester) VALUES(?,?,?)",low,high,me);
-                    var links = rows(c,"SELECT requester,status FROM tbl_chat_friend WHERE user_low=? AND user_high=? FOR UPDATE",low,high);
-                    if (links.isEmpty()) throw new IllegalArgumentException("请先申请好友，等待对方同意");
+
+                    /*
+                     * 先查询关系，而不是先 INSERT。
+                     * 这样可以区分：
+                     *
+                     * 1. 第一次申请
+                     * 2. 已经存在的待处理申请
+                     * 3. 已拒绝后的重新申请
+                     */
+                    var links = rows(
+                            c,
+                            "SELECT requester,status " +
+                                    "FROM tbl_chat_friend " +
+                                    "WHERE user_low=? AND user_high=? " +
+                                    "FOR UPDATE",
+                            low,
+                            high
+                    );
+
+                    /*
+                     * 第一次发送好友申请
+                     */
+                    if ("REQUEST".equals(action)
+                            && links.isEmpty()) {
+
+                        update(
+                                c,
+                                "INSERT INTO tbl_chat_friend " +
+                                        "(user_low,user_high,requester) " +
+                                        "VALUES(?,?,?)",
+                                low,
+                                high,
+                                me
+                        );
+
+                        c.commit();
+
+                        out.put("success", true);
+
+                        return out;
+                    }
+
+                    /*
+                     * SEND / HISTORY / READ 等其他操作
+                     * 必须先存在好友关系记录。
+                     */
+                    if (links.isEmpty()) {
+                        throw new IllegalArgumentException(
+                                "请先申请好友，等待对方同意"
+                        );
+                    }
+
                     var link = links.get(0);
-                    String state = link.get("status").toString();
+
+                    String state =
+                            link.get("status").toString();
                     switch (action) {
                         case "REQUEST" -> {
                             if ("ACCEPTED".equals(state)) throw new IllegalArgumentException("你们已经是好友");
