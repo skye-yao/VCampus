@@ -8,6 +8,7 @@ import dto.course.CourseSelectionItemDTO;
 import dto.course.CourseTeacherDTO;
 import dto.course.CourseTermDTO;
 import dto.course.SelectionStateDTO;
+import dto.course.TermLabels;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -290,14 +291,8 @@ public class CourseQueryDAO {
     }
 
     public static CourseTermDTO term(int academicYear, int semester) {
-        String label = switch (semester) {
-            case 1 -> "暑期学校";
-            case 2 -> "秋学期";
-            case 3 -> "春学期";
-            default -> "第" + semester + "学期";
-        };
         return new CourseTermDTO(academicYear, semester,
-                academicYear + "-" + (academicYear + 1) + " " + label);
+                TermLabels.displayName(academicYear, semester));
     }
 
     private static String courseType(int value) {

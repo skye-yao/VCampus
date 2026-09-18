@@ -361,6 +361,19 @@ $suites = @(
         Tcp = @()
         Gui = @()
         MySql = @('service.ScheduleManagementMySqlTest') }
+    # 管理员课程目录套件（2026-09-18）。下面四个类此前一个套件都没有——改了也永远跑不到，
+    # 等于不会失败的测试。Admin*MySqlTest 两个类同时出现在 Server 与 MySql：门控列只追加
+    # `mysql --config=` 参数、不产生运行项，放进 Server 列它们才真的会跑。
+    # 刻意不收已在 Adjustment 套件里的 handler.AdminCourseHandlerTest，避免同一批用例跑两遍。
+    [pscustomobject]@{ Name = 'AdminCatalog'
+        Common = @('dto.course.TermLabelsTest')
+        Client = @('controller.AdminCourseCatalogControllerTest')
+        Server = @('service.AdminOfferingMySqlTest',
+            'service.AdminCourseCatalogMySqlTest')
+        Tcp = @()
+        Gui = @()
+        MySql = @('service.AdminOfferingMySqlTest',
+            'service.AdminCourseCatalogMySqlTest') }
 
 )
 
