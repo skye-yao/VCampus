@@ -18,6 +18,8 @@ public class LibraryAdminController {
     }
     @FXML private void handleAdminRecords() {
         Dialog<Void> dialog = new Dialog<>();
+        // Management windows must remain minimizable; modal dialogs disable this on Windows.
+        dialog.initModality(javafx.stage.Modality.NONE);
         dialog.setTitle("图书馆业务名单（管理员）");
         dialog.getDialogPane().getStyleClass().add("library-root");
         dialog.getDialogPane().getStylesheets().add(getClass().getResource("/resources/css/library.css").toExternalForm());

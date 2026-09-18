@@ -29,6 +29,8 @@ public class LibraryCirculationController {
 
     public void show(int selectedTab) {
         Dialog<Void> dialog=new Dialog<>();
+        // Allow the native minimize button while preserving the close/refresh lifecycle.
+        dialog.initModality(javafx.stage.Modality.NONE);
         dialog.setTitle("图书馆 · 借还与缴费管理");
         dialog.setResizable(true);
         style(dialog.getDialogPane());
