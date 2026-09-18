@@ -1046,9 +1046,14 @@ Modify `VCampusClient/src/service/AdminCourseService.java`。**保留** `listCou
         return listOfferings(courseId);
     }
 
-    /** 学期下拉的取值来源：全局所有教学班出现过的学期，最近优先。 */
+    /**
+     * 学期下拉的取值来源：全局所有教学班出现过的学期，最近优先。
+     * 默认实现返回**已完成但异常**的 future，**不要**直接 `throw`——直接抛会绕开调用方的
+     * `whenComplete` 降级路径，把整页打红（这个坑在 Task 7 真的踩到过一次）。
+     */
     default CompletableFuture<List<CourseTermView>> listOfferingTerms() {
-        throw new UnsupportedOperationException("listOfferingTerms");
+        return CompletableFuture.failedFuture(
+                new UnsupportedOperationException("listOfferingTerms"));
     }
 ```
 
