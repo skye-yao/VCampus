@@ -10,7 +10,8 @@
 <!--
   课次详情弹窗（设计 §3）：由 TeacherScheduleController 用独立 WINDOW_MODAL Stage 打开，Stage 标题固定为
   “课程详情”。条目字段、原/新安排与原因全部原样来自不可变的 DTO；教学班与人数来自权威快照。
-  “申请调课”本阶段禁用（后续阶段接通），因此用可写的 disable="true"（JavaFX 的 disabled 是只读属性）。
+  “申请调课”已接通：它默认禁用，由控制器按“课次确实可申请、且这次弹窗里还没提交过”启停，
+  因此这里只写可写的 disable="true"（JavaFX 的 disabled 是只读属性）。
 -->
 <VBox fx:id="dialogRoot" prefWidth="520.0" spacing="12.0" styleClass="teacher-course-dialog" stylesheets="@../css/style.css, @../css/teacher-course.css" xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controller.TeacherCourseDetailDialogController">
     <children>
@@ -40,7 +41,7 @@
                 <Button fx:id="rosterRetryButton" managed="false" onAction="#retry" styleClass="teacher-course-retry-button" text="重试" visible="false" />
             </children>
         </VBox>
-        <Label fx:id="adjustmentHintLabel" styleClass="teacher-schedule-dialog-hint" text="申请调课将在后续阶段接入" />
+        <Label fx:id="adjustmentHintLabel" managed="false" styleClass="teacher-schedule-dialog-hint" text="" visible="false" />
         <HBox alignment="CENTER_RIGHT" spacing="10.0">
             <children>
                 <Button fx:id="requestAdjustmentButton" disable="true" onAction="#handleRequestAdjustment" styleClass="teacher-course-page-button" text="申请调课" />

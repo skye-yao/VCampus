@@ -3,6 +3,7 @@ package service;
 import dao.AdminScheduleConflictDAO;
 import dao.AdminScheduleDAO;
 import dto.course.admin.result.AdminOperationResultDTO;
+import dto.course.admin.schedule.CheckArrangementResultDTO;
 import dto.course.admin.schedule.ScheduleArrangementDTO;
 import dto.course.admin.schedule.ScheduleConflictDTO;
 import dto.course.admin.schedule.SchedulePlanDTO;
@@ -25,6 +26,7 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
 
@@ -50,6 +52,21 @@ public final class ScheduleManagementMySqlTest {
     private static final long PLAN_SWITCH = 930102L;
     private static final long PLAN_OTHER = 930103L;
     private static final long PLAN_CONFLICT = 930005L;
+    // The demo shape: a draft plan whose row 930460 names no teacher while its sibling row is
+    // complete. Reading such a plan is what the admin dialog does; publishing it must still refuse.
+    private static final long PLAN_INCOMPLETE = 930104L;
+    private static final long CALENDAR_INCOMPLETE = 930110L;
+    // Draft creation: a term whose published plan carries a teacher-less arrangement — the shape
+    // the demo seed ships in plan 4001 — so the copy has to skip that row.
+    private static final long CALENDAR_COPY = 930120L;
+    private static final long PLAN_COPY_SOURCE = 930121L;
+    // A term whose only plan is an empty draft: the state the new create-draft entry makes
+    // reachable, and the one publication must refuse before it moves the calendar pointer.
+    private static final long CALENDAR_EMPTY = 930140L;
+    private static final long PLAN_EMPTY = 930106L;
+    // 跨周合并夹具（甲4）：跨第 1-2 周的同一冲突必须合并成 (week=1, endWeek=2) 而不是按周刷屏。
+    private static final long CALENDAR_MERGE = 930150L;
+    private static final long PLAN_MERGE = 930108L;
     private static final long ROOM_A = 930200L;
     private static final long ROOM_B = 930201L;
     private static final long ROOM_SMALL = 930202L;
@@ -81,6 +98,10 @@ public final class ScheduleManagementMySqlTest {
             verifyPublish(service);
             verifyOfferingConflictRebuild(service);
             verifyLoadPlan(service);
+            verifyWeekRangeMerge(service);
+            verifyIncompleteArrangementReadsAndPublication(service);
+            verifyEmptyPlanIsNotPublishable(service);
+            verifyCreateDraftPlan(service);
         } finally {
             cleanup();
         }
@@ -262,7 +283,8 @@ public final class ScheduleManagementMySqlTest {
 
         List<ScheduleConflictDTO> preview = service.checkArrangement(
                 request(op(23), id, 2, PLAN_DRAFT, OFFERING_SELF, "teacher-beta", null, ROOM_B,
-                        List.of(slot(2, 1, 2), slot(4, 3, 3)), 1, 2, false, null));
+                        List.of(slot(2, 1, 2), slot(4, 3, 3)), 1, 2, false, null))
+                .getArrangementConflicts();
         require(preview.isEmpty(),
                 "a preview excludes the edited arrangement's own occurrences");
         return id;
@@ -511,6 +533,226 @@ public final class ScheduleManagementMySqlTest {
                 "a missing plan has no arrangements");
     }
 
+    /**
+     * 甲4：一条跨 N 周的安排过去会让同一条冲突按周刷屏（用户案例：9 条「教室容量 40 小于教学班容量
+     * 45（第 N 周）」）。两个消费路径都必须合并：表单级 checkArrangement 与方案级 loadPlan→checkPlan。
+     * 单周场景仍是 week==endWeek 的一条，绝不出现「第 3-3 周」这种区间。
+     */
+    private static void verifyWeekRangeMerge(ScheduleManagementService service) throws Exception {
+        List<ScheduleConflictDTO> preview = service.checkArrangement(
+                request(op(80), null, 0, PLAN_MERGE, OFFERING_SELF, "teacher-alpha", null, ROOM_A,
+                        List.of(slot(2, 1, 2)), 1, 2, false, null))
+                .getArrangementConflicts();
+        require(preview.size() == 1 && "TEACHER_OVERLAP".equals(preview.get(0).getType()),
+                "the two-week teacher conflict must merge before it leaves checkArrangement, got "
+                        + describe(preview));
+        require(preview.get(0).getWeek() == 1 && preview.get(0).getEndWeek() == 2,
+                "the merged conflict must span weeks 1-2, got " + preview.get(0).getWeek() + "-"
+                        + preview.get(0).getEndWeek());
+
+        CheckArrangementResultDTO singleWeekResult = service.checkArrangement(
+                request(op(81), null, 0, PLAN_MERGE, OFFERING_SELF, "teacher-alpha", null, ROOM_A,
+                        List.of(slot(2, 1, 2)), 2, 2, false, null));
+        List<ScheduleConflictDTO> singleWeek = singleWeekResult.getArrangementConflicts();
+        require(singleWeek.size() == 1 && singleWeek.get(0).getWeek() == 2
+                        && singleWeek.get(0).getEndWeek() == 2,
+                "a single-week conflict must stay one week==endWeek entry, got "
+                        + describe(singleWeek));
+        // 甲2：方案级快照与表单级冲突同一次往返带回，且已经是合并后的区间。
+        require(singleWeekResult.getPlanConflicts().size() == 2
+                        && singleWeekResult.getPlanConflicts().get(0).getWeek() == 1
+                        && singleWeekResult.getPlanConflicts().get(0).getEndWeek() == 2,
+                "checkArrangement must carry the merged plan snapshot in the same round trip, got "
+                        + describe(singleWeekResult.getPlanConflicts()));
+
+        SchedulePlanDTO plan = service.loadPlan(2027, 2);
+        require(Long.toString(PLAN_MERGE).equals(plan.getPlanId()),
+                "the merge fixture term must load its own draft, got " + plan.getPlanId());
+        // 同一对安排的教师冲突在两个方向各报一次（引擎既有语义），两次都必须已合并。
+        require(plan.getConflicts().size() == 2,
+                "checkPlan must report both directions of the teacher overlap, got "
+                        + describe(plan.getConflicts()));
+        for (ScheduleConflictDTO conflict : plan.getConflicts()) {
+            require("TEACHER_OVERLAP".equals(conflict.getType()) && conflict.getWeek() == 1
+                            && conflict.getEndWeek() == 2,
+                    "the plan read must hold merged week ranges only, got " + conflict.getType()
+                            + " " + conflict.getWeek() + "-" + conflict.getEndWeek());
+        }
+    }
+
+    private static String describe(List<ScheduleConflictDTO> conflicts) {
+        List<String> parts = new ArrayList<>();
+        for (ScheduleConflictDTO conflict : conflicts) {
+            parts.add(conflict.getType() + "@" + conflict.getWeek() + "-" + conflict.getEndWeek());
+        }
+        return parts.toString();
+    }
+
+    /**
+     * A plan an admin is still assembling legitimately holds arrangements that cannot form a
+     * candidate — here one with no teacher at all. Reading such a plan must skip that row instead
+     * of running the publication gate, and the row must stay visible so the client can render it
+     * as pending. Publishing the very same plan must still refuse.
+     */
+    private static void verifyIncompleteArrangementReadsAndPublication(
+            ScheduleManagementService service) throws Exception {
+        SchedulePlanDTO plan = service.loadPlan(2027, 1);
+        require(Long.toString(PLAN_INCOMPLETE).equals(plan.getPlanId())
+                        && "DRAFT".equals(plan.getStatus()) && !plan.isCurrent(),
+                "loadPlan returns a draft plan holding an arrangement without a teacher");
+        require(plan.getConflicts().isEmpty(),
+                "an arrangement without a teacher is skipped, not reported as a conflict");
+        List<ScheduleArrangementDTO> arrangements =
+                service.listArrangements(Long.toString(PLAN_INCOMPLETE), null);
+        require(arrangements.size() == 2,
+                "the incomplete arrangement stays visible beside the complete one");
+        require(arrangements.get(0).getTeacher() == null
+                        && arrangements.get(0).getClassroom().getName().equals("Schedule Room A")
+                        && arrangements.get(0).getSlots().size() == 1,
+                "the client can still render the arrangement without a teacher as pending");
+        require("teacher-alpha".equals(arrangements.get(1).getTeacher().getBusinessId()),
+                "the complete arrangement of the same plan is unaffected");
+
+        IllegalArgumentException refusal = expect(IllegalArgumentException.class,
+                () -> service.publish(ADMIN, Long.toString(PLAN_INCOMPLETE), 1, op(61), false, null),
+                "an arrangement without a teacher must not be publishable");
+        require("教学安排缺少任课教师或时间段，无法发布".equals(refusal.getMessage()),
+                "publication refuses it with the message the gate has always used, got "
+                        + refusal.getMessage());
+        require(count("SELECT COUNT(*) FROM schedule_plan WHERE id=" + PLAN_INCOMPLETE
+                        + " AND status='DRAFT'") == 1,
+                "a refused publication leaves the plan in DRAFT");
+    }
+
+    /**
+     * An empty draft used to be a legal publication target — the new create-draft entry is what made
+     * that state reachable — and publishing one would advance the calendar pointer onto a plan with
+     * no occurrences, blanking the student and the teacher timetable at once. The refusal must also
+     * read differently from the incomplete-arrangement one, or the administrator is sent looking for
+     * an arrangement that does not exist.
+     */
+    private static void verifyEmptyPlanIsNotPublishable(ScheduleManagementService service)
+            throws Exception {
+        IllegalArgumentException refusal = expect(IllegalArgumentException.class,
+                () -> service.publish(ADMIN, Long.toString(PLAN_EMPTY), 1, op(63), false, null),
+                "an empty draft must not be publishable");
+        require("该排课方案没有任何教学安排，无法发布".equals(refusal.getMessage()),
+                "an empty plan is refused for its own reason, got " + refusal.getMessage());
+        require(!"教学安排缺少任课教师或时间段，无法发布".equals(refusal.getMessage()),
+                "the empty-plan refusal must not send the admin hunting for a missing arrangement");
+        require(count("SELECT COUNT(*) FROM schedule_plan WHERE id=" + PLAN_EMPTY
+                        + " AND status='DRAFT'") == 1,
+                "a refused publication leaves the empty plan in DRAFT");
+        require(count("SELECT COUNT(*) FROM teaching_calendar WHERE id=" + CALENDAR_EMPTY
+                        + " AND current_schedule_plan_id IS NULL") == 1,
+                "a refused publication never moves the calendar's published pointer");
+
+        // The gate also refuses a plan that is not there at all. Publication itself establishes the
+        // plan first, so this guard only speaks for callers that hold the gate directly.
+        IllegalArgumentException missing = expect(IllegalArgumentException.class,
+                () -> new CourseConflictService(new AdminScheduleDAO(), new AdminScheduleConflictDAO())
+                        .requirePublishable(999999999L),
+                "the publication gate must not pass a plan that does not exist");
+        require("排课方案不存在".equals(missing.getMessage()),
+                "the missing-plan refusal names the plan, got " + missing.getMessage());
+    }
+
+    /**
+     * The new-draft path. A term that only has a published plan gains an editable draft carrying
+     * that plan's complete arrangements over — while the calendar's published pointer stays on the
+     * source, so the teacher-facing timetable never flips to an unedited draft.
+     */
+    private static void verifyCreateDraftPlan(ScheduleManagementService service) throws Exception {
+        require(count("SELECT current_schedule_plan_id FROM teaching_calendar WHERE id="
+                + CALENDAR_COPY) == PLAN_COPY_SOURCE,
+                "the copy fixture calendar must start out pointing at its published plan");
+
+        AdminOperationResultDTO<SchedulePlanDTO> created =
+                service.createDraftPlan(ADMIN, 2028, 1, true, op(70));
+        SchedulePlanDTO draft = created.getEntity();
+        require("OK".equals(created.getOutcomeCode()) && "DRAFT".equals(draft.getStatus())
+                        && !draft.isCurrent() && draft.getRevision() == 1,
+                "a term with no draft gains one, and it is not the current plan");
+        require("2028-2029 学年第一学期排课方案".equals(draft.getName()),
+                "the draft is named after the term, got " + draft.getName());
+        long planId = Long.parseLong(draft.getPlanId());
+        require(count("SELECT COUNT(*) FROM schedule_plan WHERE id=" + planId + " AND status='DRAFT'"
+                        + " AND created_by='" + ADMIN + "'") == 1,
+                "the draft row is written as DRAFT by the calling administrator");
+        require(count("SELECT COUNT(*) FROM admin_course_operation_log WHERE admin_uid='" + ADMIN
+                + "' AND operation_id='" + op(70) + "' AND action='createSchedulePlan'"
+                + " AND target_type='SCHEDULE_PLAN' AND target_id='" + planId + "'") == 1,
+                "creating a draft writes one operation row naming the new plan");
+
+        require(count("SELECT COUNT(*) FROM course_schedule_arrangement WHERE plan_id="
+                        + PLAN_COPY_SOURCE) == 5,
+                "the source plan keeps all five arrangements, teacher-less and classroom-less ones"
+                        + " included");
+        List<ScheduleArrangementDTO> copied = service.listArrangements(Long.toString(planId), null);
+        require(copied.size() == 2 && copied.stream().allMatch(row -> row.getTeacher() != null),
+                "the draft copies exactly the published plan's complete arrangements, got "
+                        + copied.size());
+        require(copied.stream().anyMatch(row -> row.getAssistant() != null
+                        && "teacher-beta".equals(row.getAssistant().getBusinessId())),
+                "the assistant of a copied arrangement comes along");
+        require(copied.stream().allMatch(row -> row.getClassroom() != null
+                        && row.getClassroom().getBusinessId() != null),
+                "every copied arrangement carries the classroom of its source row");
+        require(copied.stream().map(row -> row.getClassroom().getBusinessId()).sorted().toList()
+                        .equals(List.of("930200", "930201")),
+                "the two copied classrooms are the ones the source rows named, got "
+                        + copied.stream().map(row -> row.getClassroom().getBusinessId()).toList());
+        require(count("SELECT COUNT(*) FROM course_schedule_arrangement WHERE plan_id=" + planId
+                        + " AND classroom_id IS NULL") == 0,
+                "the classroom-less source row is skipped, not copied");
+        require(count("SELECT COUNT(*) FROM course_schedule_arrangement WHERE plan_id=" + planId)
+                        == 2,
+                "the out-of-calendar source row is skipped too: two rows land, three do not");
+        require("草稿方案已创建：已复制 2 条 / 跳过 3 条".equals(created.getMessage()),
+                "the result message reports what the copy did, got " + created.getMessage());
+        require(count("SELECT COUNT(*) FROM course_schedule_rule WHERE plan_id=" + planId) == 2
+                        && count("SELECT COUNT(*) FROM course_occurrence WHERE plan_id=" + planId)
+                        == 2,
+                "each copied arrangement rebuilds its rule and its calendar-derived occurrence");
+        require(count("SELECT COUNT(*) FROM resource_booking WHERE plan_id=" + planId) == 5,
+                "teacher, assistant, and classroom bookings follow the copied occurrences");
+
+        require(count("SELECT current_schedule_plan_id FROM teaching_calendar WHERE id="
+                        + CALENDAR_COPY) == PLAN_COPY_SOURCE,
+                "creating a draft never moves the calendar's published pointer");
+
+        AdminOperationResultDTO<SchedulePlanDTO> replay =
+                service.createDraftPlan(ADMIN, 2028, 1, true, op(70));
+        require(draft.getPlanId().equals(replay.getEntity().getPlanId())
+                        && count("SELECT COUNT(*) FROM schedule_plan WHERE calendar_id="
+                        + CALENDAR_COPY) == 2
+                        && count("SELECT COUNT(*) FROM course_schedule_arrangement WHERE plan_id="
+                        + planId) == 2,
+                "a same-digest replay returns the stored plan without writing a second one");
+        expect(ScheduleManagementService.ConflictException.class,
+                () -> service.createDraftPlan(ADMIN, 2028, 1, false, op(70)),
+                "the same operationId carrying a different request is a conflict");
+
+        ScheduleManagementService.ConflictException duplicate = expect(
+                ScheduleManagementService.ConflictException.class,
+                () -> service.createDraftPlan(ADMIN, 2028, 1, true, op(71)),
+                "a term that already has a draft refuses to create a second one");
+        require("该学期已有草稿方案".equals(duplicate.getMessage()),
+                "the refusal names the draft it found, got " + duplicate.getMessage());
+        require(count("SELECT COUNT(*) FROM schedule_plan WHERE calendar_id=" + CALENDAR_COPY) == 2,
+                "a refused creation writes no plan");
+
+        expect(ScheduleManagementService.NotFoundException.class,
+                () -> service.createDraftPlan(ADMIN, 2031, 1, true, op(72)),
+                "a term without a teaching calendar has nowhere to put a draft");
+        expect(IllegalArgumentException.class,
+                () -> service.createDraftPlan(ADMIN, 2028, 4, true, op(73)),
+                "an invalid semester is rejected before any transaction");
+        expect(IllegalArgumentException.class,
+                () -> service.createDraftPlan(ADMIN, 0, 1, true, op(74)),
+                "an invalid academic year is rejected before any transaction");
+    }
+
     private static ScheduleSlotDTO slot(int dayOfWeek, int startPeriod, int endPeriod) {
         return new ScheduleSlotDTO(dayOfWeek, startPeriod, endPeriod);
     }
@@ -660,6 +902,121 @@ public final class ScheduleManagementMySqlTest {
                 + "classroom_id,status) VALUES(930910,930710,930650,'"
                 + utcText("2026-09-08", "08:00:00") + "','" + utcText("2026-09-08", "08:45:00")
                 + "','teacher-alpha',NULL," + ROOM_A + ",'ACTIVE')");
+
+        // The incomplete-plan fixture: a second draft plan in its own term, whose first
+        // arrangement carries slots but no teacher (the shape the demo seed ships in plan 4001)
+        // and whose second is complete. Written by hand rather than through scheduled() so the
+        // NULL teacher is explicit.
+        execute("INSERT INTO teaching_calendar(id,name,academic_year,semester,week1_start_date,"
+                + "timezone,version,status) VALUES(" + CALENDAR_INCOMPLETE
+                + ",'Schedule incomplete calendar',2027,1,'2026-09-07','Asia/Shanghai',1,"
+                + "'PUBLISHED')");
+        for (int day = 1; day <= 5; day++) {
+            execute("INSERT INTO calendar_date(id,calendar_id,local_date,week_no,"
+                    + "teaching_weekday,day_template_id,is_teaching_day) VALUES("
+                    + (930050 + day - 1) + "," + CALENDAR_INCOMPLETE + ",'"
+                    + LocalDate.parse("2026-09-07").plusDays(day - 1L) + "',1," + day + ","
+                    + TEMPLATE + ",1)");
+        }
+        execute("INSERT INTO schedule_plan(id,name,calendar_id,revision,status,created_at,"
+                + "updated_at) VALUES(" + PLAN_INCOMPLETE + ",'Schedule incomplete plan',"
+                + CALENDAR_INCOMPLETE + ",1,'DRAFT','2026-08-01 00:00:00','2026-08-01 00:00:00')");
+        execute("INSERT INTO course_schedule_arrangement(arrangement_id,plan_id,offering_id,"
+                + "teacher_uid,classroom_id,status,version) VALUES(930460," + PLAN_INCOMPLETE + ","
+                + OFFERING_SELF + ",NULL," + ROOM_A + ",'ACTIVE',1)");
+        execute("INSERT INTO course_schedule_rule(id,plan_id,course_offering_id,arrangement_id,"
+                + "weekday,start_period,end_period,status) VALUES(930560," + PLAN_INCOMPLETE + ","
+                + OFFERING_SELF + ",930460,2,1,2,'ACTIVE')");
+        execute("INSERT INTO course_schedule_rule_week(rule_id,week_no) VALUES(930560,1)");
+        scheduled(930461L, 930561L, 930661L, PLAN_INCOMPLETE, OFFERING_SELF, "teacher-alpha",
+                ROOM_B, 1, 4, 1, 2);
+
+        // Draft-creation fixture: its own term, whose only plan is PUBLISHED and whose calendar
+        // pointer names it. Two arrangements are complete (one with an assistant) and one is
+        // teacher-less like the seeded arrangement 4104, so a copy must land exactly two rows while
+        // the pointer stays on the published plan.
+        execute("INSERT INTO teaching_calendar(id,name,academic_year,semester,week1_start_date,"
+                + "timezone,version,status) VALUES(" + CALENDAR_COPY
+                + ",'Schedule copy calendar',2028,1,'2026-09-07','Asia/Shanghai',1,'PUBLISHED')");
+        for (int day = 1; day <= 5; day++) {
+            execute("INSERT INTO calendar_date(id,calendar_id,local_date,week_no,"
+                    + "teaching_weekday,day_template_id,is_teaching_day) VALUES("
+                    + (930060 + day - 1) + "," + CALENDAR_COPY + ",'"
+                    + LocalDate.parse("2026-09-07").plusDays(day - 1L) + "',1," + day + ","
+                    + TEMPLATE + ",1)");
+        }
+        execute("INSERT INTO schedule_plan(id,name,calendar_id,revision,status,created_at,"
+                + "updated_at) VALUES(" + PLAN_COPY_SOURCE + ",'Schedule copy source plan',"
+                + CALENDAR_COPY + ",1,'PUBLISHED','2026-08-01 00:00:00','2026-08-01 00:00:00')");
+        execute("UPDATE teaching_calendar SET current_schedule_plan_id=" + PLAN_COPY_SOURCE
+                + " WHERE id=" + CALENDAR_COPY);
+        scheduled(930480L, 930580L, 930680L, PLAN_COPY_SOURCE, OFFERING_SELF, "teacher-alpha",
+                ROOM_A, 1, 2, 1, 2);
+        scheduled(930481L, 930581L, 930681L, PLAN_COPY_SOURCE, OFFERING_OTHER, "teacher-beta",
+                ROOM_B, 1, 4, 1, 1);
+        execute("UPDATE course_schedule_arrangement SET assistant_uid='teacher-beta'"
+                + " WHERE arrangement_id=930480");
+        execute("INSERT INTO course_schedule_arrangement(arrangement_id,plan_id,offering_id,"
+                + "teacher_uid,classroom_id,status,version) VALUES(930482," + PLAN_COPY_SOURCE + ","
+                + OFFERING_SELF + ",NULL," + ROOM_A + ",'ACTIVE',1)");
+        execute("INSERT INTO course_schedule_rule(id,plan_id,course_offering_id,arrangement_id,"
+                + "weekday,start_period,end_period,status) VALUES(930582," + PLAN_COPY_SOURCE + ","
+                + OFFERING_SELF + ",930482,3,1,2,'ACTIVE')");
+        execute("INSERT INTO course_schedule_rule_week(rule_id,week_no) VALUES(930582,1)");
+        // Two shapes the copy must skip instead of crashing on, both hand-written because the seed
+        // has neither: a classroom_id NULL row (V004 declares the column nullable for historical
+        // rows) and a row whose only week falls outside this term's teaching calendar. The two
+        // complete rows above must still come over untouched.
+        execute("INSERT INTO course_schedule_arrangement(arrangement_id,plan_id,offering_id,"
+                + "teacher_uid,classroom_id,status,version) VALUES(930483," + PLAN_COPY_SOURCE + ","
+                + OFFERING_OTHER + ",'teacher-beta',NULL,'ACTIVE',1)");
+        execute("INSERT INTO course_schedule_rule(id,plan_id,course_offering_id,arrangement_id,"
+                + "weekday,start_period,end_period,status) VALUES(930583," + PLAN_COPY_SOURCE + ","
+                + OFFERING_OTHER + ",930483,5,1,2,'ACTIVE')");
+        execute("INSERT INTO course_schedule_rule_week(rule_id,week_no) VALUES(930583,1)");
+        scheduled(930484L, 930584L, 930684L, PLAN_COPY_SOURCE, OFFERING_SELF, "teacher-alpha",
+                ROOM_B, 2, 5, 1, 2);
+
+        // Publication-gate fixture: a term whose only plan is an empty DRAFT, the shape the new
+        // create-draft entry leaves behind when there is nothing to copy. No calendar_date rows are
+        // written: a plan with no arrangements never resolves a window, so the refusal happens long
+        // before the calendar matters.
+        execute("INSERT INTO teaching_calendar(id,name,academic_year,semester,week1_start_date,"
+                + "timezone,version,status) VALUES(" + CALENDAR_EMPTY
+                + ",'Schedule empty calendar',2029,1,'2026-09-07','Asia/Shanghai',1,'PUBLISHED')");
+        execute("INSERT INTO schedule_plan(id,name,calendar_id,revision,status,created_at,"
+                + "updated_at) VALUES(" + PLAN_EMPTY + ",'Schedule empty plan'," + CALENDAR_EMPTY
+                + ",1,'DRAFT','2026-08-01 00:00:00','2026-08-01 00:00:00')");
+
+        // 跨周合并夹具（甲4）：新学期的草稿方案里放三张安排，覆盖两个独立场景。
+        // 预检查：候选（2001/ROOM_A，周二第 1-2 节）只与 930491（2004/teacher-alpha/ROOM_B，同一
+        // 时间段）冲突，因此恰好得到一条已合并的教师冲突；930490/930492 在周四第 3-4 节，与候选
+        // 不重叠，不会引入第二条。
+        // 方案读路径：930490（2001/teacher-alpha/ROOM_A）与 930492（2004/teacher-alpha/ROOM_B）在
+        // 周四第 3-4 节重叠且各覆盖第 1-2 周，checkPlan 逐张检查时会从两个方向各报一条教师冲突，
+        // 每条都必须已合并成 (1,2)。
+        execute("INSERT INTO teaching_calendar(id,name,academic_year,semester,week1_start_date,"
+                + "timezone,version,status) VALUES(" + CALENDAR_MERGE
+                + ",'Schedule merge calendar',2027,2,'2026-09-07','Asia/Shanghai',1,'PUBLISHED')");
+        for (int week = 1; week <= 2; week++) {
+            for (int day = 1; day <= 5; day++) {
+                String date = LocalDate.parse("2026-09-07")
+                        .plusDays((week - 1) * 7L + day - 1).toString();
+                execute("INSERT INTO calendar_date(id,calendar_id,local_date,week_no,"
+                        + "teaching_weekday,day_template_id,is_teaching_day) VALUES("
+                        + (930080 + (week - 1) * 5 + day - 1) + "," + CALENDAR_MERGE + ",'" + date
+                        + "'," + week + "," + day + "," + TEMPLATE + ",1)");
+            }
+        }
+        execute("INSERT INTO schedule_plan(id,name,calendar_id,revision,status,created_at,"
+                + "updated_at) VALUES(" + PLAN_MERGE + ",'Schedule merge plan'," + CALENDAR_MERGE
+                + ",1,'DRAFT','2026-08-01 00:00:00','2026-08-01 00:00:00')");
+        scheduledWeeks(930490L, 930590L, 930690L, PLAN_MERGE, OFFERING_SELF, "teacher-alpha",
+                ROOM_A, 4, 3, 4, 1, 2);
+        scheduledWeeks(930491L, 930591L, 930692L, PLAN_MERGE, OFFERING_OTHER, "teacher-alpha",
+                ROOM_B, 2, 1, 2, 1, 2);
+        scheduledWeeks(930492L, 930592L, 930694L, PLAN_MERGE, OFFERING_OTHER, "teacher-alpha",
+                ROOM_B, 4, 3, 4, 1, 2);
     }
 
     private static void scheduled(long arrangementId, long ruleId, long occurrenceId, long planId,
@@ -680,6 +1037,34 @@ public final class ScheduleManagementMySqlTest {
                 + "teaching_weekday) VALUES(" + occurrenceId + "," + ruleId + "," + planId + ",'"
                 + utcText(date, period(startPeriod, true)) + "','"
                 + utcText(date, period(endPeriod, false)) + "'," + week + "," + weekday + ")");
+    }
+
+    /**
+     * 一条覆盖给定周次的安排：规则一条、每周一行 rule_week 与一条 occurrence（occurrence id 从
+     * {@code occurrenceId} 起依次递增），用来构造跨周场景——既有的 {@code scheduled} 只写一周。
+     */
+    private static void scheduledWeeks(long arrangementId, long ruleId, long occurrenceId,
+                                       long planId, long offeringId, String teacher,
+                                       long classroomId, int weekday, int startPeriod,
+                                       int endPeriod, int... weeks) throws SQLException {
+        execute("INSERT INTO course_schedule_arrangement(arrangement_id,plan_id,offering_id,"
+                + "teacher_uid,classroom_id,status,version) VALUES(" + arrangementId + "," + planId
+                + "," + offeringId + ",'" + teacher + "'," + classroomId + ",'ACTIVE',1)");
+        execute("INSERT INTO course_schedule_rule(id,plan_id,course_offering_id,arrangement_id,"
+                + "weekday,start_period,end_period,status) VALUES(" + ruleId + "," + planId + ","
+                + offeringId + "," + arrangementId + "," + weekday + "," + startPeriod + ","
+                + endPeriod + ",'ACTIVE')");
+        for (int index = 0; index < weeks.length; index++) {
+            int week = weeks[index];
+            execute("INSERT INTO course_schedule_rule_week(rule_id,week_no) VALUES(" + ruleId + ","
+                    + week + ")");
+            String date = LocalDate.parse("2026-09-07")
+                    .plusDays((week - 1) * 7L + weekday - 1).toString();
+            execute("INSERT INTO course_occurrence(id,rule_id,plan_id,start_at,end_at,week_no,"
+                    + "teaching_weekday) VALUES(" + (occurrenceId + index) + "," + ruleId + ","
+                    + planId + ",'" + utcText(date, period(startPeriod, true)) + "','"
+                    + utcText(date, period(endPeriod, false)) + "'," + week + "," + weekday + ")");
+        }
     }
 
     private static String period(int periodNo, boolean start) {
@@ -709,6 +1094,11 @@ public final class ScheduleManagementMySqlTest {
         execute("DELETE FROM course_schedule_rule WHERE plan_id BETWEEN 930000 AND 939999");
         execute("DELETE FROM course_schedule_arrangement WHERE plan_id BETWEEN 930000 AND 939999");
         execute("DELETE FROM schedule_plan WHERE id BETWEEN 930000 AND 939999");
+        // The draft createDraftPlan writes gets an auto-increment id no fixture could name, so it
+        // is removed by calendar instead; the plan delete cascades through its arrangements, rules,
+        // weeks, occurrences, and bookings, and must precede the tbl_user delete below because
+        // schedule_plan.created_by is ON DELETE RESTRICT.
+        execute("DELETE FROM schedule_plan WHERE calendar_id BETWEEN 930000 AND 939999");
         execute("DELETE FROM resource_booking WHERE plan_id BETWEEN 930000 AND 939999");
         execute("DELETE FROM schedule_resource WHERE resource_type='classroom'"
                 + " AND business_id IN ('930200','930201','930202')");
@@ -788,6 +1178,8 @@ public final class ScheduleManagementMySqlTest {
     /** Proves {@code cleanup} leaves nothing behind, including auto-created resource rows. */
     private static void verifyNoFixtureRows() throws SQLException {
         require(count("SELECT COUNT(*) FROM schedule_plan WHERE id BETWEEN 930000 AND 939999") == 0
+                && count("SELECT COUNT(*) FROM schedule_plan"
+                + " WHERE calendar_id BETWEEN 930000 AND 939999") == 0
                 && count("SELECT COUNT(*) FROM course_schedule_arrangement"
                 + " WHERE plan_id BETWEEN 930000 AND 939999") == 0
                 && count("SELECT COUNT(*) FROM course_schedule_rule"

@@ -26,6 +26,8 @@ import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.Spinner;
+import javafx.scene.control.SpinnerValueFactory;
 import javafx.scene.layout.ColumnConstraints;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.Priority;
@@ -50,9 +52,10 @@ import util.FXMLUtil;
  * 既不是固定的 1..10，也不是固定的 5 天），卡片文案直接取用 DTO 里的课程名与地点，不重新推导。
  * 网格整体放进 {@code ScrollPane}，页面自身不声明比 860×580 外壳更大的 pref 尺寸。
  *
- * <p>周导航只保留一个可变状态 {@link #requestedWeek}（null 表示“由服务端决定本周”）：上一周/下一周
- * 以已加载周为基准加减 1，边界来自响应里的 {@code minWeek}/{@code maxWeek}；“回到本周”只在响应
- * 给出 {@code currentWeek} 时可用。切换学期会把 {@link #requestedWeek} 重置为 null。
+ * <p>周导航只保留一个可变状态 {@link #requestedWeek}（null 表示“由服务端决定本周”）：周次控件是
+ * 学生端同款的 {@link Spinner}（上下箭头方向同样反过来，见 {@link WeekSpinner}），范围与值在每次
+ * 加载后由响应里的 {@code minWeek}/{@code maxWeek} 同步，没有范围时禁用；“回到本周”只在响应给出
+ * {@code currentWeek} 时可用。切换学期会把 {@link #requestedWeek} 重置为 null。
  *
  * <p>冲突布局交给教师端的 {@link TeacherScheduleLayout}：{@code ADJUSTED_ORIGINAL} 只是画在旧位置
  * 上的提示层，不占额外列，因此成对的“原安排/调课后”不会被拆成并排的两列。
@@ -68,15 +71,28 @@ public final class TeacherScheduleController {
     static final String DIALOG_VIEW = "/resources/fxml/TeacherCourseDetailDialog.fxml";
 
     /**
-     * 节次列要放下 {@code 第 13 节 18:00:00-18:45:00}（11px 字号约 120px 字形 + 12px 内边距），
-     * 因此固定宽度必须比 96 宽，否则 {@code Label} 默认的 {@code TextOverrun.ELLIPSIS} 会把它裁成
-     * {@code 第 1 节 08:00…}——秒与结束时间都看不见。整表因此比 860 窗口宽，横向滚动由 ScrollPane 负责。
+     * 节次列要放下三行里最宽的一行 {@code 第 13 节}（13px 字号约 60px 字形 + 12px 内边距）；
+     * 时间各占一行（{@code HH:mm}）之后不再有原来的 120px 单行宽度，但这个固定宽度维持 150：
+     * 整表最小宽度因此仍是 {@code 150 + 7 × 84 + 7 × 2 = 752}，小于 860 窗口里可用的约 810px，
+     * {@code fitToWidth} 才能把 7 个日期列拉伸到视口宽度（表格铺满）。
      */
     private static final double PERIOD_COLUMN_WIDTH = 150.0;
-    private static final double DAY_COLUMN_MIN_WIDTH = 96.0;
+    /**
+     * 日期列的最小宽度：它同时是「铺满」的下限。整表的最小宽度是
+     * {@code 150 + 7 × 84 + 7 × 2 = 752}（节次列 + 7 天 + {@code hgap}），比 860 窗口里可用的
+     * 约 810px 窄，因此 {@code fitToWidth} 能把 7 个日期列拉伸到视口宽度（表格铺满）；
+     * 窗口再窄就轮到 ScrollPane 横向滚动，而不是把列压到读不出来。
+     */
+    private static final double DAY_COLUMN_MIN_WIDTH = 84.0;
     private static final double DAY_COLUMN_PREF_WIDTH = 112.0;
     private static final double HEADER_ROW_HEIGHT = 34.0;
-    private static final double PERIOD_ROW_HEIGHT = 44.0;
+    /**
+     * 节次行的最小高度：行头是三行（{@code 第 N 节} / 开始 / 结束），13px 字号的三行文本加 8px
+     * 上下内边距约 57px；课次卡片的两行正文（13px 标题 + 12px 地点）也与行头同处一行，取 60 留余量。
+     * 这只是下限：{@code GridPane} 取行约束与子节点最小高度的较大者，窗口变高时再按 {@code vgrow}
+     * 把多出来的高度分摊给各行。
+     */
+    private static final double PERIOD_ROW_HEIGHT = 60.0;
 
     private final TeacherCourseService service;
     private final Consumer<Runnable> fxExecutor;
@@ -98,12 +114,12 @@ public final class TeacherScheduleController {
     private boolean syncingFilters;
     private String errorText;
     private long generation;
+    /** 程序化同步周次控件（写范围与值）期间为真：那段时间里的值变化不是用户的选择。 */
+    private boolean syncingWeekSpinner;
 
     @FXML private ComboBox<String> termFilter;
+    @FXML private Spinner<Integer> weekSpinner;
     @FXML private Button currentWeekButton;
-    @FXML private Button previousWeekButton;
-    @FXML private Label weekLabel;
-    @FXML private Button nextWeekButton;
     @FXML private Button refreshButton;
     @FXML private ScrollPane scheduleScroll;
     @FXML private GridPane scheduleGrid;
@@ -127,6 +143,12 @@ public final class TeacherScheduleController {
             termFilter.getSelectionModel().selectedIndexProperty().addListener(
                     (observable, previous, next) ->
                             selectTerm(next == null ? -1 : next.intValue()));
+        }
+        if (weekSpinner != null) {
+            WeekSpinner.installEditor(weekSpinner);
+            weekSpinner.valueProperty().addListener((observable, previous, next) -> {
+                if (next != null) selectWeek(next);
+            });
         }
         render();
     }
@@ -162,22 +184,21 @@ public final class TeacherScheduleController {
 
     // ---------------------------------------------------------------- 周导航
 
-    @FXML
-    void handlePreviousWeek(Event event) {
-        if (loadedWeek == null) return;
-        loadWeek(loadedWeek - 1);
-    }
-
-    @FXML
-    void handleNextWeek(Event event) {
-        if (loadedWeek == null) return;
-        loadWeek(loadedWeek + 1);
-    }
-
     /** 回到本周：以 {@code week=null} 请求，让服务端按教学日历与系统时钟决定。 */
     @FXML
     void handleBackToCurrentWeek(Event event) {
         loadWeek(null);
+    }
+
+    /**
+     * 周次控件选定了一周（箭头、键盘或输入框提交）：请求那一周。
+     *
+     * <p>{@link #syncingWeekSpinner} 为真时直接返回：每次加载后写控件（范围与值）本身会触发值变化
+     * 监听，那一次不是用户的选择，不能再发起一次加载。范围不存在时控件是禁用的，用户也点不到。
+     */
+    void selectWeek(int week) {
+        if (syncingWeekSpinner) return;
+        loadWeek(week);
     }
 
     /** 刷新当前学期与周次；页面未激活（已卸下）时什么都不做，免得在途状态又去写控件。 */
@@ -205,14 +226,6 @@ public final class TeacherScheduleController {
     void openDetail(TeacherScheduleEntryDTO entry) {
         if (entry == null) return;
         detailOpener.accept(entry);
-    }
-
-    boolean canGoPrevious() {
-        return !loading && week != null && loadedWeek != null && loadedWeek > week.getMinWeek();
-    }
-
-    boolean canGoNext() {
-        return !loading && week != null && loadedWeek != null && loadedWeek < week.getMaxWeek();
     }
 
     boolean canGoCurrent() {
@@ -299,10 +312,8 @@ public final class TeacherScheduleController {
 
     private void render() {
         renderGrid();
-        if (previousWeekButton != null) previousWeekButton.setDisable(!canGoPrevious());
-        if (nextWeekButton != null) nextWeekButton.setDisable(!canGoNext());
+        renderWeekSpinner();
         if (currentWeekButton != null) currentWeekButton.setDisable(!canGoCurrent());
-        if (weekLabel != null) weekLabel.setText(weekLabel(week));
         setActive(loadingLabel, loading);
         setActive(emptyLabel, !loading && errorText == null && week != null
                 && cardEntries.isEmpty());
@@ -320,6 +331,34 @@ public final class TeacherScheduleController {
     private void renderGrid() {
         rebuildGrid();
         resetViewport();
+    }
+
+    /**
+     * 把周次控件同步到当前这一周：范围取响应里的 {@code minWeek}/{@code maxWeek}，值为正在显示的周。
+     *
+     * <p>写控件本身会触发值变化监听（首次 {@code setValueFactory} 的绑定、以及每一次 {@code setValue}），
+     * 因此整段都用 {@link #syncingWeekSpinner} 圈起来，加载不会因为同步控件而再发起一次。
+     * 还没有范围（未加载、无数据、加载中）时控件禁用，而不是显示一个错误的周号。
+     */
+    private void renderWeekSpinner() {
+        if (weekSpinner == null) return;
+        Integer value = weekSpinnerValue(week, loadedWeek);
+        weekSpinner.setDisable(value == null || loading);
+        if (value == null) return;
+        SpinnerValueFactory<Integer> factory = weekSpinner.getValueFactory();
+        syncingWeekSpinner = true;
+        try {
+            if (factory instanceof SpinnerValueFactory.IntegerSpinnerValueFactory range) {
+                range.setMin(week.getMinWeek());
+                range.setMax(week.getMaxWeek());
+                range.setValue(value);
+            } else {
+                weekSpinner.setValueFactory(WeekSpinner.valueFactory(
+                        week.getMinWeek(), week.getMaxWeek(), value));
+            }
+        } finally {
+            syncingWeekSpinner = false;
+        }
     }
 
     private void rebuildGrid() {
@@ -349,10 +388,13 @@ public final class TeacherScheduleController {
                 dayColumn.setHgrow(Priority.ALWAYS);
                 scheduleGrid.getColumnConstraints().add(dayColumn);
             }
+            // 表头行固定 34px；节次行 60px 起、不设上限，窗口高过整表时由 vgrow 分摊多出来的高度
+            // （max 仍停在 60 的话 vgrow 是无效的，表格纵向永远铺不满）。
             scheduleGrid.getRowConstraints().add(new RowConstraints(HEADER_ROW_HEIGHT));
             for (int row = 0; row < periodRows.size(); row++) {
                 RowConstraints periodRow = new RowConstraints(PERIOD_ROW_HEIGHT);
                 periodRow.setMinHeight(PERIOD_ROW_HEIGHT);
+                periodRow.setMaxHeight(Double.MAX_VALUE);
                 periodRow.setVgrow(Priority.ALWAYS);
                 scheduleGrid.getRowConstraints().add(periodRow);
             }
@@ -468,7 +510,8 @@ public final class TeacherScheduleController {
 
     /**
      * 一个课次的卡片：课程名 + 地点，调课的两个位置各带角标与样式类（普通课次没有角标）。
-     * 卡片本身是按钮，点击把这条 DTO 原样交给详情弹窗。
+     * 角标竖排在课次块右侧，不再占标题上方的一行，因此不会撑高课表行；卡片本身是按钮，
+     * 点击把这条 DTO 原样交给详情弹窗。
      */
     private Button createCard(TeacherScheduleEntryDTO entry) {
         Label title = new Label(orDash(entry.getCourseName()));
@@ -480,12 +523,10 @@ public final class TeacherScheduleController {
 
         VBox content = new VBox(2.0, title, meta);
         content.setAlignment(Pos.CENTER_LEFT);
-        String badge = badgeText(entry);
-        if (badge != null) {
-            Label badgeLabel = new Label(badge);
-            badgeLabel.getStyleClass().add("teacher-schedule-badge");
-            content.getChildren().add(0, badgeLabel);
-        }
+        // 竖排角标与“正文吃满剩余宽度”由 AdjustmentBadge 统一提供，与学生端同构；
+        // 普通课次拿到的就是上面这个正文节点本身。
+        Node graphic = AdjustmentBadge.badged(content, badgeText(entry),
+                "teacher-schedule-badge");
 
         Button card = new Button();
         card.getStyleClass().add("teacher-schedule-card");
@@ -493,7 +534,7 @@ public final class TeacherScheduleController {
         if (adjustmentStyle != null) {
             card.getStyleClass().add(adjustmentStyle);
         }
-        card.setGraphic(content);
+        card.setGraphic(graphic);
         card.setMinSize(0.0, 0.0);
         card.setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);
         card.setOnAction(event -> openDetail(entry));
@@ -518,6 +559,12 @@ public final class TeacherScheduleController {
      * 用独立 {@code WINDOW_MODAL} Stage 打开课次详情。标题固定为
      * {@link TeacherCourseDetailDialogController#TITLE}（GUI 冒烟测试靠它在窗口列表里认出弹窗），
      * 弹窗持有不可变的条目与周 DTO 引用，不重新推导展示字段。
+     *
+     * <p>窗口打开时就贴合内容：{@code sizeToScene()} 在窗口还没有 peer 时会被记下来，显示时再按
+     * 应用了样式之后的偏好尺寸执行一次（全新 Stage 的首次显示本来也会走这一步，这里显式写出来是
+     * 为了不依赖那一步的细节）。真正会把底部按钮裁掉的是打开之后才到达的异步内容——教学班快照、
+     * 提交提示与失败重试都会把内容顶出窗口，因此由 {@link TeacherCourseDetailDialogController}
+     * 在每次渲染后重新贴合（只增不减）。
      */
     private void openDetailDialog(TeacherScheduleEntryDTO entry) {
         FXMLLoader loader = FXMLUtil.getLoader(DIALOG_VIEW);
@@ -540,16 +587,29 @@ public final class TeacherScheduleController {
         stage.setTitle(TeacherCourseDetailDialogController.TITLE);
         stage.setScene(new Scene(root));
         stage.setOnHidden(event -> dialog.dispose());
+        // 窗口还没显示（没有 peer）时记下这次请求，show() 时按样式应用之后的偏好尺寸执行。
+        stage.sizeToScene();
         stage.show();
     }
 
     // ---------------------------------------------------------------- 纯文本
 
-    /** 周标签：数字全部来自响应 DTO，例如 {@code 第 8 周（1-16）}。 */
-    static String weekLabel(TeacherScheduleWeekDTO value) {
-        if (value == null) return "";
-        return "第 " + value.getWeek() + " 周（" + value.getMinWeek() + "-"
-                + value.getMaxWeek() + "）";
+    /**
+     * 周次控件该显示的周：数字全部来自响应 DTO，客户端不自己推周号。
+     *
+     * <p>范围是响应里的 {@code minWeek}/{@code maxWeek}；值优先取已加载（正在显示）的周——用户翻到
+     * 别的周之后控件必须继续显示那一周，而不是弹回本周；没有已加载的周时退回 {@code currentWeek}，
+     * 再退回 {@code minWeek}。范围不存在（未加载、无数据）时返回 {@code null}，控件随之禁用，
+     * 而不是显示一个错误的周号。
+     */
+    static Integer weekSpinnerValue(TeacherScheduleWeekDTO week, Integer loadedWeek) {
+        if (week == null) return null;
+        int min = week.getMinWeek();
+        int max = week.getMaxWeek();
+        if (min > max) return null;
+        Integer value = loadedWeek != null ? loadedWeek : week.getCurrentWeek();
+        if (value == null) value = min;
+        return Math.max(min, Math.min(max, value));
     }
 
     /** 日期列头：星期名 + 该日期的 MM-dd；非教学日照样成列。 */
@@ -560,14 +620,35 @@ public final class TeacherScheduleController {
                 + (value.length() > 5 ? " " + value.substring(value.length() - 5) : "");
     }
 
-    /** 节次行头：{@code 第 N 节} 加上该节次的时间区间（原样使用 DTO 的定宽 HH:mm:ss）。 */
+    /**
+     * 节次行头三行：{@code 第 N 节} 一行，开始与结束时间各占一行（只到分钟，不显示秒、也不加横杠）。
+     * 时间是展示用的，兜底照旧：节次模板缺失或任一时间缺失、空白时只画 {@code 第 N 节} 一行，
+     * 而不是画一行半截的时间。
+     */
     static String periodHeader(int period, TeacherPeriodDTO definition) {
         String header = "第 " + period + " 节";
-        if (definition == null || definition.getStartTime() == null
-                || definition.getEndTime() == null) {
-            return header;
+        if (definition == null) return header;
+        String start = clockTime(definition.getStartTime());
+        String end = clockTime(definition.getEndTime());
+        if (start == null || end == null) return header;
+        return header + "\n" + start + "\n" + end;
+    }
+
+    /**
+     * 行头时间只取到分钟：定宽的 {@code HH:mm:ss} 截成 {@code HH:mm}；已经是 {@code HH:mm} 的短串
+     * 与占位符（如 {@code —}）原样保留；null 与空白返回 {@code null}，由调用方退回单行行头。
+     */
+    private static String clockTime(String value) {
+        if (value == null) return null;
+        String text = value.trim();
+        if (text.isEmpty()) return null;
+        if (text.length() >= 8 && text.charAt(2) == ':' && text.charAt(5) == ':'
+                && Character.isDigit(text.charAt(0)) && Character.isDigit(text.charAt(1))
+                && Character.isDigit(text.charAt(3)) && Character.isDigit(text.charAt(4))
+                && Character.isDigit(text.charAt(6)) && Character.isDigit(text.charAt(7))) {
+            return text.substring(0, 5);
         }
-        return header + " " + definition.getStartTime() + "-" + definition.getEndTime();
+        return text;
     }
 
     /** 本周节次行的编号：响应里出现过的节次（按教学日模板可不同）的升序并集。 */

@@ -30,8 +30,10 @@ import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.ComboBox;
+import javafx.scene.control.Hyperlink;
 import javafx.scene.control.Label;
 import javafx.scene.control.TextField;
+import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
@@ -81,6 +83,10 @@ public final class ScheduleArrangementDialogController {
 
     private AdminOfferingView offering;
     private SchedulePlanDTO plan;
+    /** 方案级冲突的单一数据源：只随 {@link #loadPlan()} 的权威结果更新。 */
+    private List<ScheduleConflictDTO> planConflictList = List.of();
+    /** 「其他教学班的冲突」是否展开；只在方案重新加载时收起。 */
+    private boolean othersExpanded;
     private List<ScheduleResourceDTO> teacherResources = List.of();
     private List<ScheduleResourceDTO> classroomResources = List.of();
     private List<ScheduleArrangementView> arrangements = List.of();
@@ -114,6 +120,7 @@ public final class ScheduleArrangementDialogController {
     private final Map<ReadTarget, String> readErrors = new EnumMap<>(ReadTarget.class);
 
     private boolean closed;
+    private boolean createDraftInFlight;
     private boolean mutated;
     private boolean uncertainWrite;
     private boolean changeNotified;
@@ -124,7 +131,9 @@ public final class ScheduleArrangementDialogController {
     @FXML private Node dialogRoot;
     @FXML private Label offeringContextLabel;
     @FXML private Label planContextLabel;
+    @FXML private Button createDraftButton;
     @FXML private Label planConflictSummaryLabel;
+    @FXML private Label conflictLegendLabel;
     @FXML private VBox planConflictArea;
     @FXML private ComboBox<ScheduleResourceDTO> teacherField;
     @FXML private ComboBox<ScheduleResourceDTO> assistantField;
@@ -133,7 +142,7 @@ public final class ScheduleArrangementDialogController {
     @FXML private TextField startWeekField;
     @FXML private TextField endWeekField;
     @FXML private VBox arrangementList;
-    @FXML private Label emptyArrangementLabel;
+    @FXML private Label arrangementSectionLabel;
     @FXML private VBox slotEditorList;
     @FXML private Button addSlotButton;
     @FXML private Button newArrangementButton;
@@ -215,6 +224,8 @@ public final class ScheduleArrangementDialogController {
         this.retryWrites.clear();
         this.previewAfterReload = false;
         this.plan = null;
+        this.planConflictList = List.of();
+        this.othersExpanded = false;
         this.arrangements = List.of();
         this.editingArrangement = null;
         this.teacherUid = offering == null ? null : blankToNull(offering.getTeacherUid());
@@ -278,11 +289,15 @@ public final class ScheduleArrangementDialogController {
                     loadingPlan = false;
                     if (failure != null) {
                         plan = null;
-                        readErrors.put(ReadTarget.PLAN, "排课方案加载失败，请重试");
+                        planConflictList = List.of();
+                        // 服务端消息必须留下：丢掉它，「缺少任课教师或时间段」这类真实原因就永远看不见。
+                        readErrors.put(ReadTarget.PLAN, "排课方案加载失败：" + errorMessage(failure));
                         render();
                         return;
                     }
                     plan = loaded;
+                    planConflictList = loaded == null ? List.of() : loaded.getConflicts();
+                    othersExpanded = false;
                     render();
                     loadArrangements();
                 }));
@@ -523,7 +538,9 @@ public final class ScheduleArrangementDialogController {
                 render();
                 return;
             }
-            conflicts = found == null ? List.of() : List.copyOf(found);
+            // 预检查一次往返刷新两处：表单级冲突来自候选安排，方案级冲突来自服务端的整方案快照。
+            conflicts = found == null ? List.of() : copyConflicts(found.getArrangementConflicts());
+            planConflictList = found == null ? List.of() : copyConflicts(found.getPlanConflicts());
             previewCurrent = true;
             render();
         }));
@@ -583,6 +600,10 @@ public final class ScheduleArrangementDialogController {
             if (conflict != null && conflict.getSeverity() == severity) result.add(conflict);
         }
         return List.copyOf(result);
+    }
+
+    private static List<ScheduleConflictDTO> copyConflicts(List<ScheduleConflictDTO> source) {
+        return source == null ? List.of() : List.copyOf(source);
     }
 
     // ---------------------------------------------------------------- 写入
@@ -681,12 +702,12 @@ public final class ScheduleArrangementDialogController {
             render();
             return;
         }
-        if (!planConflicts(ScheduleConflictSeverityDTO.BLOCKING).isEmpty()) {
+        if (!planConflictsOf(ScheduleConflictSeverityDTO.BLOCKING).isEmpty()) {
             localMessage = "存在阻断性冲突，无法发布";
             render();
             return;
         }
-        if (!planConflicts(ScheduleConflictSeverityDTO.OVERRIDABLE).isEmpty()) {
+        if (!planConflictsOf(ScheduleConflictSeverityDTO.OVERRIDABLE).isEmpty()) {
             publishPlanWithForce(overrideReason);
             return;
         }
@@ -710,7 +731,7 @@ public final class ScheduleArrangementDialogController {
             render();
             return;
         }
-        if (!planConflicts(ScheduleConflictSeverityDTO.BLOCKING).isEmpty()) {
+        if (!planConflictsOf(ScheduleConflictSeverityDTO.BLOCKING).isEmpty()) {
             localMessage = "存在阻断性冲突，无法强制发布";
             render();
             return;
@@ -735,8 +756,35 @@ public final class ScheduleArrangementDialogController {
                 operationId -> service.publishSchedulePlan(planId, revision, operationId, force, reason));
     }
 
-    private List<ScheduleConflictDTO> planConflicts(ScheduleConflictSeverityDTO severity) {
-        return plan == null ? List.of() : filterSeverity(plan.getConflicts(), severity);
+    private List<ScheduleConflictDTO> planConflictsOf(ScheduleConflictSeverityDTO severity) {
+        return filterSeverity(planConflictList, severity);
+    }
+
+    /**
+     * 本教学班的方案级冲突。归属未知（offering 或 offeringId 为空）时一律算「其他教学班」，
+     * 绝不把别人的冲突显示成本班的。
+     */
+    List<ScheduleConflictDTO> ownPlanConflicts(ScheduleConflictSeverityDTO severity) {
+        String ownOfferingId = offering == null ? null : offering.getOfferingId();
+        if (ownOfferingId == null) return List.of();
+        List<ScheduleConflictDTO> result = new ArrayList<>();
+        for (ScheduleConflictDTO conflict : planConflictsOf(severity)) {
+            if (ownOfferingId.equals(conflict.getOfferingId())) result.add(conflict);
+        }
+        return List.copyOf(result);
+    }
+
+    /** 其余全部方案级冲突（含两种严重度）。 */
+    List<ScheduleConflictDTO> otherPlanConflicts() {
+        String ownOfferingId = offering == null ? null : offering.getOfferingId();
+        List<ScheduleConflictDTO> result = new ArrayList<>();
+        for (ScheduleConflictDTO conflict : planConflictList) {
+            if (conflict != null && (ownOfferingId == null
+                    || !ownOfferingId.equals(conflict.getOfferingId()))) {
+                result.add(conflict);
+            }
+        }
+        return List.copyOf(result);
     }
 
     /**
@@ -836,6 +884,15 @@ public final class ScheduleArrangementDialogController {
                 && !loadingPlan && !loadingArrangements
                 && !readErrors.containsKey(ReadTarget.PLAN)
                 && !readErrors.containsKey(ReadTarget.ARRANGEMENTS);
+    }
+
+    /**
+     * 「创建草稿方案」只在学期确实没有可编辑草稿时提供：方案加载中、已是草稿、写入或创建进行中
+     * 都不提供，避免给出一个必然被服务端以「该学期已有草稿方案」拒绝的按钮。
+     */
+    boolean isCreateDraftOffered() {
+        return offering != null && !closed && !loadingPlan && !writeBusy() && !createDraftInFlight
+                && (plan == null || !DRAFT.equals(plan.getStatus()));
     }
 
     // ---------------------------------------------------------------- 编辑既有安排
@@ -996,6 +1053,43 @@ public final class ScheduleArrangementDialogController {
         requestPublishPlan();
     }
 
+    /**
+     * 学期还没有方案（或只有已发布的方案）时，从服务端开一份草稿：这是本对话框里唯一能让整屏
+     * 写控件重新可用的入口。创建结果本身不参与任何判断——它的 conflicts 在服务端固定为空，
+     * 真正的权威冲突随 {@link #loadPlan()} 一起回来，所以成功一律以重新加载的方案为准。
+     * 服务端的结果文案（含已复制/跳过条数）则原样留在校验行上：看不到「复制了 0 条」正是空草稿
+     * 一直被静默的原因。
+     */
+    @FXML
+    public void handleCreateDraft() {
+        if (!isCreateDraftOffered()) return;
+        createDraftInFlight = true;
+        localMessage = null;
+        render();
+        String operationId = UUID.randomUUID().toString();
+        // 复制意图的真值来源：只有确知该学期没有方案（加载成功且返回空）时才传 false。加载失败
+        // 时信息不足，必须按服务端的「有则复制、无则照样建空」传 true——false 是在信息不足时
+        // 主动放弃一次可能存在的复制。也不要靠隐藏按钮回避：加载失败后仍给出出路是刻意做的。
+        boolean copyPublished = plan != null || readErrors.containsKey(ReadTarget.PLAN);
+        service.createSchedulePlan(offering.getAcademicYear(), offering.getSemester(),
+                        copyPublished, operationId)
+                .whenComplete((created, failure) -> fxExecutor.accept(() -> {
+                    createDraftInFlight = false;
+                    if (failure != null) {
+                        validationVisible = true;
+                        localMessage = "创建草稿方案失败：" + errorMessage(failure);
+                        render();
+                        return;
+                    }
+                    String message = created == null ? null : created.getMessage();
+                    if (message != null && !message.isBlank()) {
+                        localMessage = message;
+                        validationVisible = true;
+                    }
+                    loadPlan();
+                }));
+    }
+
     @FXML
     private void handleRetry() {
         Set<ReadTarget> failed = Set.copyOf(readErrors.keySet());
@@ -1034,10 +1128,9 @@ public final class ScheduleArrangementDialogController {
             loadingLabel.setVisible(loading);
             loadingLabel.setManaged(loading);
         }
-        if (emptyArrangementLabel != null) {
+        if (arrangementSectionLabel != null) {
             boolean empty = !loadingArrangements && errorText() == null && arrangements.isEmpty();
-            emptyArrangementLabel.setVisible(empty);
-            emptyArrangementLabel.setManaged(empty);
+            arrangementSectionLabel.setText(arrangementSectionText(empty));
         }
         if (errorLabel != null) {
             boolean hasError = errorText() != null;
@@ -1195,11 +1288,11 @@ public final class ScheduleArrangementDialogController {
         conflictArea.getChildren().clear();
         for (ScheduleConflictDTO conflict : blockingConflicts()) {
             conflictArea.getChildren().add(conflictLabel(conflict,
-                    "course-admin-conflict-blocking"));
+                    "course-admin-conflict-blocking", false));
         }
         for (ScheduleConflictDTO conflict : overridableConflicts()) {
             conflictArea.getChildren().add(conflictLabel(conflict,
-                    "course-admin-conflict-overridable"));
+                    "course-admin-conflict-overridable", false));
         }
     }
 
@@ -1216,14 +1309,75 @@ public final class ScheduleArrangementDialogController {
         return text.toString();
     }
 
-    private Label conflictLabel(ScheduleConflictDTO conflict, String styleClass) {
+    /** 冲突文案：消息 + 位置后缀。 */
+    String conflictText(ScheduleConflictDTO conflict) {
         String message = conflict.getMessage() == null ? conflict.getType() : conflict.getMessage();
-        String position = conflict.getWeek() > 0
-                ? "（第 " + conflict.getWeek() + " 周）" : "";
-        Label label = new Label(message + position);
+        return message + conflictPosition(conflict);
+    }
+
+    /**
+     * 位置后缀：周次、星期、节次各段独立渲染，缺数据（week/dayOfWeek/startPeriod <= 0）的段省略，
+     * 全缺时没有后缀。
+     */
+    private static String conflictPosition(ScheduleConflictDTO conflict) {
+        List<String> parts = new ArrayList<>();
+        if (conflict.getWeek() > 0) {
+            parts.add(weekText(conflict.getWeek(), conflict.getEndWeek()));
+        }
+        if (conflict.getDayOfWeek() > 0) {
+            parts.add(ScheduleSlotEditor.weekdayLabel(conflict.getDayOfWeek()));
+        }
+        if (conflict.getStartPeriod() > 0) {
+            parts.add("第" + ScheduleSlotEditor.periodLabel(conflict.getStartPeriod(),
+                    conflict.getEndPeriod()) + "节");
+        }
+        return parts.isEmpty() ? "" : "（" + String.join(" ", parts) + "）";
+    }
+
+    /**
+     * 周次段：服务端已把连续周次合并成区间，这里渲染成「第 X-Y 周」；单周（含缺失 endWeek 的旧数据）
+     * 仍是「第 X 周」，绝不出现「第 3-3 周」。
+     */
+    private static String weekText(int week, int endWeek) {
+        int last = Math.max(week, endWeek);
+        return last > week ? "第 " + week + "-" + last + " 周" : "第 " + week + " 周";
+    }
+
+    private Label conflictLabel(ScheduleConflictDTO conflict, String styleClass,
+            boolean withOfferingPrefix) {
+        String text = withOfferingPrefix
+                ? offeringPrefix(conflict) + conflictText(conflict) : conflictText(conflict);
+        Label label = new Label(text);
         label.getStyleClass().add(styleClass);
         label.setWrapText(true);
+        label.setTooltip(new Tooltip(conflictTooltipText(conflict.getSeverity())));
         return label;
+    }
+
+    /** 冲突条目的悬停说明：严重度决定它是阻断保存/发布，还是填原因后可绕过。 */
+    static String conflictTooltipText(ScheduleConflictSeverityDTO severity) {
+        return severity == ScheduleConflictSeverityDTO.BLOCKING
+                ? "阻断性冲突：必须先解决才能保存或发布"
+                : "可绕过冲突：不阻止保存/发布，但需要填写原因";
+    }
+
+    /** 「其他教学班」条目的归属前缀：优先教学班代码，缺失时退回教学班号，绝不显示空标签。 */
+    private static String offeringPrefix(ScheduleConflictDTO conflict) {
+        String label = blankToNull(conflict.getOfferingLabel());
+        if (label == null) {
+            String offeringId = blankToNull(conflict.getOfferingId());
+            label = offeringId == null ? "其他教学班" : "教学班 " + offeringId;
+        }
+        return "[" + label + "] ";
+    }
+
+    static String otherConflictsSummaryText(int count) {
+        return "本方案还有 " + count + " 条其他教学班的冲突（点击展开）";
+    }
+
+    /** 空态由分区标题接管：零条安排时标题改说「暂无」，不再与静态「已有安排」同屏打架。 */
+    static String arrangementSectionText(boolean empty) {
+        return empty ? "该教学班暂无排课安排" : "该教学班已有安排";
     }
 
     private void renderWriteControls() {
@@ -1242,10 +1396,17 @@ public final class ScheduleArrangementDialogController {
             forceSaveButton.setDisable(editingDisabled || !canForce());
         }
         if (publishButton != null) {
-            boolean hasWarnings = !planConflicts(ScheduleConflictSeverityDTO.OVERRIDABLE).isEmpty();
+            boolean hasWarnings = !planConflictsOf(
+                    ScheduleConflictSeverityDTO.OVERRIDABLE).isEmpty();
             publishButton.setText(hasWarnings ? "填写原因并发布" : "发布方案");
             publishButton.setDisable(editingDisabled
-                    || !planConflicts(ScheduleConflictSeverityDTO.BLOCKING).isEmpty());
+                    || !planConflictsOf(ScheduleConflictSeverityDTO.BLOCKING).isEmpty());
+        }
+        if (createDraftButton != null) {
+            boolean offered = isCreateDraftOffered();
+            createDraftButton.setVisible(offered);
+            createDraftButton.setManaged(offered);
+            createDraftButton.setDisable(!offered);
         }
         if (addSlotButton != null) addSlotButton.setDisable(editingDisabled);
         if (newArrangementButton != null) newArrangementButton.setDisable(editingDisabled);
@@ -1264,8 +1425,9 @@ public final class ScheduleArrangementDialogController {
     }
 
     private void renderPlanConflicts() {
-        List<ScheduleConflictDTO> blocking = planConflicts(ScheduleConflictSeverityDTO.BLOCKING);
-        List<ScheduleConflictDTO> overridable = planConflicts(ScheduleConflictSeverityDTO.OVERRIDABLE);
+        List<ScheduleConflictDTO> blocking = planConflictsOf(ScheduleConflictSeverityDTO.BLOCKING);
+        List<ScheduleConflictDTO> overridable =
+                planConflictsOf(ScheduleConflictSeverityDTO.OVERRIDABLE);
         boolean any = !blocking.isEmpty() || !overridable.isEmpty();
         if (planConflictSummaryLabel != null) {
             planConflictSummaryLabel.setText(!blocking.isEmpty()
@@ -1274,16 +1436,54 @@ public final class ScheduleArrangementDialogController {
             planConflictSummaryLabel.setVisible(any);
             planConflictSummaryLabel.setManaged(any);
         }
+        if (conflictLegendLabel != null) {
+            conflictLegendLabel.setVisible(any);
+            conflictLegendLabel.setManaged(any);
+        }
         if (planConflictArea == null) return;
         planConflictArea.getChildren().clear();
-        for (ScheduleConflictDTO conflict : blocking) {
-            planConflictArea.getChildren().add(conflictLabel(conflict, "course-admin-conflict-blocking"));
+        for (ScheduleConflictDTO conflict : ownPlanConflicts(ScheduleConflictSeverityDTO.BLOCKING)) {
+            planConflictArea.getChildren().add(
+                    conflictLabel(conflict, "course-admin-conflict-blocking", false));
         }
-        for (ScheduleConflictDTO conflict : overridable) {
-            planConflictArea.getChildren().add(conflictLabel(conflict, "course-admin-conflict-overridable"));
+        for (ScheduleConflictDTO conflict
+                : ownPlanConflicts(ScheduleConflictSeverityDTO.OVERRIDABLE)) {
+            planConflictArea.getChildren().add(
+                    conflictLabel(conflict, "course-admin-conflict-overridable", false));
+        }
+        List<ScheduleConflictDTO> others = otherPlanConflicts();
+        if (!others.isEmpty()) {
+            planConflictArea.getChildren().add(otherConflictsToggle(others.size()));
+            if (othersExpanded) {
+                for (ScheduleConflictSeverityDTO severity : List.of(
+                        ScheduleConflictSeverityDTO.BLOCKING,
+                        ScheduleConflictSeverityDTO.OVERRIDABLE)) {
+                    for (ScheduleConflictDTO conflict : others) {
+                        if (conflict.getSeverity() != severity) continue;
+                        planConflictArea.getChildren().add(conflictLabel(conflict,
+                                severity == ScheduleConflictSeverityDTO.BLOCKING
+                                        ? "course-admin-conflict-blocking"
+                                        : "course-admin-conflict-overridable",
+                                true));
+                    }
+                }
+            }
         }
         planConflictArea.setVisible(any);
         planConflictArea.setManaged(any);
+    }
+
+    /** 折叠行：展开状态只在这里翻转，其他渲染路径不得重置它。 */
+    private Hyperlink otherConflictsToggle(int count) {
+        Hyperlink toggle = new Hyperlink(othersExpanded ? "收起其他教学班的冲突"
+                : otherConflictsSummaryText(count));
+        toggle.getStyleClass().add("course-admin-conflict-summary");
+        toggle.setVisited(false);
+        toggle.setOnAction(event -> {
+            othersExpanded = !othersExpanded;
+            render();
+        });
+        return toggle;
     }
 
     private void hideWindow() {

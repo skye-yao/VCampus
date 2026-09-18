@@ -6,7 +6,6 @@
 <?import javafx.scene.control.Label?>
 <?import javafx.scene.control.Spinner?>
 <?import javafx.scene.layout.BorderPane?>
-<?import javafx.scene.layout.ColumnConstraints?>
 <?import javafx.scene.layout.GridPane?>
 <?import javafx.scene.layout.HBox?>
 <?import javafx.scene.layout.Priority?>
@@ -21,6 +20,7 @@
                 <ComboBox fx:id="termFilter" prefWidth="168.0" styleClass="course-type-filter" />
                 <Label text="周次" />
                 <Spinner fx:id="weekSpinner" editable="true" prefWidth="92.0" />
+                <Button fx:id="currentWeekButton" onAction="#handleBackToCurrentWeek" styleClass="course-refresh-button" text="回到本周" />
                 <Region HBox.hgrow="ALWAYS" />
                 <Button onAction="#refresh" styleClass="course-refresh-button" text="刷新" />
             </children>
@@ -30,16 +30,7 @@
         </HBox>
     </top>
     <center>
-        <GridPane fx:id="scheduleGrid" maxHeight="1.7976931348623157E308" maxWidth="1.7976931348623157E308" styleClass="course-schedule-grid" BorderPane.alignment="CENTER">
-            <columnConstraints>
-                <ColumnConstraints halignment="CENTER" maxWidth="50.0" minWidth="50.0" prefWidth="50.0" />
-                <ColumnConstraints hgrow="ALWAYS" minWidth="72.0" prefWidth="96.0" />
-                <ColumnConstraints hgrow="ALWAYS" minWidth="72.0" prefWidth="96.0" />
-                <ColumnConstraints hgrow="ALWAYS" minWidth="72.0" prefWidth="96.0" />
-                <ColumnConstraints hgrow="ALWAYS" minWidth="72.0" prefWidth="96.0" />
-                <ColumnConstraints hgrow="ALWAYS" minWidth="72.0" prefWidth="96.0" />
-            </columnConstraints>
-        </GridPane>
+        <GridPane fx:id="scheduleGrid" maxHeight="1.7976931348623157E308" maxWidth="1.7976931348623157E308" styleClass="course-schedule-grid" BorderPane.alignment="CENTER" />
     </center>
     <right>
         <VBox fx:id="noticeList" prefWidth="168.0" spacing="10.0" styleClass="course-notice-rail" BorderPane.alignment="TOP_CENTER">

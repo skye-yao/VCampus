@@ -4,12 +4,17 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -21,8 +26,15 @@ import app.ClientMain;
 import dto.course.CourseTermDTO;
 import dto.course.admin.schedule.ScheduleArrangementDTO;
 import dto.course.teacher.GradeComponentCodeDTO;
+import dto.course.teacher.GradeComponentDTO;
+import dto.course.teacher.GradeRowInputDTO;
+import dto.course.teacher.GradeSchemeDTO;
+import dto.course.teacher.GradeScoresDTO;
+import dto.course.teacher.StartGradeRevisionRequestDTO;
+import dto.course.teacher.TeacherFileTicketDTO;
 import dto.course.teacher.TeacherGradeBookDTO;
 import dto.course.teacher.TeacherGradeOfferingDTO;
+import dto.course.teacher.TeacherGradeRowDTO;
 import dto.course.teacher.TeacherOfferingDTO;
 import dto.course.teacher.TeacherOfferingDetailDTO;
 import dto.course.teacher.TeacherOperationResultDTO;
@@ -36,6 +48,7 @@ import protocol.MessageCode;
 import service.MockTeacherCourseService;
 import service.SocketTeacherCourseService.TeacherCourseServiceException;
 import service.TeacherCourseService;
+import service.TeacherFileTransport;
 import util.PageLeaveGuard;
 
 /**
@@ -51,6 +64,17 @@ public final class TeacherGradeBookControllerTest {
     private static final String PENDING_OFFERING = "9007199254740997";
     private static final String REJECTED_OFFERING = "9007199254740999";
     private static final String EMPTY_OFFERING = "9007199254740995";
+    /**
+     * 已通过批次的代码内夹具：mock 的成绩夹具刻意不种“已通过”这一种（2025/3 与 2025/2 各只有
+     * 两个教学班，冒烟测试逐条钉住了这两个列表），所以这里由假服务直接给出这份快照。
+     */
+    private static final String APPROVED_OFFERING = "9007199254740901";
+    /** 刻意不等于被驳回夹具的批次号（{@code MockTeacherCourseService} 用的是 "9601"）：两者相同会让
+     *  “重开不改变最后一次批次”的断言退化成同一个字符串比两次，从而永远为真。 */
+    private static final String APPROVED_BATCH = "9701";
+    private static final String APPROVED_ENROLLMENT = "9001";
+    /** 被驳回夹具那一次提交的批次号，与 {@code MockTeacherCourseService.GRADE_SUBMISSION_ID} 一致。 */
+    private static final String REJECTED_BATCH = "9601";
     /** 与 MockTeacherCourseService 的已驳回夹具一致：只读提示里应出现这句话。 */
     private static final String REJECTED_REVIEW_COMMENT = "总分与平时分不一致，请核对后重新提交";
     private static final String GRADE_VIEW = "/resources/fxml/TeacherGradeView.fxml";
@@ -73,7 +97,15 @@ public final class TeacherGradeBookControllerTest {
         allowedLeaveReleasesThePageAndClearsTheGuard();
         releasedPageIgnoresLateResponses();
         readOnlyBookShowsTheReviewStateAndBlocksWrites();
+        rejectedBookOffersTheExplicitReopenEntry();
+        aFailedReopenRetriesWithTheSameOperationId();
+        pendingBookOffersNoEditableVersionEntry();
+        approvedBookIsReachableOnlyThroughTheCorrectionEntry();
+        theCorrectionEntryCarriesTheProposedScoresThroughTheOrdinarySave();
+        aCorrectionForAStudentWhoLeftTheRosterWritesNothing();
+        exportingADirtyPageConfirmsFirstAndSendsNothingWhenRefused();
         gradeViewsDeclareTheirControllerIdsAndHandlers();
+        theStatusLineSitsOnTheButtonRow();
         everyStyleClassExistsInTheStylesheet();
         System.out.println("TeacherGradeBookControllerTest: PASS");
     }
@@ -522,6 +554,328 @@ public final class TeacherGradeBookControllerTest {
                 "重开之后审核意见不能消失，收到 " + rejected.model().stateNotice());
     }
 
+    // ------------------------------------------------------------------ 新的版本入口
+
+    /**
+     * 被驳回的批次：显式「重新编辑」。在确认框上取消什么都不发生（不建草稿、不发请求）；确认之后
+     * 由服务端按那一批的冻结快照重开草稿，页面据此回到可编辑状态。
+     *
+     * <p>提示语必须如实描述这套语义：提交时未启用的组成没有进过批次，教师为它们输入的值不会回来。
+     * 承诺“未保存的修改都会保留”会是一句与服务器行为矛盾的话。
+     */
+    private static void rejectedBookOffersTheExplicitReopenEntry() {
+        List<String> leaveAsks = new ArrayList<>();
+        List<String> reopenAsks = new ArrayList<>();
+        RecordingService declining = new RecordingService();
+        TeacherGradeBookController cancelled =
+                new TeacherGradeBookController(declining, Runnable::run, message -> {
+                    leaveAsks.add(message);
+                    return false;
+                });
+        // 重新编辑有自己的确认框：标题是它正在问的那件事，不能借用「未保存的成绩」。
+        cancelled.setReopenConfirmation(message -> {
+            reopenAsks.add(message);
+            return false;
+        });
+        cancelled.showOffering(REJECTED_OFFERING);
+
+        require(cancelled.canReopenRejected(), "被驳回的批次必须给出重新编辑入口");
+        require(!cancelled.canRequestCorrection(), "被驳回不是更正，不能给出申请修改入口");
+
+        cancelled.reopenRejected();
+
+        require(reopenAsks.size() == 1 && leaveAsks.isEmpty(),
+                "重新编辑必须走它自己的确认框，而不是离开/重新加载那一个，收到 "
+                        + reopenAsks + "/" + leaveAsks);
+        require(cancelled.pendingReopenOperationId() == null,
+                "在确认框上取消不能消耗任何 operationId");
+        require(declining.reopens.isEmpty(), "在确认框上取消不能发出任何请求");
+        require("REJECTED".equals(cancelled.model().state()) && !cancelled.dirty(),
+                "取消之后批次状态与编辑内容都不能变，收到 " + cancelled.model().state());
+
+        require(TeacherGradeBookController.REOPEN_PROMPT_TEXT.contains("未启用的组成")
+                        && TeacherGradeBookController.REOPEN_PROMPT_TEXT.contains("不会回来"),
+                "重开提示必须如实说明按被驳回批次重建的语义，收到 "
+                        + TeacherGradeBookController.REOPEN_PROMPT_TEXT);
+
+        RecordingService service = new RecordingService();
+        TeacherGradeBookController controller = controller(service, message -> true);
+        controller.showOffering(REJECTED_OFFERING);
+        int revisionBefore = controller.model().revision();
+        require(REJECTED_BATCH.equals(controller.model().lastSubmissionId()),
+                "已驳回的夹具必须带着它那一批的批次号，收到 "
+                        + controller.model().lastSubmissionId());
+
+        controller.reopenRejected();
+
+        require(service.reopens.size() == 1,
+                "确认后必须恰好发一次重开请求，收到 " + service.reopens.size());
+        StartGradeRevisionRequestDTO request = service.reopens.get(0);
+        require(REJECTED_OFFERING.equals(request.getOfferingId())
+                        && REJECTED_BATCH.equals(request.getSourceSubmissionId())
+                        && request.getExpectedRevision() == revisionBefore,
+                "重开请求必须指向本班最后一次被驳回的批次与当前版本，收到 "
+                        + request.getOfferingId() + "/" + request.getSourceSubmissionId() + "/"
+                        + request.getExpectedRevision());
+        require(request.getReason() == null, "驳回重开不要求原因，也不该伪造一个");
+
+        require("DRAFT".equals(controller.model().state()) && controller.model().canEdit(),
+                "重开之后必须回到可编辑的草稿，收到 " + controller.model().state());
+        // 只认那个字面量：写成 `A.equals(x) || B.equals(x)` 而两个常量恰好相同，就等于什么都没断言。
+        require(REJECTED_BATCH.equals(controller.model().lastSubmissionId()),
+                "重开不改变最后一次批次，收到 " + controller.model().lastSubmissionId());
+        require(!controller.canReopenRejected(), "已经重开的草稿不能再重开");
+        require(controller.pendingReopenOperationId() == null,
+                "重开成功之后这一次意图的 operationId 必须作废");
+        require(controller.feedbackText() != null
+                        && controller.feedbackText().contains("重新提交"),
+                "重开成功必须给出反馈，收到 " + controller.feedbackText());
+        require(!controller.dirty(), "重开本身不是未保存的修改");
+    }
+
+    /**
+     * 重开失败之后重试必须复用同一个 operationId：服务端可能已经打开了草稿，只是响应在网络上丢了，
+     * 换一个新 ID 再按一次只会拿到「成绩草稿已经打开」的冲突——而这操作其实早就成功了。
+     */
+    private static void aFailedReopenRetriesWithTheSameOperationId() {
+        RecordingService service = new RecordingService();
+        service.reopenFailure = new TeacherCourseServiceException(MessageCode.ERROR, "连接中断");
+        TeacherGradeBookController controller = controller(service, message -> true);
+        controller.showOffering(REJECTED_OFFERING);
+
+        controller.reopenRejected();
+
+        require(service.reopens.size() == 1, "第一次确认必须发出一次请求");
+        String first = service.reopens.get(0).getOperationId();
+        require(first != null && first.equals(controller.pendingReopenOperationId()),
+                "在途重开的 operationId 必须是这一次确认里生成的那一个");
+        require("REJECTED".equals(controller.model().state()),
+                "重开失败不能改变批次状态，收到 " + controller.model().state());
+        require(controller.feedbackText() != null && controller.feedbackText().contains("重试"),
+                "重开失败必须给出可重试的反馈，收到 " + controller.feedbackText());
+
+        controller.reopenRejected();
+
+        require(service.reopens.size() == 2
+                        && first.equals(service.reopens.get(1).getOperationId()),
+                "原样重试必须复用同一个 operationId，收到 "
+                        + service.reopens.get(1).getOperationId());
+
+        service.reopenFailure = null;
+        controller.reopenRejected();
+        require("DRAFT".equals(controller.model().state()) && controller.pendingReopenOperationId()
+                        == null,
+                "成功之后这一次意图的 operationId 必须作废");
+    }
+
+    /** 待审核只读：两个版本入口一个都不出现，而且调用它们真的发不出任何请求。 */
+    private static void pendingBookOffersNoEditableVersionEntry() {
+        RecordingService service = new RecordingService();
+        List<Row> opened = new ArrayList<>();
+        TeacherGradeBookController controller = controller(service, message -> true);
+        controller.setCorrectionOpener(opened::add);
+        controller.showOffering(PENDING_OFFERING);
+
+        require(!controller.canReopenRejected() && !controller.canRequestCorrection(),
+                "待审核的批次一个可编辑入口都不能有");
+
+        controller.reopenRejected();
+        controller.beginCorrection();
+
+        require(service.reopens.isEmpty() && service.corrections.isEmpty() && opened.isEmpty(),
+                "待审核时两个版本入口都不能发出任何请求");
+    }
+
+    /** 已通过的批次：唯一可编辑入口是「申请修改」，并且它从表格里选中的那一位学生打开。 */
+    private static void approvedBookIsReachableOnlyThroughTheCorrectionEntry() {
+        RecordingService service = new RecordingService();
+        service.approvedBook = approvedBook();
+        List<Row> opened = new ArrayList<>();
+        TeacherGradeBookController controller = controller(service, message -> true);
+        controller.setCorrectionOpener(opened::add);
+        controller.showOffering(APPROVED_OFFERING);
+
+        require("APPROVED".equals(controller.model().state()),
+                "夹具必须是已通过的批次，收到 " + controller.model().state());
+        require(!controller.model().canEdit(), "已通过的批次是只读的");
+        require(!controller.canReopenRejected(), "已通过不是驳回，不能给出重新编辑");
+        require(!controller.canRequestCorrection(), "没有选中学生时不能更正");
+
+        controller.beginCorrection();
+        require(opened.isEmpty(), "没有选中学生时不能打开更正表单");
+
+        controller.selectRow(controller.rows().get(0));
+        require(controller.canRequestCorrection(), "选中学生之后更正入口必须可用");
+        controller.beginCorrection();
+        require(opened.size() == 1 && opened.get(0) == controller.rows().get(0),
+                "更正必须从选中的那一位学生打开，收到 " + opened);
+    }
+
+    /**
+     * 更正的落点：服务端建立草稿 → 页面变成可编辑的草稿 → 拟修改的分数写进编辑模型 → 仍然走
+     * 普通的「保存草稿」。本页不新增第二条写库通路，也绝不单独写一行已发布的成绩。
+     */
+    private static void theCorrectionEntryCarriesTheProposedScoresThroughTheOrdinarySave() {
+        RecordingService service = new RecordingService();
+        service.approvedBook = approvedBook();
+        service.saveResult = new TeacherOperationResultDTO<>("op-correction", "成绩草稿已保存",
+                correctedBook(), false);
+        TeacherGradeBookController controller = controller(service, message -> true);
+        controller.setCorrectionOpener(row -> controller.applyCorrection(
+                new TeacherGradeCorrectionDialogController.CorrectionOutcome(correctedBook(),
+                        row.enrollmentId(), Map.of(
+                                GradeComponentCodeDTO.DAILY, "70",
+                                GradeComponentCodeDTO.MIDTERM, "65",
+                                GradeComponentCodeDTO.EXPERIMENT, "88",
+                                GradeComponentCodeDTO.FINALTERM, "80"))));
+        controller.showOffering(APPROVED_OFFERING);
+        controller.selectRow(controller.rows().get(0));
+
+        controller.beginCorrection();
+
+        require("DRAFT".equals(controller.model().state()) && controller.model().canEdit(),
+                "更正草稿建立后必须变成可编辑的草稿，收到 " + controller.model().state());
+        require("实验分录入有误".equals(controller.model().correctionReason()),
+                "更正原因必须从服务端快照映射到模型，收到 "
+                        + controller.model().correctionReason());
+        Row row = controller.rows().get(0);
+        require("88".equals(row.cell(GradeComponentCodeDTO.EXPERIMENT).text()),
+                "拟修改的分数必须写进编辑模型，收到 "
+                        + row.cell(GradeComponentCodeDTO.EXPERIMENT).text());
+        require("70".equals(row.cell(GradeComponentCodeDTO.DAILY).text())
+                        && "80".equals(row.cell(GradeComponentCodeDTO.FINALTERM).text()),
+                "没改动的组成保持原值，收到 " + row.cell(GradeComponentCodeDTO.DAILY).text()
+                        + "/" + row.cell(GradeComponentCodeDTO.FINALTERM).text());
+        require(controller.dirty(), "拟修改的分数是未保存的修改");
+        require(TeacherGradeBookController.CORRECTION_STARTED_TEXT.equals(
+                        controller.feedbackText()),
+                "真把分数写进模型时才可以说「已写入成绩表」，收到 " + controller.feedbackText());
+
+        controller.save();
+
+        require(service.saves.size() == 1,
+                "更正之后必须走普通的保存草稿通路，收到 " + service.saves.size());
+        require(service.submits.isEmpty(), "更正本身不是一次提交");
+        GradeRowInputDTO sent = null;
+        for (GradeRowInputDTO candidate : service.saves.get(0).getContent().getRows()) {
+            if (row.enrollmentId().equals(candidate.getEnrollmentId())) sent = candidate;
+        }
+        require(sent != null && sent.getScores().getExperimentScore() != null
+                        && sent.getScores().getExperimentScore()
+                                .compareTo(new BigDecimal("88")) == 0,
+                "拟修改的实验分必须由普通保存请求送出，收到 "
+                        + (sent == null ? "没有这一行" : sent.getScores().getExperimentScore()));
+        require(!controller.dirty(), "保存成功后必须回到干净状态");
+    }
+
+    /**
+     * 更正之后名单里已经没有这名学生（例如他在表单打开与确认之间退课）：草稿照样建立、页面照样变成
+     * 可编辑的草稿，但**一个分数都不许写**，提示也必须说清楚这一点。
+     *
+     * <p>这条路以前复用「拟修改的分数已写入成绩表」那句提示，教师于是被告知改到了，随后保存并提交一份
+     * <b>不含</b>这次更正的批次。两条分支现在各自钉一句不同的文案：只有真写了才说「已写入」，
+     * 什么都没写的那条必须说「没有写入」并点名学生已不在名单里。
+     */
+    private static void aCorrectionForAStudentWhoLeftTheRosterWritesNothing() {
+        RecordingService service = new RecordingService();
+        service.approvedBook = approvedBook();
+        TeacherGradeBookController controller = controller(service, message -> true);
+        // 表单打开时选中的是名单里的学生，确认时他已经退课：模型里因此找不到这个 enrollmentId。
+        String leftTheRoster = "9999";
+        List<String> opened = new ArrayList<>();
+        controller.setCorrectionOpener(row -> {
+            opened.add(row.enrollmentId());
+            controller.applyCorrection(new TeacherGradeCorrectionDialogController.CorrectionOutcome(
+                    correctedBook(), leftTheRoster, Map.of(
+                            GradeComponentCodeDTO.DAILY, "70",
+                            GradeComponentCodeDTO.MIDTERM, "65",
+                            GradeComponentCodeDTO.EXPERIMENT, "88",
+                            GradeComponentCodeDTO.FINALTERM, "80")));
+        });
+        controller.showOffering(APPROVED_OFFERING);
+        controller.selectRow(controller.rows().get(0));
+
+        controller.beginCorrection();
+
+        require(opened.equals(List.of(APPROVED_ENROLLMENT)),
+                "更正仍然从选中的那一位学生打开，收到 " + opened);
+        require("DRAFT".equals(controller.model().state()) && controller.model().canEdit(),
+                "服务端的更正草稿照样建立、页面照样变成可编辑，收到 " + controller.model().state());
+        require(TeacherGradeBookController.CORRECTION_STARTED_ROSTER_GONE_TEXT.equals(
+                        controller.feedbackText()),
+                "学生不在名单里时必须如实说明这次没有写，收到 " + controller.feedbackText());
+        require(!TeacherGradeBookController.CORRECTION_STARTED_TEXT.equals(
+                        controller.feedbackText()),
+                "这一条路不能复用「拟修改的分数已写入成绩表」那句提示");
+        require(controller.feedbackText().contains("名单")
+                        && controller.feedbackText().contains("没有写入"),
+                "提示必须点名学生已不在名单、并明说分数没有写入，收到 " + controller.feedbackText());
+        Row row = controller.rows().get(0);
+        require("75".equals(row.cell(GradeComponentCodeDTO.EXPERIMENT).text()),
+                "拟修改的分数一个都不许写进编辑模型，收到 "
+                        + row.cell(GradeComponentCodeDTO.EXPERIMENT).text());
+        require(!controller.dirty(), "什么都没写，页面必须仍然是干净的");
+    }
+
+    /**
+     * 导出成绩前的确认（用户裁决「仍可导出，但先弹确认框」）：导出不被禁止，但必须先把「导的是哪一份」
+     * 说清楚——文件里永远是服务端那份**已保存的草稿**，屏幕上还没保存的编辑一个都不在。
+     *
+     * <p>被拒绝时一个字节都不许发出去：不选文件、不申请票据。
+     */
+    private static void exportingADirtyPageConfirmsFirstAndSendsNothingWhenRefused() throws Exception {
+        RecordingService service = new RecordingService();
+        List<String> asked = new ArrayList<>();
+        boolean[] answer = {false};
+        StubDialogs dialogs = new StubDialogs(
+                Files.createTempDirectory("vcampus-export-gate").resolve("学生成绩.xlsx"));
+        TeacherGradeBookController controller = exportController(service, dialogs, message -> {
+            asked.add(message);
+            return answer[0];
+        });
+        controller.showOffering(OFFERING);
+        controller.model().setScore(controller.rows().get(0).enrollmentId(),
+                GradeComponentCodeDTO.DAILY, "88");
+        require(controller.dirty(), "本用例要的就是「有未保存的修改」这一种页面");
+
+        controller.handleExportGrades(null);
+
+        require(asked.equals(List.of(TeacherGradeBookController.EXPORT_PROMPT_TEXT)),
+                "有未保存的修改时导出必须先问一次，收到 " + asked);
+        require(TeacherGradeBookController.EXPORT_PROMPT_TEXT.contains("已保存")
+                        && TeacherGradeBookController.EXPORT_PROMPT_TEXT.contains("不包含"),
+                "确认文案必须说清楚导的是已保存的草稿、不含未保存的修改，收到 "
+                        + TeacherGradeBookController.EXPORT_PROMPT_TEXT);
+        require(service.gradeExports.isEmpty(),
+                "拒绝确认之后不得申请导出票据，收到 " + service.gradeExports);
+        require(dialogs.saveTargetChoices == 0,
+                "拒绝确认之后不得先让教师选文件，实际选了 " + dialogs.saveTargetChoices + " 次");
+
+        // 同意之后照常导出：确认框只是把话说清楚，它不拦「导出」这件事。
+        answer[0] = true;
+        controller.handleExportGrades(null);
+        require(service.gradeExports.equals(List.of(OFFERING)),
+                "同意之后必须照常申请导出票据，收到 " + service.gradeExports);
+        require(dialogs.saveTargetChoices == 1,
+                "同意之后才选文件，实际选了 " + dialogs.saveTargetChoices + " 次");
+
+        // 干净页面不提问：这句话只有在存在未保存的修改时才有意义。
+        RecordingService cleanService = new RecordingService();
+        List<String> cleanAsked = new ArrayList<>();
+        TeacherGradeBookController clean = exportController(cleanService,
+                new StubDialogs(Files.createTempDirectory("vcampus-export-clean")
+                        .resolve("学生成绩.xlsx")), message -> {
+                    cleanAsked.add(message);
+                    return true;
+                });
+        clean.showOffering(OFFERING);
+        require(!clean.dirty(), "刚打开的页面必须是干净的");
+        clean.handleExportGrades(null);
+        require(cleanAsked.isEmpty(), "没有未保存的修改时不得提问，收到 " + cleanAsked);
+        require(cleanService.gradeExports.equals(List.of(OFFERING)),
+                "干净页面必须照常导出，收到 " + cleanService.gradeExports);
+    }
+
     // ------------------------------------------------------------------ 视图契约
 
     /** 两个新视图：fx:controller、fx:id 与 onAction 全部能在对应控制器上解析。 */
@@ -554,6 +908,100 @@ public final class TeacherGradeBookControllerTest {
         require(elementWithId(bookView, "gradeBookConfirmSubmitButton") != null
                         && elementWithId(bookView, "gradeBookCancelSubmitButton") != null,
                 "提交必须有二次确认与取消入口");
+        for (String id : List.of("gradeBookReopenButton", "gradeBookCorrectionButton")) {
+            Element entry = elementWithId(bookView, id);
+            require(entry != null && "false".equals(entry.getAttribute("visible"))
+                            && "false".equals(entry.getAttribute("managed")),
+                    id + " 必须默认隐藏：两个版本入口各自只在被驳回/已通过时才出现");
+        }
+    }
+
+    /**
+     * 状态提示落在按钮行上：{@code gradeBookFeedbackLabel} 必须是按钮行 HBox 的孩子，
+     * 位置在「导入 Excel」之后、撑开右侧导入态的 {@code Region} **之后**（按钮行右侧，摘要组之前），
+     * 并且仍然只有它原来的 fx:id／styleClass／wrapText。它不再挂在根 VBox 末尾（那正是“页面最底部”
+     * 那一行），也不再挤在三个导入入口中间。
+     */
+    private static void theStatusLineSitsOnTheButtonRow() throws Exception {
+        Document bookView = parseView(GRADE_BOOK_VIEW);
+        Element feedback = elementWithId(bookView, "gradeBookFeedbackLabel");
+        require(feedback != null, "成绩编辑表必须有状态提示标签");
+        require("teacher-course-feedback-text".equals(feedback.getAttribute("styleClass")),
+                "状态提示必须保留原样式类，收到 " + feedback.getAttribute("styleClass"));
+        require("true".equals(feedback.getAttribute("wrapText")),
+                "状态提示必须保留 wrapText");
+        require("false".equals(feedback.getAttribute("visible"))
+                        && "false".equals(feedback.getAttribute("managed")),
+                "状态提示必须默认隐藏（没有提示时不占位）");
+
+        Element row = ownerElement(feedback);
+        require("HBox".equals(row.getTagName()), "状态提示必须直接挂在按钮行 HBox 上，收到 "
+                + row.getTagName());
+        for (String id : List.of("gradeBookDownloadTemplateButton", "gradeBookExportGradesButton",
+                "gradeBookImportButton", "gradeBookImportSummaryLabel",
+                "gradeBookImportIssuesButton", "gradeBookCancelImportButton",
+                "gradeBookConfirmImportButton")) {
+            require(row == ownerElement(elementWithId(bookView, id)),
+                    id + " 必须仍然在同一个按钮行里（导入区不能被状态提示移位打散）");
+        }
+        List<Element> children = contentElements(row);
+        int importButton = indexOfId(children, "gradeBookImportButton");
+        int statusLine = indexOfId(children, "gradeBookFeedbackLabel");
+        int grower = indexOfGrowRegion(children);
+        require(importButton >= 0 && statusLine > importButton,
+                "状态提示必须排在「导入 Excel」之后，收到 " + importButton + " / " + statusLine);
+        require(grower >= 0 && statusLine > grower,
+                "状态提示必须排在撑开导入态的 Region 之后（落在按钮行右侧），收到 "
+                        + statusLine + " / " + grower);
+
+        // 根 VBox 里不再有它：状态提示已经离开“页面最底部”那一行。
+        require(indexOfId(contentElements(bookView.getDocumentElement()),
+                        "gradeBookFeedbackLabel") < 0,
+                "状态提示不得再挂在根 VBox 上（那正是页面最底部那一行）");
+    }
+
+    /**
+     * 节点的“归属容器”：FXML 里每个容器的孩子都包在一层 {@code <children>} 元素里，
+     * 因此 DOM 父节点是它，再往上一级才是真正的容器（HBox/VBox）。
+     */
+    private static Element ownerElement(Element node) {
+        Element parent = (Element) node.getParentNode();
+        return "children".equals(parent.getTagName()) ? (Element) parent.getParentNode() : parent;
+    }
+
+    /** 容器里的孩子节点：剥掉 FXML 的 {@code <children>} 包装层。 */
+    private static List<Element> contentElements(Element container) {
+        List<Element> direct = childElements(container);
+        return direct.size() == 1 && "children".equals(direct.get(0).getTagName())
+                ? childElements(direct.get(0)) : direct;
+    }
+
+    private static List<Element> childElements(Element parent) {
+        List<Element> children = new ArrayList<>();
+        NodeList nodes = parent.getChildNodes();
+        for (int index = 0; index < nodes.getLength(); index++) {
+            if (nodes.item(index) instanceof Element element) children.add(element);
+        }
+        return children;
+    }
+
+    private static int indexOfId(List<Element> children, String id) {
+        for (int index = 0; index < children.size(); index++) {
+            if (id.equals(children.get(index).getAttribute("fx:id"))) return index;
+        }
+        return -1;
+    }
+
+    /** 按钮行里那一个 {@code HBox.hgrow="ALWAYS"} 的占位 {@code Region}。 */
+    private static int indexOfGrowRegion(List<Element> children) {
+        for (int index = 0; index < children.size(); index++) {
+            Element child = children.get(index);
+            if ("Region".equals(child.getTagName())
+                    && "ALWAYS".equals(child.getAttribute("HBox.hgrow"))) {
+                return index;
+            }
+        }
+        return -1;
     }
 
     /** 所有 styleClass 都能在 teacher-course.css 里找到选择器。 */
@@ -580,9 +1028,30 @@ public final class TeacherGradeBookControllerTest {
 
     // ------------------------------------------------------------------ 辅助
 
+    /**
+     * 无工具包的控制器：确认函数注入固定回答。重新编辑有自己的确认框（标题不同），这里一并注入
+     * 同一个回答——生产路径上它是 {@code AlertUtil} 的「重新编辑成绩表」，在测试里弹不出来。
+     */
     private static TeacherGradeBookController controller(TeacherCourseService service,
             java.util.function.Function<String, Boolean> confirmation) {
-        return new TeacherGradeBookController(service, Runnable::run, confirmation);
+        TeacherGradeBookController controller =
+                new TeacherGradeBookController(service, Runnable::run, confirmation);
+        controller.setReopenConfirmation(confirmation);
+        return controller;
+    }
+
+    /**
+     * 导出那条路要的控制器：导出先问「保存到哪里」，生产路径上弹的是真实 {@code FileChooser}
+     * （无工具包环境里根本弹不出来），所以这里把选文件的端口也换成替身。传输端口只是为了满足构造
+     * 函数的非空要求：票据没有真的申请成功时它一次都不会被调用。
+     */
+    private static TeacherGradeBookController exportController(TeacherCourseService service,
+            TeacherGradeImportController.FileDialogs dialogs,
+            java.util.function.Function<String, Boolean> confirmation) {
+        TeacherGradeBookController controller = new TeacherGradeBookController(
+                service, new StubTransport(), Runnable::run, confirmation, dialogs);
+        controller.setReopenConfirmation(confirmation);
+        return controller;
     }
 
     /** 把这个夹具的权重配齐成 30/20/20/30（等价于界面上依次输入百分比）。 */
@@ -606,6 +1075,38 @@ public final class TeacherGradeBookControllerTest {
             if (!row.cell(GradeComponentCodeDTO.EXPERIMENT).entered()) return row;
         }
         throw new AssertionError("夹具里必须有一行缺实验分");
+    }
+
+    /** 已通过批次的快照：只读、带着那一批的批次号，等一位选中它的学生来发起更正。 */
+    private static TeacherGradeBookDTO approvedBook() {
+        return new TeacherGradeBookDTO(APPROVED_OFFERING, 6, "approved-digest", "APPROVED",
+                fullScheme(), List.of(approvedRow()), APPROVED_BATCH, null, false, null, false,
+                null);
+    }
+
+    /** 更正草稿建立后的快照：状态回到可编辑，并带上基础批次与更正原因。 */
+    private static TeacherGradeBookDTO correctedBook() {
+        return new TeacherGradeBookDTO(APPROVED_OFFERING, 7, "approved-digest", "DRAFT",
+                fullScheme(), List.of(approvedRow()), APPROVED_BATCH, APPROVED_BATCH, true,
+                "实验分录入有误", false, null);
+    }
+
+    private static TeacherGradeRowDTO approvedRow() {
+        return new TeacherGradeRowDTO(APPROVED_ENROLLMENT, "00005678", "张三",
+                new GradeScoresDTO(new BigDecimal("70"), new BigDecimal("65"),
+                        new BigDecimal("75"), new BigDecimal("80")),
+                new BigDecimal("73.5"), new BigDecimal("2.5"), true, List.of());
+    }
+
+    /** 30/20/20/30，合计 10000 万分比：与 mock 的成绩夹具同一套配齐的权重。 */
+    private static GradeSchemeDTO fullScheme() {
+        int[] weights = {3000, 2000, 2000, 3000};
+        GradeComponentCodeDTO[] codes = GradeComponentCodeDTO.values();
+        List<GradeComponentDTO> components = new ArrayList<>();
+        for (int index = 0; index < codes.length; index++) {
+            components.add(new GradeComponentDTO(codes[index], true, weights[index]));
+        }
+        return new GradeSchemeDTO(components);
     }
 
     private static void verifyBindings(Document view, Class<?> controller, String label) {
@@ -705,6 +1206,45 @@ public final class TeacherGradeBookControllerTest {
     }
 
     /**
+     * 选文件替身：记下选过几次、建议的文件名是什么。目标路径由用例给一个<b>不存在</b>的位置，
+     * 覆盖确认因此不会介入——这条路径上真正要观察的是「有没有走到这一步」。
+     */
+    private static final class StubDialogs implements TeacherGradeImportController.FileDialogs {
+        private final Path target;
+        private int saveTargetChoices;
+        private String lastSuggestedName;
+
+        StubDialogs(Path target) {
+            this.target = target;
+        }
+
+        @Override
+        public Path chooseUploadSource() {
+            return null;
+        }
+
+        @Override
+        public Path chooseSaveTarget(String suggestedFileName) {
+            saveTargetChoices++;
+            lastSuggestedName = suggestedFileName;
+            return target;
+        }
+    }
+
+    /** 传输替身：本组用例只看「有没有开始导出」，真到下载那一步立刻成功即可，绝不碰网络。 */
+    private static final class StubTransport implements TeacherFileTransport {
+        @Override
+        public CompletableFuture<Void> upload(TeacherFileTicketDTO ticket, Path file) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        @Override
+        public CompletableFuture<Void> download(TeacherFileTicketDTO ticket, Path file) {
+            return CompletableFuture.completedFuture(null);
+        }
+    }
+
+    /**
      * 记录型成绩服务：读路径全部委托给确定性 mock，写路径可以只记录不落地（默认）或注入失败，
      * 也可以自行控制“何时返回”，用来验证重复点击不会发第二个请求。
      */
@@ -712,11 +1252,21 @@ public final class TeacherGradeBookControllerTest {
         private final MockTeacherCourseService delegate = new MockTeacherCourseService();
         private final List<WriteGradeBookRequestDTO> saves = new ArrayList<>();
         private final List<WriteGradeBookRequestDTO> submits = new ArrayList<>();
+        private final List<StartGradeRevisionRequestDTO> reopens = new ArrayList<>();
+        private final List<StartGradeRevisionRequestDTO> corrections = new ArrayList<>();
+        /** 导出成绩真的申请过票据的教学班：导出被挡下时这里必须是空的。 */
+        private final List<String> gradeExports = new ArrayList<>();
         private final Deque<CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>>>
                 submitResponses = new ArrayDeque<>();
         private CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> heldSubmit;
         private RuntimeException saveFailure;
+        /** 注入一次重开失败：服务端可能已经开好了草稿，只是响应没回来。 */
+        private RuntimeException reopenFailure;
         private CompletableFuture<TeacherGradeBookDTO> pendingBook;
+        /** 已通过批次的代码内快照；mock 的成绩夹具没有这一种状态（见 APPROVED_OFFERING 的说明）。 */
+        private TeacherGradeBookDTO approvedBook;
+        /** 保存草稿的固定回复：用来断言“更正走的是普通保存通路”，而不依赖 mock 的名单校验。 */
+        private TeacherOperationResultDTO<TeacherGradeBookDTO> saveResult;
 
         @Override
         public CompletableFuture<List<CourseTermDTO>> listTerms() {
@@ -761,6 +1311,9 @@ public final class TeacherGradeBookControllerTest {
         @Override
         public CompletableFuture<TeacherGradeBookDTO> getGradeBook(String offeringId) {
             if (pendingBook != null) return pendingBook;
+            if (approvedBook != null && offeringId.equals(approvedBook.getOfferingId())) {
+                return CompletableFuture.completedFuture(approvedBook);
+            }
             return delegate.getGradeBook(offeringId);
         }
 
@@ -769,7 +1322,31 @@ public final class TeacherGradeBookControllerTest {
                 WriteGradeBookRequestDTO write) {
             saves.add(write);
             if (saveFailure != null) return failed(saveFailure);
+            if (saveResult != null) return CompletableFuture.completedFuture(saveResult);
             return delegate.saveGradeDraft(write);
+        }
+
+        /** 导出成绩：先记一笔再交给 mock——它按归属校验并真的签一张票据，导出那条路照常走完。 */
+        @Override
+        public CompletableFuture<TeacherFileTicketDTO> requestGradeExport(String offeringId) {
+            gradeExports.add(offeringId);
+            return delegate.requestGradeExport(offeringId);
+        }
+
+        /** 两个版本入口同样记一笔再交给 mock：它的状态机就是这两个入口的最小模型。 */
+        @Override
+        public CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>>
+                reopenRejectedGradeBook(StartGradeRevisionRequestDTO request) {
+            reopens.add(request);
+            if (reopenFailure != null) return failed(reopenFailure);
+            return delegate.reopenRejectedGradeBook(request);
+        }
+
+        @Override
+        public CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>>
+                beginGradeCorrection(StartGradeRevisionRequestDTO request) {
+            corrections.add(request);
+            return delegate.beginGradeCorrection(request);
         }
 
         @Override

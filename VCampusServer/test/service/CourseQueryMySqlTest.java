@@ -1,8 +1,12 @@
 package service;
 
+import dao.CourseAcademicDAO;
+import dao.CourseQueryDAO;
+import dao.CourseScheduleDAO;
 import dto.course.CourseNoticeDTO;
 import dto.course.CourseOfferingDTO;
 import dto.course.CoursePlanSnapshotDTO;
+import dto.course.CourseScheduleWeekDTO;
 import dto.course.GradeSummaryDTO;
 import dto.course.ScheduleDisplayKindDTO;
 import dto.course.ScheduleEntryDTO;
@@ -12,6 +16,9 @@ import util.DBUtil;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -59,18 +66,25 @@ public final class CourseQueryMySqlTest {
 
         // The guarded schema may already carry adjustments created outside this suite, so the
         // seeded meetings are asserted as plain-or-original entries rather than by a bare count.
-        List<ScheduleEntryDTO> seededWeek = service.loadSchedule("student-alpha", 2026, 2, 1);
-        long pairedHalves = seededWeek.stream()
+        CourseScheduleWeekDTO seededWeek = service.loadSchedule("student-alpha", 2026, 2, 1);
+        require(!seededWeek.getPeriods().isEmpty(),
+                "a teaching week must publish its period dictionary");
+        require(!seededWeek.getDates().isEmpty(),
+                "a teaching week must publish its teaching days");
+        require(seededWeek.getPeriods().stream().anyMatch(period -> period.getPeriod() == 1),
+                "period 1 must be defined");
+        List<ScheduleEntryDTO> seededEntries = seededWeek.getEntries();
+        long pairedHalves = seededEntries.stream()
                 .filter(entry -> ScheduleDisplayKindDTO.NORMAL != entry.getDisplayKind()).count();
-        long plainMeetings = seededWeek.stream()
+        long plainMeetings = seededEntries.stream()
                 .filter(entry -> ScheduleDisplayKindDTO.NORMAL == entry.getDisplayKind()).count();
-        require(seededWeek.stream().allMatch(entry -> "2001".equals(entry.getOfferingId()))
+        require(seededEntries.stream().allMatch(entry -> "2001".equals(entry.getOfferingId()))
                         && plainMeetings + pairedHalves / 2 == 2 && pairedHalves % 2 == 0,
-                "schedule must use the selected published plan, observed " + seededWeek.size()
+                "schedule must use the selected published plan, observed " + seededEntries.size()
                         + " entries with " + pairedHalves + " paired halves");
-        require(originalPositions(seededWeek).equals(List.of("2/1-2", "4/3-4")),
+        require(originalPositions(seededEntries).equals(List.of("2/1-2", "4/3-4")),
                 "both published meetings must be present as a plain or original entry, observed "
-                        + originalPositions(seededWeek));
+                        + originalPositions(seededEntries));
 
         require(service.loadNotices("student-alpha", 2026, 2, 1).size() == 1,
                 "notices must be published and enrollment-scoped");
@@ -108,12 +122,16 @@ public final class CourseQueryMySqlTest {
      * 查询必须覆盖原周和目标周两个日期范围——原周只返回原标记、目标周只返回目标标记、中间的周次
      * 什么都不返回；关联调课申请的通知只在原周与目标周各出现一次（去重），普通通知仍只按自己的
      * week_no 出现。
+     *
+     * <p>本批再复用同一份日历夹具验证学生端的周导航（范围、当前周、缺省即当前周），见
+     * {@link #verifyWeekNavigationFollowsTheInjectedClock()}。
      */
     private static void verifyAdjustedWeekOverlaysTheEffectiveSchedule(CourseQueryService service)
             throws Exception {
         try {
             insertAdjustmentFixtures();
-            List<ScheduleEntryDTO> adjusted = service.loadSchedule(STUDENT, 2027, 3, 1);
+            List<ScheduleEntryDTO> adjusted = service.loadSchedule(STUDENT, 2027, 3, 1)
+                    .getEntries();
             require(adjusted.size() == 3,
                     "the adjusted meeting must expand into a pair next to the untouched one, observed "
                             + adjusted.size());
@@ -170,7 +188,8 @@ public final class CourseQueryMySqlTest {
                     "the unadjusted meeting must stay one NORMAL entry");
 
             // 跨周（972972）：原周 3 只留原标记，目标周 4 只返回目标标记，中间的周 2 什么都没有。
-            List<ScheduleEntryDTO> originWeek = service.loadSchedule(STUDENT, 2027, 3, 3);
+            List<ScheduleEntryDTO> originWeek = service.loadSchedule(STUDENT, 2027, 3, 3)
+                    .getEntries();
             require(originWeek.size() == 1
                             && ScheduleDisplayKindDTO.ADJUSTED_ORIGINAL
                             == originWeek.get(0).getDisplayKind()
@@ -180,7 +199,8 @@ public final class CourseQueryMySqlTest {
                             && "Query Room A".equals(originWeek.get(0).getLocation()),
                     "the origin week of a cross-week move must keep only the original marker, observed "
                             + describe(originWeek));
-            List<ScheduleEntryDTO> targetWeek = service.loadSchedule(STUDENT, 2027, 3, 4);
+            List<ScheduleEntryDTO> targetWeek = service.loadSchedule(STUDENT, 2027, 3, 4)
+                    .getEntries();
             require(targetWeek.size() == 1
                             && ScheduleDisplayKindDTO.ADJUSTED_TARGET == targetWeek.get(0)
                             .getDisplayKind()
@@ -195,9 +215,9 @@ public final class CourseQueryMySqlTest {
                             targetWeek.get(0).getAdjustedScheduleText()),
                     "the target week of a cross-week move must hold only the target marker, observed "
                             + describe(targetWeek));
-            require(service.loadSchedule(STUDENT, 2027, 3, 2).isEmpty(),
+            require(service.loadSchedule(STUDENT, 2027, 3, 2).getEntries().isEmpty(),
                     "the week between origin and target must stay empty, observed "
-                            + describe(service.loadSchedule(STUDENT, 2027, 3, 2)));
+                            + describe(service.loadSchedule(STUDENT, 2027, 3, 2).getEntries()));
 
             // 通知：普通通知只按 week_no；调课通知按关联申请的原周/目标周去重后每周至多一条。
             require(noticeIds(service, 1).equals(List.of("972031", "972032")),
@@ -210,9 +230,11 @@ public final class CourseQueryMySqlTest {
                     "the cross-week notice must appear once in its origin and target weeks, observed "
                             + noticeIds(service, 3) + " / " + noticeIds(service, 4));
 
-            require(service.loadSchedule(STUDENT, 2027, 3, 1).size() == 3
-                            && service.loadSchedule(STUDENT, 2027, 3, 4).size() == 1,
+            require(service.loadSchedule(STUDENT, 2027, 3, 1).getEntries().size() == 3
+                            && service.loadSchedule(STUDENT, 2027, 3, 4).getEntries().size() == 1,
                     "the overlay must be stable across repeated reads");
+
+            verifyWeekNavigationFollowsTheInjectedClock();
         } finally {
             cleanAdjustmentFixtures();
         }
@@ -231,6 +253,48 @@ public final class CourseQueryMySqlTest {
                         && count("SELECT COUNT(*) FROM enrollment WHERE enrollment_id=972901") == 0
                         && count("SELECT COUNT(*) FROM tbl_user WHERE UID LIKE 'query-adjust-%'") == 0,
                 "cleanup must leave no fixture row behind");
+    }
+
+    /**
+     * 学生端的周导航（{@code minWeek}/{@code maxWeek}/{@code currentWeek} 与"缺省即当前周"）必须由
+     * 教学日历与注入的时钟决定，而不是客户端常量——教师端 {@code TeacherScheduleMySqlTest} 有同形的
+     * 三组断言，这里是学生端的那一份。复用上面已经建好的 2027/3 夹具：教学周 1..4、第 1 周周一
+     * 2027-09-06、时区 Asia/Shanghai，因此 2027-09-15 落在第 2 周，2027-12-01 在学期之外。
+     */
+    private static void verifyWeekNavigationFollowsTheInjectedClock() {
+        CourseQueryService inTerm = serviceWithClock("2027-09-15T02:00:00Z");
+        CourseScheduleWeekDTO current = inTerm.loadSchedule(STUDENT, 2027, 3, null);
+        require(current.getCurrentWeek() != null && current.getCurrentWeek() == 2,
+                "2027-09-15 必须落在第 2 教学周，实际 " + current.getCurrentWeek());
+        require(current.getWeek() == current.getCurrentWeek(),
+                "缺省 week 必须取服务端当前周，实际 " + current.getWeek());
+        require(current.getMinWeek() == 1 && current.getMaxWeek() == 4,
+                "教学周范围必须来自教学日历，实际 "
+                        + current.getMinWeek() + ".." + current.getMaxWeek());
+        require(current.getWeek() >= current.getMinWeek()
+                        && current.getWeek() <= current.getMaxWeek(),
+                "解析出的周必须落在教学周范围内，实际 " + current.getWeek());
+        // 非正周次与缺省同义：handler 只允许"缺省或整数"，0 不该被当成第 0 周。
+        require(inTerm.loadSchedule(STUDENT, 2027, 3, 0).getWeek() == current.getWeek(),
+                "week=0 必须与缺省同义");
+        require(inTerm.loadSchedule(STUDENT, 2027, 3, 4).getWeek() == 4,
+                "明确的周次必须原样返回，与当前周无关");
+
+        // 学期之外：没有当前周（界面据此禁用"回到本周"），周次退回最小教学周。
+        CourseQueryService outOfTerm = serviceWithClock("2027-12-01T02:00:00Z");
+        CourseScheduleWeekDTO outside = outOfTerm.loadSchedule(STUDENT, 2027, 3, null);
+        require(outside.getCurrentWeek() == null,
+                "学期之外不得编造当前周，实际 " + outside.getCurrentWeek());
+        require(outside.getWeek() == outside.getMinWeek() && outside.getWeek() == 1,
+                "没有当前周时必须退回最小教学周，实际 " + outside.getWeek());
+        require(outOfTerm.loadSchedule(STUDENT, 2027, 3, 4).getWeek() == 4,
+                "明确的周次不受时钟影响");
+    }
+
+    /** 固定时刻的查询服务：Clock 注入让学生端的周解析不再依赖跑测试的当天日期。 */
+    private static CourseQueryService serviceWithClock(String instant) {
+        return new CourseQueryService(new CourseQueryDAO(), new CourseScheduleDAO(),
+                new CourseAcademicDAO(), Clock.fixed(Instant.parse(instant), ZoneOffset.UTC));
     }
 
     private static List<String> noticeIds(CourseQueryService service, int week) {

@@ -7,6 +7,7 @@ import dao.AdminScheduleConflictDAO;
 import dao.AdminScheduleDAO;
 import dto.course.admin.AdminCourseActions;
 import dto.course.admin.result.AdminOperationResultDTO;
+import dto.course.admin.schedule.CheckArrangementResultDTO;
 import dto.course.admin.schedule.ScheduleArrangementDTO;
 import dto.course.admin.schedule.ScheduleConflictDTO;
 import dto.course.admin.schedule.SchedulePlanDTO;
@@ -113,13 +114,34 @@ public class ScheduleManagementService {
         }
     }
 
-    public List<ScheduleConflictDTO> checkArrangement(SaveArrangementRequestDTO request) {
+    /**
+     * 表单级预检查：返回前把跨周的同一冲突合并为区间，界面上不再按周刷屏。
+     * 同一条连接上顺带读出该方案的方案级冲突快照，让「预检查冲突」一次往返就能刷新两处列表。
+     */
+    public CheckArrangementResultDTO checkArrangement(SaveArrangementRequestDTO request) {
         CourseConflictService.Candidate candidate = candidate(request);
         try (Connection connection = DBUtil.getConnection()) {
             validateReferences(connection, candidate);
-            return conflicts.check(connection, candidate);
+            List<ScheduleConflictDTO> arrangementConflicts =
+                    CourseConflictService.mergeWeekRanges(conflicts.check(connection, candidate));
+            Long planId = planIdOrNull(request.getPlanId());
+            return new CheckArrangementResultDTO(arrangementConflicts,
+                    planId == null ? List.of() : conflicts.checkPlan(connection, planId));
         } catch (SQLException failure) {
             throw new DatabaseException("排课冲突检查失败", failure);
+        }
+    }
+
+    /**
+     * 方案级快照只在前置校验已经给出合法 planId 时读取；空白或不可解析一律当作没有快照，
+     * 不额外抛出（{@link #candidate} 已经用同样的规则拒绝了这些请求）。
+     */
+    private static Long planIdOrNull(String value) {
+        if (value == null || value.isBlank()) return null;
+        try {
+            return AdminOperationTransaction.parseId(value, "planId");
+        } catch (IllegalArgumentException failure) {
+            return null;
         }
     }
 
@@ -272,6 +294,7 @@ public class ScheduleManagementService {
                 throw new ConflictException("选课窗口开放期间不能切换排课方案",
                         planDTO(connection, plan, List.of()));
             }
+            conflicts.requirePublishable(connection, id);
             List<ScheduleConflictDTO> found = conflicts.checkPlan(connection, id);
             for (ScheduleConflictDTO conflict : found) {
                 if (BLOCKING == conflict.getSeverity()) {
@@ -295,6 +318,108 @@ public class ScheduleManagementService {
         return execute(adminUid, operationId, AdminCourseActions.PUBLISH_SCHEDULE_PLAN,
                 AdminOperationTransaction.targetRequest(id, revision), PLAN_RESULT_TYPE, lock,
                 mutation);
+    }
+
+    /**
+     * Opens the editable draft of a term, optionally seeding it from the term's current published
+     * plan. This is the only way a DRAFT plan can come into existence — every other scheduling
+     * write requires one to exist already.
+     */
+    public AdminOperationResultDTO<SchedulePlanDTO> createDraftPlan(String adminUid, int academicYear,
+                                                                    int semester, boolean copyPublished,
+                                                                    String operationId) {
+        if (academicYear <= 0) throw new IllegalArgumentException("学年无效");
+        if (semester < 1 || semester > 3) throw new IllegalArgumentException("学期无效");
+        Lock lock = connection -> {
+            Long calendarId = scheduleDAO.findCalendarIdByTerm(connection, academicYear, semester);
+            if (calendarId != null) scheduleDAO.lockCalendar(connection, calendarId);
+        };
+        Mutation<SchedulePlanDTO> mutation = connection -> {
+            Long calendarId = scheduleDAO.findCalendarIdByTerm(connection, academicYear, semester);
+            if (calendarId == null) throw new NotFoundException("该学期尚未创建教学日历");
+            if (scheduleDAO.findDraftPlanId(connection, calendarId) != null) {
+                throw new ConflictException("该学期已有草稿方案");
+            }
+            AdminScheduleDAO.CalendarContext calendar = scheduleDAO.loadCalendar(connection, calendarId);
+            if (calendar == null) throw new NotFoundException("教学日历不存在");
+            // Name is the term itself, so nextRevision lands on 1 the first time and the
+            // (calendar_id,name,revision) unique key can never collide.
+            String name = academicYear + "-" + (academicYear + 1) + " 学年"
+                    + switch (semester) {
+                        case 1 -> "第一学期";
+                        case 2 -> "第二学期";
+                        default -> "第三学期";
+                    } + "排课方案";
+            int revision = scheduleDAO.nextRevision(connection, calendarId, name);
+            long planId = scheduleDAO.insertPlan(connection, name, calendarId, revision, adminUid);
+            int copied = 0;
+            int skipped = 0;
+            if (copyPublished) {
+                Long sourcePlanId = scheduleDAO.findPublishedPlanId(connection, calendarId);
+                if (sourcePlanId != null) {
+                    List<ScheduleArrangementDTO> source =
+                            scheduleDAO.listArrangements(connection, sourcePlanId, null);
+                    copied = copyArrangements(connection, sourcePlanId, source, planId, calendar,
+                            adminUid);
+                    // The copy loop has exactly two outcomes per source row — copied or skipped —
+                    // so the remainder is the skip count the result message reports.
+                    skipped = source.size() - copied;
+                }
+            }
+            AdminScheduleDAO.PlanRow created = scheduleDAO.findPlan(connection, planId);
+            // 复制/跳过条数随结果消息回到界面：管理员看不到「复制了 0 条」正是空草稿被静默的原因。
+            return new Outcome<>(new AdminOperationResultDTO<>(operationId, OK,
+                    "草稿方案已创建：已复制 " + copied + " 条 / 跳过 " + skipped + " 条",
+                    planDTO(connection, created, List.of()), List.of()), PLAN_TARGET,
+                    Long.toString(planId), List.of(), false, null);
+        };
+        return execute(adminUid, operationId, AdminCourseActions.CREATE_SCHEDULE_PLAN,
+                AdminOperationTransaction.termRequest(academicYear, semester, copyPublished),
+                PLAN_RESULT_TYPE, lock, mutation);
+    }
+
+    /**
+     * Copies every arrangement of {@code source} that can be carried over into {@code targetPlanId}
+     * by re-running the same child writer {@code save} uses, so the copied {@code course_occurrence}
+     * UTC windows are derived from the calendar exactly as a hand-edited arrangement would be.
+     * Returns the number of rows copied; the caller reports the remainder of {@code source} as
+     * skipped.
+     *
+     * <p>Rows that cannot form a candidate — no teacher, or no slots — are skipped rather than
+     * fatal. The demo seed's arrangement 4104 is deliberately teacher-less, and
+     * {@code writeChildren} would hand a null business id to {@code ensureResource}. The skip also
+     * keeps this consistent with the read path, which now tolerates exactly the same rows.
+     *
+     * <p>Two more shapes are skipped instead of failing the whole copy. A null {@code classroom_id}
+     * is a legal historical row ({@code V004} declares the column nullable) that
+     * {@code writeChildren} would unbox while naming the classroom resource. And a row whose weeks
+     * or periods have no window in this term's teaching calendar would be dereferenced as null
+     * there; {@code save} refuses such rows up front through {@link #requireSlotWindows}, and this
+     * is the only other writer of child rows, so it vets them the same way and skips what fails.
+     * Skipping happens before the parent row is inserted, so a skipped row leaves nothing behind.
+     *
+     * <p>{@code writeChildren} reads only offeringId/teacherUid/assistantUid/classroomId/slots/
+     * startWeek/endWeek off the candidate — never {@code arrangementId()}, which it takes as its own
+     * parameter. Reusing the source row's candidate is therefore safe; do not "fix" it by passing the
+     * source arrangement id into {@code writeChildren}.
+     */
+    private int copyArrangements(Connection connection, long sourcePlanId,
+                                 List<ScheduleArrangementDTO> source, long targetPlanId,
+                                 AdminScheduleDAO.CalendarContext calendar, String adminUid)
+            throws SQLException {
+        int copied = 0;
+        for (ScheduleArrangementDTO arrangement : source) {
+            CourseConflictService.Candidate candidate =
+                    CourseConflictService.candidate(sourcePlanId, arrangement);
+            if (candidate == null || candidate.classroomId() == null) continue;
+            if (!hasSlotWindows(calendar, candidate)) continue;
+            long id = scheduleDAO.insertArrangement(connection, targetPlanId, candidate.offeringId(),
+                    candidate.teacherUid(), candidate.assistantUid(), candidate.classroomId(),
+                    adminUid);
+            writeChildren(connection, id, targetPlanId, candidate, calendar);
+            copied++;
+        }
+        return copied;
     }
 
     // -------------------------------------------------------------- validation
@@ -359,14 +484,28 @@ public class ScheduleManagementService {
 
     private static void requireSlotWindows(AdminScheduleDAO.CalendarContext calendar,
                                            CourseConflictService.Candidate candidate) {
+        if (!hasSlotWindows(calendar, candidate)) {
+            throw new IllegalArgumentException("周次或节次超出教学日历范围");
+        }
+    }
+
+    /**
+     * The single predicate behind {@link #requireSlotWindows}: true when every week and slot of the
+     * candidate resolves to a window in the calendar. {@code save} refuses the candidate when it is
+     * false, the copy path skips the row instead, and only a candidate that passes reaches the
+     * windows {@link #writeChildren} dereferences.
+     */
+    private static boolean hasSlotWindows(AdminScheduleDAO.CalendarContext calendar,
+                                          CourseConflictService.Candidate candidate) {
         for (ScheduleSlotDTO slot : candidate.slots()) {
             for (int week = candidate.startWeek(); week <= candidate.endWeek(); week++) {
                 if (calendar.window(week, slot.getDayOfWeek(), slot.getStartPeriod(),
                         slot.getEndPeriod()) == null) {
-                    throw new IllegalArgumentException("周次或节次超出教学日历范围");
+                    return false;
                 }
             }
         }
+        return true;
     }
 
     private AdminScheduleDAO.PlanRow requireDraftPlan(Connection connection, long planId)
@@ -419,6 +558,11 @@ public class ScheduleManagementService {
         }
     }
 
+    /**
+     * Rebuilds the arrangement's normalized children. Callers must have vetted the candidate's slot
+     * windows first — {@code save} through {@link #requireSlotWindows}, the copy path through
+     * {@link #hasSlotWindows} — so every window dereferenced below is known non-null.
+     */
     private void writeChildren(Connection connection, long arrangementId, long planId,
                                CourseConflictService.Candidate candidate,
                                AdminScheduleDAO.CalendarContext calendar) throws SQLException {

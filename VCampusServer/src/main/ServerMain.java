@@ -16,6 +16,8 @@ import service.TeacherAdjustmentApplicationService;
 import service.TeacherCourseQueryService;
 import service.TeacherFileTicketService;
 import service.TeacherGradeBookService;
+import service.TeacherGradeImportService;
+import service.TeacherGradeImportStore;
 import util.DBUtil;
 
 import java.sql.Connection;
@@ -73,13 +75,19 @@ public class ServerMain {
             throw failure;
         }
 
+        // 成绩工作副本与导入预览各只有一份：一个票据服务的签发票据、文件连接的落盘与导入预览
+        // 兑换的是同一张票，三者必须共用实例；成绩表服务同时供草稿写入与导入确认使用。
+        TeacherGradeBookService gradeBookService = new TeacherGradeBookService();
+        TeacherGradeImportService gradeImportService = new TeacherGradeImportService(fileTickets,
+                gradeBookService, new TeacherGradeImportStore());
+
         MessageDispatcher dispatcher;
         Server server;
         try {
             dispatcher = new MessageDispatcher(courseHandler, new AdminCourseHandler(),
                     new TeacherCourseHandler(new TeacherCourseQueryService(),
                             new TeacherAdjustmentApplicationService(),
-                            new TeacherGradeBookService(), fileTickets));
+                            gradeBookService, fileTickets, gradeImportService));
             server = new Server(registry, dispatcher, eventDispatcher, waitlistScheduler,
                     fileServer);
         } catch (RuntimeException failure) {

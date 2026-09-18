@@ -25,7 +25,7 @@ import model.course.CourseTeacherView;
 import model.course.CourseTermView;
 import model.course.CourseView;
 import model.course.GradeSummaryView;
-import model.course.ScheduleEntryView;
+import model.course.ScheduleWeekView;
 import model.course.SelectionStatus;
 import model.course.TrainingPlanGroupView;
 import model.course.WaitlistDecision;
@@ -39,6 +39,7 @@ public final class CourseSelectionControllerTest {
 
     public static void main(String[] args) throws Exception {
         testAllTabUsesCoursesAndLazyOfferingCache();
+        testOfferingRowTitleUsesTheOfferingCodeOnlyInTheAllTab();
         testSelectionTabMembership();
         testNoBatchConfirmationInFxml();
         testSameOfferingDisablesEveryCopyAndStartsOneMutation();
@@ -75,6 +76,27 @@ public final class CourseSelectionControllerTest {
                 "expanding an already-loaded course must reuse its offerings");
         require(renderedChildren.get() == 2,
                 "expanded course must render multiple teaching-class rows");
+    }
+
+    /**
+     * 需求 1：全部页签里课程名下面的教学班行标题 = **教学班代码**（用户按教学班代码认班），已选等
+     * 页签的整行代表"我正在上的这门课"，标题仍是课程名。行标题由 {@code offeringRowTitle} 计算——
+     * 真正的行要建 JavaFX 控件，而本套件是无工具包运行的。
+     */
+    private static void testOfferingRowTitleUsesTheOfferingCodeOnlyInTheAllTab() {
+        CourseView course = course(101L, "数据结构", "必修");
+        CourseOfferingView offering = offering(1001L, 101L, SelectionStatus.AVAILABLE, 10, 30);
+        require("CS101-2026-2-A".equals(offering.getOfferingCode()),
+                "test fixture must carry the offering code");
+        require(CourseSelectionController.offeringRowTitle(course, offering, true)
+                        .equals("CS101-2026-2-A"),
+                "the expanded teaching-class row must be titled with the offering code");
+        require(CourseSelectionController.offeringRowTitle(course, offering, false)
+                        .equals("数据结构"),
+                "the selected tab must keep the course name");
+        require(CourseSelectionController.offeringRowTitle(
+                        course, codeLessOffering(1002L, 101L), true).equals("数据结构"),
+                "a missing offering code must fall back to the course name instead of a blank title");
     }
 
     private static void testSelectionTabMembership() {
@@ -367,11 +389,21 @@ public final class CourseSelectionControllerTest {
     private static CourseOfferingView offering(long offeringId, long courseId,
             SelectionStatus status, int enrolled, int capacity) {
         return new CourseOfferingView(
-                offeringId, courseId,
+                offeringId, "CS" + courseId + "-2026-2-A", courseId,
                 List.of(new CourseTeacherView("T1", "测试教师")),
                 List.of(new CourseMeetingView(
                         1, 1, 2, 1, 16, "ALL", "测试教室", null, null)),
                 enrolled, capacity, status, null, null, null);
+    }
+
+    /** 教学班代码缺省（老教学班/老响应）时行标题必须回退课程名，而不是显示空白。 */
+    private static CourseOfferingView codeLessOffering(long offeringId, long courseId) {
+        return new CourseOfferingView(
+                offeringId, null, courseId,
+                List.of(new CourseTeacherView("T1", "测试教师")),
+                List.of(new CourseMeetingView(
+                        1, 1, 2, 1, 16, "ALL", "测试教室", null, null)),
+                10, 30, SelectionStatus.AVAILABLE, null, null, null);
     }
 
     private static CourseSelectionItemView item(long offeringId, SelectionStatus status) {
@@ -495,9 +527,10 @@ public final class CourseSelectionControllerTest {
         @Override public CourseSubscription subscribe(CoursePushListener listener) {
             return () -> { };
         }
-        @Override public CompletableFuture<List<ScheduleEntryView>> loadSchedule(
-                CourseTermView term, int week) {
-            return CompletableFuture.completedFuture(Collections.emptyList());
+        @Override public CompletableFuture<ScheduleWeekView> loadSchedule(
+                CourseTermView term, Integer week) {
+            return CompletableFuture.completedFuture(
+                    new ScheduleWeekView(1, List.of(), List.of(), List.of()));
         }
         @Override public CompletableFuture<List<CourseNoticeView>> loadNotices(
                 CourseTermView term, int week) {

@@ -8,6 +8,10 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import javax.imageio.ImageIO;
+import dto.course.teacher.GradeComponentCodeDTO;
+import dto.course.teacher.GradeScoresDTO;
+import dto.course.teacher.TeacherGradeBookDTO;
+import dto.course.teacher.TeacherGradeRowDTO;
 import dto.course.teacher.TeacherOfferingDTO;
 import dto.course.teacher.TeacherRosterRowDTO;
 import javafx.animation.PauseTransition;
@@ -16,6 +20,7 @@ import javafx.application.Platform;
 import javafx.embed.swing.SwingFXUtils;
 import javafx.event.Event;
 import javafx.fxml.FXMLLoader;
+import javafx.geometry.Bounds;
 import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
@@ -26,6 +31,8 @@ import javafx.scene.control.ComboBox;
 import javafx.scene.control.DialogPane;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.Spinner;
+import javafx.scene.control.SpinnerValueFactory;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
 import javafx.scene.control.TableCell;
@@ -42,6 +49,8 @@ import javafx.scene.input.KeyEvent;
 import javafx.scene.input.MouseButton;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.GridPane;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.Pane;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 import javafx.stage.Window;
@@ -51,12 +60,13 @@ import service.TeacherCourseServices;
 
 /**
  * 教师工作台 GUI 冒烟：用真实 JavaFX 工具包装入真实教师外壳，由 {@link MockTeacherCourseService}
- * 驱动，走一遍“首页 → 教学课程表（周视图 / 卡片详情 / 周导航）→ 教学班列表 → 四 Tab 详情 →
- * 退回列表 → 空名单教学班”的真实交互并逐步截图。
+ * 驱动，走一遍“（进入即停）教学课程表（周视图 / 卡片详情 / 周导航 / 铺满与自适应）→ 教学班列表 →
+ * 四 Tab 详情 → 退回列表 → 空名单教学班”的真实交互并逐步截图。
  *
  * <p>这里刻意不解析 XML 代替加载：断言全部打在真实节点上（表格行数、Tab 文本、占位符可见性、
- * 入口按钮的启用/禁用、课表网格的列数/行数/卡片数），既能抓住只在加载期才暴露的 FXML 属性错误，
- * 也能证明 DOM 解析看不见的布局与绑定确实生效。任一步失败都以退出码 1 结束，不会被脚本当成通过。
+ * 入口按钮的启用/禁用、课表网格的列数/行数/卡片数/几何、角标的宽与高），既能抓住只在加载期才暴露
+ * 的 FXML 属性错误，也能证明 DOM 解析看不见的布局与绑定确实生效。任一步失败都以退出码 1 结束，
+ * 不会被脚本当成通过。
  *
  * <p>用真实点击而不是直接调控制器：教学课程表入口是分阶段交付的产物（T4 曾禁用、T5 接通），
  * 只有真的点下去才能证明它现在是可用的；课次详情弹窗也必须由真实的卡片点击打开，才能验证它是
@@ -79,7 +89,13 @@ public final class TeacherCourseUiSmokeTest {
     private static final String ADJUSTMENT_TITLE = "申请调课";
     /** Mock 周 8 的跨周原位置卡片对应的课程；点它打开详情再“查看教学班”。 */
     private static final String CROSS_WEEK_COURSE_NAME = "数据结构与算法基础";
+    /** 跨周原位置（第 8 周周二）的教室，也就是那块灰显提示上仍然写着的原地点。 */
     private static final String CROSS_WEEK_LOCATION = "A-101";
+    /** 跨周新位置（第 9 周周三）的教室：调课后那块是真实占用，地点必须是新的。 */
+    private static final String CROSS_WEEK_NEW_LOCATION = "B-203";
+    /** 跨周移动后两个块各自的样式类；普通课次一个都不带。 */
+    private static final String ORIGINAL_BLOCK_CLASS = "teacher-schedule-adjusted-original";
+    private static final String TARGET_BLOCK_CLASS = "teacher-schedule-adjusted-target";
     /** Mock 周 8 里唯一还能申请调课的课次（9203，未调整的周六第 12-13 节）。 */
     private static final String ADJUSTABLE_COURSE_NAME = "操作系统原理";
     private static final String CROSS_WEEK_TARGET_DATE = "2026-11-02";
@@ -90,9 +106,10 @@ public final class TeacherCourseUiSmokeTest {
     /** 待撤销的 PENDING 夹具（MockTeacherCourseService 的 9405）。 */
     private static final String PENDING_REQUEST_ID = "9405";
     private static final String WITHDRAWN_REQUEST_ID = "9404";
-    private static final String WEEK_EIGHT_LABEL = "第 8 周（1-16）";
-    private static final String WEEK_NINE_LABEL = "第 9 周（1-16）";
-    private static final String WEEK_FIVE_LABEL = "第 5 周（1-16）";
+    /** Mock 教学日历的周次范围与本周：周次控件（Spinner）的范围与值都来自这三个字段。 */
+    private static final int MIN_WEEK = 1;
+    private static final int MAX_WEEK = 16;
+    private static final int CURRENT_WEEK = 8;
     private static final String EMPTY_WEEK_TEXT = "本周没有课程";
     private static final int WEEK_EIGHT_CARDS = 4;
     private static final int WEEK_NINE_CARDS = 1;
@@ -105,6 +122,9 @@ public final class TeacherCourseUiSmokeTest {
             + "希望教务处审批后把本次课次调整到新的教学日，后续如有变动会第一时间重新提交申请。";
     /** T6 成绩夹具：CS203-01 草稿（每五人缺一个实验分）、CS301-01 空班、CS204-01 已驳回、CS352-01 待审核。 */
     private static final String GRADE_DRAFT_OFFERING = "CS203-01";
+    /** 成绩教学班列表的学期：Mock 的 2025/3（春学期）里放着草稿与空班两个夹具。 */
+    private static final int GRADE_TERM_YEAR = 2025;
+    private static final int GRADE_TERM_SEMESTER = 3;
     private static final String GRADE_EMPTY_OFFERING = "CS301-01";
     private static final String GRADE_REJECTED_OFFERING = "CS204-01";
     private static final String GRADE_PENDING_OFFERING = "CS352-01";
@@ -112,9 +132,35 @@ public final class TeacherCourseUiSmokeTest {
     /** = TeacherGradeBookController.LEAVE_PROMPT_TEXT 的对话框标题与正文片段。 */
     private static final String LEAVE_PROMPT_TITLE = "未保存的成绩";
     private static final String LEAVE_PROMPT_FRAGMENT = "未保存的修改";
+    /** T5 验证的导入区：三个入口的文案，以及异常明细弹窗的 FXML / 标题 / 提示片段。 */
+    private static final String TEMPLATE_BUTTON_TEXT = "下载成绩模板";
+    /** 成绩录入页的导出是「导出成绩」；教学班详情页的名单导出按钮仍叫「导出」（它导的是名单）。 */
+    private static final String EXPORT_BUTTON_TEXT = "导出成绩";
+    private static final String IMPORT_BUTTON_TEXT = "导入 Excel";
+    private static final String IMPORT_FEEDBACK_VIEW =
+            "/resources/fxml/TeacherGradeImportFeedback.fxml";
+    private static final String IMPORT_FEEDBACK_TITLE = "导入异常明细";
+    /**
+     * 未绑定宿主时 {@code Feedback.render()} 走的那一句：真实流程里弹窗总是先 bind 到导入控制器，
+     * 这里的加载守卫拿到的是没有预览、也没有宿主的空态。
+     */
+    private static final String IMPORT_FEEDBACK_HINT_TEXT = "异常行已全部解决，可以回到成绩表确认导入。";
     /** Mock 的被驳回批次审核意见与待审核批次号。 */
     private static final String REVIEW_COMMENT_FRAGMENT = "总分与平时分不一致";
     private static final String PENDING_SUBMISSION_ID = "9601";
+    /** 成绩更正表单：资源路径、标题与「原分数」行的措辞（与控制器常量逐字一致）。 */
+    private static final String CORRECTION_VIEW = "/resources/fxml/TeacherGradeCorrectionDialog.fxml";
+    private static final String CORRECTION_TITLE = "申请更正成绩";
+    private static final String CORRECTION_ORIGINAL_PREFIX = "　原分数 ";
+    private static final String CORRECTION_PLACEHOLDER = "—";
+    /** = TeacherGradeCorrectionDialogController.MAX_REASON_LENGTH：更正原因的上界（服务端同宽）。 */
+    private static final int CORRECTION_MAX_REASON_LENGTH = 500;
+    /**
+     * 「我的申请」入口的文案。逐字等于 FXML 里的静态文案与
+     * {@code TeacherCourseManagementController.APPLICATIONS_ENTRY_TEXT}（那两个都是包私有的，
+     * 冒烟测试在 {@code ui} 包里读不到，因此这里各写一份并在下面用真实按钮文案断言）。
+     */
+    private static final String APPLICATIONS_ENTRY = "我的申请";
     /** = TeacherGradeBookController 的未录入占位符与单元格样式类，界面上必须真的画出来。 */
     private static final String PLACEHOLDER = "—";
     private static final String GRADE_CELL_ERROR_CLASS = "teacher-course-grade-cell-error";
@@ -122,8 +168,8 @@ public final class TeacherCourseUiSmokeTest {
     private static final String[] FILES = {
             "offering-list.png", "detail-basic-info.png", "detail-roster-page1.png",
             "roster-page2.png", "detail-schedule.png", "detail-grades.png", "roster-empty.png",
-            "schedule-week8.png", "schedule-card-detail.png", "schedule-week9.png",
-            "schedule-empty-week.png",
+            "schedule-entry.png", "schedule-week8.png", "schedule-card-detail.png",
+            "schedule-week9.png", "schedule-empty-week.png",
             // T5 的四张主题截图（跨周 / 冲突 / 撤销 / 长原因）。
             "adjustment-dialog-cross-week.png", "adjustment-dialog-conflict.png",
             "adjustment-dialog-long-reason.png", "adjustment-applications-withdrawn.png",
@@ -134,7 +180,13 @@ public final class TeacherCourseUiSmokeTest {
             // Excel 式录入的五张：单击即编辑（整段选中）/ Enter 下移 / Tab 右移 / Esc 还原 / 2×2 批量粘贴。
             "gradebook-cell-editing.png", "gradebook-navigate-enter.png",
             "gradebook-navigate-tab.png", "gradebook-esc-reverted.png",
-            "gradebook-paste-block.png", "gradebook-inline-error.png"
+            "gradebook-paste-block.png", "gradebook-inline-error.png",
+            // T5 的导入证据：异常明细弹窗的真实加载（空态）。预览红框与异常姓名要有一份真实服务端
+            // 预览才画得出来，那部分由无工具包的控制器用例与服务端 E2E 覆盖。
+            "gradebook-import-feedback.png",
+            // T4 追加的验收截图：跨周的原位置灰块与新位置、以及更正表单上的「原分数 / 拟修改」对照。
+            "schedule-cross-week-original.png", "schedule-week9-target.png",
+            "gradebook-correction-dialog.png"
     };
     private static final Path OUTPUT = Path.of(".codex-tmp", "teacher");
 
@@ -157,6 +209,15 @@ public final class TeacherCourseUiSmokeTest {
         private Parent root;
         private Stage primaryStage;
         private int stepIndex;
+        /** T4 的更正表单夹具：打开时装配，关闭时清空。 */
+        private CorrectionFixture correctionTarget;
+        /**
+         * 装配完成时的窗口外框尺寸。{@code Scene} 是 860x580，而 {@code Stage} 的外框比它多出标题栏与
+         * 边框，所以「还原成 860x580」必须还原到这两个实测值，不能拿场景尺寸去 {@code setWidth}——
+         * 那样每还原一次场景就缩小一圈，后半程的截图会悄悄小于 860x580。
+         */
+        private double frameWidth;
+        private double frameHeight;
         /** 确认框可能晚一个脉冲才建窗，重新排队的次数上限。 */
         private int leavePromptAttempts;
 
@@ -173,6 +234,10 @@ public final class TeacherCourseUiSmokeTest {
             stage.setScene(new Scene(root, WIDTH, HEIGHT));
             stage.setResizable(false);
             stage.show();
+            // 场景就是 860x580（Scene 的构造参数），下面两个是含边框的外框尺寸：后面的窗口缩放
+            // 一律按外框来，还原时才回得到同一个场景尺寸。
+            frameWidth = stage.getWidth();
+            frameHeight = stage.getHeight();
             planSteps();
             advance();
         }
@@ -184,6 +249,22 @@ public final class TeacherCourseUiSmokeTest {
          * 因此每个断言看到的都是加载完成后的界面。
          */
         private void planSteps() {
+            // Task 3：装配完成就直接停“教学课程表”，不再先停那个只写着“已接入”的占位首页。
+            // 这一步不打任何点击，读的就是工作台装配之后的界面。
+            steps.add(() -> {
+                requireWindowSize("进入工作台");
+                require(effectivelyVisible(requireNode("#schedulePage", Parent.class, "课表子页")),
+                        "进入工作台必须直接显示教学课程表");
+                require(!requireNode("#homePanel", VBox.class, "首页提示区").isVisible(),
+                        "进入工作台不得先停占位首页");
+                require(entryButton("教学课程表").getStyleClass()
+                                .contains("teacher-course-entry-active"),
+                        "首屏的高亮必须落在教学课程表入口上，实际 "
+                                + entryButton("教学课程表").getStyleClass());
+                require(shownWeek() == CURRENT_WEEK,
+                        "首屏应已经画出本周（第 " + CURRENT_WEEK + " 周），实际 " + shownWeek());
+                snapshot("schedule-entry.png");
+            });
             steps.add(() -> {
                 require(!entryButton("教学班").isDisabled(),
                         "教学班入口在 T5 接通后必须可用");
@@ -248,27 +329,61 @@ public final class TeacherCourseUiSmokeTest {
                 List<String> periods = nodeTexts(".teacher-schedule-period-label");
                 require(periods.size() == 13,
                         "节次行应是本周出现过的节次并集（13 节），实际 " + periods);
-                require(periods.contains("第 13 节 18:00:00-18:45:00"),
-                        "第 13 节的时间必须是定宽 HH:mm:ss，实际 " + periods);
+                require(periods.contains("第 13 节\n18:00\n18:45"),
+                        "第 13 节的开始与结束时间必须各占一行且只到分钟，实际 " + periods);
                 for (String text : periods) {
-                    require(text.matches("第 [0-9]+ 节 [0-9]{2}:[0-9]{2}:[0-9]{2}-"
-                                    + "[0-9]{2}:[0-9]{2}:[0-9]{2}"),
-                            "节次行头必须是 第 N 节 HH:mm:ss-HH:mm:ss，实际 " + text);
+                    require(text.matches("第 [0-9]+ 节\\n[0-9]{2}:[0-9]{2}\\n[0-9]{2}:[0-9]{2}"),
+                            "节次行头必须是三行 第 N 节 / HH:mm / HH:mm，实际 " + text);
                 }
 
-                require(labelText("#weekLabel").equals(WEEK_EIGHT_LABEL),
-                        "周标签应为 " + WEEK_EIGHT_LABEL + "，实际 " + labelText("#weekLabel"));
+                require(shownWeek() == CURRENT_WEEK,
+                        "周次控件应停在第 " + CURRENT_WEEK + " 周，实际 " + shownWeek());
                 require(cards().size() == WEEK_EIGHT_CARDS,
                         "第 8 周应有 " + WEEK_EIGHT_CARDS + " 张卡片，实际 " + cards().size());
                 List<String> badges = nodeTexts(".teacher-schedule-badge");
                 require(badges.contains("原安排") && badges.contains("调课后"),
                         "第 8 周必须同时出现 原安排 与 调课后 角标，实际 " + badges);
-                require(!button("#previousWeekButton", "上一周按钮").isDisabled(),
-                        "第 8 周不是最小周，上一周必须可用");
-                require(!button("#nextWeekButton", "下一周按钮").isDisabled(),
-                        "第 8 周不是最大周，下一周必须可用");
+                requireVerticalBadges();
+                requireCrossWeekOriginalBlock();
+                // 范围来自响应里的 minWeek/maxWeek，控件因此可用（没有范围时它是禁用的）。
+                require(!weekSpinner().isDisabled(),
+                        "第 8 周已加载，周次控件必须可用");
+                require(weekRange().getMin() == MIN_WEEK && weekRange().getMax() == MAX_WEEK,
+                        "周次范围必须是服务端的 minWeek..maxWeek，实际 "
+                                + weekRange().getMin() + ".." + weekRange().getMax());
                 requireViewportReset("渲染第 8 周");
                 snapshot("schedule-week8.png");
+            });
+            steps.add(() -> snapshotNode(cardForCourse(CROSS_WEEK_COURSE_NAME),
+                    "schedule-cross-week-original.png"));
+
+            // ------------------------------------------------------------ 铺满 / 自适应（Task 2）
+            // 用户要的是“跟着窗口变”：默认 860x580 横向装得下，网格宽度被拉到视口宽度（不再停在
+            // 自身 pref 尺寸），纵向 13 节在 60px 最小行高下依旧装不下，于是按最小高度渲染并滚动；
+            // 窗口拉大后两个方向都铺满（高度取视口与网格最小高度的较大者），拉窄到装不下时回落到
+            // 最小宽度 + 滚动，而不是把列压到读不出来。
+            steps.add(() -> requireGridFillsViewport("860x580 默认窗口"));
+            steps.add(() -> resizeWindow(1180.0, 1050.0));
+            steps.add(() -> {
+                requireGridFillsViewport("放大到 1180x1050");
+                // 纵向铺满的实证：这个窗口高度下视口已经高过整表的最小高度 34 + 13 × 60 + 26 = 840，
+                // 多出来的高度因此必须落到各行上（表头行固定 34px、没有 vgrow；节次行带 vgrow +
+                // maxSize=MAX，节次标签的高度就是那一行的高度），节次行因此要真的超过 60px，
+                // 而不是被别的节点把网格撑大。
+                Node periodLabel = root.lookup(".teacher-schedule-period-label");
+                require(periodLabel != null && periodLabel.getLayoutBounds().getHeight() > 60.0,
+                        "窗口高过整表时行高必须跟着长（> 60px），实际 "
+                                + (periodLabel == null
+                                        ? "没有节次行"
+                                        : periodLabel.getLayoutBounds().getHeight()));
+            });
+            steps.add(() -> resizeWindow(620.0, 420.0));
+            steps.add(this::requireGridScrollsInASmallWindow);
+            steps.add(() -> resizeWindow(WIDTH, HEIGHT));
+            steps.add(() -> {
+                requireWindowSize("窗口还原后");
+                requireGridFillsViewport("还原 860x580");
+                requireViewportReset("窗口还原后");
             });
 
             // 用户把这一周滚到底（看清第 13 节）后再离开：离开前的滚动位置不得被之后的每一周继承。
@@ -308,41 +423,45 @@ public final class TeacherCourseUiSmokeTest {
                                 + labelText("#detailTitleLabel"));
             });
 
-            // 回到课表：周导航（跨周调入的第 9 周与无课的第 5 周）。
+            // 回到课表：周导航（跨周调入的第 9 周与无课的第 5 周）。方向按 R4 反着来：
+            // 向下箭头（这里就是往下点）= 往后一周，向上箭头 = 往前一周。
             steps.add(() -> entryButton("教学课程表").fire());
             steps.add(() -> {
-                require(labelText("#weekLabel").equals(WEEK_EIGHT_LABEL),
-                        "回到课表应恢复第 8 周，实际 " + labelText("#weekLabel"));
+                require(shownWeek() == CURRENT_WEEK,
+                        "回到课表应恢复第 8 周，实际 " + shownWeek());
                 requireViewportReset("从教学班详情返回课表");
             });
-            steps.add(() -> button("#nextWeekButton", "下一周按钮").fire());
+            steps.add(this::pressWeekDown);
             steps.add(() -> {
-                require(labelText("#weekLabel").equals(WEEK_NINE_LABEL),
-                        "下一周应为 " + WEEK_NINE_LABEL + "，实际 " + labelText("#weekLabel"));
+                require(shownWeek() == CURRENT_WEEK + 1,
+                        "向下箭头应到第 9 周（向下 = 往后一周），实际 " + shownWeek());
                 require(cards().size() == WEEK_NINE_CARDS,
                         "第 9 周只应剩跨周调入的 " + WEEK_NINE_CARDS + " 张卡片，实际 "
                                 + cards().size());
+                requireCrossWeekTargetBlock();
                 requireViewportReset("切到第 9 周");
                 snapshot("schedule-week9.png");
             });
-            steps.add(() -> button("#previousWeekButton", "上一周按钮").fire());
+            steps.add(() -> snapshotNode(cardForCourse(CROSS_WEEK_COURSE_NAME),
+                    "schedule-week9-target.png"));
+            steps.add(this::pressWeekUp);
             steps.add(() -> {
-                require(labelText("#weekLabel").equals(WEEK_EIGHT_LABEL),
-                        "上一周应回到第 8 周，实际 " + labelText("#weekLabel"));
+                require(shownWeek() == CURRENT_WEEK,
+                        "向上箭头应回到第 8 周（向上 = 往前一周），实际 " + shownWeek());
                 require(cards().size() == WEEK_EIGHT_CARDS,
                         "第 8 周应恢复 " + WEEK_EIGHT_CARDS + " 张卡片，实际 " + cards().size());
             });
 
-            // 同一周再滚到底一次，接着连点三次“上一周”去无课周。
+            // 同一周再滚到底一次，接着连按三次向上箭头去无课周。
             steps.add(() -> scrollGridToBottom("第 8 周再滚到底"));
 
             // 无课周：卡片为 0，但 7 列日期、13 行节次与空态文案仍在。
-            steps.add(() -> button("#previousWeekButton", "上一周按钮").fire());
-            steps.add(() -> button("#previousWeekButton", "上一周按钮").fire());
-            steps.add(() -> button("#previousWeekButton", "上一周按钮").fire());
+            steps.add(this::pressWeekUp);
+            steps.add(this::pressWeekUp);
+            steps.add(this::pressWeekUp);
             steps.add(() -> {
-                require(labelText("#weekLabel").equals(WEEK_FIVE_LABEL),
-                        "三次上一周后应为 " + WEEK_FIVE_LABEL + "，实际 " + labelText("#weekLabel"));
+                require(shownWeek() == CURRENT_WEEK - 3,
+                        "三次向上箭头后应为第 5 周，实际 " + shownWeek());
                 require(cards().isEmpty(), "Mock 第 5 周没有课程，实际 " + cards().size() + " 张卡片");
                 require(nodeTexts(".teacher-schedule-header").size() == 8,
                         "无课周仍必须画出节次列 + 7 个日期列");
@@ -357,8 +476,8 @@ public final class TeacherCourseUiSmokeTest {
 
             // 回到本周：Mock 的 currentWeek 是第 8 周。
             steps.add(() -> button("#currentWeekButton", "回到本周按钮").fire());
-            steps.add(() -> require(labelText("#weekLabel").equals(WEEK_EIGHT_LABEL),
-                    "回到本周应恢复 " + WEEK_EIGHT_LABEL + "，实际 " + labelText("#weekLabel")));
+            steps.add(() -> require(shownWeek() == CURRENT_WEEK,
+                    "回到本周应恢复第 " + CURRENT_WEEK + " 周，实际 " + shownWeek()));
 
             // 教学班列表：沿用既有的四 Tab 详情流程。
             steps.add(() -> entryButton("教学班").fire());
@@ -444,9 +563,8 @@ public final class TeacherCourseUiSmokeTest {
             // 同周冲突，最后真的提交一次，验证表单与课次详情弹窗的内联提示。
             steps.add(() -> entryButton("教学课程表").fire());
             steps.add(() -> {
-                require(labelText("#weekLabel").equals(WEEK_EIGHT_LABEL),
-                        "回到课表后应恢复 " + WEEK_EIGHT_LABEL + "，实际 "
-                                + labelText("#weekLabel"));
+                require(shownWeek() == CURRENT_WEEK,
+                        "回到课表后应恢复第 " + CURRENT_WEEK + " 周，实际 " + shownWeek());
             });
             steps.add(() -> cardForCourse(ADJUSTABLE_COURSE_NAME).fire());
             steps.add(() -> {
@@ -593,6 +711,8 @@ public final class TeacherCourseUiSmokeTest {
                                 && list.getChildren().get(0).getLayoutBounds().getHeight() > 0,
                         "列表行必须按内容排版，不能被换行标签撑成整屏，实际行高 "
                                 + list.getChildren().get(0).getLayoutBounds().getHeight());
+                // 入口角标：两行都还没读过（服务端算出的 unread，客户端不自己猜）。
+                requireUnreadBadge(2);
             });
             steps.add(() -> applicationRow(PENDING_REQUEST_ID).fire());
             steps.add(() -> {
@@ -604,6 +724,9 @@ public final class TeacherCourseUiSmokeTest {
                 require(withdraw.isVisible() && !withdraw.isDisabled(),
                         "PENDING 申请必须提供可用的撤销入口");
             });
+            // 详情加载后页面会为这一行发一次「标记已读」，服务端回执之后重新查询列表：
+            // 角标必须跟着服务端的真实状态落到 1（刚读过的那条不再计数）。
+            steps.add(() -> requireUnreadBadge(1));
             steps.add(() -> requireIn(applicationsScope(), "#applicationWithdrawButton",
                     Button.class, "撤销按钮").fire());
             steps.add(() -> {
@@ -634,6 +757,9 @@ public final class TeacherCourseUiSmokeTest {
                 require(applicationRowOrNull(WITHDRAWN_REQUEST_ID) != null
                                 && applicationRowOrNull(PENDING_REQUEST_ID) != null,
                         "撤销必须真实改变查询快照（已撤销列表里出现 9404 与 9405）");
+                // 切筛选就是换一次查询：角标跟着这一页的未读条数走。9405 的那次撤销是页面自己做的，
+                // 撤销后面板上的详情被刷新，新到达的终态随之被标成已读，于是这一页只剩 9404 未读。
+                requireUnreadBadge(1);
             });
 
             // ------------------------------------------------------------ T6：成绩录入
@@ -685,6 +811,35 @@ public final class TeacherCourseUiSmokeTest {
                         "缺分行的总评必须显示占位符而不是伪造的数字，实际 "
                                 + cellText(book, 3, 6) + "/" + cellText(book, 0, 6));
                 snapshot("gradebook-partial.png");
+            });
+
+            // ------------------------------------------------------------ T5：导入区接线
+            // 真实工具包里断言导入区已经接上处理器：FXML 里写错的 fx:id/onAction 只会让按钮变成
+            // 没有反应的摆件（无工具包的控制器测试连 Button 都造不出来）。
+            // 下面那条「未预览时三个按钮不可见」方向是反的：它们在 FXML 里本来就是
+            // visible="false"/managed="false"，所以它只能抓住「控制器在启动时错把它们点亮」；
+            // 「预览到达后显示出来、确认按钮可用」那条方向由无工具包的 TeacherGradeImportControllerTest
+            // 覆盖（mock 给不出 issues，这里造不出来，也不伪造）。
+            steps.add(() -> {
+                Button template = button("#gradeBookDownloadTemplateButton", "下载成绩模板按钮");
+                Button export = button("#gradeBookExportGradesButton", "导出成绩按钮");
+                Button importButton = button("#gradeBookImportButton", "导入 Excel 按钮");
+                require(TEMPLATE_BUTTON_TEXT.equals(template.getText())
+                                && EXPORT_BUTTON_TEXT.equals(export.getText())
+                                && IMPORT_BUTTON_TEXT.equals(importButton.getText()),
+                        "三个导入入口的文案必须与交付一致，实际 " + template.getText() + "/"
+                                + export.getText() + "/" + importButton.getText());
+                require(!template.isDisabled() && !export.isDisabled() && !importButton.isDisabled(),
+                        "草稿页上的下载模板/导出成绩/导入 Excel 必须可用");
+                require(template.getOnAction() != null && export.getOnAction() != null
+                                && importButton.getOnAction() != null,
+                        "三个导入入口必须真的接上处理器（FXML 的 onAction）");
+                for (String hidden : List.of("#gradeBookImportSummaryLabel",
+                        "#gradeBookImportIssuesButton", "#gradeBookCancelImportButton",
+                        "#gradeBookConfirmImportButton")) {
+                    require(!requireNode(hidden, Node.class, hidden).isVisible(),
+                            hidden + " 在没有导入预览时必须隐藏，实际可见");
+                }
             });
 
             // ------------------------------------------------ Excel 式录入：单击即编辑、输入即生效
@@ -865,13 +1020,60 @@ public final class TeacherCourseUiSmokeTest {
                 TableView<?> book = table("#gradeBookTable", "成绩表");
                 require(styledCellsIn(book, 2, GRADE_CELL_ERROR_CLASS) == 0,
                         "修正后的单元格不得再标红");
+                Button export = button("#gradeBookExportGradesButton", "导出成绩按钮");
+                Button template = button("#gradeBookDownloadTemplateButton", "下载成绩模板按钮");
+                require(!export.isDisabled(), "保存之前导出成绩必须是可用的");
                 button("#gradeBookSaveButton", "保存草稿").fire();
+                // fire() 只是把保存请求发出去：响应经 fxExecutor（Platform.runLater）回到 FX 线程，
+                // 所以这一刻保存确实还在途。在途期间导出成绩必须禁用——导出的是服务端那份**已保存
+                // 的草稿**，此刻它还没收到这一次写入，允许导出就会拿到一份与屏幕上不一样的数字。
+                // 模板下载不动：空白模板是静态内容，不是在途保存的快照，用不着跟着一起禁用。
+                require(export.isDisabled(),
+                        "保存请求在途时导出成绩必须禁用（白名单：屏幕上这份还没落到服务端）");
+                require(!template.isDisabled(),
+                        "模板下载是静态内容，不得跟着在途保存一起禁用");
             });
             steps.add(() -> {
                 require(labelText("#gradeBookFeedbackLabel").contains("成绩草稿已保存"),
                         "修正后的保存必须成功，实际 " + labelText("#gradeBookFeedbackLabel"));
                 require(labelText("#gradeBookStateLabel").contains("v5"),
                         "保存成功后版本必须前进到 v5，实际 " + labelText("#gradeBookStateLabel"));
+            });
+
+            // 状态提示的落点与消退：与三个导入入口同排（按钮行里、撑开导入态的 Region 之后），
+            // 新提示立刻可见，3 秒后渐变淡出并隐藏，隐藏时不透明度复位（下一次提示从全不透明开始）。
+            steps.add(() -> {
+                Label feedback = requireNode("#gradeBookFeedbackLabel", Label.class, "状态提示");
+                require(feedback.getParent() instanceof HBox,
+                        "状态提示必须与三个导入入口同排，实际父节点 "
+                                + feedback.getParent().getClass().getSimpleName());
+                Pane row = (Pane) feedback.getParent();
+                require(row.getChildren().indexOf(feedback)
+                                > row.getChildren().indexOf(
+                                        requireNode("#gradeBookImportButton", Button.class, "导入 Excel")),
+                        "状态提示必须排在「导入 Excel」之后");
+                require(row.getChildren().indexOf(feedback)
+                                < row.getChildren().indexOf(requireNode("#gradeBookImportSummaryLabel",
+                                        Label.class, "导入摘要")),
+                        "状态提示必须在导入态之前（右侧留给摘要/异常明细/取消/确认）");
+                require(feedback.isVisible() && feedback.isManaged(),
+                        "刚到达的提示必须立刻可见");
+                require(feedback.getOpacity() == 1.0,
+                        "刚到达的提示必须是全不透明，实际 " + feedback.getOpacity());
+                snapshot("gradebook-feedback-row.png");
+            });
+            // 消退是真实时间驱动的：这里让出 FX 线程一小段真实时间（`settle` 的脉冲随后把动画
+            // 时钟推到结束），下一步断言标签已经自己隐藏。
+            steps.add(() -> sleepQuietly(3600));
+            steps.add(() -> {
+                Label feedback = requireNode("#gradeBookFeedbackLabel", Label.class, "状态提示");
+                require(!feedback.isVisible() && !feedback.isManaged(),
+                        "3 秒之后提示必须自己消退隐藏（不是一直挂着）");
+                require(feedback.getOpacity() == 1.0,
+                        "消退结束后不透明度必须复位，实际 " + feedback.getOpacity());
+                require(labelText("#gradeBookFeedbackLabel").contains("成绩草稿已保存"),
+                        "消退只隐藏标签，那句话本身不能被抹掉，实际 "
+                                + labelText("#gradeBookFeedbackLabel"));
             });
 
             // 灰列：禁用一列组成 → 该列整体置灰、权重输入禁用、权重合计变成未配齐，且点不进编辑器。
@@ -935,12 +1137,27 @@ public final class TeacherCourseUiSmokeTest {
                         "第一次点击提交必须只进入可用的确认态");
                 require(!labelText("#gradeBookFeedbackLabel").contains("成绩批次已提交"),
                         "进入确认态时不得已经提交");
+                Button export = button("#gradeBookExportGradesButton", "导出成绩按钮");
+                require(!export.isDisabled(), "提交之前导出成绩必须是可用的");
                 snapshot("gradebook-submit-confirm.png");
                 confirm.fire();
+                // 与保存那条（本套件里 saving 的在途窗口）同一个道理：确认提交是本地同步走完的——
+                // submitting 置位并 render() 之后才发出请求，而响应要经 fxExecutor（Platform.runLater）
+                // 才回到 FX 线程，所以 confirm.fire() 一返回，提交就确实还在途。提交与保存是同一种写入，
+                // 导出的是服务端那份**已保存的草稿**，此刻它还没收到这一次写入；同一页的重新加载、
+                // 保存草稿、提交成绩都在看这对标志（saving || submitting），导出按钮不能只认一半。
+                require(export.isDisabled(),
+                        "提交请求在途时导出成绩必须禁用（服务端那份草稿还没收到这一次写入）");
             });
             steps.add(() -> {
                 require(labelText("#gradeBookFeedbackLabel").contains("成绩批次已提交"),
                         "确认提交后必须提交成功，实际 " + labelText("#gradeBookFeedbackLabel"));
+                // 上一条提示已经消退过：新提示必须把标签重新点亮（隐藏状态与不透明度都被复位），
+                // 而不是继承上一轮消退后的“看不见”。
+                Label feedback = requireNode("#gradeBookFeedbackLabel", Label.class, "状态提示");
+                require(feedback.isVisible() && feedback.getOpacity() == 1.0,
+                        "消退之后到达的新提示必须重新可见，实际可见 " + feedback.isVisible()
+                                + "／不透明度 " + feedback.getOpacity());
                 require(labelText("#gradeBookStateLabel").contains("已提交待审核")
                                 && labelText("#gradeBookStateLabel").contains("v6"),
                         "提交成功后必须进入待审核只读态，实际 " + labelText("#gradeBookStateLabel"));
@@ -991,8 +1208,64 @@ public final class TeacherCourseUiSmokeTest {
                 snapshot("gradebook-rejected.png");
             });
 
+            // ------------------------------------------------ T4：更正表单的「原分数 / 拟修改」对照
+            // 更正表单从成绩表上「已通过」的批次打开，而 Mock 里没有任何一个教学班处于已通过
+            // （CS203-01 草稿、CS352-01 待审核、CS204-01 已驳回），所以离屏冒烟点不到那条入口。
+            // 这里直接加载同一份 FXML、把「要更正谁、他的四项原分数是什么」注入控制器，之后走的是
+            // 与真实弹窗完全相同的 render 路径；注入用的是反射，只为了越过那个包私有的入参。
+            steps.add(this::openCorrectionComparisonDialog);
+            steps.add(this::requireCorrectionComparison);
+            steps.add(this::closeCorrectionComparisonDialog);
+
+            // ------------------------------------------------ T5：导入异常明细弹窗的加载守卫
+            // 这个弹窗只会在预览回来时由 TeacherGradeImportController 打开，而那条路径把加载失败
+            // 整个吞掉（`catch (IOException | RuntimeException | LinkageError)`，预览照常合并进表格），
+            // 所以 FXML 坏掉时界面上只是少一个弹窗、没有任何测试会红。这里用真实工具包直接加载它：
+            // fx:controller 解析不到、fx:id 写错、onAction 指向不存在的方法都会在这一步失败。
+            steps.add(() -> {
+                Parent feedbackRoot;
+                try {
+                    FXMLLoader loader = new FXMLLoader(getClass().getResource(IMPORT_FEEDBACK_VIEW));
+                    feedbackRoot = loader.load();
+                    Object controller = loader.getController();
+                    require(controller != null && "controller.TeacherGradeImportController$Feedback"
+                                    .equals(controller.getClass().getName()),
+                            "弹窗的 fx:controller 必须解析到导入控制器的 Feedback，实际 "
+                                    + (controller == null ? "null" : controller.getClass().getName()));
+                } catch (IOException failure) {
+                    throw new UncheckedIOException("导入异常明细弹窗加载失败", failure);
+                }
+                Stage stage = new Stage();
+                stage.initOwner(primaryStage);
+                stage.setTitle(IMPORT_FEEDBACK_TITLE);
+                stage.setScene(new Scene(feedbackRoot));
+                stage.show();
+                // 异常列表在 ScrollPane 里，而滚动面板的内容要等皮肤建出来才挂进场景图：
+                // 先把皮肤与布局跑一遍，之后按 id 查节点才能真的查到（否则只会查到空儿童的控件）。
+                feedbackRoot.applyCss();
+                feedbackRoot.layout();
+                requireIn(feedbackRoot, "#feedbackIssueList", VBox.class, "异常列表");
+                requireIn(feedbackRoot, "#feedbackSummaryLabel", Label.class, "异常摘要标签");
+                requireIn(feedbackRoot, "#feedbackHintLabel", Label.class, "异常提示标签");
+                // 这两个标签的文案证明 initialize() → render() 真的跑过（空态而不是没渲染）：
+                // 摘要为空（还没有预览），提示是未绑定宿主时那句。
+                require(labelIn(feedbackRoot, "#feedbackSummaryLabel").isEmpty(),
+                        "没有预览时摘要必须为空，实际 "
+                                + labelIn(feedbackRoot, "#feedbackSummaryLabel"));
+                require(IMPORT_FEEDBACK_HINT_TEXT.equals(labelIn(feedbackRoot,
+                                "#feedbackHintLabel")),
+                        "弹窗必须已经渲染过，实际提示 " + labelIn(feedbackRoot,
+                                "#feedbackHintLabel"));
+                snapshotNode(feedbackRoot, "gradebook-import-feedback.png");
+                requireIn(feedbackRoot, "#feedbackCloseButton", Button.class, "关闭按钮").fire();
+                require(!stage.isShowing(), "关闭按钮必须真的关掉弹窗");
+                require(Window.getWindows().size() == 1,
+                        "关闭弹窗后不能留下多余窗口，实际 " + Window.getWindows().size());
+            });
+
             // 收尾：课次详情弹窗是 WINDOW_MODAL + show()（不阻塞），结束时不能有遗留窗口。
             steps.add(() -> {
+                requireWindowSize("结束时");
                 require(Window.getWindows().size() == 1,
                         "除主窗口外不应留下任何窗口，实际 " + Window.getWindows().size() + " 个");
                 require(Window.getWindows().get(0) == primaryStage
@@ -1028,13 +1301,29 @@ public final class TeacherCourseUiSmokeTest {
 
         // ---------------------------------------------------------------- 节点查找
 
+        /**
+         * 右上入口按钮。文案在「我的申请」上会随未读条数变长（{@code 我的申请（本页未读 N）}），
+         * 所以这里按「逐字相等，或后接一个左括号的角标」匹配，而不是只认逐字相等——否则一旦某个
+         * 调用点落在申请页加载之后，查找就会失败。<b>前缀匹配必须带括号</b>：单纯的
+         * {@code startsWith} 会让「教学」之类的短串同时命中两个入口，把一个更脆的查找换成一个
+         * 会静默选错的查找。
+         */
         private Button entryButton(String text) {
+            List<Button> matches = new ArrayList<>();
             for (Node node : root.lookupAll(".teacher-course-entry")) {
-                if (node instanceof Button button && text.equals(button.getText())) {
-                    return button;
+                if (node instanceof Button button && button.getText() != null
+                        && (button.getText().equals(text)
+                        || button.getText().startsWith(text + "（"))) {
+                    matches.add(button);
                 }
             }
-            throw new IllegalStateException("找不到工作台入口按钮：" + text);
+            if (matches.size() == 1) {
+                return matches.get(0);
+            }
+            throw new IllegalStateException(matches.isEmpty()
+                    ? "找不到工作台入口按钮：" + text
+                    : "入口 " + text + " 匹配到多个按钮："
+                            + matches.stream().map(Button::getText).toList());
         }
 
         /** 课表里某个课程的卡片按钮；卡片正文是 graphic，因此按标题标签反查它的按钮祖先。 */
@@ -1153,6 +1442,29 @@ public final class TeacherCourseUiSmokeTest {
         /** 我的申请子页的根节点：里面的 fx:id 带 application 前缀，但仍按子页作用域查找。 */
         private Parent applicationsScope() {
             return requireNode("#applicationsPage", Parent.class, "我的申请子页");
+        }
+
+        /**
+         * 「我的申请」入口上的未读角标必须逐字等于当前页的未读条数：
+         * {@code 我的申请（本页未读 N）}。这是「未读状态同步」在界面上的那一半——计数来自服务端
+         * 算出的 {@code unread}，页面只负责显示，客户端不自己推。
+         */
+        private void requireUnreadBadge(int expectedUnread) {
+            String entry = entryButton(APPLICATIONS_ENTRY).getText();
+            require((APPLICATIONS_ENTRY + "（本页未读 " + expectedUnread + "）").equals(entry),
+                    "我的申请入口必须显示本页未读 " + expectedUnread + " 条，实际 " + entry
+                            + "；本页各行为 " + applicationRowTexts());
+        }
+
+        /** 本页每一行的可读文本（未读的行会多一颗「未读」角标），用在角标断言的失败信息里。 */
+        private List<String> applicationRowTexts() {
+            Node node = applicationsScope().lookup("#applicationList");
+            if (!(node instanceof VBox list)) return List.of("找不到申请列表");
+            List<String> texts = new ArrayList<>();
+            for (Node child : list.getChildren()) {
+                texts.add(rowText(child).replace('\n', ' '));
+            }
+            return texts;
         }
 
         // ---------------------------------------------------------------- 成绩表查找
@@ -1350,6 +1662,188 @@ public final class TeacherCourseUiSmokeTest {
             }
         }
 
+        // ---------------------------------------------------------------- 更正表单（T4）
+
+        /**
+         * 真实工具包加载 TeacherGradeCorrectionDialog.fxml，并把一名学生的四项原分数喂给控制器。
+         * 反映射的是包私有的 {@code prepare(CorrectionTarget)}：它只有一个入参（选中了谁），其余
+         * 渲染、校验与提交都在控制器自己的公开路径上。
+         */
+        private void openCorrectionComparisonDialog() {
+            try {
+                FXMLLoader loader = new FXMLLoader(getClass().getResource(CORRECTION_VIEW));
+                Parent correctionRoot = loader.load();
+                Object controller = loader.getController();
+                require(controller != null, "更正表单的 fx:controller 必须解析到真实控制器");
+                String offeringId = gradeBookOfferingId();
+                TeacherGradeBookDTO book = TeacherCourseServices.current()
+                        .getGradeBook(offeringId).join();
+                TeacherGradeRowDTO row = null;
+                for (TeacherGradeRowDTO candidate : book.getRows()) {
+                    // 挑一位「有组成没录」的学生：这样原分数行必须画占位符，而不是 0 或 null。
+                    if (candidate.getScores() != null
+                            && candidate.getScores().getExperimentScore() == null) {
+                        row = candidate;
+                        break;
+                    }
+                }
+                require(row != null, "草稿夹具里必须有一位缺实验分的学生");
+                correctionTarget = new CorrectionFixture(controller, correctionRoot, row,
+                        book.getOfferingId(), book.getLastSubmissionId(), book.getRevision());
+                correctionTarget.present();
+
+                Stage stage = new Stage();
+                stage.initOwner(primaryStage);
+                stage.setTitle(CORRECTION_TITLE);
+                stage.setScene(new Scene(correctionRoot));
+                stage.show();
+                correctionTarget.stage = stage;
+                correctionRoot.applyCss();
+                correctionRoot.layout();
+            } catch (IOException failure) {
+                throw new UncheckedIOException("更正表单加载失败", failure);
+            }
+        }
+
+        /**
+         * 草稿夹具教学班的<b>数值</b> offeringId。界面上与 {@link #GRADE_DRAFT_OFFERING} 用的是教学班
+         * 代码（CS203-01），而成绩接口收的是十进制 ID（Mock 的教学班 ID 是 9007199254740993 这种
+         * 刻意超出 double 精度的值），所以这里从成绩教学班列表里按代码反查。
+         */
+        private String gradeBookOfferingId() {
+            var page = TeacherCourseServices.current()
+                    .listGradeOfferings(GRADE_TERM_YEAR, GRADE_TERM_SEMESTER, 1, 20).join();
+            for (var item : page.getItems()) {
+                if (GRADE_DRAFT_OFFERING.equals(item.getOffering().getOfferingCode())) {
+                    return item.getOffering().getOfferingId();
+                }
+            }
+            throw new IllegalStateException("成绩列表里找不到教学班 " + GRADE_DRAFT_OFFERING);
+        }
+
+        /** 四项原分数逐行对上学生自己的分数；未录入的那一项必须是占位符而不是 0。 */
+        private void requireCorrectionComparison() {
+            require(correctionTarget != null, "更正表单必须先被打开");
+            Parent scope = correctionTarget.root;
+            GradeScoresDTO scores = correctionTarget.row.getScores();
+            requireCorrectionOriginal(scope, "#dailyOriginalLabel", "平时", scores.getDailyScore());
+            requireCorrectionOriginal(scope, "#midtermOriginalLabel", "期中",
+                    scores.getMidtermScore());
+            requireCorrectionOriginal(scope, "#experimentOriginalLabel", "实验",
+                    scores.getExperimentScore());
+            requireCorrectionOriginal(scope, "#finaltermOriginalLabel", "期末",
+                    scores.getFinaltermScore());
+            require(labelIn(scope, "#studentLine").contains(correctionTarget.row.getStudentName())
+                            && labelIn(scope, "#studentLine")
+                            .contains(correctionTarget.row.getStudentUid()),
+                    "更正表单必须写明这名学生的姓名与学号，实际 " + labelIn(scope, "#studentLine"));
+
+            // 拟修改一栏是原文：原分数行保持不动，右边的输入框改成新值，这就是界面上的「更正对比」。
+            TextField experiment = requireIn(scope, "#experimentField", TextField.class, "实验拟修改值");
+            require("".equals(experiment.getText()),
+                    "未录入的组成在拟修改栏里必须是空的，实际 '" + experiment.getText() + "'");
+            experiment.setText("95");
+            require(requireIn(scope, "#experimentOriginalLabel", Label.class, "实验原分数")
+                            .getText().endsWith(CORRECTION_PLACEHOLDER),
+                    "改动拟修改值不得改写原分数行，实际 "
+                            + requireIn(scope, "#experimentOriginalLabel", Label.class, "实验原分数")
+                            .getText());
+
+            Button submit = requireIn(scope, "#submitButton", Button.class, "确认更正按钮");
+            require(submit.isDisabled(), "原因还是空的时候确认必须禁用（空文本在本地就被挡下）");
+            TextArea reason = requireIn(scope, "#reasonArea", TextArea.class, "更正原因");
+            reason.setText("期末成绩登分错误，需要更正");
+            require(!submit.isDisabled(), "填了原因之后确认必须可用");
+            // 长文本按上界截断（与服务端 500 字符的列宽一致），不靠服务端 400 来发现。
+            String tooLong = "长".repeat(CORRECTION_MAX_REASON_LENGTH + 80);
+            reason.setText(tooLong);
+            require(reason.getText().length() == CORRECTION_MAX_REASON_LENGTH
+                            && tooLong.startsWith(reason.getText()),
+                    "超长原因必须按 " + CORRECTION_MAX_REASON_LENGTH + " 字符截断，实际 "
+                            + reason.getText().length());
+            reason.setText(LONG_REASON);
+            requireWindowSize("更正表单截图前");
+            snapshotNode(scope, "gradebook-correction-dialog.png");
+        }
+
+        private void requireCorrectionOriginal(Parent scope, String selector, String label,
+                java.math.BigDecimal value) {
+            String text = labelIn(scope, selector);
+            String expected = value == null
+                    ? CORRECTION_PLACEHOLDER
+                    : value.stripTrailingZeros().toPlainString();
+            require(text.equals(label + CORRECTION_ORIGINAL_PREFIX + expected),
+                    "原分数行必须是「" + label + CORRECTION_ORIGINAL_PREFIX + expected + "」，实际 "
+                            + text);
+        }
+
+        private void closeCorrectionComparisonDialog() {
+            require(correctionTarget != null, "更正表单必须先被打开");
+            requireIn(correctionTarget.root, "#cancelButton", Button.class, "取消按钮").fire();
+            require(!correctionTarget.stage.isShowing(), "取消必须真的关掉更正表单");
+            require(Window.getWindows().size() == 1,
+                    "关闭更正表单后不能留下多余窗口，实际 " + Window.getWindows().size());
+            correctionTarget = null;
+        }
+
+        /** 一次更正表单的装配结果：控制器（反射调用它的 prepare）、Scene root 与夹具学生。 */
+        private final class CorrectionFixture {
+            private final Object controller;
+            private final Parent root;
+            private final TeacherGradeRowDTO row;
+            private final String offeringId;
+            private final String submissionId;
+            private final long revision;
+            private Stage stage;
+
+            private CorrectionFixture(Object controller, Parent root, TeacherGradeRowDTO row,
+                    String offeringId, String submissionId, long revision) {
+                this.controller = controller;
+                this.root = root;
+                this.row = row;
+                this.offeringId = offeringId;
+                this.submissionId = submissionId;
+                this.revision = revision;
+            }
+
+            /** 把「选中了谁、他的原分数是什么」注入控制器（包私有方法，只能反射调用）。 */
+            private void present() throws IOException {
+                try {
+                    Class<?> targetType = Class.forName(
+                            "controller.TeacherGradeCorrectionDialogController$CorrectionTarget");
+                    java.util.Map<GradeComponentCodeDTO, String> originals =
+                            new java.util.LinkedHashMap<>();
+                    for (GradeComponentCodeDTO code : GradeComponentCodeDTO.values()) {
+                        originals.put(code, cellText(code));
+                    }
+                    java.lang.reflect.Constructor<?> constructor = targetType.getDeclaredConstructor(
+                            String.class, String.class, long.class, String.class, String.class,
+                            String.class, java.util.Map.class);
+                    constructor.setAccessible(true);
+                    Object target = constructor.newInstance(offeringId, submissionId,
+                            revision, row.getEnrollmentId(), row.getStudentUid(),
+                            row.getStudentName(), originals);
+                    java.lang.reflect.Method prepare = controller.getClass()
+                            .getDeclaredMethod("prepare", targetType);
+                    prepare.setAccessible(true);
+                    prepare.invoke(controller, target);
+                } catch (ReflectiveOperationException failure) {
+                    throw new IOException("无法把更正目标注入控制器", failure);
+                }
+            }
+
+            private String cellText(GradeComponentCodeDTO code) {
+                GradeScoresDTO scores = row.getScores();
+                java.math.BigDecimal value = switch (code) {
+                    case DAILY -> scores.getDailyScore();
+                    case MIDTERM -> scores.getMidtermScore();
+                    case EXPERIMENT -> scores.getExperimentScore();
+                    case FINALTERM -> scores.getFinaltermScore();
+                };
+                return value == null ? "" : value.stripTrailingZeros().toPlainString();
+            }
+        }
+
         /** 排队任务里的失败不靠异常回传（它在嵌套事件循环里），直接以退出码 1 结束。 */
         private void fail(Throwable failure) {
             failure.printStackTrace();
@@ -1443,6 +1937,31 @@ public final class TeacherCourseUiSmokeTest {
         }
 
         /**
+         * 把主窗口调到指定大小（冒烟里代替用户拖动窗口），并立刻把布局跑一遍，让下一个步骤读到的
+         * 就是新几何。传 {@link #WIDTH}x{@link #HEIGHT} 表示「还原」：那一路按装配时记下的外框尺寸
+         * 还原，场景因此回到正好 860x580，所有主题截图都是同一个尺寸。
+         */
+        private void resizeWindow(double width, double height) {
+            boolean restore = width == WIDTH && height == HEIGHT;
+            primaryStage.setWidth(restore ? frameWidth : width);
+            primaryStage.setHeight(restore ? frameHeight : height);
+            root.applyCss();
+            root.layout();
+        }
+
+        /**
+         * 场景必须正好是 860x580。这是「截图检查就是在 860x580 下做的」这句话的凭据：窗口外框尺寸
+         * 不是场景尺寸，只断言外框等于某个数会把标题栏与边框算进去，反而证明不了截图尺寸。
+         */
+        private void requireWindowSize(String where) {
+            Scene scene = root.getScene();
+            require(Math.abs(scene.getWidth() - WIDTH) < 1.0
+                            && Math.abs(scene.getHeight() - HEIGHT) < 1.0,
+                    where + "：场景必须是 " + WIDTH + "x" + HEIGHT + "，实际 "
+                            + scene.getWidth() + "x" + scene.getHeight());
+        }
+
+        /**
          * 课表子页的根节点。工作台里教学班页也有一个 {@code #emptyLabel}，所以课表页里按 id
          * 查节点必须限定在这个子页内，否则会命中先被遍历到的教学班空态文案。
          */
@@ -1467,25 +1986,189 @@ public final class TeacherCourseUiSmokeTest {
         }
 
         /**
-         * 模拟用户把课表滚到右下角（13 节与第 7 天都要滚才能看到），并确认视口真的动了：
-         * 没有这一步，套件自己的流程从不让视口偏移，滚动位置缺陷就抓不出来。
+         * 模拟用户把课表滚到右下角，并确认视口真的动了：没有这一步，套件自己的流程从不让视口偏移，
+         * 滚动位置缺陷就抓不出来。
+         *
+         * <p>纵向一定滚得动（13 节在 860x580 里装不下）。横向只在表格比视口宽时才滚得动——
+         * 铺满之后默认窗口下横向没有余量，只有把窗口拉窄才有（那条路由
+         * {@link #requireGridScrollsInASmallWindow()} 走）。
          */
         private void scrollGridToBottom(String where) {
             ScrollPane scroll = requireNode("#scheduleScroll", ScrollPane.class, "课表滚动容器");
+            GridPane grid = requireNode("#scheduleGrid", GridPane.class, "课表网格");
             scroll.setVvalue(1.0);
             scroll.setHvalue(1.0);
-            require(scroll.getVvalue() > 0.5 && scroll.getHvalue() > 0.5,
-                    where + "：课表必须真的能滚动，实际 vvalue=" + scroll.getVvalue()
+            require(scroll.getVvalue() > 0.5,
+                    where + "：课表必须真的能纵向滚动，实际 vvalue=" + scroll.getVvalue());
+            require(grid.getWidth() <= scroll.getViewportBounds().getWidth() + 1.0
+                            || scroll.getHvalue() > 0.5,
+                    where + "：表格比视口宽时横向必须滚得动，实际 hvalue=" + scroll.getHvalue()
+                            + "，网格 " + grid.getWidth() + " / 视口 "
+                            + scroll.getViewportBounds().getWidth());
+        }
+
+        /**
+         * 铺满：网格被拉到视口大小，而不是停在自身 pref 尺寸。宽度必须正好等于视口宽度
+         * （{@code fitToWidth} + 日列 {@code hgrow}），高度至少是视口高度——13 节撑不下时按最小高度
+         * 渲染并交给 ScrollPane 滚动，撑得下时正好填满（{@code fitToHeight}）。
+         * 视口同时必须仍在左上角，否则“铺满”会把列头推出屏幕。
+         */
+        private void requireGridFillsViewport(String where) {
+            ScrollPane scroll = requireNode("#scheduleScroll", ScrollPane.class, "课表滚动容器");
+            GridPane grid = requireNode("#scheduleGrid", GridPane.class, "课表网格");
+            Bounds viewport = scroll.getViewportBounds();
+            require(viewport.getWidth() > 0 && viewport.getHeight() > 0,
+                    where + "：视口必须有尺寸，实际 " + viewport);
+            require(Math.abs(grid.getWidth() - viewport.getWidth()) < 1.0,
+                    where + "：网格宽度必须等于视口宽度（铺满），实际网格 " + grid.getWidth()
+                            + " / 视口 " + viewport.getWidth());
+            double expectedHeight = Math.max(viewport.getHeight(), grid.minHeight(-1));
+            require(Math.abs(grid.getHeight() - expectedHeight) < 2.0,
+                    where + "：网格高度必须是 max(视口, 最小高度)，实际网格 " + grid.getHeight()
+                            + " / 视口 " + viewport.getHeight() + " / 最小高度 "
+                            + grid.minHeight(-1));
+            require(scroll.getVvalue() == 0.0 && scroll.getHvalue() == 0.0,
+                    where + "：铺满之后视口仍必须停在左上角，实际 vvalue=" + scroll.getVvalue()
                             + "，hvalue=" + scroll.getHvalue());
+        }
+
+        /**
+         * 调课角标必须是课次块右侧的竖排一列：宽 < 高（三个字纵向排下来，而不是整体旋转 90°，
+         * 也不是原来那个横着占满一行的角标），并且不高于 44px——角标高度就是它自己的偏好高度
+         * （三行 9px 文字约 38px），与课次块/节次行有多高无关，因此不会撑高课次块；44px 这个上界
+         * 顺带钉住角标字号仍是 9px（字号跟着课表一起变大就会撑过 44）。角标文本仍是完整的
+         * {@code 原安排}／{@code 调课后}（上面按 CSS 类取文本的断言）。
+         */
+        private void requireVerticalBadges() {
+            List<Node> badges = new ArrayList<>(root.lookupAll(".teacher-schedule-badge"));
+            require(!badges.isEmpty(), "第 8 周必须画出租角标");
+            for (Node badge : badges) {
+                Bounds bounds = badge.getLayoutBounds();
+                require(bounds.getWidth() < bounds.getHeight(),
+                        "角标必须竖排（宽 < 高），实际 " + bounds.getWidth() + "x"
+                                + bounds.getHeight());
+                require(bounds.getHeight() <= 44.0,
+                        "竖排角标不得撑高课次块（角标高约 38px，与行高无关），实际高度 "
+                                + bounds.getHeight());
+            }
+        }
+
+        /**
+         * 跨周移动后的<b>原位置灰块</b>：第 8 周那一块只带 {@code teacher-schedule-adjusted-original}
+         * 样式（灰底 + 灰边，CSS 里与「调课后」的黄色块成对），正文仍是原来的课程名与原教室。
+         * 角标文本与几何由 {@link #requireVerticalBadges()} 钉住，这里钉的是它「长得像灰块」。
+         */
+        private void requireCrossWeekOriginalBlock() {
+            Button card = cardForCourse(CROSS_WEEK_COURSE_NAME);
+            require(card.getStyleClass().contains(ORIGINAL_BLOCK_CLASS),
+                    "第 8 周的跨周原位置必须是灰显的提示块（" + ORIGINAL_BLOCK_CLASS + "），实际样式 "
+                            + card.getStyleClass());
+            require(!card.getStyleClass().contains(TARGET_BLOCK_CLASS),
+                    "同一个块不得同时是原位置与新位置，实际样式 " + card.getStyleClass());
+            require(cardTexts(card).contains(CROSS_WEEK_LOCATION),
+                    "灰块上必须仍写着原教室 " + CROSS_WEEK_LOCATION + "，实际 " + cardTexts(card));
+            require(!cardTexts(card).contains(CROSS_WEEK_NEW_LOCATION),
+                    "灰块不得提前显示新教室，实际 " + cardTexts(card));
+        }
+
+        /** 跨周移动后的<b>新位置</b>：第 9 周唯一那块带 {@code teacher-schedule-adjusted-target}，地点是新的。 */
+        private void requireCrossWeekTargetBlock() {
+            Button card = cardForCourse(CROSS_WEEK_COURSE_NAME);
+            require(card.getStyleClass().contains(TARGET_BLOCK_CLASS),
+                    "第 9 周的跨周新位置必须是真实占用块（" + TARGET_BLOCK_CLASS + "），实际样式 "
+                            + card.getStyleClass());
+            require(!card.getStyleClass().contains(ORIGINAL_BLOCK_CLASS),
+                    "新位置不得带原位置的灰显样式，实际样式 " + card.getStyleClass());
+            require(cardTexts(card).contains(CROSS_WEEK_NEW_LOCATION),
+                    "新位置必须写新教室 " + CROSS_WEEK_NEW_LOCATION + "，实际 " + cardTexts(card));
+            require(!cardTexts(card).contains(CROSS_WEEK_LOCATION),
+                    "新位置不得还写着原教室，实际 " + cardTexts(card));
+        }
+
+        /** 课表卡片正文里的全部标签文本（标题 + 元信息 + 角标），按出现顺序。 */
+        private static List<String> cardTexts(Node card) {
+            StringBuilder text = new StringBuilder();
+            collectLabelText(card, text);
+            return text.toString().lines().toList();
+        }
+
+        /** 窗口拉窄到装不下整表时：表格按最小宽度渲染（不压字），横向滚动接管，纵向照样能滚。 */
+        private void requireGridScrollsInASmallWindow() {
+            ScrollPane scroll = requireNode("#scheduleScroll", ScrollPane.class, "课表滚动容器");
+            GridPane grid = requireNode("#scheduleGrid", GridPane.class, "课表网格");
+            double viewportWidth = scroll.getViewportBounds().getWidth();
+            require(grid.getWidth() >= grid.minWidth(-1) - 1.0,
+                    "窄窗口下表格不得被压到最小宽度以下，实际网格 " + grid.getWidth()
+                            + " / 最小宽度 " + grid.minWidth(-1));
+            require(grid.getWidth() > viewportWidth + 1.0,
+                    "窄窗口下表格应比视口宽并交给横向滚动，实际网格 " + grid.getWidth()
+                            + " / 视口 " + viewportWidth);
+            scrollGridToBottom("窄窗口滚到底");
+            scroll.setVvalue(0.0);
+            scroll.setHvalue(0.0);
         }
 
         private Button button(String selector, String description) {
             return requireNode(selector, Button.class, description);
         }
 
+        // ---------------------------------------------------------------- 周次控件
+
+        @SuppressWarnings("unchecked")
+        private Spinner<Integer> weekSpinner() {
+            return (Spinner<Integer>) requireNode("#weekSpinner", Spinner.class, "周次控件");
+        }
+
+        private SpinnerValueFactory.IntegerSpinnerValueFactory weekRange() {
+            SpinnerValueFactory<Integer> factory = weekSpinner().getValueFactory();
+            if (!(factory instanceof SpinnerValueFactory.IntegerSpinnerValueFactory range)) {
+                throw new IllegalStateException(
+                        "周次控件必须有一个整数范围的值工厂，实际 " + factory);
+            }
+            return range;
+        }
+
+        /** 周次控件当前显示的周：控件值与输入框文本必须一致，用户看到的就是它。 */
+        private int shownWeek() {
+            Spinner<Integer> spinner = weekSpinner();
+            Integer value = spinner.getValue();
+            if (value == null) {
+                throw new IllegalStateException(
+                        "周次控件没有值：范围应来自服务端的 minWeek/maxWeek");
+            }
+            require(String.valueOf(value).equals(spinner.getEditor().getText()),
+                    "周次输入框必须显示当前这一周，实际输入框 "
+                            + spinner.getEditor().getText() + " / 值 " + value);
+            return value;
+        }
+
+        /** 按一次向下箭头（键盘 ↓ 走同一条 value factory 路径）：R4 之后它是往后一周。 */
+        private void pressWeekDown() {
+            weekSpinner().decrement(1);
+        }
+
+        /** 按一次向上箭头（键盘 ↑ 走同一条 value factory 路径）：R4 之后它是往前一周。 */
+        private void pressWeekUp() {
+            weekSpinner().increment(1);
+        }
+
         private String labelText(String selector) {
             Label label = requireNode(selector, Label.class, "标签 " + selector);
             return label.getText() == null ? "" : label.getText();
+        }
+
+        /**
+         * 在 FX 线程上等待一段真实时间：被阻塞的这段时间里没有脉冲，但动画时钟按脉冲时间戳推进，
+         * 因此下一次脉冲会把已经过期的动画一次性推到结束（提示消退正是这样一条 Timeline）。
+         * 只在必须等真实时间的地方用（提示的 3 秒消退），别拿它代替逐步的交互。
+         */
+        private void sleepQuietly(long millis) {
+            try {
+                Thread.sleep(millis);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("等待提示消退时被中断", interrupted);
+            }
         }
 
         /** Tab 正文里的文本行数：正文由控制器用 Label 逐行渲染，行数即数据完整度。 */

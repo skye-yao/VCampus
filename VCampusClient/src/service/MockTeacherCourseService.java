@@ -22,12 +22,20 @@ import java.util.concurrent.CompletableFuture;
 
 import course.grade.GradeCalculator;
 import course.grade.GradePointScale;
+import dto.course.teacher.ConfirmGradeImportRequestDTO;
 import dto.course.teacher.GradeBookContentDTO;
 import dto.course.teacher.GradeComponentCodeDTO;
 import dto.course.teacher.GradeComponentDTO;
+import dto.course.teacher.GradeImportPreviewDTO;
 import dto.course.teacher.GradeRowInputDTO;
 import dto.course.teacher.GradeSchemeDTO;
 import dto.course.teacher.GradeScoresDTO;
+import dto.course.teacher.MarkTeacherApplicationReadDTO;
+import dto.course.teacher.PreviewGradeImportRequestDTO;
+import dto.course.teacher.ReviseGradeImportRequestDTO;
+import dto.course.teacher.StartGradeRevisionRequestDTO;
+import dto.course.teacher.TeacherFileTicketDTO;
+import dto.course.teacher.TeacherFileUploadRequestDTO;
 import dto.course.teacher.TeacherGradeBookDTO;
 import dto.course.teacher.TeacherGradeOfferingDTO;
 import dto.course.teacher.TeacherGradeRowDTO;
@@ -39,6 +47,9 @@ import dto.course.ScheduleDisplayKindDTO;
 import dto.course.admin.approval.AdjustmentRequestDetailDTO;
 import dto.course.admin.approval.AdjustmentRequestSummaryDTO;
 import dto.course.admin.approval.AdjustmentTargetDTO;
+import dto.course.admin.approval.ApprovalStatusDTO;
+import dto.course.admin.approval.GradeSubmissionDetailDTO;
+import dto.course.admin.approval.GradeSubmissionSummaryDTO;
 import dto.course.admin.schedule.ScheduleArrangementDTO;
 import dto.course.admin.schedule.ScheduleConflictDTO;
 import dto.course.admin.schedule.ScheduleConflictSeverityDTO;
@@ -48,6 +59,8 @@ import dto.course.teacher.TeacherAdjustmentOptionsDTO;
 import dto.course.teacher.TeacherAdjustmentPreviewDTO;
 import dto.course.teacher.TeacherAdjustmentTargetInputDTO;
 import dto.course.teacher.TeacherAdjustmentWriteDTO;
+import dto.course.teacher.TeacherApplicationDTO;
+import dto.course.teacher.TeacherApplicationDetailDTO;
 import dto.course.teacher.TeacherCalendarDateDTO;
 import dto.course.teacher.TeacherCourseActions;
 import dto.course.teacher.TeacherOfferingDTO;
@@ -145,12 +158,26 @@ public final class MockTeacherCourseService implements TeacherCourseService {
     private static final String CLASSROOM_B_203 = "8103";
     private static final String CLASSROOM_C_301 = "8105";
 
+    // 统一「我的申请」的 mock 约定：两张事实表的申请行共用一套文案与判据，成绩批次是两个终态夹具。
+    // 已读回执按「类型|ID」存放，因此数字相同的两条申请互不影响——这正是真实服务里复合主键的语义。
+    private static final String APPLICATION_MISSING = "申请不存在或不属于本人";
+    private static final String STALE_READ_CONFIRM = "申请结果已更新，请刷新后重试";
+    private static final String SUBMISSION_APPROVED_ID = "9601";
+    private static final String SUBMISSION_REJECTED_ID = "9602";
+    private static final String SUBMISSION_APPROVED_AT = "2026-09-13T08:00:00Z";
+    private static final String SUBMISSION_REJECTED_AT = "2026-09-13T06:00:00Z";
+    private static final String SUBMISSION_APPROVED_COMMENT = "同意，成绩已发布";
+    private static final String SUBMISSION_REJECTED_COMMENT = "期末分与平时分不一致，请核对后重新提交";
+
     // 成绩 mock 的确定性约定：三个状态夹具（草稿含缺分、待审核、已驳回含更正原因）与一份配齐的
     // 权重方案；保存/提交会真实改变快照（revision 递增、状态迁移），因此界面在没有服务端时也能走完
     // “编辑 → 保存 → 提交 → 只读”的完整路径。提交的分数完整性与权重规则复用 Common 的纯计算。
     private static final String GRADE_STATE_DRAFT = "DRAFT";
     private static final String GRADE_STATE_PENDING = "PENDING";
+    private static final String GRADE_STATE_APPROVED = "APPROVED";
     private static final String GRADE_STATE_REJECTED = "REJECTED";
+    /** 更正原因的字符上限：与三个原因列（工作副本、批次、变更日志）的宽度一致，服务端同样拒绝超长。 */
+    private static final int GRADE_MAX_REASON = 500;
     private static final String GRADE_SAVED_MESSAGE = "成绩草稿已保存";
     private static final String GRADE_SUBMITTED_MESSAGE = "成绩批次已提交";
     /** 被驳回批次的审核意见（管理员填写）；待审核批次还没有意见，保持 null。 */
@@ -158,6 +185,15 @@ public final class MockTeacherCourseService implements TeacherCourseService {
     private static final String GRADE_SUBMISSION_ID = "9601";
     /** 配齐的权重：30/20/20/30，合计 10000 万分比。 */
     private static final int[] GRADE_WEIGHTS = {3000, 2000, 2000, 3000};
+
+    // 导入 mock：票据端口与协议上限与真实文件端口一致，文案与服务端逐字符一致，界面因此能在
+    // 没有服务端时走完“上传 → 预览 → 修订 → 确认/取消”。
+    private static final int MOCK_FILE_PORT = 8889;
+    private static final long MOCK_FILE_PORT_MAX_BYTES = 5L * 1024 * 1024;
+    private static final String IMPORT_EXPIRED_TEXT = "导入预览已过期，请重新导入";
+    private static final String IMPORT_PREVIEW_STALE_TEXT = "导入预览已更新，请重新加载预览后重试";
+    /** 首次预览的版本号，与真实服务一致（从 1 开始，每次修订递增）。 */
+    private static final int FIRST_PREVIEW_REVISION = 1;
 
     private final List<CourseTermDTO> terms = List.of(
             new CourseTermDTO(2025, 3, "2025-2026 春学期"),
@@ -169,9 +205,15 @@ public final class MockTeacherCourseService implements TeacherCourseService {
     private final Map<String, List<ScheduleArrangementDTO>> schedules = new LinkedHashMap<>();
     private final Map<String, AdjustmentRequestDetailDTO> adjustmentRequests = new LinkedHashMap<>();
     private final Map<String, RecordedAdjustmentOperation> adjustmentOperations = new LinkedHashMap<>();
+    private final Map<String, MockSubmission> gradeSubmissions = new LinkedHashMap<>();
+    /** 已读回执：键是「类型|申请ID」，与真实服务 {teacher,type,id} 主键的语义一致。 */
+    private final Map<String, String> seenStateKeys = new LinkedHashMap<>();
     private final Map<String, MockGradeBook> gradeBooks = new LinkedHashMap<>();
     private final Map<String, RecordedGradeOperation> gradeOperations = new LinkedHashMap<>();
+    private final Map<String, TeacherFileUploadRequestDTO> uploadTickets = new LinkedHashMap<>();
+    private final Map<String, MockImportPreview> importPreviews = new LinkedHashMap<>();
     private long nextAdjustmentRequestId = 9406;
+    private long nextImportSequence = 1;
 
     public MockTeacherCourseService() {
         seedOfferings();
@@ -180,6 +222,7 @@ public final class MockTeacherCourseService implements TeacherCourseService {
         seedAutumnOffering();
         seedSchedules();
         seedAdjustmentRequests();
+        seedGradeSubmissions();
         seedGradeBooks();
     }
 
@@ -468,6 +511,165 @@ public final class MockTeacherCourseService implements TeacherCourseService {
         }
     }
 
+    // -------------------------------------------------------- 统一我的申请与已读
+
+    /**
+     * 统一的「我的申请」：调课申请与成绩提交批次合并、按 {@code (submittedAt DESC, type, id DESC)}
+     * 排序后分页，与真实服务同一套类型/状态白名单（成绩提交没有 WITHDRAWN）。
+     *
+     * <p>mock 里没有 PENDING 的成绩批次：种子数据只有已通过与已驳回两批，因此默认的
+     * 「待审批」视图仍然只有调课申请，界面在不连服务端时看到的分页同样真实。
+     */
+    @Override
+    public CompletableFuture<TeacherPageDTO<TeacherApplicationDTO>> listMyApplications(
+            String type, String status, int page, int size) {
+        try {
+            String wantedType = blankToNull(type);
+            if (wantedType != null && !TeacherApplicationDTO.isType(wantedType)) {
+                throw badRequest("type 必须为 SCHEDULE_ADJUSTMENT 或 GRADE_SUBMISSION");
+            }
+            String wantedStatus = blankToNull(status);
+            if (wantedStatus != null && !TeacherApplicationDTO.isStatus(wantedType, wantedStatus)) {
+                throw badRequest("status 对该类型无效: " + wantedStatus);
+            }
+            List<TeacherApplicationDTO> matched = new ArrayList<>();
+            for (AdjustmentRequestDetailDTO request : adjustmentRequests.values()) {
+                TeacherApplicationDTO row = adjustmentApplication(request);
+                if (matches(row, wantedType, wantedStatus)) matched.add(row);
+            }
+            for (MockSubmission submission : gradeSubmissions.values()) {
+                TeacherApplicationDTO row = submissionApplication(submission);
+                if (matches(row, wantedType, wantedStatus)) matched.add(row);
+            }
+            matched.sort(MockTeacherCourseService::compareApplications);
+            return CompletableFuture.completedFuture(page(matched, page, size));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    /** 详情：按类型取恰好一个变体——调课详情，或成绩批次的只读快照。 */
+    @Override
+    public CompletableFuture<TeacherApplicationDetailDTO> getMyApplication(String type, String id) {
+        try {
+            String wantedType = requireApplicationType(type);
+            String wantedId = requiredDecimal(id, "id");
+            if (TeacherApplicationDTO.SCHEDULE_ADJUSTMENT.equals(wantedType)) {
+                AdjustmentRequestDetailDTO request = adjustmentRequests.get(wantedId);
+                if (request == null) throw notFound(APPLICATION_MISSING);
+                return CompletableFuture.completedFuture(new TeacherApplicationDetailDTO(
+                        adjustmentApplication(request), request, null));
+            }
+            MockSubmission submission = gradeSubmissions.get(wantedId);
+            if (submission == null) throw notFound(APPLICATION_MISSING);
+            return CompletableFuture.completedFuture(new TeacherApplicationDetailDTO(
+                    submissionApplication(submission), null, submissionDetail(submission)));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    /**
+     * 标记已读：与真实服务同样是 compare-and-set——状态键不一致就先什么都不写地拒绝（冲突携带当前
+     * 行）。已读回执按「类型 + ID」存放，两张表里数字相同的申请互不影响。
+     */
+    @Override
+    public CompletableFuture<TeacherApplicationDTO> markApplicationRead(
+            MarkTeacherApplicationReadDTO write) {
+        try {
+            if (write == null) throw badRequest("请求体不能为空");
+            String type = requireApplicationType(write.getType());
+            String id = requiredDecimal(write.getId(), "id");
+            String expected = blankToNull(write.getExpectedStateKey());
+            if (expected == null) throw badRequest("expectedStateKey 不能为空");
+            TeacherApplicationDTO current = findApplication(type, id);
+            if (current == null) throw notFound(APPLICATION_MISSING);
+            if (!current.getStateKey().equals(expected)) {
+                throw new TeacherCourseServiceException(MessageCode.CONFLICT,
+                        STALE_READ_CONFIRM, List.of(), null, null, current);
+            }
+            seenStateKeys.put(type + "|" + id, current.getStateKey());
+            return CompletableFuture.completedFuture(findApplication(type, id));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    private TeacherApplicationDTO findApplication(String type, String id) {
+        if (TeacherApplicationDTO.SCHEDULE_ADJUSTMENT.equals(type)) {
+            AdjustmentRequestDetailDTO request = adjustmentRequests.get(id);
+            return request == null ? null : adjustmentApplication(request);
+        }
+        MockSubmission submission = gradeSubmissions.get(id);
+        return submission == null ? null : submissionApplication(submission);
+    }
+
+    private static boolean matches(TeacherApplicationDTO row, String type, String status) {
+        return (type == null || type.equals(row.getType()))
+                && (status == null || status.equals(row.getStatus()));
+    }
+
+    /** 与真实服务同一条排序规则：提交时间倒序，同一时刻按类型、再按 ID 倒序。 */
+    private static int compareApplications(TeacherApplicationDTO left, TeacherApplicationDTO right) {
+        int byTime = right.getSubmittedAt().compareTo(left.getSubmittedAt());
+        if (byTime != 0) return byTime;
+        int byType = left.getType().compareTo(right.getType());
+        if (byType != 0) return byType;
+        return Long.compare(Long.parseLong(right.getId()), Long.parseLong(left.getId()));
+    }
+
+    private TeacherApplicationDTO adjustmentApplication(AdjustmentRequestDetailDTO request) {
+        // mock 的调课详情没有 withdrawn_at 列，撤销的「已处理时间」退回提交时间；真实服务用
+        // withdrawn_at。两者都让状态键随状态变化而改变，界面的未读判据因此一致。
+        String handledAt = request.getReviewedAt() != null ? request.getReviewedAt()
+                : request.getStatus() == AdjustmentRequestStatusDTO.WITHDRAWN
+                        ? request.getSubmittedAt() : null;
+        return applicationSummary(TeacherApplicationDTO.SCHEDULE_ADJUSTMENT, request.getRequestId(),
+                request.getOfferingId(), request.getSubmittedAt(), handledAt,
+                request.getStatus().name(), request.getReviewComment());
+    }
+
+    private TeacherApplicationDTO submissionApplication(MockSubmission submission) {
+        return applicationSummary(TeacherApplicationDTO.GRADE_SUBMISSION,
+                submission.submissionId(), submission.offeringId(), submission.submittedAt(),
+                submission.reviewedAt(), submission.status(), submission.reviewComment());
+    }
+
+    private TeacherApplicationDTO applicationSummary(String type, String id, String offeringId,
+            String submittedAt, String handledAt, String status, String reviewComment) {
+        TeacherOfferingDTO offering = offerings.get(offeringId);
+        String title = offering == null ? "" : offering.getCourseName() + "　"
+                + offering.getOfferingCode();
+        String stateKey = status + ":" + (handledAt != null ? handledAt : submittedAt);
+        String seen = seenStateKeys.get(type + "|" + id);
+        boolean canWithdraw = TeacherApplicationDTO.SCHEDULE_ADJUSTMENT.equals(type)
+                && GRADE_STATE_PENDING.equals(status);
+        return new TeacherApplicationDTO(type, id, offeringId, title, status, submittedAt,
+                handledAt, reviewComment, canWithdraw, stateKey, !stateKey.equals(seen));
+    }
+
+    private GradeSubmissionDetailDTO submissionDetail(MockSubmission submission) {
+        TeacherOfferingDTO offering = offerings.get(submission.offeringId());
+        GradeSubmissionSummaryDTO summary = new GradeSubmissionSummaryDTO(submission.submissionId(),
+                submission.offeringId(), offering == null ? "" : offering.getCourseName(),
+                offering == null ? "" : offering.getOfferingCode(), submission.version(),
+                ADJUSTMENT_APPLICANT, ADJUSTMENT_TEACHER, submission.totalCount(),
+                submission.average(), submission.highest(), submission.lowest(),
+                submission.failedCount(), ApprovalStatusDTO.valueOf(submission.status()),
+                submission.submittedAt());
+        return new GradeSubmissionDetailDTO(summary, List.of(), List.of(), ADJUSTMENT_REVIEWER,
+                submission.reviewedAt(), submission.reviewComment());
+    }
+
+    private static String requireApplicationType(String type) {
+        String wanted = blankToNull(type);
+        if (wanted == null) throw badRequest("type 不能为空");
+        if (!TeacherApplicationDTO.isType(wanted)) {
+            throw badRequest("type 必须为 SCHEDULE_ADJUSTMENT 或 GRADE_SUBMISSION");
+        }
+        return wanted;
+    }
+
     // ------------------------------------------------------------------ 成绩工作副本
 
     /** 本人任课教学班的成绩列表：只含 role=0 的教学班，未建草稿的班以虚拟草稿（revision=0）出现。 */
@@ -521,6 +723,199 @@ public final class MockTeacherCourseService implements TeacherCourseService {
     public CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> submitGradeBook(
             WriteGradeBookRequestDTO write) {
         return gradeWrite(TeacherCourseActions.SUBMIT_GRADE_BOOK, write, true);
+    }
+
+    @Override
+    public CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>>
+            reopenRejectedGradeBook(StartGradeRevisionRequestDTO revision) {
+        return gradeRevision(TeacherCourseActions.REOPEN_REJECTED_GRADE_BOOK, revision, false);
+    }
+
+    @Override
+    public CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> beginGradeCorrection(
+            StartGradeRevisionRequestDTO revision) {
+        return gradeRevision(TeacherCourseActions.BEGIN_GRADE_CORRECTION, revision, true);
+    }
+
+    // ------------------------------------------------------------------ Excel 模板、导入与名单导出
+
+    /**
+     * 夹具的下载票据：mock 不生成真实的 xlsx 文件，票据里的长度与摘要对应一份空文件，
+     * 因此假传输替身之外的调用只会得到一次干净的空下载，而不是伪造一个看起来像模板的文件。
+     */
+    private static final long MOCK_TICKET_BYTES = 0L;
+    private static final String MOCK_TICKET_SHA256 =
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+    private static final String MOCK_TICKET_EXPIRES_AT = "2026-09-16T00:00:00Z";
+
+    @Override
+    public CompletableFuture<TeacherFileTicketDTO> requestGradeTemplate(String offeringId) {
+        try {
+            // 与真实服务同序：先按归属校验入口取成绩表，再签发票据。
+            String id = requireGradeOffering(offeringId);
+            snapshotOf(id);
+            return CompletableFuture.completedFuture(downloadTicket("mock-template-" + id));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    @Override
+    public CompletableFuture<TeacherFileTicketDTO> requestRosterExport(
+            String offeringId, String query, Integer enrollmentStatus) {
+        try {
+            String id = requireGradeOffering(offeringId);
+            // 过滤条件在这里只做形状校验：mock 的名单导出同样取全部结果，不只有一页。
+            rosterOf(id);
+            return CompletableFuture.completedFuture(downloadTicket("mock-roster-" + id));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    @Override
+    public CompletableFuture<TeacherFileTicketDTO> requestGradeExport(String offeringId) {
+        try {
+            // 与真实服务同序：先按归属校验入口取成绩表（专业来源是名单，它是同一份归属校验），
+            // 再签发票据。清单本身只取已保存草稿，因此不需要任何请求体。
+            String id = requireGradeOffering(offeringId);
+            snapshotOf(id);
+            return CompletableFuture.completedFuture(downloadTicket("mock-grades-" + id));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    @Override
+    public CompletableFuture<TeacherFileTicketDTO> beginGradeUpload(
+            TeacherFileUploadRequestDTO upload) {
+        try {
+            if (upload == null) throw badRequest("请求体不能为空");
+            String id = requireGradeOffering(upload.getOfferingId());
+            if (upload.getByteLength() < 0) throw badRequest("byteLength 不能为负数");
+            String ticket = "mock-upload-" + id + "-" + (nextImportSequence++);
+            uploadTickets.put(ticket, upload);
+            return CompletableFuture.completedFuture(new TeacherFileTicketDTO(ticket,
+                    TeacherFileTicketDTO.DIRECTION_UPLOAD, MOCK_FILE_PORT, upload.getByteLength(),
+                    MOCK_FILE_PORT_MAX_BYTES, upload.getSha256(), MOCK_TICKET_EXPIRES_AT));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    /**
+     * 预览：mock 不解析工作簿，候选就是教师上传时的编辑副本（缺列/空白因此天然保留原值）。
+     * 版本与名单摘要的比对与真实服务一致，且预览不写任何草稿。
+     */
+    @Override
+    public CompletableFuture<GradeImportPreviewDTO> previewGradeImport(
+            PreviewGradeImportRequestDTO request) {
+        try {
+            if (request == null) throw badRequest("请求体不能为空");
+            String ticket = blankToNull(request.getUploadTicket());
+            TeacherFileUploadRequestDTO upload = ticket == null ? null
+                    : uploadTickets.remove(ticket);
+            if (upload == null) throw notFound(IMPORT_EXPIRED_TEXT);
+            GradeBookContentDTO baseDraft = request.getBaseDraft();
+            if (baseDraft == null) throw badRequest("baseDraft 不能为空");
+            String offeringId = requireGradeOffering(baseDraft.getOfferingId());
+            MockGradeBook book = requireBookForWrite(offeringId);
+            if (!book.rosterDigest().equals(baseDraft.getRosterDigest())) {
+                throw gradeConflict("名单已变化，请重新加载成绩表并合并已输入的成绩",
+                        snapshotOf(offeringId));
+            }
+            if (book.revision() != baseDraft.getExpectedRevision()) {
+                throw gradeConflict("成绩草稿版本已变化，请重新加载后重试", snapshotOf(offeringId));
+            }
+            return CompletableFuture.completedFuture(
+                    openPreview(baseDraft, FIRST_PREVIEW_REVISION, null));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    @Override
+    public CompletableFuture<GradeImportPreviewDTO> reviseGradeImport(
+            ReviseGradeImportRequestDTO revise) {
+        try {
+            if (revise == null) throw badRequest("请求体不能为空");
+            MockImportPreview stored = requirePreview(revise.getImportToken());
+            requirePreviewRevision(stored, revise.getExpectedPreviewRevision());
+            // 候选不变（mock 没有原始文件行可重算），但版本严格加一：客户端必须拿着新版本再来。
+            return CompletableFuture.completedFuture(openPreview(stored.preview().getCandidate(),
+                    stored.preview().getPreviewRevision() + 1, revise.getImportToken()));
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    /**
+     * 确认导入：只有这一个动作会写库，走的是与保存草稿同一条写路径（动作名不同，因此操作日志
+     * 里能区分“导入改写整班成绩”与“手工改一格”）；它绝不触发提交审批。
+     */
+    @Override
+    public CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> confirmGradeImport(
+            ConfirmGradeImportRequestDTO confirm) {
+        try {
+            if (confirm == null) throw badRequest("请求体不能为空");
+            MockImportPreview stored = requirePreview(confirm.getImportToken());
+            requirePreviewRevision(stored, confirm.getExpectedPreviewRevision());
+            String token = confirm.getImportToken();
+            return gradeWrite(TeacherCourseActions.CONFIRM_GRADE_IMPORT,
+                    new WriteGradeBookRequestDTO(confirm.getOperationId(),
+                            stored.preview().getCandidate()),
+                    false).whenComplete((value, failure) -> {
+                        if (failure == null) importPreviews.remove(token);
+                    });
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
+    @Override
+    public CompletableFuture<Void> cancelGradeImport(String importToken) {
+        // 取消是幂等的：令牌不存在同样算成功——服务端本来就没写过任何东西。
+        importPreviews.remove(importToken);
+        return CompletableFuture.completedFuture(null);
+    }
+
+    private TeacherFileTicketDTO downloadTicket(String ticket) {
+        return new TeacherFileTicketDTO(ticket, TeacherFileTicketDTO.DIRECTION_DOWNLOAD,
+                MOCK_FILE_PORT, MOCK_TICKET_BYTES, MOCK_FILE_PORT_MAX_BYTES,
+                MOCK_TICKET_SHA256, MOCK_TICKET_EXPIRES_AT);
+    }
+
+    /**
+     * 建立/推进一次预览。版本号与真实服务同一条规则：首次为 1，每次修订严格加一；修订请求必须带上
+     * 当前版本，否则整个修订被拒绝（{@link #requirePreviewRevision}）。mock 没有解析出来的原始行，
+     * 因此异常计数恒为 0——但它不会假装修订永远成功，客户端「基版本拿旧了」的缺陷在这里就会暴露成
+     * 一次真实的冲突，而不是一个恒真的空实现。
+     */
+    private GradeImportPreviewDTO openPreview(GradeBookContentDTO candidate, int revision,
+            String token) {
+        int rows = candidate.getRows().size();
+        GradeImportPreviewDTO preview = new GradeImportPreviewDTO(
+                token == null ? "mock-import-" + (nextImportSequence++) : token, revision, candidate,
+                rows, rows, 0, List.of(), MOCK_TICKET_EXPIRES_AT);
+        importPreviews.put(preview.getImportToken(), new MockImportPreview(preview));
+        return preview;
+    }
+
+    private MockImportPreview requirePreview(String importToken) {
+        MockImportPreview stored = importToken == null ? null : importPreviews.get(importToken);
+        if (stored == null) throw notFound(IMPORT_EXPIRED_TEXT);
+        return stored;
+    }
+
+    /** 修订/确认的版本闸门：与服务端一样要求严格相等，相等才放行。 */
+    private static void requirePreviewRevision(MockImportPreview stored, int expected) {
+        if (stored.preview().getPreviewRevision() != expected) {
+            throw gradeConflict(IMPORT_PREVIEW_STALE_TEXT, null);
+        }
+    }
+
+    /** 一次导入预览：令牌、版本与候选内容；mock 里候选就是上传时的编辑副本。 */
+    private record MockImportPreview(GradeImportPreviewDTO preview) {
     }
 
     /**
@@ -605,6 +1000,90 @@ public final class MockTeacherCourseService implements TeacherCourseService {
         }
     }
 
+    /**
+     * 两个版本入口共用一条写路径：请求体 → operationId → 幂等重放 → 教学班，然后按
+     * <b>没有工作副本 → 待审批批次 → 已打开草稿 → 来源批次与状态 → 期望版本</b>的守卫顺序重开工作副本。
+     *
+     * <p>这个顺序与真实服务的 {@code startRevisionTransaction} 逐条一致，冲突文案也逐字一致，因此客户端
+     * 在本地看到的拒绝理由就是服务端会给的那一句。顺序本身是有意义的：守卫是「为什么不能开始这次版本
+     * 变更」的优先级，版本排在最后——客户端拿着旧版本撞上一个已经打开的草稿时，服务端说「草稿已经打开」，
+     * mock 也必须这么说，否则任何钉住冲突文案的无工具包测试都会钉住一句与服务端无关的假话。
+     *
+     * <p>mock 的工作副本只有一个分数集合（提交时写进去的那一份），所以“从冻结批次重建”在这里就是
+     * “保持原样”——快照复制本身属于服务端语义，由服务端的真实库测试覆盖。
+     *
+     * @param correction true 表示更正（来源必须是最后一次<b>已通过</b>的批次、原因必填并写到工作副本上）；
+     *                   false 表示驳回重开（来源必须是最后一次<b>被驳回</b>的批次、原因非必填且一律清空）
+     */
+    private CompletableFuture<TeacherOperationResultDTO<TeacherGradeBookDTO>> gradeRevision(
+            String action, StartGradeRevisionRequestDTO request, boolean correction) {
+        try {
+            if (request == null) throw badRequest("请求体不能为空");
+            String operationId = requireOperationId(request.getOperationId());
+            String offeringId = requiredDecimal(request.getOfferingId(), "offeringId");
+            String sourceSubmissionId = requiredDecimal(request.getSourceSubmissionId(),
+                    "sourceSubmissionId");
+            if (request.getExpectedRevision() < 0) {
+                throw badRequest("expectedRevision 不能为负数");
+            }
+            String reason = blankToNull(request.getReason());
+            if (correction && reason == null) throw badRequest("更正原因不能为空");
+            if (reason != null && reason.length() > GRADE_MAX_REASON) {
+                throw badRequest("更正原因不能超过 " + GRADE_MAX_REASON + " 字符");
+            }
+            String digest = action + "|" + offeringId + "|" + sourceSubmissionId + "|"
+                    + request.getExpectedRevision() + "|" + reason;
+            RecordedGradeOperation stored = gradeOperations.get(operationId);
+            if (stored != null) {
+                if (!stored.digest().equals(digest)) {
+                    throw gradeConflict("operationId 已用于不同的成绩写入请求", null);
+                }
+                TeacherOperationResultDTO<TeacherGradeBookDTO> first = stored.result();
+                return CompletableFuture.completedFuture(new TeacherOperationResultDTO<>(
+                        first.getOperationId(), first.getMessage(), first.getValue(), true));
+            }
+
+            String id = requireGradeOffering(offeringId);
+            MockGradeBook book = gradeBooks.get(id);
+            // 守卫顺序与服务端逐条一致（pending → 已打开草稿 → 来源批次与状态 → 版本），
+            // 因此本地看到的冲突文案就是服务端会给的那一句。版本放在最后：客户端拿着旧版本
+            // 撞上一个已经打开的草稿时，服务端说的是「草稿已经打开」而不是「版本已变化」。
+            if (book == null) {
+                // 没有工作副本就没有任何批次可复制：虚拟草稿本来就可以直接编辑，不需要“重开”。
+                throw gradeConflict("该教学班还没有成绩批次，不能重开或发起更正", snapshotOf(id));
+            }
+            if (GRADE_STATE_PENDING.equals(book.state())) {
+                throw gradeConflict("该教学班已有待审批的成绩批次，请先等待审批结果", snapshotOf(id));
+            }
+            // 已打开的普通草稿必须先提交或丢弃：草稿只有一份，第二版不能把教师正在改的内容顶掉。
+            if (GRADE_STATE_DRAFT.equals(book.state())) {
+                throw gradeConflict("成绩草稿已经打开，请先提交或丢弃当前草稿", snapshotOf(id));
+            }
+            if (book.lastSubmissionId() == null
+                    || !book.lastSubmissionId().equals(sourceSubmissionId)) {
+                throw gradeConflict("来源批次不是该教学班最后一次提交，请重新加载后重试",
+                        snapshotOf(id));
+            }
+            String required = correction ? GRADE_STATE_APPROVED : GRADE_STATE_REJECTED;
+            if (!required.equals(book.state())) {
+                throw gradeConflict(correction ? "只有已通过的成绩批次可以发起更正"
+                        : "只有被驳回的成绩批次可以重新编辑", snapshotOf(id));
+            }
+            if (book.revision() != request.getExpectedRevision()) {
+                throw gradeConflict("成绩草稿版本已变化，请重新加载后重试", snapshotOf(id));
+            }
+            book.reopen(sourceSubmissionId, correction ? reason : null);
+            TeacherOperationResultDTO<TeacherGradeBookDTO> result = new TeacherOperationResultDTO<>(
+                    operationId,
+                    correction ? "更正草稿已建立，保存或提交后等待管理员审核" : "已回到编辑状态，修改后可重新提交",
+                    snapshotOf(id), false);
+            gradeOperations.put(operationId, new RecordedGradeOperation(digest, result));
+            return CompletableFuture.completedFuture(result);
+        } catch (RuntimeException failure) {
+            return failed(failure);
+        }
+    }
+
     /** 教学班必须属于 mock 的任课范围，且未建草稿时按 virtual 草稿处理。 */
     private String requireGradeOffering(String offeringId) {
         String id = requiredDecimal(offeringId, "offeringId");
@@ -639,7 +1118,8 @@ public final class MockTeacherCourseService implements TeacherCourseService {
         }
         return new TeacherGradeBookDTO(offeringId, book == null ? 0 : book.revision(),
                 rosterDigest, stateOf(book), scheme, rows,
-                book == null ? null : book.lastSubmissionId(), null,
+                book == null ? null : book.lastSubmissionId(),
+                book == null ? null : book.baseSubmissionId(),
                 book == null || book.canEdit(),
                 book == null ? null : book.correctionReason(), false,
                 book == null ? null : book.reviewComment());
@@ -817,6 +1297,7 @@ public final class MockTeacherCourseService implements TeacherCourseService {
         private String state = GRADE_STATE_DRAFT;
         private boolean canEdit = true;
         private String correctionReason;
+        private String baseSubmissionId;
         private String lastSubmissionId;
         private String reviewComment;
         private String rosterDigest = "";
@@ -849,6 +1330,10 @@ public final class MockTeacherCourseService implements TeacherCourseService {
 
         private String lastSubmissionId() {
             return lastSubmissionId;
+        }
+
+        private String baseSubmissionId() {
+            return baseSubmissionId;
         }
 
         private String reviewComment() {
@@ -896,6 +1381,18 @@ public final class MockTeacherCourseService implements TeacherCourseService {
             this.state = GRADE_STATE_PENDING;
             this.canEdit = false;
             this.lastSubmissionId = GRADE_SUBMISSION_ID;
+        }
+
+        /**
+         * 从一个已结束的批次重开工作副本：状态回到草稿、来源批次成为新的基础批次。
+         * 分数保持原样（mock 的工作副本就是那一批的分数）；重开不推进版本，推进它的是随后的保存。
+         * 原因只属于更正——驳回重开一律传 {@code null}，绝不沿用上一轮的更正原因。
+         */
+        private void reopen(String sourceSubmissionId, String reason) {
+            this.state = GRADE_STATE_DRAFT;
+            this.canEdit = true;
+            this.baseSubmissionId = sourceSubmissionId;
+            this.correctionReason = reason;
         }
     }
 
@@ -990,6 +1487,16 @@ public final class MockTeacherCourseService implements TeacherCourseService {
 
     private record RecordedAdjustmentOperation(String digest,
             TeacherOperationResultDTO<AdjustmentRequestDetailDTO> result) {
+    }
+
+    /**
+     * 一个成绩提交批次的 mock 事实：{@code grade_submission} 的字段子集加批次统计。它是只读的——
+     * 确认导入/提交会改写 mock 的成绩工作副本，但不会回写已经存在的历史批次（真实服务同样如此，
+     * 批次是冻结快照）。
+     */
+    private record MockSubmission(String submissionId, String offeringId, String status, int version,
+            int totalCount, double average, double highest, double lowest, int failedCount,
+            String submittedAt, String reviewedAt, String reviewComment) {
     }
 
     /** 预检查/提交的解析结果：冲突、目标快照与请求头的教学星期。 */
@@ -1162,6 +1669,23 @@ public final class MockTeacherCourseService implements TeacherCourseService {
 
     private void addAdjustmentRequest(AdjustmentRequestDetailDTO request) {
         adjustmentRequests.put(request.getRequestId(), request);
+    }
+
+    /**
+     * 两个终态的成绩批次：界面在没有服务端时也能演示「类型筛选」与两类状态字母表的差别。
+     * 故意没有 PENDING 批次——默认的「待审批」视图因此仍然只由调课申请构成。
+     */
+    private void seedGradeSubmissions() {
+        addSubmission(new MockSubmission(SUBMISSION_APPROVED_ID, FULL_ROSTER_OFFERING,
+                GRADE_STATE_APPROVED, 2, ROSTER_LENGTH, 78.42, 96.0, 41.5, 3,
+                "2026-09-13T07:00:00Z", SUBMISSION_APPROVED_AT, SUBMISSION_APPROVED_COMMENT));
+        addSubmission(new MockSubmission(SUBMISSION_REJECTED_ID, OPERATING_SYSTEM_OFFERING,
+                GRADE_STATE_REJECTED, 1, 12, 0.0, 0.0, 0.0, 0, "2026-09-13T05:00:00Z",
+                SUBMISSION_REJECTED_AT, SUBMISSION_REJECTED_COMMENT));
+    }
+
+    private void addSubmission(MockSubmission submission) {
+        gradeSubmissions.put(submission.submissionId(), submission);
     }
 
     private static AdjustmentTargetDTO target(String occurrenceId, int week, String startAt,

@@ -1,6 +1,9 @@
 package dao;
 
+import dto.course.CourseCalendarDateDTO;
 import dto.course.CourseNoticeDTO;
+import dto.course.CoursePeriodDTO;
+import dto.course.CourseScheduleWeekDTO;
 import dto.course.ScheduleDisplayKindDTO;
 import dto.course.ScheduleEntryDTO;
 
@@ -9,16 +12,21 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
 public class CourseScheduleDAO {
+    /** Period clock strings are a fixed wire shape; {@code LocalTime.toString()} drops zero seconds. */
+    private static final DateTimeFormatter CLOCK = DateTimeFormatter.ofPattern("HH:mm:ss");
+
     /** Stable display order: teaching day, first period, exact offering id, then the half. */
     private static final Comparator<ScheduleEntryDTO> ENTRY_ORDER =
             Comparator.comparingInt(ScheduleEntryDTO::getDayOfWeek)
@@ -32,21 +40,107 @@ public class CourseScheduleDAO {
      * adjustments whose effective target instant falls inside this week, which is what makes a
      * cross-week move appear in its target week. The published query alone can never describe the
      * new position, so it only ever contributes NORMAL or ADJUSTED_ORIGINAL entries.
+     *
+     * <p>The grid geometry travels with the entries: {@code dates} and {@code periods} come from
+     * {@code calendar_date ⋈ period_definition}, so the row and column counts are never hardcoded
+     * on either side and the student grid matches the teacher timetable. The same response carries
+     * the calendar's teaching-week bounds and today's teaching week (both from the teaching
+     * calendar's own time zone), so the client can offer “back to the current week” instead of
+     * hardcoding a range.
+     *
+     * @param week 可为 null（或非正）：取 {@code clock} 所在教学周，今天不在学期内时取最小教学周；
+     *             明确给定时照旧查看那一周（见 {@link #effectiveWeek}）
      */
-    public List<ScheduleEntryDTO> loadSchedule(Connection connection, String studentUid,
-                                               int academicYear, int semester, int week)
+    public CourseScheduleWeekDTO loadSchedule(Connection connection, String studentUid,
+                                              int academicYear, int semester, Integer week,
+                                              Clock clock)
             throws SQLException {
         long planId = publishedPlanId(connection, academicYear, semester);
+        long calendar = calendarId(connection, planId);
+        int[] bounds = weekBounds(connection, calendar);
+        Integer currentWeek = currentWeek(connection, calendar, clock);
+        int effectiveWeek = effectiveWeek(week, bounds, currentWeek);
+        // 教学日历一个日期都没有时无从谈"范围"，退回"只有正在查看的这一周"（与旧构造同一语义）。
+        int minWeek = bounds == null ? effectiveWeek : bounds[0];
+        int maxWeek = bounds == null ? effectiveWeek : bounds[1];
         String term = CourseQueryDAO.term(academicYear, semester).getDisplayName();
         List<ScheduleEntryDTO> entries = new ArrayList<>(publishedEntries(connection, studentUid,
-                academicYear, semester, week, planId, term));
+                academicYear, semester, effectiveWeek, planId, term));
         // The paired target half of a published week is rebuilt from the adjustment instant below;
         // dropping it here is exactly what keeps a cross-week target out of its origin week.
         entries.removeIf(entry -> ScheduleDisplayKindDTO.ADJUSTED_TARGET == entry.getDisplayKind());
-        entries.addAll(adjustedTargets(connection, studentUid, academicYear, semester, week, planId,
-                term));
+        entries.addAll(adjustedTargets(connection, studentUid, academicYear, semester, effectiveWeek,
+                planId, term));
         entries.sort(ENTRY_ORDER);
-        return List.copyOf(entries);
+        return new CourseScheduleWeekDTO(effectiveWeek, minWeek, maxWeek, currentWeek,
+                dates(connection, calendar, effectiveWeek),
+                periods(connection, calendar, effectiveWeek), entries);
+    }
+
+    // ------------------------------------------------------------------ 周范围与当前周
+
+    /**
+     * min/max teaching week over the whole calendar; non-teaching weeks stay navigable. {@code null}
+     * when the calendar carries no date at all——那时既没有范围也没有当前周，界面只显示正在查看的
+     * 那一周（旧行为：没有日期的教学日历返回一周空课表，不能被这里改成报错）。
+     */
+    private static int[] weekBounds(Connection connection, long calendarId) throws SQLException {
+        String sql = "SELECT MIN(week_no) AS min_week, MAX(week_no) AS max_week"
+                + " FROM calendar_date WHERE calendar_id = ?";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, calendarId);
+            try (ResultSet rows = statement.executeQuery()) {
+                if (!rows.next() || rows.getObject("min_week") == null
+                        || rows.getObject("max_week") == null) {
+                    return null;
+                }
+                return new int[] {rows.getInt("min_week"), rows.getInt("max_week")};
+            }
+        }
+    }
+
+    /**
+     * 今天落在哪一个教学周，判定用教学日历自己的时区而不是 JVM 时区；今天不在学期内时为 null
+     * （响应里照实为空，GUI 据此禁用“回到本周”）。
+     */
+    private static Integer currentWeek(Connection connection, long calendarId, Clock clock)
+            throws SQLException {
+        ZoneId zone = ZoneId.of(calendarZone(connection, calendarId));
+        LocalDate today = LocalDate.now(clock.withZone(zone));
+        String sql = "SELECT week_no FROM calendar_date WHERE calendar_id = ? AND local_date = ?";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, calendarId);
+            statement.setDate(2, java.sql.Date.valueOf(today));
+            try (ResultSet rows = statement.executeQuery()) {
+                return rows.next() ? rows.getInt("week_no") : null;
+            }
+        }
+    }
+
+    private static String calendarZone(Connection connection, long calendarId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT timezone FROM teaching_calendar WHERE id = ?")) {
+            statement.setLong(1, calendarId);
+            try (ResultSet rows = statement.executeQuery()) {
+                if (!rows.next()) throw new SQLException("Teaching calendar is unavailable");
+                return rows.getString("timezone");
+            }
+        }
+    }
+
+    /**
+     * 实际查看哪一周：缺省（或非正）时取服务端当前周，当前周为空再退回最小教学周（两者都没有时退回
+     * 第 1 周）；明确给定时**原样使用**。
+     *
+     * <p>越界的一周不报错而是一周空课表：这是学生端既有的语义（跨周调课的目标周判定、以及
+     * {@code loadSchedule} 的既有调用点都按"没有课"处理），范围只用来告诉界面可选哪些周——周次
+     * 控件据此夹取，用户根本走不到越界值。教师端的 {@code TeacherScheduleDAO} 选择报错，是因为那条
+     * 链路只服务教师自己的课表，两边在这一点的差别是有意的。
+     */
+    private static int effectiveWeek(Integer week, int[] bounds, Integer currentWeek) {
+        if (week != null && week > 0) return week;
+        if (currentWeek != null) return currentWeek;
+        return bounds == null ? 1 : bounds[0];
     }
 
     /**
@@ -378,5 +472,67 @@ public class CourseScheduleDAO {
                 return rows.getLong(1);
             }
         }
+    }
+
+    // ------------------------------------------------------------------ 日期与节次
+
+    private static long calendarId(Connection connection, long planId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT calendar_id FROM schedule_plan WHERE id=?")) {
+            statement.setLong(1, planId);
+            try (ResultSet rows = statement.executeQuery()) {
+                if (!rows.next()) throw new SQLException("Schedule plan is unavailable");
+                return rows.getLong(1);
+            }
+        }
+    }
+
+    private static List<CourseCalendarDateDTO> dates(Connection connection, long calendarId, int week)
+            throws SQLException {
+        String sql = "SELECT local_date, week_no, teaching_weekday, is_teaching_day"
+                + " FROM calendar_date WHERE calendar_id = ? AND week_no = ?"
+                + " ORDER BY teaching_weekday";
+        List<CourseCalendarDateDTO> dates = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, calendarId);
+            statement.setInt(2, week);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    dates.add(new CourseCalendarDateDTO(
+                            rows.getDate("local_date").toLocalDate().toString(),
+                            rows.getInt("week_no"), rows.getInt("teaching_weekday"),
+                            rows.getBoolean("is_teaching_day")));
+                }
+            }
+        }
+        return dates;
+    }
+
+    /**
+     * Periods are per date, because two dates of the same week may use different day templates.
+     * {@code start_time}/{@code end_time} are local wall clocks and must never be read as UTC.
+     */
+    private static List<CoursePeriodDTO> periods(Connection connection, long calendarId, int week)
+            throws SQLException {
+        String sql = "SELECT cd.local_date, pd.period_no, pd.start_time, pd.end_time"
+                + " FROM calendar_date cd"
+                + " JOIN period_definition pd ON pd.day_template_id = cd.day_template_id"
+                + " WHERE cd.calendar_id = ? AND cd.week_no = ?"
+                + " ORDER BY cd.teaching_weekday, pd.period_no";
+        List<CoursePeriodDTO> periods = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, calendarId);
+            statement.setInt(2, week);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    periods.add(new CoursePeriodDTO(
+                            rows.getDate("local_date").toLocalDate().toString(),
+                            rows.getInt("period_no"),
+                            rows.getTime("start_time").toLocalTime().format(CLOCK),
+                            rows.getTime("end_time").toLocalTime().format(CLOCK)));
+                }
+            }
+        }
+        return periods;
     }
 }

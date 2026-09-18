@@ -719,7 +719,8 @@ public final class TeacherAdjustmentSocketEndToEndTest {
         Message response = client.request("course", CourseActions.LOAD_SCHEDULE, token,
                 scheduleQuery(week));
         requireSuccess(response, "student schedule week " + week);
-        return GSON.fromJson(GSON.toJsonTree(response.getData("schedule")),
+        return GSON.fromJson(GSON.toJsonTree(response.getData("schedule"))
+                .getAsJsonObject().get("entries"),
                 new TypeToken<List<ScheduleEntryDTO>>() { }.getType());
     }
 

@@ -16,7 +16,7 @@
     -fx-text-fill: #ffffff;
 }
 
-/* 分阶段占位入口：本阶段一律禁用，置灰表明功能尚未接入。 */
+/* 右上四入口：全部已接入，样式只负责顶栏里的排版与高亮（激活态见下面的 -active 规则）。 */
 .teacher-course-entry {
     -fx-background-color: transparent;
     -fx-background-radius: 0;
@@ -319,13 +319,6 @@
 
 /* ================= 8. 教学课程表与课次详情 ================= */
 
-.teacher-schedule-week-label {
-    -fx-font-size: 14px;
-    -fx-font-weight: bold;
-    -fx-text-fill: #151E49;
-    -fx-padding: 0 6px 0 6px;
-}
-
 .teacher-schedule-scroll {
     -fx-background-color: transparent;
     -fx-background-insets: 0;
@@ -345,16 +338,17 @@
 .teacher-schedule-header {
     -fx-background-color: #eaf0ea;
     -fx-background-radius: 3px;
-    -fx-font-size: 12px;
+    -fx-font-size: 14px;
     -fx-font-weight: bold;
     -fx-text-fill: #3f553f;
     -fx-padding: 4px 6px 4px 6px;
 }
 
+/* 行头是三行（第 N 节 / 开始 / 结束），13px 三行加内边距对应控制器里的节次行最小高度 60px。 */
 .teacher-schedule-period-label {
     -fx-background-color: #f6f8f6;
     -fx-background-radius: 3px;
-    -fx-font-size: 11px;
+    -fx-font-size: 13px;
     -fx-text-fill: #657067;
     -fx-padding: 4px 6px 4px 6px;
 }
@@ -392,22 +386,24 @@
 }
 
 .teacher-schedule-card-title {
-    -fx-font-size: 11px;
+    -fx-font-size: 13px;
     -fx-font-weight: bold;
     -fx-text-fill: #151E49;
 }
 
 .teacher-schedule-card-meta {
-    -fx-font-size: 10px;
+    -fx-font-size: 12px;
     -fx-text-fill: #4f5b52;
 }
 
+/* 竖排角标：宽度（约一个字宽）与换行由 AdjustmentBadge 写死，样式只负责颜色与内边距——
+   左右内边距必须小到让一个字撑满整个宽度，否则三个字会被挤成两列。 */
 .teacher-schedule-badge {
     -fx-background-color: #587558;
     -fx-background-radius: 3px;
     -fx-font-size: 9px;
     -fx-text-fill: #ffffff;
-    -fx-padding: 1px 5px 1px 5px;
+    -fx-padding: 1px 3px 1px 3px;
 }
 
 /* 旧位置只是提示层：灰显并带“原安排”角标，不额外占列。 */
@@ -518,6 +514,15 @@
     -fx-text-fill: #657067;
 }
 
+/* 结果角标：未读的申请行在「查看」左边带一颗标记。是否显示完全由服务端算出的 unread 决定。 */
+.teacher-course-application-badge {
+    -fx-background-color: #b4453c;
+    -fx-background-radius: 9px;
+    -fx-text-fill: #ffffff;
+    -fx-font-size: 11px;
+    -fx-padding: 2px 8px 2px 8px;
+}
+
 .teacher-course-feedback-text {
     -fx-font-size: 12px;
     -fx-text-fill: #456045;
@@ -588,4 +593,14 @@
     -fx-background-color: #fdecea;
     -fx-text-fill: #b3261e;
     -fx-border-color: #b3261e;
+}
+
+/* 更正表单里“拟修改分数”的输入框：与权重输入框同形，但宽度由 FXML 给足，便于比对原分数。 */
+.teacher-course-correction-score-field {
+    -fx-background-color: #ffffff;
+    -fx-background-radius: 4px;
+    -fx-border-color: #cfd8cf;
+    -fx-border-radius: 4px;
+    -fx-font-size: 13px;
+    -fx-padding: 4px 6px 4px 6px;
 }

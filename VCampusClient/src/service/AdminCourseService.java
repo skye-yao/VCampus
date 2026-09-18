@@ -16,8 +16,8 @@ import dto.course.admin.catalog.CourseEditorRequestDTO;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
 import dto.course.admin.enrollment.AdminEnrollmentPreviewDTO;
 import dto.course.admin.enrollment.AdminEnrollmentRequestDTO;
+import dto.course.admin.schedule.CheckArrangementResultDTO;
 import dto.course.admin.schedule.SaveArrangementRequestDTO;
-import dto.course.admin.schedule.ScheduleConflictDTO;
 import dto.course.admin.schedule.SchedulePlanDTO;
 import dto.course.admin.schedule.ScheduleResourceDTO;
 import model.course.admin.AdminCourseView;
@@ -112,7 +112,7 @@ public interface AdminCourseService {
         throw new UnsupportedOperationException("loadOfferingArrangements");
     }
 
-    default CompletableFuture<List<ScheduleConflictDTO>> checkArrangement(
+    default CompletableFuture<CheckArrangementResultDTO> checkArrangement(
             SaveArrangementRequestDTO request) {
         throw new UnsupportedOperationException("checkArrangement");
     }
@@ -131,6 +131,15 @@ public interface AdminCourseService {
             String planId, int expectedRevision, String operationId,
             boolean force, String overrideReason) {
         throw new UnsupportedOperationException("publishSchedulePlan");
+    }
+
+    /**
+     * 开一份该学期的草稿方案（服务端唯一能让 DRAFT 方案出现的入口）。与其它写操作同形：
+     * 返回信封，而不是 {@link #loadSchedulePlan} 那样的裸 DTO。
+     */
+    default CompletableFuture<AdminOperationResultView<SchedulePlanView>> createSchedulePlan(
+            int academicYear, int semester, boolean copyPublished, String operationId) {
+        throw new UnsupportedOperationException("createSchedulePlan");
     }
 
     default CompletableFuture<List<AdjustmentRequestSummaryDTO>> listAdjustmentRequests(

@@ -39,6 +39,10 @@ import util.FXMLUtil;
  * <p>“申请调课”按课次自己的能力位启用：{@code canRequestAdjustment} 为 false（已有生效调课）时禁用
  * 并说明原因；可用时打开独立的调课表单弹窗，提交成功后在本弹窗里显示内联提示。
  *
+ * <p>窗口高度跟随内容：每次渲染后都检查一次，只有内容比窗口高时才重新贴合（只增不减，用户自己
+ * 调大的窗口不会被拉回去），异步到达的教学班快照与提交提示因此不会被裁在窗口之外；打开时的那一次
+ * 贴合由课表页在 {@code show()} 之前发出。
+ *
  * <p>关闭语义：{@link #dispose()} 置 {@code closed} 并递增 generation，弹窗被关掉后（用户关闭、
  * 点“查看教学班”或 {@code Stage.setOnHidden}）在途的教学班快照回调一律直接返回，绝不写已经关闭的
  * 控件。所有节点都可能为 {@code null}，控制器测试因此在无工具包的环境下也能跑完整流程。
@@ -275,6 +279,23 @@ public final class TeacherCourseDetailDialogController {
         }
         if (openOfferingButton != null) {
             openOfferingButton.setDisable(entry == null || entry.getOfferingId() == null);
+        }
+        fitWindow();
+    }
+
+    /**
+     * 内容变化后把窗口重新贴合到新的高度——<b>只增不减</b>：教学班快照、提交成功的提示与加载失败
+     * 的重试都是打开之后才到达或显示的，窗口高度若不跟随，底部「申请调课 / 查看教学班」就会被裁掉；
+     * 反过来，用户自己把窗口调大之后这里不能把它拉回去，因此只在当前场景高度小于内容所需高度时才
+     * 贴合。窗口还没建好（初始化与 {@code prepare()} 都早于 Stage）或已经关闭时什么都不做——
+     * 无工具包的控制器测试里节点本身就是 null。
+     */
+    private void fitWindow() {
+        if (dialogRoot == null || dialogRoot.getScene() == null) return;
+        Scene scene = dialogRoot.getScene();
+        if (scene.getWindow() instanceof Stage stage && stage.isShowing()
+                && scene.getHeight() < dialogRoot.prefHeight(scene.getWidth())) {
+            stage.sizeToScene();
         }
     }
 

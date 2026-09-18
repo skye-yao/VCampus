@@ -59,9 +59,10 @@
                                         <TextField fx:id="rosterSearchField" promptText="按姓名或学号筛选" styleClass="teacher-course-search-field" HBox.hgrow="ALWAYS" />
                                         <ComboBox fx:id="rosterStatusFilter" prefWidth="120.0" promptText="状态" styleClass="teacher-course-roster-filter" />
                                         <Button fx:id="courseGroupButton" text="一键建群" onAction="#handleCourseGroup" styleClass="teacher-course-row-group-button" />
-                                        <Button fx:id="exportButton" disable="true" styleClass="teacher-course-export-button" text="导出" />
+                                        <Button fx:id="exportButton" onAction="#handleExport" styleClass="teacher-course-export-button" text="导出" />
                                     </children>
                                 </HBox>
+                                <Label fx:id="rosterExportLabel" managed="false" maxWidth="840.0" styleClass="teacher-course-page-summary" text="" visible="false" wrapText="true" />
                                 <StackPane styleClass="teacher-course-list-area" VBox.vgrow="ALWAYS">
                                     <children>
                                         <TableView fx:id="rosterTable" styleClass="teacher-course-table">

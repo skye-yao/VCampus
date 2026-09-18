@@ -23,6 +23,8 @@ public final class GradeApprovalDialogController {
     @FXML private HBox metricCardBox;
     @FXML private VBox distributionRows;
     @FXML private VBox itemRows;
+    @FXML private Label comparisonTitleLabel;
+    @FXML private VBox comparisonRows;
     @FXML private VBox detailBody;
 
     /** 由打开方注入要展示的成绩提交详情。 */
@@ -33,6 +35,7 @@ public final class GradeApprovalDialogController {
         renderMetrics(value);
         renderDistribution(value);
         renderItems(value);
+        renderComparison(value);
         if (detailBody != null) {
             detailBody.getChildren().clear();
             for (String line : reviewLines(value)) {
@@ -83,6 +86,34 @@ public final class GradeApprovalDialogController {
         }
     }
 
+    /**
+     * 版本差异一节：普通批次没有比较对象，整节留空。文案与审批页的详情面板同源
+     * （{@link GradeApprovalController#correctionLines(GradeSubmissionDetailDTO)}），
+     * 同一份差异不会出现两种说法。标题也如实：只有真的带更正原因的那一批才叫「更正比较」，
+     * 驳回重提叫「版本差异」——它比较的是两次提交，不是一次更正。
+     */
+    private void renderComparison(GradeSubmissionDetailDTO value) {
+        if (comparisonTitleLabel != null) {
+            comparisonTitleLabel.setText(comparisonTitle(value));
+        }
+        if (comparisonRows == null) return;
+        comparisonRows.getChildren().clear();
+        for (String line : comparisonLines(value)) {
+            Label label = new Label(line);
+            label.getStyleClass().add("course-approval-detail-line");
+            label.setWrapText(true);
+            comparisonRows.getChildren().add(label);
+        }
+    }
+
+    /**
+     * 这一节的标题：完全复用审批页的纯文本函数（{@link GradeApprovalController#comparisonTitle}），
+     * 因此同一个批次在两处不会出现两种叫法。
+     */
+    static String comparisonTitle(GradeSubmissionDetailDTO detail) {
+        return GradeApprovalController.comparisonTitle(detail);
+    }
+
     /** 弹窗标题行。 */
     static String header(GradeSubmissionDetailDTO detail) {
         return "成绩提交 " + detail.getSummary().getSubmissionId() + "（"
@@ -120,6 +151,14 @@ public final class GradeApprovalDialogController {
             lines.add(itemLine(item));
         }
         return List.copyOf(lines);
+    }
+
+    /**
+     * 更正比较：原批准版本、本次更正原因与真的改变了的学生及其旧/新值，逐行复用审批页的纯文本。
+     * 普通批次（没有比较对象）返回空列表，弹窗因此不显示这一节。
+     */
+    static List<String> comparisonLines(GradeSubmissionDetailDTO detail) {
+        return GradeApprovalController.correctionLines(detail);
     }
 
     /** 审批信息：仅对已完成的批次返回，空白意见给出占位。 */

@@ -33,7 +33,7 @@ public class CourseQueryDAO {
     private static final String OFFERING_SELECT = ""
             + "SELECT c.course_id, c.course_code, c.course_name, c.course_type, c.credit,"
             + " c.credit_hours, c.description, c.prerequisites, o.offering_id,"
-            + " o.enrolled_count, o.capacity, pi.status AS plan_status,"
+            + " o.offering_code, o.enrolled_count, o.capacity, pi.status AS plan_status,"
             + " pi.last_failure_reason AS failure_reason, cw.status AS waitlist_status,"
             + " cw.offered_at, cw.expires_at, e.enrollment_id,"
             + " cot.uid AS teacher_uid, tu.name AS teacher_name,"
@@ -207,6 +207,7 @@ public class CourseQueryDAO {
             String id = rows.getString("offering_id");
             OfferingAccumulator value = offerings.computeIfAbsent(id,
                     ignored -> new OfferingAccumulator(uncheckedCourse(rows), id,
+                            stateText(rows, "offering_code"),
                             rowsInt(rows, "enrolled_count"), rowsInt(rows, "capacity"),
                             state(rows), stateText(rows, "failure_reason"),
                             utcUnchecked(rows, "offered_at"), utcUnchecked(rows, "expires_at")));
@@ -312,6 +313,7 @@ public class CourseQueryDAO {
     private static final class OfferingAccumulator {
         private final CourseDTO course;
         private final String offeringId;
+        private final String offeringCode;
         private final int enrolledCount;
         private final int capacity;
         private final SelectionStateDTO state;
@@ -321,11 +323,13 @@ public class CourseQueryDAO {
         private final Map<String, CourseTeacherDTO> teachers = new LinkedHashMap<>();
         private final Map<String, CourseMeetingDTO> meetings = new LinkedHashMap<>();
 
-        private OfferingAccumulator(CourseDTO course, String offeringId, int enrolledCount,
+        private OfferingAccumulator(CourseDTO course, String offeringId, String offeringCode,
+                                    int enrolledCount,
                                     int capacity, SelectionStateDTO state, String failureReason,
                                     String offeredAt, String expiresAt) {
             this.course = course;
             this.offeringId = offeringId;
+            this.offeringCode = offeringCode;
             this.enrolledCount = enrolledCount;
             this.capacity = capacity;
             this.state = state;
@@ -336,7 +340,7 @@ public class CourseQueryDAO {
         }
 
         private CourseOfferingDTO offering() {
-            return new CourseOfferingDTO(offeringId, course.getCourseId(),
+            return new CourseOfferingDTO(offeringId, offeringCode, course.getCourseId(),
                     new ArrayList<>(teachers.values()), new ArrayList<>(meetings.values()),
                     enrolledCount, capacity, state, failureReason, offeredAt, expiresAt);
         }

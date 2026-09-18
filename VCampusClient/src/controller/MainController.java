@@ -677,15 +677,29 @@ public class MainController {
         setManagedVisible(navChatBadge, total > 0);
         setManagedVisible(noticeItemThree, total > 0);
         if (chatNoticeLabel != null && total > 0) {
-            if (unread > 0 && pending > 0) {
-                chatNoticeLabel.setText("你有 " + unread + " 条未读聊天消息，" + pending + " 条好友申请待处理");
-            } else if (pending > 0) {
-                chatNoticeLabel.setText("你有 " + pending + " 条好友申请待处理");
-            } else {
-                chatNoticeLabel.setText("你有 " + unread + " 条未读聊天消息");
-            }
+            chatNoticeLabel.setText(formatChatNoticeText(unread, pending));
         }
         updateNoticeEmptyState();
+    }
+
+    static String formatChatNoticeText(int unread, int pending) {
+        if (unread > 0 && pending > 0) {
+            return "你有 " + unread + " 条未读聊天消息，" + pending + " 条好友申请待处理";
+        }
+        if (unread > 0) {
+            return "你有 " + unread + " 条未读聊天消息";
+        }
+        return "你有 " + pending + " 条好友申请待处理";
+    }
+
+    static String formatShortTime(String dateTime) {
+        if (dateTime == null || dateTime.length() < 16) return "";
+        try {
+            String today = java.time.LocalDate.now().toString();
+            return dateTime.startsWith(today) ? dateTime.substring(11, 16) : dateTime.substring(5, 10);
+        } catch (RuntimeException ignored) {
+            return dateTime;
+        }
     }
 
     private void recordNoticeCount(HBox item, long count) {
@@ -824,15 +838,11 @@ public class MainController {
     }
 
     /**
-     * 教务入口卡片标题：管理员与教师进入教务管理，学生及其他角色保持选课。
+     * 教务入口标题：所有角色统一为“教务管理”，返回值不再随角色变化。
+     * 形参 {@code role} 保留以保持调用点签名不变，方法体不再读取它。
      */
     static String courseCardTitleText(String role) {
-        if (role == null) return "选课";
-        if ("管理员".equalsIgnoreCase(role) || "ADMIN".equalsIgnoreCase(role)
-                || "教师".equalsIgnoreCase(role) || "TEACHER".equalsIgnoreCase(role)) {
-            return "教务管理";
-        }
-        return "选课";
+        return "教务管理";
     }
 
     void setSceneSwitcher(SceneSwitcher switcher) {

@@ -191,6 +191,30 @@ public class TeacherCourseQueryDAO {
         }
     }
 
+    /**
+     * 导出用：按与列表**完全相同**的过滤条件一次取回名单，最多 {@code limit} 行、不带 OFFSET。
+     *
+     * <p>导出不是「当前页」：调用方传入「上限 + 1」行，一次查询就能判断是否超限并明确报错，既不用
+     * 发第二次 COUNT，也不存在「计数与取数之间名单变化」导致的静默截断。过滤条件与排序列与
+     * {@link #listStudents} 共用 {@link #ROSTER_SELECT}、{@link #rosterFilter}，导出与列表的口径
+     * 不会各自漂移。
+     */
+    public List<TeacherRosterRowDTO> listStudentsForExport(Connection connection, long offeringId,
+            String query, Integer enrollmentStatus, int limit) throws SQLException {
+        String pattern = like(query);
+        String sql = ROSTER_SELECT + rosterFilter(enrollmentStatus, pattern)
+                + " ORDER BY e.uid,e.enrollment_id LIMIT ?";
+        List<TeacherRosterRowDTO> roster = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            int index = bindRosterFilter(statement, 1, offeringId, enrollmentStatus, pattern);
+            statement.setInt(index, limit);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) roster.add(mapRoster(rows));
+            }
+        }
+        return List.copyOf(roster);
+    }
+
     /** 教学班所属学期，用于把教师查询锁定到他自己的那个学期。 */
     public Term findOfferingTerm(Connection connection, long offeringId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(

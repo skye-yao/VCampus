@@ -135,7 +135,7 @@ public final class MockAdminScheduleServiceTest {
         MockAdminCourseService service = new MockAdminCourseService();
 
         List<ScheduleConflictDTO> conflicts =
-                service.checkArrangement(teacherWarning()).join();
+                service.checkArrangement(teacherWarning()).join().getArrangementConflicts();
         require(conflicts.size() == 1, "the teacher warning case must report one conflict");
         ScheduleConflictDTO conflict = conflicts.get(0);
         require(conflict.getSeverity() == ScheduleConflictSeverityDTO.OVERRIDABLE,
@@ -147,14 +147,15 @@ public final class MockAdminScheduleServiceTest {
                 "the warning must point at the overlapping window");
 
         MockAdminCourseService clean = new MockAdminCourseService();
-        require(clean.checkArrangement(noConflict()).join().isEmpty(),
+        require(clean.checkArrangement(noConflict()).join().getArrangementConflicts().isEmpty(),
                 "a free teacher, classroom and slot must report no conflict");
     }
 
     private static void selfOverlapIsBlocking() {
         MockAdminCourseService service = new MockAdminCourseService();
 
-        List<ScheduleConflictDTO> conflicts = service.checkArrangement(selfOverlap()).join();
+        List<ScheduleConflictDTO> conflicts =
+                service.checkArrangement(selfOverlap()).join().getArrangementConflicts();
         require(conflicts.size() == 1, "the self-overlap case must report one conflict");
         ScheduleConflictDTO conflict = conflicts.get(0);
         require(conflict.getSeverity() == ScheduleConflictSeverityDTO.BLOCKING,

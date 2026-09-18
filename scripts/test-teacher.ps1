@@ -3,19 +3,34 @@
 # 用法：
 #   pwsh -File scripts/test-teacher.ps1
 #       不带参数时只列出已知套件并退出 0，不编译、不连接数据库。
-#   pwsh -File scripts/test-teacher.ps1 -Suite Foundation
-#       分目录编译 Common/Server/Client，串行运行 Foundation 套件的全部测试类。
-#   pwsh -File scripts/test-teacher.ps1 -Suite Foundation -WithMySql
-#       额外把 `mysql` 传给服务端迁移测试，启用受保护的 MySQL 迁移用例。
-#   pwsh -File scripts/test-teacher.ps1 -Suite Foundation -TestConfigPath <db.properties>
-#       覆盖默认的 VCampusServer/src/resources/db.properties。
-#   pwsh -File scripts/test-teacher.ps1 -Suite <name> -WithGui [-JavaFxHome <sdk>]
-#       以完整 JavaFX SDK 启动工具包运行 GUI 测试；-JavaFxHome 默认指向本机已解压的
-#       openjfx-25.0.4 SDK，缺少原生 DLL 时立即报错而不是静默降级。
+#   pwsh -File scripts/test-teacher.ps1 -Suite Foundation -WithMySql -TestConfigPath <db.properties>
+#       分目录编译 Common/Server/Client，串行运行 Foundation 套件的全部测试类（含受保护的 MySQL 用例）。
+#   pwsh -File scripts/test-teacher.ps1 -Suite <name> -WithMySql [-WithTcp] [-WithGui]
+#       [-TestConfigPath <db.properties>] [-JavaFxHome <sdk>]
+#       三个开关可以任意组合，但每个都必须被所选套件声明过（见下面的约定）。`-WithGui` 用完整
+#       JavaFX SDK 启动工具包；`-JavaFxHome` 默认指向本机已解压的 openjfx-25.0.4 SDK，缺少原生 DLL
+#       时立即报错而不是静默降级。
+#
+# **两个参数实际上是必需的**（两条都实测过）：
+#   * `-WithMySql` —— 六个套件都声明了 MySQL 门控的类，少传它会在选测试的阶段直接报错退出
+#     （`Suite <name> declares MySQL-gated tests (…); without -WithMySql they would print SKIP and
+#     still exit 0`），而不是跑完再让你误以为通过。
+#   * `-TestConfigPath` —— 默认值是 `VCampusServer/src/resources/db.properties`，而那份 git-ignored
+#     文件在本工作树里被另一个会话指向了**演示库** `virtual_campus`。不传它时，连库的用例会以
+#     `AssertionError: Refusing live migration test: JDBC database must be exactly
+#     virtual_campus_course_test` 硬失败——它们拒绝跑演示库，也不会把这种失败降级成 SKIP。
+#     跑受保护测试库请传 `-TestConfigPath .codex-tmp/t1config/resources/db.properties`。
 #
 # 约定：javac/java 非零退出立即停止；SKIP 永远不等于 PASS；每次运行在 .codex-tmp/teacher/<套件>-<唯一值>
-# 下用独立输出目录；不自动创建或删除数据库。`-WithTcp`/`-WithGui` 只有在所选套件确实声明了对应测试时
-# 才允许使用，否则报错退出，避免“什么都没跑却看起来通过”。
+# 下用独立输出目录；不自动创建或删除数据库。
+#
+# 三列开关（MySql / Tcp / Gui）一律「双向」校验：
+#   * 套件声明了该类测试却没传开关 → 报错退出：那些类根本不会出现在运行列表里，一次「全绿」实际上
+#     什么都没跑；
+#   * 传了开关而套件一个都没声明 → 同样报错退出，避免「开了开关看起来跑了什么」。
+# MySQL 这一列是 Task 4 补上的：MySQL 门控的类自带 `mysql` 开关，未传时打印 SKIP 并以 0 退出，而脚本
+# 只看退出码，于是「每个库断言都被跳过」会被记成 Suite passed —— 这是这套脚本里最贵的一种假绿。把
+# 门控的类声明出来之后，少传 `-WithMySql` 在选测试的阶段就会失败，而不是跑完才让人误以为通过。
 
 [CmdletBinding()]
 param(
@@ -73,6 +88,11 @@ $suites = @(
         # 只登记冒烟类：ui.TeacherCourseUiPreview 是人工预览工具，只有收到 `--smoke` 才自动关闭，
         # 套件运行传的是 --config，登记它会让一次无人值守运行停在打开的窗口上永不退出。
         Gui = @('ui.TeacherCourseUiSmokeTest')
+        # MySQL 门控的类：它们自带 `mysql` 开关，未传时只打印 SKIP 并以 0 退出。这里也包含 Tcp 列里
+        # 同样门控的那一个——两处都声明出来，「少传 -WithMySql」才在所有运行形态下都拦得住。
+        MySql = @('database.TeacherFoundationMigrationTest',
+            'service.TeacherCourseQueryMySqlTest',
+            'integration.TeacherCourseQuerySocketEndToEndTest')
     }
     # 课表套件：DTO 契约与既有 ScheduleEntryDTO 回归，加上编译期依赖教师课程接口的客户端测试。
     # 学生端的 ScheduleControllerTest / ScheduleLayoutTest 之前不属于任何套件，这里追加进来，
@@ -101,7 +121,9 @@ $suites = @(
         # GUI 冒烟：真实 JavaFX 工具包装入教师外壳，用 MockTeacherCourseService 驱动课表页与课次详情。
         # 只登记冒烟类：ui.TeacherCourseUiPreview 是人工预览工具且不注册进任何套件。同一个冒烟类
         # 同时出现在 Foundation.Gui 与这里是有意的重复，跨套件重复有先例。
-        Gui = @('ui.TeacherCourseUiSmokeTest') }
+        Gui = @('ui.TeacherCourseUiSmokeTest')
+        MySql = @('service.TeacherScheduleMySqlTest',
+            'integration.TeacherScheduleSocketEndToEndTest') }
     # 调课套件：先建立公共契约（跨周目标日期、四态状态、精确 ID、不可变 targets）与 V006 迁移契约。
     # ScheduleAdjustmentApprovalHandlerTest 是 DB-free 的旧审批回归：调课 DTO 迁到四态后必须证明
     # 管理员审批接口仍然可用。V006 迁移测试自带 `mysql` 开关，只有 -WithMySql 才跑真实库。
@@ -123,7 +145,11 @@ $suites = @(
             'controller.TeacherApplicationsControllerTest',
             'controller.AdminApprovalControllerTest',
             'controller.AdjustmentApprovalDialogControllerTest',
-            'controller.GradeApprovalControllerTest')
+            'controller.GradeApprovalControllerTest',
+            # T4 补登记：controller.GradeApprovalDialogControllerTest 此前不在任何套件里（grep 计数为 0），
+            # 写了却永远跑不到，等于一个不能失败的测试。它的主题正是管理员审批详情弹窗，与上面那一行的
+            # 审批外壳属于同一个入口，因此就登记在这里；既有登记一律不挪动。
+            'controller.GradeApprovalDialogControllerTest')
         # TeacherAdjustmentConflictMySqlTest 自带 `mysql` 开关（-WithMySql 才跑真实库）。
         # CourseConflictMySqlTest 是既有排课冲突引擎的回归：它不解析 `mysql` 参数，只按
         # db.properties 指向受保护测试库来运行，登记它是为了证明共用检查没有改动旧行为。
@@ -160,7 +186,11 @@ $suites = @(
         # GUI 冒烟：真实 JavaFX 工具包装入教师外壳，走调课表单与“我的申请”并产出四张主题截图
         # （跨周 / 冲突 / 撤销 / 长原因）。同一个冒烟类也登记在 Foundation.Gui 与 Timetable.Gui，
         # 跨套件重复有先例（各套件跑各自的入口，冒烟内部覆盖全部教师页面）。
-        Gui = @('ui.TeacherCourseUiSmokeTest') }
+        Gui = @('ui.TeacherCourseUiSmokeTest')
+        MySql = @('database.TeacherAdjustmentMigrationTest',
+            'service.TeacherAdjustmentConflictMySqlTest',
+            'service.TeacherAdjustmentApplicationMySqlTest',
+            'integration.TeacherAdjustmentSocketEndToEndTest') }
     # 成绩套件：先建立公共契约（草稿/方案/快照的 JSON 保真、精确 ID、不可变列表）与 V007 迁移契约。
     # GradeApprovalDtoJsonTest 是管理员成绩审批的既有 DTO 契约，T1 扩充提交快照后必须继续通过，
     # 它此前不在任何套件里，登记它是为了让本计划“不破坏管理员成绩审批”的断言真的被执行。
@@ -219,18 +249,119 @@ $suites = @(
         # 提交人数、基础批次、未纳入批次的新成员），它同时钉住 MockAdminCourseService 必须给出快照字段。
         # ui.TeacherCourseUiPreview / ui.AdminCourseUiPreview 是人工预览工具（只有收到 --smoke 才自动
         # 关闭，而套件运行传的是 --config），登记它们会让一次无人值守运行停在打开的窗口上永不退出。
-        Gui = @('ui.TeacherCourseUiSmokeTest', 'ui.AdminApprovalUiSmokeTest') }
-    # 成绩导入导出套件：T1 先建立文件票据与短连接传输。两个测试都是 DB-free 的：
-    # CourseFileServerTest 在端口 0 上起真实文件监听器并用原始 Socket 逐条验证票据矩阵（无效/过期/
-    # 他人 token、错误方向、超限、截断、SHA 不符、重复领取、停服），SocketTeacherFileTransportTest
-    # 自带一个端口 0 的对端 ServerSocket（客户端 classpath 里没有服务端类，也不该有）。
-    # 两者都不需要 -WithTcp/-WithGui，也不重建数据库。
+        Gui = @('ui.TeacherCourseUiSmokeTest', 'ui.AdminApprovalUiSmokeTest')
+        MySql = @('database.TeacherGradeMigrationTest',
+            'service.TeacherGradeDraftMySqlTest',
+            'service.TeacherGradeSubmissionMySqlTest') }
+    # 成绩导入导出套件：T1 先建立文件票据与短连接传输，T2 再加上服务端的表格读写，T3 加上预览与确认，
+    # T5 补上跨两个真实端口的端到端闭环与名单导出的真实库覆盖。
+    # 两个 T1 测试都是 DB-free 的：CourseFileServerTest 在端口 0 上起真实文件监听器并用原始 Socket
+    # 逐条验证票据矩阵（无效/过期/他人 token、错误方向、超限、截断、SHA 不符、重复领取、停服），
+    # SocketTeacherFileTransportTest 自带一个端口 0 的对端 ServerSocket（客户端 classpath 里没有
+    # 服务端类，也不该有）。T2 的 TeacherSpreadsheetServiceTest 同样 DB-free：它用 POI 写真实临时
+    # .xlsx 再读回来，并核对生成的模板/导出文件，因此依赖 VCampusServer/lib 下的 POI 闭包
+    # （见该目录的 teacher-excel-dependencies.md）。T3 的 TeacherGradeImportMySqlTest 自带 `mysql`
+    # 开关（-WithMySql 才跑真实库，未传时打印 SKIP 且不算通过）：预览不写库、缺列/空白保留原草稿值、
+    # 非法值保留原文本、未知与重复学号、修正与排除、名单/版本冲突、令牌过期与串用、确认重放都必须
+    # 对着真实库和真实外键验证。T5 的 TeacherCourseExportMySqlTest 同样自带 `mysql` 开关，补上此前
+    # 完全没有覆盖的名单导出路径：归属校验（别人的教学班导不出）、5001 行明确报错而 5000 行整份导出
+    # （上限判定一次查询内完成，绝不静默截断）、导出与列表共用同一份过滤与排序。
     [pscustomobject]@{ Name = 'ImportExport'
         Common = @()
-        Client = @('service.SocketTeacherFileTransportTest')
-        Server = @('network.CourseFileServerTest')
-        Tcp = @(); Gui = @() }
-    [pscustomobject]@{ Name = 'Applications'; Common = @(); Client = @(); Server = @(); Tcp = @(); Gui = @() }
+        Client = @('service.SocketTeacherFileTransportTest',
+            'controller.TeacherGradeImportControllerTest')
+        Server = @('service.TeacherSpreadsheetServiceTest', 'network.CourseFileServerTest',
+            'service.TeacherGradeImportMySqlTest', 'service.TeacherCourseExportMySqlTest')
+        # T5 的真实闭环：下载模板 → 填表（缺列/空白/105 越界/未知学号）→ 文件端口上传 → 预览不写库
+        # → 修正与排除 → 确认只写草稿 → 补齐提交 → 管理员审批 → 学生查成绩；再加取消、上传中断、
+        # 票据复用、确认重放、超过一页的名单导出、他人兑换票据被拒与停服后的线程/临时文件回收。
+        # 它同时起业务端口与文件端口，并会重建受保护的测试架构，所以必须串行单独运行；-WithTcp 才跑，
+        # 未传时不会出现在运行列表里，也就不会被当作通过。
+        Tcp = @('integration.TeacherGradeImportSocketEndToEndTest')
+        # GUI 冒烟：真实 JavaFX 工具包装入教师外壳，T5 追加的两步验证导入区三个入口的接线与
+        # ui.TeacherGradeImportFeedback 弹窗真实加载（弹窗的加载失败在控制器里被吞掉，只有真实工具包
+        # 能抓住 FXML 里的 fx:id/onAction/controller 错误）。只登记冒烟类：ui.TeacherCourseUiPreview
+        # 是人工预览工具且不注册进任何套件（详见 Foundation.Gui 的说明）。同一个冒烟类同时出现在
+        # Foundation/Timetable/GradeBook 的 Gui 列，跨套件重复有先例。
+        Gui = @('ui.TeacherCourseUiSmokeTest')
+        MySql = @('service.TeacherGradeImportMySqlTest',
+            'service.TeacherCourseExportMySqlTest') }
+    # 教师端「我的申请与结果通知」套件：T1 建立驳回重开与发起更正两个版本链入口（真实库），T2 补上客户端更正入口，
+    # T3 补上统一申请列表与已读状态，T4 补上端到端闭环与整分支回归。
+    # service.TeacherGradeRevisionMySqlTest 自带 `mysql` 开关（-WithMySql 才跑真实库，未传时打印 SKIP 且不算通过）：
+    # 来源批次不是最后一次提交或状态不符、PENDING 批次、已打开的草稿、非任课教师、空更正原因、重复开始重放、
+    # 名单新增与退课、两个教师竞争、事务中途失败整笔回滚、惰性重开与显式重开同形、纯权重更正只记实际变化的行，
+    # 以及 v1 通过 → 更正草稿 → v2 驳回 → 重提 → v3 通过的整条版本链（学生可见成绩一律读已发布的 grade 投影），
+    # 全部对着真实库验证。
+    # T2 的客户端更正入口：controller.TeacherGradeCorrectionDialogControllerTest 是不需要工具包的成绩更正
+    # 表单测试（姓名/学号/原分数、空原因本地拒绝、取消不建草稿、确认建立草稿并交回拟修改值）；
+    # controller.TeacherGradeBookControllerTest 钉住同一页上的两个版本入口（被驳回→重新编辑、已通过→申请修改、
+    # 待审核一个都不给）以及它解析的那份 FXML 的 fx:id/onAction 绑定——不经它注册，改坏 FXML 的绑定在本套件里
+    # 看不见；service.SocketTeacherCourseServiceTest 覆盖两个新 Socket 方法（动作常量、request/result 形状、
+    # CONFLICT 里的最新成绩表），T3 又在同一个类里补上统一申请列表/详情/标记已读三个方法与
+    # CONFLICT 里的当前申请行。三者在别的套件里也有注记，跨套件重复在本文件里是有先例的。
+    # T3 的统一「我的申请」：service.TeacherApplicationsMySqlTest 自带 `mysql` 开关（-WithMySql 才跑真实库，
+    # 未传时打印 SKIP 且不算通过），对着真实库验证两张事实表在 SQL 里的合并分页与总数、类型/状态的按表白名单、
+    # 不同类型里数字相同的两条申请互不影响、读过 PENDING 之后 APPROVED 重新未读、过期的已读确认被拒且不写回执、
+    # 别人的申请不可见，以及教学班成员关系解除后自己的历史仍可读。
+    # controller.TeacherApplicationsControllerTest 是同一页的无工具包控制器测试（它同时是 FXML 的 fx:id/
+    # onAction/样式类契约测试）。**它已经在 Adjustment 套件里登记过**：那是调课计划 T5 当时的我的申请页测试，
+    # 不是空类，也不能从 Adjustment 挪走；这里按本文件的既有先例在第二个套件里再登记一次，因为 T3 改写的正是
+    # 这一页。三者的解释都在各自套件里各写一份。
+    # handler.TeacherCourseHandlerTest（T4 新增）是 DB-free 的教师课程入口回归，T3 在里面补上三个「我的申请」
+    # 动作的响应键、写请求体位置与两条 catch 分支的 MessageCode 断言（Ruling G 要的正是「断言 code 本身」，
+    # 否则异常一旦没被映射就会掉进 RuntimeException 分支变成 ERROR / 服务端内部错误，而所有套件照样全绿）。
+    # **它已经在 Foundation 套件里登记过**（:62），与 controller.TeacherApplicationsControllerTest 同一先例：
+    # 不挪走，在第二个套件里再登记一次，因为 T3 依赖的正是这个证据。
+    # T4 把整条闭环与整条迁移链补上：integration.TeacherCourseWorkflowEndToEndTest 是一条真实 TCP/MySQL
+    # 链路（教师查询 → 跨周申请 → 撤销/审批竞争 → 学生两周课表；手工草稿 → 模板下载/真实短连接上传/
+    # 预览/修正/确认 → 提交 → 驳回 → 重提批准 → 发起更正 → 再批准 → 学生 GPA；以及合并申请列表与未读同步），
+    # database.TeacherCourseMigrationMySqlTest 是七个迁移按文档顺序跑完的两条安装路径。两者都自带 `mysql`
+    # 开关并会重建受保护的测试架构，所以都登记在 Server 列的最后，且必须在 MySql 列里声明出来。
+    # 它们是「这个套件真的证明过什么」的最终证据：前三个 T 各自只跑过一个套件，只有这里把六套回归之外的
+    # 跨角色链路跑齐。
+    [pscustomobject]@{ Name = 'Applications'
+        Common = @()
+        Client = @('controller.TeacherGradeCorrectionDialogControllerTest',
+            'controller.TeacherGradeBookControllerTest',
+            'service.SocketTeacherCourseServiceTest',
+            'controller.TeacherApplicationsControllerTest')
+        Server = @('service.TeacherGradeRevisionMySqlTest',
+            'service.TeacherApplicationsMySqlTest',
+            'handler.TeacherCourseHandlerTest',
+            'integration.TeacherCourseWorkflowEndToEndTest',
+            'database.TeacherCourseMigrationMySqlTest')
+        Tcp = @()
+        Gui = @()
+        MySql = @('service.TeacherGradeRevisionMySqlTest',
+            'service.TeacherApplicationsMySqlTest',
+            'integration.TeacherCourseWorkflowEndToEndTest',
+            'database.TeacherCourseMigrationMySqlTest') }
+    # 课程模块修复套件（2026-09-17）。本计划的三个缺陷分别落在学生课表读路径、管理员学生搜索、
+    # 管理员排课，下面这 13 个类此前一个套件都没有——改了也永远跑不到，等于不会失败的测试。
+    # 注意这里刻意不收已经在 Timetable/Adjustment/GradeBook 里的类，避免同一批 MySQL 用例跑两遍。
+    # MySql 列 = Server 列里需要活库的类。这里的 `service.ScheduleManagementMySqlTest` **不解析**
+    # `mysql` 参数：它从 classpath 读 `resources/db.properties`，库不对时抛 `Refusing schedule test`
+    # （同形做法见 Adjustment 套件的 `service.CourseConflictMySqlTest`），所以必须靠 `-TestConfigPath`
+    # 指到受保护库，它不会因为漏传 `-WithMySql` 就降级成 SKIP。
+    [pscustomobject]@{ Name = 'Course'
+        Common = @('dto.course.admin.AdminCatalogDtoJsonTest')
+        Client = @('service.SocketCourseServiceTest',
+            'service.MockCourseServiceTest',
+            'service.MockCourseScheduleTest',
+            'controller.ScheduleArrangementDialogControllerTest',
+            'controller.CourseManagementControllerTest',
+            'controller.CourseSelectionControllerTest',
+            'controller.TrainingPlanControllerTest',
+            'service.CoursePushCoordinatorTest')
+        Server = @('handler.CourseHandlerTest',
+            'handler.AdminScheduleHandlerTest',
+            'handler.AdminEnrollmentHandlerTest',
+            'service.ScheduleManagementMySqlTest')
+        Tcp = @()
+        Gui = @()
+        MySql = @('service.ScheduleManagementMySqlTest') }
+
 )
 
 function Get-SourceFiles {
@@ -263,7 +394,9 @@ if ([string]::IsNullOrWhiteSpace($Suite)) {
     Write-Output 'Known teacher suites:'
     foreach ($entry in $suites) { Write-Output ('  ' + $entry.Name) }
     Write-Output ''
-    Write-Output 'Usage: pwsh -File scripts/test-teacher.ps1 -Suite <name> [-WithMySql] [-WithTcp] [-WithGui] [-TestConfigPath <path>]'
+    Write-Output 'Usage: pwsh -File scripts/test-teacher.ps1 -Suite <name> -WithMySql [-WithTcp] [-WithGui] [-TestConfigPath <path>]'
+    Write-Output '       -WithMySql is required: every suite declares MySQL-gated tests, and without it'
+    Write-Output '       the suite fails at selection instead of silently skipping its database assertions.'
     exit 0
 }
 
@@ -292,9 +425,19 @@ if ($WithGui) {
 if ($WithGui -and $selected.Gui.Count -eq 0) {
     throw "Suite $Suite declares no GUI tests; -WithGui would silently pass."
 }
+# MySQL 门控的类未传 `mysql` 时只打印 SKIP 并以 0 退出，脚本按退出码判断就会把「一次库断言都没跑」
+# 记成通过。这里选测试之前就报错，让 SKIP 永远不可能被当成 PASS（与上面的 Tcp/Gui 两列同一条规则）。
+if ($selected.MySql.Count -gt 0 -and -not $WithMySql) {
+    throw ("Suite $Suite declares MySQL-gated tests (" + ($selected.MySql -join ', ') +
+        "); without -WithMySql they would print SKIP and still exit 0, so the suite would be" +
+        " reported as passed with every database assertion skipped. Pass -WithMySql.")
+}
+if ($WithMySql -and $selected.MySql.Count -eq 0) {
+    throw "Suite $Suite declares no MySQL-gated tests; -WithMySql would silently pass."
+}
 if ($selected.Common.Count -eq 0 -and $selected.Client.Count -eq 0 -and
         $selected.Server.Count -eq 0 -and $selected.Tcp.Count -eq 0 -and
-        $selected.Gui.Count -eq 0) {
+        $selected.Gui.Count -eq 0 -and $selected.MySql.Count -eq 0) {
     throw "Suite $Suite is declared but has no tests yet; nothing was run."
 }
 

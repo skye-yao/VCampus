@@ -24,6 +24,12 @@ import util.PageLeaveGuard;
  * 子页时它会被 {@code unload}/{@code release}，在途请求的响应随即失效，详情页也不保留上一个教学班的
  * 数据，因此不存在长期驻留的过期子页控制器。
  *
+ * <p>首屏是教学课程表：装配完成时直接走 {@link #openTimetable()}，教师从侧边栏进来看到的就是本周
+ * 课表，不再先停一层只写着“已接入”的占位页。占位页在生产路径上<b>故意不可达</b>：装配之后没有
+ * 任何入口会切回它（左上角的“返回首页”走的是整体替换场景，不是这里的 {@link #showHome()}），
+ * {@link #showHome()}、{@link #PAGE_HOME} 与 {@code render()} 里那一支 {@code homePanel} 因此
+ * 只作为测试接缝保留；删掉它们会牵动 FXML 与测试，不在这一步的范围内。
+ *
  * <p>成绩录入（设计 §5.4）：右上入口打开成绩教学班列表，列表行或教学班详情的“成绩录入”打开某个
  * 教学班的成绩编辑表。编辑表有未保存内容时，本工作台的每个导航入口（返回首页、切换子页、切换
  * 教学班）都先问一次当前活动的 {@link PageLeaveGuard}，被拒绝就停在原页；离开成功后由子页自己的
@@ -55,6 +61,11 @@ public final class TeacherCourseManagementController {
     static final String ENTRY_OFFERINGS = "offeringsEntryButton";
     static final String ENTRY_GRADES = "gradesEntryButton";
     static final String ENTRY_APPLICATIONS = "applicationsEntryButton";
+    /**
+     * 「我的申请」入口的文案。还有未读结果时后面追加「（本页未读 N）」，未读为零时逐字回到这句话，
+     * 所以 FXML 里的静态文案与这里的常量始终一致（视图契约测试钉的就是 FXML 那一份）。
+     */
+    static final String APPLICATIONS_ENTRY_TEXT = "我的申请";
 
     private final TeacherCourseService service;
     private Runnable backAction = () -> ClientMain.switchScene(HOME_VIEW);
@@ -104,7 +115,13 @@ public final class TeacherCourseManagementController {
     }
 
     /**
-     * 装配已加载的子页：把打开详情、返回列表、成绩入口与课表的“查看教学班”导航接上，然后回到首页。
+     * 装配已加载的子页：把打开详情、返回列表、成绩入口与课表的“查看教学班”导航接上，
+     * 然后直接停在工作台首屏——**教学课程表**（Task 3）。
+     *
+     * <p>首屏不再是一个只写着“已接入”的占位页：教师从侧边栏进来要看的正是本周课表，占位页只是
+     * 一层白页。走的是 {@link #openTimetable()} 这条既有语义（{@code activate()} +
+     * {@code currentPage} + {@code render()}），不新增并行的加载路径；它在这里只被调用一次，
+     * 课表页因此只加载一次（不是装配一次、进入又一次）。
      *
      * <p>节点可以为 {@code null}（控制器测试不加载 FXML）；子页控制器为 {@code null} 时导航只切换
      * 当前页，不做任何加载。子页控制器由 {@code FXMLLoader} 用无参构造创建，与外壳一样取用
@@ -133,7 +150,31 @@ public final class TeacherCourseManagementController {
         if (schedulePageController != null) {
             schedulePageController.setOpenOffering(this::showOffering);
         }
-        showHome();
+        if (applicationsPageController != null) {
+            // 结果角标：申请页每次成功加载列表后把**服务端算出的**未读计数交上来，工作台只负责显示。
+            applicationsPageController.setUnreadListener(this::showApplicationsUnread);
+        }
+        openTimetable();
+    }
+
+    /**
+     * 「我的申请」入口上的结果角标：未读为零时逐字显示「我的申请」，否则追加
+     * {@code （本页未读 N）}。
+     *
+     * <p>计数来自申请页**当前筛选的当前页**——本模块的查询模型是设计 §10 定死的三条读取方法
+     * （按类型/状态分页），既没有「全账号未读总数」的入口，也不允许为了它扩一个（§10 明确首版只做
+     * 页面进入、手动刷新与写操作后的查询，不引入推送）。所以角标的措辞必须说实话：它写「本页未读」，
+     * 不能写成一个看起来像全账号总数的数字——那种措辞会在「5 条已通过未读、0 条待审批」时显示成
+     * 什么都没发生，把一个有界欠计说成全账号已读。角标本身仍然是真实数据驱动的：不是客户端猜的，
+     * 也不缓存上一次的页结果，而是一直跟随申请页加载到的服务端 DTO。
+     *
+     * <p>入口按钮在无 FXML 的控制器测试里为 null，此时角标只是不显示，不影响导航。
+     */
+    private void showApplicationsUnread(int unread) {
+        if (applicationsEntryButton == null) return;
+        applicationsEntryButton.setText(unread > 0
+                ? APPLICATIONS_ENTRY_TEXT + "（本页未读 " + unread + "）"
+                : APPLICATIONS_ENTRY_TEXT);
     }
 
     /**
@@ -223,7 +264,7 @@ public final class TeacherCourseManagementController {
         openOfferings();
     }
 
-    /** 打开教学课程表：卸下其它子页并激活课表页，首页文案保持不变。 */
+    /** 打开教学课程表：卸下其它子页并激活课表页，首页文案保持不变。工作台首屏走的也是这里。 */
     void openTimetable() {
         if (!leaveCurrentPage()) return;
         unloadAllSubPages();

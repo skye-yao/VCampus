@@ -98,9 +98,10 @@ public class CourseHandler {
                 }
                 case CourseActions.LOAD_SCHEDULE -> {
                     Term term = term(request);
-                    int week = positiveInt(request, "week");
+                    // week 可缺省：缺省即“由服务端按教学日历决定当前周”，与教师端
+                    // courseTeacher.loadTeachingSchedule 同一约定；出现时行为完全不变。
                     response.putData("schedule", service.loadSchedule(
-                            uid, term.academicYear, term.semester, week));
+                            uid, term.academicYear, term.semester, optionalInteger(request, "week")));
                 }
                 case CourseActions.LOAD_NOTICES -> {
                     Term term = term(request);
@@ -233,6 +234,16 @@ public class CourseHandler {
         int value = integer(request, key);
         if (value <= 0) throw new IllegalArgumentException(key + " 必须为正整数");
         return value;
+    }
+
+    /**
+     * week 可缺省：缺省表示“由服务端按教学日历决定当前周”。出现时必须是合法整数（越界由服务层
+     * 判定，因为它依赖教学日历的 minWeek/maxWeek）。与教师端 {@code TeacherCourseHandler} 同形。
+     */
+    private static Integer optionalInteger(Message request, String key) {
+        Map<String, Object> data = request.getData();
+        if (data == null || data.get(key) == null) return null;
+        return integer(request, key);
     }
 
     private static int integer(Message request, String key) {

@@ -23,7 +23,7 @@ public final class MainControllerRoleRoutingTest {
             testStudentRoutesToStudentCourseShell();
             testTeacherRoutesToTeacherWorkspace();
             testRoleWithoutSessionSeesNotice();
-            testCourseCardTitleFollowsRole();
+            testCourseCardTitleIsTheSameForEveryRole();
             testMainViewExposesCourseNavigationEntry();
             testMainViewExposesSchedulesAndAcademicCard();
             testAcademicMetricFormatting();
@@ -90,21 +90,24 @@ public final class MainControllerRoleRoutingTest {
                 "an unknown role must receive the same notice, saw " + harness.notices);
     }
 
-    private static void testCourseCardTitleFollowsRole() {
+    /**
+     * 课程入口标题已统一：任何角色（含未知/缺失角色）都得到“教务管理”，不再区分学生与教师。
+     */
+    private static void testCourseCardTitleIsTheSameForEveryRole() {
         require("教务管理".equals(MainController.courseCardTitleText("管理员")),
                 "administrator course card title must be 教务管理");
         require("教务管理".equals(MainController.courseCardTitleText("ADMIN")),
                 "administrator (ADMIN) course card title must be 教务管理");
+        require("教务管理".equals(MainController.courseCardTitleText("学生")),
+                "student course card title must be 教务管理 too");
+        require("教务管理".equals(MainController.courseCardTitleText("STUDENT")),
+                "student (STUDENT) course card title must be 教务管理 too");
         require("教务管理".equals(MainController.courseCardTitleText("教师")),
-                "teacher course card title must be 教务管理");
+                "teacher course card title must be 教务管理 too");
         require("教务管理".equals(MainController.courseCardTitleText("TEACHER")),
-                "teacher (TEACHER) course card title must be 教务管理");
-        require("选课".equals(MainController.courseCardTitleText("学生")),
-                "student course card title must stay 选课");
-        require("选课".equals(MainController.courseCardTitleText("STUDENT")),
-                "student (STUDENT) course card title must stay 选课");
-        require("选课".equals(MainController.courseCardTitleText(null)),
-                "a missing role must fall back to 选课");
+                "teacher (TEACHER) course card title must be 教务管理 too");
+        require("教务管理".equals(MainController.courseCardTitleText(null)),
+                "a missing role must yield 教务管理 as well");
     }
 
     private static void testMainViewExposesCourseNavigationEntry() throws IOException {

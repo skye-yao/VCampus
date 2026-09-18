@@ -2269,6 +2269,11 @@
     -fx-text-fill: #50351f;
 }
 
+.course-admin-conflict-legend {
+    -fx-font-size: 11px;
+    -fx-text-fill: #6b746c;
+}
+
 .course-admin-conflict-blocking {
     -fx-font-size: 12px;
     -fx-text-fill: #8a3d32;
@@ -2388,12 +2393,14 @@
     -fx-border-color: #d98324;
 }
 
+/* 竖排角标（课次块右侧）：宽度（约一个字宽）与换行由 AdjustmentBadge 写死，样式只负责颜色与内边距——
+   左右内边距必须小到让一个字撑满整个宽度，否则三个字会被挤成两列。 */
 .course-adjustment-badge {
     -fx-background-color: #fdd000;
     -fx-background-radius: 3px;
     -fx-font-size: 9px;
     -fx-font-weight: bold;
-    -fx-padding: 1px 4px;
+    -fx-padding: 1px 3px;
     -fx-text-fill: #151E49;
 }
 
