@@ -25,9 +25,9 @@
                 <Label styleClass="course-admin-field-label" text="教学班代码" GridPane.rowIndex="0" />
                 <TextField fx:id="offeringCodeField" promptText="如 OFF-1001" styleClass="course-admin-dialog-field" GridPane.columnIndex="1" GridPane.rowIndex="0" />
                 <Label styleClass="course-admin-field-label" text="学年" GridPane.rowIndex="1" />
-                <TextField fx:id="academicYearField" promptText="如 2026" styleClass="course-admin-dialog-field" GridPane.columnIndex="1" GridPane.rowIndex="1" />
+                <TextField fx:id="academicYearField" promptText="如 2027" styleClass="course-admin-dialog-field" GridPane.columnIndex="1" GridPane.rowIndex="1" />
                 <Label styleClass="course-admin-field-label" text="学期" GridPane.rowIndex="2" />
-                <TextField fx:id="semesterField" promptText="1 或 2" styleClass="course-admin-dialog-field" GridPane.columnIndex="1" GridPane.rowIndex="2" />
+                <ComboBox fx:id="semesterField" maxWidth="Infinity" styleClass="course-admin-dialog-field" GridPane.columnIndex="1" GridPane.rowIndex="2" />
                 <Label styleClass="course-admin-field-label" text="容量" GridPane.rowIndex="3" />
                 <TextField fx:id="capacityField" promptText="如 60" styleClass="course-admin-dialog-field" GridPane.columnIndex="1" GridPane.rowIndex="3" />
                 <Label styleClass="course-admin-field-label" text="任课教师工号" GridPane.rowIndex="4" />

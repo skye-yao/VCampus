@@ -1,6 +1,8 @@
 package controller;
 
+import dto.course.TermLabels;
 import dto.course.admin.catalog.OfferingEditorRequestDTO;
+import java.util.List;
 import javafx.fxml.FXML;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
@@ -23,6 +25,9 @@ public final class OfferingEditorDialogController {
     private static final String OPEN_LABEL = "开放";
     private static final String STOPPED_LABEL = "停止";
 
+    private static final List<String> TERM_LABELS =
+            List.of(TermLabels.label(1), TermLabels.label(2), TermLabels.label(3));
+
     private AdminOfferingView editing;
     private String courseId;
     private Runnable onSubmit = () -> { };
@@ -32,7 +37,7 @@ public final class OfferingEditorDialogController {
     @FXML private Label dialogTitleLabel;
     @FXML private TextField offeringCodeField;
     @FXML private TextField academicYearField;
-    @FXML private TextField semesterField;
+    @FXML private ComboBox<String> semesterField;
     @FXML private TextField capacityField;
     @FXML private TextField teacherUidField;
     @FXML private TextField assistantUidField;
@@ -45,6 +50,10 @@ public final class OfferingEditorDialogController {
     public void initialize() {
         statusField.getItems().setAll(NOT_OPEN_LABEL, OPEN_LABEL);
         statusField.setValue(NOT_OPEN_LABEL);
+        if (semesterField != null) {
+            semesterField.getItems().setAll(TERM_LABELS);
+            semesterField.setValue(TERM_LABELS.get(1));
+        }
     }
 
     /**
@@ -54,15 +63,31 @@ public final class OfferingEditorDialogController {
         return offering != null && !CANCELLED.equals(offering.getStatus());
     }
 
-    public void prepareForCreate(String courseId) {
+    /** 学期下拉的选项，学期序。测试与界面共用同一个来源。 */
+    static List<String> semesterOptions() {
+        return TERM_LABELS;
+    }
+
+    static String semesterLabel(int semester) {
+        return TermLabels.label(semester);
+    }
+
+    static int semesterCode(String label) {
+        for (int semester = 1; semester <= 3; semester++) {
+            if (TERM_LABELS.get(semester - 1).equals(label)) return semester;
+        }
+        return 0;
+    }
+
+    public void prepareForCreate(String courseId, int academicYear, int semester) {
         this.courseId = courseId;
         editing = null;
         dialogTitleLabel.setText("新增教学班");
         statusField.getItems().setAll(NOT_OPEN_LABEL, OPEN_LABEL);
         statusField.setValue(NOT_OPEN_LABEL);
         offeringCodeField.clear();
-        academicYearField.setText("2026");
-        semesterField.setText("1");
+        academicYearField.setText(String.valueOf(academicYear));
+        semesterField.setValue(TermLabels.label(semester));
         capacityField.setText("60");
         teacherUidField.clear();
         assistantUidField.clear();
@@ -80,7 +105,7 @@ public final class OfferingEditorDialogController {
         statusField.setValue(statusLabel(offering.getStatus()));
         offeringCodeField.setText(offering.getOfferingCode());
         academicYearField.setText(String.valueOf(offering.getAcademicYear()));
-        semesterField.setText(String.valueOf(offering.getSemester()));
+        semesterField.setValue(TermLabels.label(offering.getSemester()));
         capacityField.setText(String.valueOf(offering.getCapacity()));
         teacherUidField.setText(offering.getTeacherUid() == null ? "" : offering.getTeacherUid());
         assistantUidField.setText(
@@ -113,7 +138,7 @@ public final class OfferingEditorDialogController {
         int expectedVersion = editing == null ? 0 : editing.getVersion();
         return new OfferingEditorRequestDTO(operationId, offeringId, expectedVersion, courseId,
                 offeringCodeField.getText().trim(), parseInt(academicYearField.getText()),
-                parseInt(semesterField.getText()), parseInt(capacityField.getText()),
+                semesterCode(semesterField.getValue()), parseInt(capacityField.getText()),
                 teacherUidField.getText().trim(), emptyToNull(assistantUidField.getText()),
                 statusCode(statusField.getValue()));
     }
@@ -144,9 +169,8 @@ public final class OfferingEditorDialogController {
             setValidationMessage("学年必须是大于 0 的整数");
             return false;
         }
-        Integer semester = positiveIntOrNull(semesterField.getText());
-        if (semester == null) {
-            setValidationMessage("学期必须是大于 0 的整数");
+        if (semesterCode(semesterField.getValue()) == 0) {
+            setValidationMessage("请选择学期");
             return false;
         }
         Integer capacity = positiveIntOrNull(capacityField.getText());

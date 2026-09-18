@@ -367,7 +367,8 @@ $suites = @(
     # 刻意不收已在 Adjustment 套件里的 handler.AdminCourseHandlerTest，避免同一批用例跑两遍。
     [pscustomobject]@{ Name = 'AdminCatalog'
         Common = @('dto.course.TermLabelsTest')
-        Client = @('controller.AdminCourseCatalogControllerTest')
+        Client = @('controller.AdminCourseCatalogControllerTest',
+            'controller.OfferingEditorDialogControllerTest')
         Server = @('service.AdminOfferingMySqlTest',
             'service.AdminCourseCatalogMySqlTest')
         Tcp = @()

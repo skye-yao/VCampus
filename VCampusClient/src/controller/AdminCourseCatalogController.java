@@ -585,7 +585,9 @@ public final class AdminCourseCatalogController {
         }
         OfferingEditorDialogController dialogController = loader.getController();
         if (offering == null) {
-            dialogController.prepareForCreate(course.getCourseId());
+            dialogController.prepareForCreate(course.getCourseId(),
+                    term == null ? java.time.Year.now().getValue() : term.getAcademicYear(),
+                    term == null ? 2 : term.getSemester());
         } else {
             dialogController.prepareForEdit(offering);
         }
