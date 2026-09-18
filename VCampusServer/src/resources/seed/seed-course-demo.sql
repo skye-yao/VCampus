@@ -297,6 +297,19 @@ VALUES
     (4001, '2026-2027 学年第一学期排课方案', 3001, 1, 'PUBLISHED',
      '2026-08-01 00:00:00', '2026-08-01 00:00:00');
 
+-- 把教学日历的"当前方案"指针指回 4001。上面第 2 节的幂等清理必须先把它置空（否则指针的外键会挡住
+-- schedule_plan 的删除），所以这里必须补回来——只置空不补，教师课表就会解析不到日历：
+-- TeacherScheduleDAO.currentCalendar 要求 current_schedule_plan_id 非空且指向本日历的 PUBLISHED 方案，
+-- 否则抛「该学期暂无已发布的教学日历」，教师端课程表就是空的。管理端排课视图也读同一个指针。
+-- 真实环境里这个指针由管理端"发布方案"写入（AdminScheduleDAO.setCurrentPlan），seed 直接插 PUBLISHED 方案，
+-- 就得自己补这一步。FK 指向 schedule_plan，所以只能放在上面 INSERT 之后。
+SET @seed_pointer_restore = IF(@seed_has_calendar_pointer > 0,
+    'UPDATE `teaching_calendar` SET `current_schedule_plan_id` = 4001 WHERE `id` = 3001',
+    'SELECT 1');
+PREPARE seed_pointer_restore FROM @seed_pointer_restore;
+EXECUTE seed_pointer_restore;
+DEALLOCATE PREPARE seed_pointer_restore;
+
 -- 供下面各生成块复用的临时表：周次表、新规则表、教学班-教室对应表。
 DROP TEMPORARY TABLE IF EXISTS `seed_weeks`;
 CREATE TEMPORARY TABLE `seed_weeks` (
@@ -341,16 +354,32 @@ VALUES (2010, 4301), (2011, 4303), (2012, 4301), (2013, 4302), (2014, 4303),
        (2015, 4304), (2016, 4302), (2017, 4303), (2018, 4304), (2019, 4301),
        (2020, 4302);
 
+-- 教室是排课安排的引用数据：course_schedule_arrangement.classroom_id 外键指向 classroom，
+-- 所以必须先于下面的安排插入。原先这段在第 8 节，正是安排填不进教室的原因。
+INSERT INTO `classroom` (`id`, `name`, `capacity`, `electric`)
+VALUES
+    (4301, '教一-101', 60, 1),
+    (4302, '教二-305', 40, 1),
+    (4303, '计算中心-机房 A', 90, 1),
+    (4304, '教三-报告厅', 120, 1);
+
 -- 4101-4104 是原有固定夹具（第 1 周，与 course_offering_conflict 里那一条 2001/2002 冲突
 -- 记录保持一致），继续单独插入；4110-4125 走种子新规则表，两种装载顺序共用一份数据。
+-- arrangement 的 teacher_uid / classroom_id 是教师端课表唯一的取数来源：TeacherScheduleDAO
+-- 按 `a.teacher_uid = ? OR a.assistant_uid = ?` 过滤当周课次，并按 a.classroom_id 取教室
+-- （见 VCampusServer/src/dao/TeacherScheduleDAO.java）。只写 offering_id 会让教师端课表恒为空。
+-- teacher_uid 从 course_offering_teacher（role=0 即任课老师）反查补齐；classroom_id 取自
+-- seed_classrooms；4101-4104 不在 seed_classrooms 里，其教室与第 8 节 resource_booking 固定
+-- 夹具 4502/4504/4506/4508 保持一致（2001→4301，2002/2004→4302）。
+-- 2004 在教学班关联表里没有任课老师，teacher_uid 保持 NULL 属预期。
 SET @seed_arrangement_sql = IF(@seed_has_arrangement > 0,
-    'INSERT INTO `course_schedule_arrangement` (`arrangement_id`, `plan_id`, `offering_id`) VALUES (4101,4001,2001),(4102,4001,2001),(4103,4001,2002),(4104,4001,2004)',
+    'INSERT INTO `course_schedule_arrangement` (`arrangement_id`, `plan_id`, `offering_id`, `teacher_uid`, `classroom_id`) VALUES (4101,4001,2001,(SELECT `uid` FROM `course_offering_teacher` WHERE `offering_id`=2001 AND `role`=0),4301),(4102,4001,2001,(SELECT `uid` FROM `course_offering_teacher` WHERE `offering_id`=2001 AND `role`=0),4301),(4103,4001,2002,(SELECT `uid` FROM `course_offering_teacher` WHERE `offering_id`=2002 AND `role`=0),4302),(4104,4001,2004,(SELECT `uid` FROM `course_offering_teacher` WHERE `offering_id`=2004 AND `role`=0),4302)',
     'SELECT 1');
 PREPARE seed_arrangement FROM @seed_arrangement_sql;
 EXECUTE seed_arrangement;
 DEALLOCATE PREPARE seed_arrangement;
 SET @seed_arrangement_new_sql = IF(@seed_has_arrangement > 0,
-    'INSERT INTO `course_schedule_arrangement` (`arrangement_id`, `plan_id`, `offering_id`) SELECT `id`, 4001, `offering_id` FROM `seed_new_rules`',
+    'INSERT INTO `course_schedule_arrangement` (`arrangement_id`, `plan_id`, `offering_id`, `teacher_uid`, `classroom_id`) SELECT r.`id`, 4001, r.`offering_id`, (SELECT ot.`uid` FROM `course_offering_teacher` ot WHERE ot.`offering_id` = r.`offering_id` AND ot.`role` = 0), sc.`classroom_id` FROM `seed_new_rules` r LEFT JOIN `seed_classrooms` sc ON sc.`offering_id` = r.`offering_id`',
     'SELECT 1');
 PREPARE seed_arrangement_new FROM @seed_arrangement_new_sql;
 EXECUTE seed_arrangement_new;
@@ -431,15 +460,8 @@ JOIN `period_definition` p2
  AND p2.`period_no` = r.`end_period`;
 
 -- -----------------------------------------------------------------------------
--- 8. 教室、资源与资源预订
+-- 8. 资源与资源预订（classroom 已上移到第 6 节：排课安排要引用它）
 -- -----------------------------------------------------------------------------
-INSERT INTO `classroom` (`id`, `name`, `capacity`, `electric`)
-VALUES
-    (4301, '教一-101', 60, 1),
-    (4302, '教二-305', 40, 1),
-    (4303, '计算中心-机房 A', 90, 1),
-    (4304, '教三-报告厅', 120, 1);
-
 INSERT INTO `schedule_resource` (`id`, `resource_type`, `business_id`, `conflict_mode`)
 VALUES
     (4401, 'teacher', 'teacher01', 'EXCLUSIVE'),
