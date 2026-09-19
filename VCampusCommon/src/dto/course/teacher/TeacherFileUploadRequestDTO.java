@@ -27,22 +27,27 @@ public final class TeacherFileUploadRequestDTO {
         this.sha256 = sha256;
     }
 
+    /** 获取 OfferingId。 */
     public String getOfferingId() {
         return offeringId;
     }
 
+    /** 获取 ExpectedRevision。 */
     public long getExpectedRevision() {
         return expectedRevision;
     }
 
+    /** 获取 FileName。 */
     public String getFileName() {
         return fileName;
     }
 
+    /** 获取 ByteLength。 */
     public long getByteLength() {
         return byteLength;
     }
 
+    /** 获取 Sha256。 */
     public String getSha256() {
         return sha256;
     }

@@ -26,6 +26,9 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
+/**
+* Internal course-management type CourseWaitlistService.
+*/
 public class CourseWaitlistService implements WaitlistAdvanceTrigger {
     private static final Duration OFFER_DURATION = Duration.ofMinutes(5);
     private static final int TRIGGER_LIMIT = 100;
@@ -37,6 +40,9 @@ public class CourseWaitlistService implements WaitlistAdvanceTrigger {
     private final CourseQueryDAO queryDAO;
     private final Clock clock;
 
+    /**
+    * Handles the course-management responsibility of CourseWaitlistService.
+    */
     public CourseWaitlistService() {
         this(Clock.systemUTC());
     }
@@ -57,22 +63,34 @@ public class CourseWaitlistService implements WaitlistAdvanceTrigger {
         this.clock = clock;
     }
 
+    /**
+    * Handles the course-management responsibility of newSelectionService.
+    */
     public CourseSelectionService newSelectionService() {
         return new CourseSelectionService(clock, this);
     }
 
+    /**
+    * Handles the course-management responsibility of joinWaitlist.
+    */
     public CourseMutationResultDTO joinWaitlist(String uid, CourseTermDTO term,
                                                 long offeringId, String operationId) {
         return transact(uid, term, offeringId, operationId, CourseActions.JOIN_WAITLIST,
                 connection -> join(connection, uid, term, offeringId, operationId));
     }
 
+    /**
+    * Removes or cancels cancelWaitlist data.
+    */
     public CourseMutationResultDTO cancelWaitlist(String uid, CourseTermDTO term,
                                                   long offeringId, String operationId) {
         return transact(uid, term, offeringId, operationId, CourseActions.CANCEL_WAITLIST,
                 connection -> cancel(connection, uid, term, offeringId, operationId));
     }
 
+    /**
+    * Handles the course-management responsibility of resolveWaitlistOffer.
+    */
     public CourseMutationResultDTO resolveWaitlistOffer(String uid, CourseTermDTO term,
                                                         long offeringId, String operationId,
                                                         String decision) {
@@ -86,6 +104,9 @@ public class CourseWaitlistService implements WaitlistAdvanceTrigger {
     }
 
     @Override
+    /**
+    * Handles the course-management responsibility of offeringFreed.
+    */
     public void offeringFreed(long offeringId) {
         if (offeringId <= 0) throw new IllegalArgumentException("offeringId 必须为正整数");
         advanceOffering(offeringId, clock.instant(), TRIGGER_LIMIT);
@@ -634,13 +655,22 @@ public class CourseWaitlistService implements WaitlistAdvanceTrigger {
         return new Execution(result, Set.of());
     }
 
+    /**
+    * Internal course-management type AdvanceResult.
+    */
     private enum AdvanceResult { CHANGED, RETRY, STOP }
 
     @FunctionalInterface
+    /**
+    * Internal course-management type Mutation.
+    */
     private interface Mutation {
         Execution execute(Connection connection) throws SQLException;
     }
 
+    /**
+    * Internal course-management type Execution.
+    */
     private record Execution(CourseMutationResultDTO result, Set<Long> freedOfferingIds) {
     }
 }

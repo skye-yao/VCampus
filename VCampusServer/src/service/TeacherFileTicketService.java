@@ -23,24 +23,24 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * 教师成绩 Excel 文件短连接的票据签发与兑换。
- *
- * <p>Excel 文件不进业务 JSON/TCP：业务请求（{@code beginGradeUpload} 等）在这里签发一张短时票据，
- * 文件本身随后在独立端口上用「长度前缀元数据 + 原始字节」协议传输。票据绑定签发时的 Session、
- * 教师 UID、教学班、用途（上传/下载）与精确长度，2 分钟过期且只能领取一次；重试必须重新申请。
- *
- * <p>所有临时文件由本服务在自建临时目录下自行命名，绝不使用客户端提供的路径——客户端文件名只
- * 参与扩展名的白名单化。临时目录在 {@link #close()} 时整体删除，过期票据的临时文件由后台清理器
- * 定期回收，因此停服后不会留下半截上传或生成的表格；**上传成功却始终没有预览**的落点文件也由
- * 同一个清理器按过期时间回收（票据仍持有落点路径），一次被放弃的上传不会长期占着临时磁盘。
- *
- * <p>上传票据的兑换分两段，各自单次：传输阶段由文件连接消费并写盘（{@link #claim}），成功之后
- * 交接成「已落地」（{@link #markUploaded}）；预览则通过 {@link #claimUploaded} 领取落点路径并消费
- * 票据。业务请求原样带回的是签发时那张票号，所以预览认的正是本次上传实际落盘的那个文件，
- * 两次兑换之间没有任何客户端可以插手的位置（文件名始终由服务端生成）。
- *
- * <p>时钟可注入：过期用例必须能在不等待真实两分钟的情况下推进时间。
- */
+* 教师成绩 Excel 文件短连接的票据签发与兑换。
+*
+* <p>Excel 文件不进业务 JSON/TCP：业务请求（{@code beginGradeUpload} 等）在这里签发一张短时票据，
+* 文件本身随后在独立端口上用「长度前缀元数据 + 原始字节」协议传输。票据绑定签发时的 Session、
+* 教师 UID、教学班、用途（上传/下载）与精确长度，2 分钟过期且只能领取一次；重试必须重新申请。
+*
+* <p>所有临时文件由本服务在自建临时目录下自行命名，绝不使用客户端提供的路径——客户端文件名只
+* 参与扩展名的白名单化。临时目录在 {@link #close()} 时整体删除，过期票据的临时文件由后台清理器
+* 定期回收，因此停服后不会留下半截上传或生成的表格；**上传成功却始终没有预览**的落点文件也由
+* 同一个清理器按过期时间回收（票据仍持有落点路径），一次被放弃的上传不会长期占着临时磁盘。
+*
+* <p>上传票据的兑换分两段，各自单次：传输阶段由文件连接消费并写盘（{@link #claim}），成功之后
+* 交接成「已落地」（{@link #markUploaded}）；预览则通过 {@link #claimUploaded} 领取落点路径并消费
+* 票据。业务请求原样带回的是签发时那张票号，所以预览认的正是本次上传实际落盘的那个文件，
+* 两次兑换之间没有任何客户端可以插手的位置（文件名始终由服务端生成）。
+*
+* <p>时钟可注入：过期用例必须能在不等待真实两分钟的情况下推进时间。
+*/
 public final class TeacherFileTicketService implements AutoCloseable {
 
     /** 单个文件（模板、名单导出、待解析工作簿）的字节上限，与设计第 9 节的 5 MiB 一致。 */
@@ -63,10 +63,16 @@ public final class TeacherFileTicketService implements AutoCloseable {
 
     private volatile int port;
 
+    /**
+    * Handles the course-management responsibility of TeacherFileTicketService.
+    */
     public TeacherFileTicketService(int filePort) {
         this(filePort, Clock.systemUTC());
     }
 
+    /**
+    * Handles the course-management responsibility of TeacherFileTicketService.
+    */
     public TeacherFileTicketService(int filePort, Clock clock) {
         if (filePort < 0 || filePort > 65535) {
             throw new IllegalArgumentException("文件端口无效: " + filePort);
@@ -88,8 +94,8 @@ public final class TeacherFileTicketService implements AutoCloseable {
     }
 
     /**
-     * 文件监听器真正绑定端口后回填实际端口：测试用 0 绑定随机端口，客户端拿到的必须是真实端口。
-     */
+    * 文件监听器真正绑定端口后回填实际端口：测试用 0 绑定随机端口，客户端拿到的必须是真实端口。
+    */
     public void bindPort(int boundPort) {
         this.port = boundPort;
     }
@@ -100,16 +106,16 @@ public final class TeacherFileTicketService implements AutoCloseable {
     }
 
     /**
-     * 在临时目录里预留一个不存在的文件路径：文件名由服务端生成，客户端文件名只贡献扩展名。
-     */
+    * 在临时目录里预留一个不存在的文件路径：文件名由服务端生成，客户端文件名只贡献扩展名。
+    */
     public Path newTempFile(String clientFileName) {
         requireOpen();
         return tempDirectory.resolve(UUID.randomUUID() + suffixOf(clientFileName));
     }
 
     /**
-     * 签发上传票据。长度与摘要由业务请求声明，兑换时按声明精确读取并核对，超出 5 MiB 直接拒绝。
-     */
+    * 签发上传票据。长度与摘要由业务请求声明，兑换时按声明精确读取并核对，超出 5 MiB 直接拒绝。
+    */
     public TeacherFileTicketDTO issueUpload(UserSession session, String offeringId,
             long expectedRevision, String fileName, long byteLength, String sha256) {
         requireOpen();
@@ -124,8 +130,8 @@ public final class TeacherFileTicketService implements AutoCloseable {
     }
 
     /**
-     * 签发下载票据：长度与摘要取自服务端文件本身，客户端据此核对下载结果。
-     */
+    * 签发下载票据：长度与摘要取自服务端文件本身，客户端据此核对下载结果。
+    */
     public TeacherFileTicketDTO issueDownload(UserSession session, String offeringId, Path file) {
         requireOpen();
         requireSession(session);
@@ -146,18 +152,18 @@ public final class TeacherFileTicketService implements AutoCloseable {
     }
 
     /**
-     * 兑换票据（传输阶段）：校验归属会话、有效期与用途后单次消费。
-     *
-     * <p>身份、有效期与用途全部通过才消费票据，因此并发或重复兑换只有一次成功，而无关的伪造输入
-     * 不会烧掉别人手里那张票。长度与摘要**不在这里**核对——文件连接在兑换成功之后才逐项核对它们，
-     * 那里失败时按方向回收票据落点（{@code CourseFileConnection#claim}）。任何失败都抛出
-     * {@link IllegalArgumentException}，消息可直接回给客户端。
-     *
-     * <p>上传票据的传输阶段与预览阶段是**两次各自单次**的交接：这里只消费传输，成功后由
-     * {@link #markUploaded} 把它登记成「已落地待预览」，再由 {@link #claimUploaded} 消费预览。
-     * 因此同一张票第二次上传仍然失败（票据不再处于已签发状态），而预览拿到的必然是本次上传
-     * 实际落盘的那个文件。下载票据走完传输就没有下一步，直接摘除。
-     */
+    * 兑换票据（传输阶段）：校验归属会话、有效期与用途后单次消费。
+    *
+    * <p>身份、有效期与用途全部通过才消费票据，因此并发或重复兑换只有一次成功，而无关的伪造输入
+    * 不会烧掉别人手里那张票。长度与摘要**不在这里**核对——文件连接在兑换成功之后才逐项核对它们，
+    * 那里失败时按方向回收票据落点（{@code CourseFileConnection#claim}）。任何失败都抛出
+    * {@link IllegalArgumentException}，消息可直接回给客户端。
+    *
+    * <p>上传票据的传输阶段与预览阶段是**两次各自单次**的交接：这里只消费传输，成功后由
+    * {@link #markUploaded} 把它登记成「已落地待预览」，再由 {@link #claimUploaded} 消费预览。
+    * 因此同一张票第二次上传仍然失败（票据不再处于已签发状态），而预览拿到的必然是本次上传
+    * 实际落盘的那个文件。下载票据走完传输就没有下一步，直接摘除。
+    */
     public Ticket claim(String ticket, UserSession session, String direction) {
         requireOpen();
         if (ticket == null || ticket.isBlank()) {
@@ -192,13 +198,13 @@ public final class TeacherFileTicketService implements AutoCloseable {
     }
 
     /**
-     * 上传成功后的交接：文件已经完整落地（长度与 SHA-256 都核对通过、{@code .part} 已改名），
-     * 把票据登记成「待预览」。
-     *
-     * <p>只能由文件连接在**成功**之后调用：写盘失败、摘要不符、提前 EOF 都不许调用，否则一张
-     * 没落盘的票会让预览拿到不存在的路径。目录被停服清掉（{@link #closed}）时这里不再登记，
-     * 落点文件也已经随目录一起删除，不留下悬空票据。
-     */
+    * 上传成功后的交接：文件已经完整落地（长度与 SHA-256 都核对通过、{@code .part} 已改名），
+    * 把票据登记成「待预览」。
+    *
+    * <p>只能由文件连接在**成功**之后调用：写盘失败、摘要不符、提前 EOF 都不许调用，否则一张
+    * 没落盘的票会让预览拿到不存在的路径。目录被停服清掉（{@link #closed}）时这里不再登记，
+    * 落点文件也已经随目录一起删除，不留下悬空票据。
+    */
     public void markUploaded(String ticket) {
         if (ticket == null || ticket.isBlank() || closed.get()) {
             return;
@@ -212,12 +218,12 @@ public final class TeacherFileTicketService implements AutoCloseable {
     }
 
     /**
-     * 领取已落地的上传文件（预览阶段）：校验归属会话与有效期后单次消费，返回落点路径。
-     *
-     * <p>与 {@link #claim} 一样，校验全部通过才摘除票据：别人的会话、伪造的令牌、错误的用途都
-     * 不会烧掉票据持有者手里那张票。一个上传只能换来一次预览，第二次预览拿到的错误与第二次
-     * 传输完全相同。文件是否还存在由调用方读取时判定——服务端自建的文件名从不来自客户端。
-     */
+    * 领取已落地的上传文件（预览阶段）：校验归属会话与有效期后单次消费，返回落点路径。
+    *
+    * <p>与 {@link #claim} 一样，校验全部通过才摘除票据：别人的会话、伪造的令牌、错误的用途都
+    * 不会烧掉票据持有者手里那张票。一个上传只能换来一次预览，第二次预览拿到的错误与第二次
+    * 传输完全相同。文件是否还存在由调用方读取时判定——服务端自建的文件名从不来自客户端。
+    */
     public Ticket claimUploaded(String ticket, UserSession session) {
         requireOpen();
         if (ticket == null || ticket.isBlank()) {
@@ -244,8 +250,8 @@ public final class TeacherFileTicketService implements AutoCloseable {
     }
 
     /**
-     * 文件内容摘要，小写十六进制；供服务端核验上传内容与生成下载票据使用。
-     */
+    * 文件内容摘要，小写十六进制；供服务端核验上传内容与生成下载票据使用。
+    */
     public static String sha256(Path file) {
         MessageDigest digest = newDigest();
         byte[] buffer = new byte[64 * 1024];
@@ -269,9 +275,12 @@ public final class TeacherFileTicketService implements AutoCloseable {
     }
 
     /**
-     * 停服清理：幂等地停止回收线程并删除整个临时目录（半截上传、已发送的模板一并清理）。
-     */
+    * 停服清理：幂等地停止回收线程并删除整个临时目录（半截上传、已发送的模板一并清理）。
+    */
     @Override
+    /**
+    * Handles the course-management responsibility of close.
+    */
     public void close() {
         if (!closed.compareAndSet(false, true)) {
             return;
@@ -366,20 +375,23 @@ public final class TeacherFileTicketService implements AutoCloseable {
     }
 
     /**
-     * 已兑换的票据内容：文件连接据此决定读还是写、读多少、核对什么。
-     *
-     * @param direction 上传或下载
-     * @param teacherUid 签发时的教师 UID
-     * @param offeringId 票据绑定的教学班（导入确认时重新核验归属）
-     * @param expectedRevision 签发时的草稿版本
-     * @param byteLength 本次传输的精确字节数
-     * @param sha256 小写十六进制内容摘要
-     * @param path 服务端自建临时文件（上传为落点，下载为来源）
-     */
+    * 已兑换的票据内容：文件连接据此决定读还是写、读多少、核对什么。
+    *
+    * @param direction 上传或下载
+    * @param teacherUid 签发时的教师 UID
+    * @param offeringId 票据绑定的教学班（导入确认时重新核验归属）
+    * @param expectedRevision 签发时的草稿版本
+    * @param byteLength 本次传输的精确字节数
+    * @param sha256 小写十六进制内容摘要
+    * @param path 服务端自建临时文件（上传为落点，下载为来源）
+    */
     public record Ticket(String direction, String teacherUid, String offeringId,
             long expectedRevision, long byteLength, String sha256, Path path) {
     }
 
+    /**
+    * Internal course-management type Entry.
+    */
     private record Entry(String sessionToken, long expiresAtMillis, Ticket ticket, Phase phase) {
 
         /** 传输已消费、文件尚未落地（正在传输或传输失败）。 */
@@ -394,12 +406,12 @@ public final class TeacherFileTicketService implements AutoCloseable {
     }
 
     /**
-     * 票据的生命周期阶段：上传票据要依次经过「已签发 → 传输已消费 → 文件已落地」三段，
-     * 每一段都只能被消费一次；下载票据只走「已签发 → 传输已消费」。
-     *
-     * <p>过期与开票时一样按签发时间算：上传与随之而来的预览是同一个动作的两步，2 分钟足够，
-     * 而预览之后的修订由 10 分钟有效的 importToken 负责，不靠延长文件票据的寿命。
-     */
+    * 票据的生命周期阶段：上传票据要依次经过「已签发 → 传输已消费 → 文件已落地」三段，
+    * 每一段都只能被消费一次；下载票据只走「已签发 → 传输已消费」。
+    *
+    * <p>过期与开票时一样按签发时间算：上传与随之而来的预览是同一个动作的两步，2 分钟足够，
+    * 而预览之后的修订由 10 分钟有效的 importToken 负责，不靠延长文件票据的寿命。
+    */
     private enum Phase {
         /** 已签发、尚未兑换。 */
         ISSUED,

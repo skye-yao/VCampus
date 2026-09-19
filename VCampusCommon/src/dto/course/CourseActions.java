@@ -1,5 +1,6 @@
 package dto.course;
 
+/** 教务模块操作名称的常量集合。 */
 public final class CourseActions {
     public static final String LIST_TERMS = "listTerms";
     public static final String LIST_COURSES = "listCourses";

@@ -2,11 +2,13 @@ package model.course;
 
 import java.util.Objects;
 
+/** 学年和学期构成的课程学期视图，可作为界面选择项。 */
 public final class CourseTermView {
     private final int academicYear;
     private final int semester;
     private final String displayName;
 
+    /** 创建课程学期视图。 */
     public CourseTermView(int academicYear, int semester, String displayName) {
         this.academicYear = academicYear;
         this.semester = semester;

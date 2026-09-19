@@ -57,70 +57,87 @@ public final class TeacherScheduleEntryDTO {
         this.canRequestAdjustment = canRequestAdjustment;
     }
 
+    /** 获取 OccurrenceId。 */
     public String getOccurrenceId() {
         return occurrenceId;
     }
 
+    /** 获取 OfferingId。 */
     public String getOfferingId() {
         return offeringId;
     }
 
+    /** 获取 CourseCode。 */
     public String getCourseCode() {
         return courseCode;
     }
 
+    /** 获取 CourseName。 */
     public String getCourseName() {
         return courseName;
     }
 
+    /** 获取 Teacher。 */
     public String getTeacher() {
         return teacher;
     }
 
+    /** 获取 Location。 */
     public String getLocation() {
         return location;
     }
 
+    /** 获取 LocalDate。 */
     public String getLocalDate() {
         return localDate;
     }
 
+    /** 获取 Week。 */
     public int getWeek() {
         return week;
     }
 
+    /** 获取 DayOfWeek。 */
     public int getDayOfWeek() {
         return dayOfWeek;
     }
 
+    /** 获取 StartPeriod。 */
     public int getStartPeriod() {
         return startPeriod;
     }
 
+    /** 获取 EndPeriod。 */
     public int getEndPeriod() {
         return endPeriod;
     }
 
+    /** 获取 DisplayKind。 */
     public ScheduleDisplayKindDTO getDisplayKind() {
         return displayKind;
     }
 
+    /** 获取 AdjustmentId。 */
     public String getAdjustmentId() {
         return adjustmentId;
     }
 
+    /** 获取 OriginalScheduleText。 */
     public String getOriginalScheduleText() {
         return originalScheduleText;
     }
 
+    /** 获取 AdjustedScheduleText。 */
     public String getAdjustedScheduleText() {
         return adjustedScheduleText;
     }
 
+    /** 获取 AdjustmentReason。 */
     public String getAdjustmentReason() {
         return adjustmentReason;
     }
 
+    /** 判断 CanRequestAdjustment 是否成立。 */
     public boolean isCanRequestAdjustment() {
         return canRequestAdjustment;
     }

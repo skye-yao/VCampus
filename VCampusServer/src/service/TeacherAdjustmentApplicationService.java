@@ -41,18 +41,18 @@ import java.util.UUID;
 import static dto.course.admin.schedule.ScheduleConflictSeverityDTO.BLOCKING;
 
 /**
- * 教师调课申请的提交、撤销与本人查询。
- *
- * <p>权限（设计第 4 节与控制器裁定 R11）：教学班 role=0 的任课教师可以对自己教学班的课次申请，
- * 或某个课次在有效课表里的实际任课教师（包括只通过当前正式安排出现的教师）只能申请自己实际讲授
- * 的课次；助教与无关教师一律 {@link TeacherAccessPolicy.AccessDeniedException}。新安排的教师与
- * 助教永远由服务端按原课次快照派生，客户端没有任何字段可以替换。
- *
- * <p>提交顺序与设计第 7 节一致：规范化/校验 → 查同操作结果 → 锁 offering → 按 ID 升序锁原
- * occurrences → 复查归属/正式方案/重复 PENDING 目标 → 共用冲突检查 → 写申请与不可变目标 →
- * 写教师操作日志 → commit。教师没有 force：任何冲突都禁止提交，结果 JSON 与摘要一起写入
- * {@code teacher_course_operation_log}，同 operationId 同摘要重放，不同摘要返回 CONFLICT。
- */
+* 教师调课申请的提交、撤销与本人查询。
+*
+* <p>权限（设计第 4 节与控制器裁定 R11）：教学班 role=0 的任课教师可以对自己教学班的课次申请，
+* 或某个课次在有效课表里的实际任课教师（包括只通过当前正式安排出现的教师）只能申请自己实际讲授
+* 的课次；助教与无关教师一律 {@link TeacherAccessPolicy.AccessDeniedException}。新安排的教师与
+* 助教永远由服务端按原课次快照派生，客户端没有任何字段可以替换。
+*
+* <p>提交顺序与设计第 7 节一致：规范化/校验 → 查同操作结果 → 锁 offering → 按 ID 升序锁原
+* occurrences → 复查归属/正式方案/重复 PENDING 目标 → 共用冲突检查 → 写申请与不可变目标 →
+* 写教师操作日志 → commit。教师没有 force：任何冲突都禁止提交，结果 JSON 与摘要一起写入
+* {@code teacher_course_operation_log}，同 operationId 同摘要重放，不同摘要返回 CONFLICT。
+*/
 public class TeacherAdjustmentApplicationService {
     /** 教师操作日志的目标类型；与管理员调课申请同名，便于两侧审计对齐。 */
     public static final String TARGET_TYPE = "ADJUSTMENT_REQUEST";
@@ -78,6 +78,9 @@ public class TeacherAdjustmentApplicationService {
     private final ScheduleAdjustmentConflictService conflicts;
     private final Clock clock;
 
+    /**
+    * Handles the course-management responsibility of TeacherAdjustmentApplicationService.
+    */
     public TeacherAdjustmentApplicationService() {
         this(new TeacherAdjustmentDAO(), new ScheduleAdjustmentDAO(),
                 new TeacherCourseOperationDAO(), new ScheduleAdjustmentConflictService(),
@@ -98,9 +101,9 @@ public class TeacherAdjustmentApplicationService {
     // ------------------------------------------------------------------- options
 
     /**
-     * 某个原课次的可选目标域：本人任课教师的原课次所属教学日历的教学日、节次与全部教室资源。
-     * 先校验课次归属，再读取同日历的日期域，绝不接受客户端传来的 courseAdmin 资源。
-     */
+    * 某个原课次的可选目标域：本人任课教师的原课次所属教学日历的教学日、节次与全部教室资源。
+    * 先校验课次归属，再读取同日历的日期域，绝不接受客户端传来的 courseAdmin 资源。
+    */
     public TeacherAdjustmentOptionsDTO options(String uid, String offeringId,
                                                String originalOccurrenceId) {
         String teacher = requireUid(uid);
@@ -136,6 +139,9 @@ public class TeacherAdjustmentApplicationService {
 
     // -------------------------------------------------------------------- submit
 
+    /**
+    * Handles the course-management responsibility of submit.
+    */
     public TeacherOperationResultDTO<AdjustmentRequestDetailDTO> submit(String uid,
             TeacherAdjustmentWriteDTO raw) {
         String teacher = requireUid(uid);
@@ -211,6 +217,9 @@ public class TeacherAdjustmentApplicationService {
 
     // ------------------------------------------------------------------ withdraw
 
+    /**
+    * Handles the course-management responsibility of withdraw.
+    */
     public TeacherOperationResultDTO<AdjustmentRequestDetailDTO> withdraw(String uid,
             WithdrawTeacherAdjustmentRequestDTO raw) {
         String teacher = requireUid(uid);
@@ -304,6 +313,9 @@ public class TeacherAdjustmentApplicationService {
         }
     }
 
+    /**
+    * Lists Mine data.
+    */
     public TeacherPageDTO<AdjustmentRequestSummaryDTO> listMine(String uid,
             AdjustmentRequestStatusDTO status, int page, int size) {
         String teacher = requireUid(uid);
@@ -324,10 +336,10 @@ public class TeacherAdjustmentApplicationService {
     // ------------------------------------------------------------- assessment
 
     /**
-     * 提交与预检查共用的完整校验：归属、有效课表、时间未过、目标日期与落点、无变化、重复 PENDING
-     * 目标，最后用共用冲突检查一次算清资源冲突。可能失败的目标按类型报告而不进入冲突引擎，所以
-     * 一条坏目标不会让整次检查抛异常。
-     */
+    * 提交与预检查共用的完整校验：归属、有效课表、时间未过、目标日期与落点、无变化、重复 PENDING
+    * 目标，最后用共用冲突检查一次算清资源冲突。可能失败的目标按类型报告而不进入冲突引擎，所以
+    * 一条坏目标不会让整次检查抛异常。
+    */
     private Assessment assess(Connection connection, Normalized request) throws SQLException {
         if (!dao.isTeacher(connection, request.uid())) throw denied("没有该教学班的调课权限");
         TeacherAdjustmentDAO.OfferingCalendar calendar =
@@ -425,11 +437,11 @@ public class TeacherAdjustmentApplicationService {
     }
 
     /**
-     * 详情页对 PENDING 申请重新计算一次资源冲突；显式目标日期按
-     * {@code target_calendar_date_id} 解析（提交时存下的那一天永远优先，方案/日历之后变化也不改写
-     * 快照），历史 NULL 行退回 {@code original_week_no + new_weekday}。方案下架、日历缺失等“当前
-     * 无法检查”只降级成空快照，绝不让本人详情（含撤销需要的 version）不可读。
-     */
+    * 详情页对 PENDING 申请重新计算一次资源冲突；显式目标日期按
+    * {@code target_calendar_date_id} 解析（提交时存下的那一天永远优先，方案/日历之后变化也不改写
+    * 快照），历史 NULL 行退回 {@code original_week_no + new_weekday}。方案下架、日历缺失等“当前
+    * 无法检查”只降级成空快照，绝不让本人详情（含撤销需要的 version）不可读。
+    */
     private List<ScheduleConflictDTO> detailConflicts(Connection connection,
             ScheduleAdjustmentDAO.RequestRow row, List<ScheduleAdjustmentDAO.TargetRow> targets)
             throws SQLException {
@@ -483,9 +495,15 @@ public class TeacherAdjustmentApplicationService {
 
     // ------------------------------------------------------------- validation
 
+    /**
+    * Internal course-management type TargetInput.
+    */
     private record TargetInput(long occurrenceId, LocalDate targetDate) {
     }
 
+    /**
+    * Internal course-management type Normalized.
+    */
     private record Normalized(String uid, String operationId, long offeringId,
                               List<TargetInput> targets, int newStartPeriod, int newEndPeriod,
                               Long newClassroomId, String reason, TeacherAdjustmentWriteDTO write) {
@@ -496,18 +514,24 @@ public class TeacherAdjustmentApplicationService {
         }
     }
 
+    /**
+    * Internal course-management type ResolvedTarget.
+    */
     private record ResolvedTarget(long occurrenceId, long calendarDateId,
                                   TeacherAdjustmentDAO.Occurrence occurrence) {
     }
 
+    /**
+    * Internal course-management type Assessment.
+    */
     private record Assessment(List<ScheduleConflictDTO> conflicts, List<ResolvedTarget> targets,
                               int newWeekday) {
     }
 
     /**
-     * 规范化：ID 转十进制规范形态、日期转 ISO、目标按 occurrenceId 排序、原因去空白，摘要与
-     * 幂等键都建立在这份规范化请求上。{@code requireReason} 只有提交为 true。
-     */
+    * 规范化：ID 转十进制规范形态、日期转 ISO、目标按 occurrenceId 排序、原因去空白，摘要与
+    * 幂等键都建立在这份规范化请求上。{@code requireReason} 只有提交为 true。
+    */
     private static Normalized normalize(String uid, TeacherAdjustmentWriteDTO raw,
             String operationId, boolean requireReason) {
         if (raw == null) throw new IllegalArgumentException("请求体不能为空");
@@ -603,9 +627,9 @@ public class TeacherAdjustmentApplicationService {
     // ---------------------------------------------------------------- operation log
 
     /**
-     * 操作日志是同一 operationId 的两个并发请求唯一共享的行，也是重复操作被识别的地方：插入撞上
-     * 主键时回滚本地写入，读回已提交结果，按摘要重放或返回摘要冲突，而不是把驱动错误抛给客户端。
-     */
+    * 操作日志是同一 operationId 的两个并发请求唯一共享的行，也是重复操作被识别的地方：插入撞上
+    * 主键时回滚本地写入，读回已提交结果，按摘要重放或返回摘要冲突，而不是把驱动错误抛给客户端。
+    */
     private TeacherOperationResultDTO<AdjustmentRequestDetailDTO> auditOrRecover(Connection connection,
             String teacher, String operationId, Object request, String action, String digest,
             TeacherOperationResultDTO<AdjustmentRequestDetailDTO> result, String targetId)
@@ -675,7 +699,7 @@ public class TeacherAdjustmentApplicationService {
     // ------------------------------------------------------------ transaction
 
     /** Null-safe: an unfinished transaction is rolled back even when no failure is in flight,
-     *  and a failed rollback is swallowed rather than replacing an escaping {@link Error}. */
+    *  and a failed rollback is swallowed rather than replacing an escaping {@link Error}. */
     private static void rollback(Connection connection, Throwable failure) {
         try {
             connection.rollback();
@@ -708,10 +732,16 @@ public class TeacherAdjustmentApplicationService {
         private final AdjustmentRequestDetailDTO entity;
         private final List<ScheduleConflictDTO> conflicts;
 
+        /**
+        * Handles the course-management responsibility of ConflictException.
+        */
         public ConflictException(String message) {
             this(message, null, List.of());
         }
 
+        /**
+        * Handles the course-management responsibility of ConflictException.
+        */
         public ConflictException(String message, AdjustmentRequestDetailDTO entity,
                                  List<ScheduleConflictDTO> conflicts) {
             super(message);
@@ -719,10 +749,16 @@ public class TeacherAdjustmentApplicationService {
             this.conflicts = conflicts == null ? List.of() : List.copyOf(conflicts);
         }
 
+        /**
+        * Obtains Entity data.
+        */
         public AdjustmentRequestDetailDTO getEntity() {
             return entity;
         }
 
+        /**
+        * Obtains Conflicts data.
+        */
         public List<ScheduleConflictDTO> getConflicts() {
             return conflicts;
         }
@@ -730,6 +766,9 @@ public class TeacherAdjustmentApplicationService {
 
     /** 不属于本人（或不存在）的申请；对外与“不存在”不可区分，绝不返回 FORBIDDEN。 */
     public static class NotFoundException extends RuntimeException {
+        /**
+        * Handles the course-management responsibility of NotFoundException.
+        */
         public NotFoundException(String message) {
             super(message);
         }

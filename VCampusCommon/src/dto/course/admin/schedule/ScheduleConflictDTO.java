@@ -1,5 +1,6 @@
 package dto.course.admin.schedule;
 
+/** 教务模块的 ScheduleConflictDTO 数据传输对象。 */
 public final class ScheduleConflictDTO {
     private final String type;
     private final ScheduleConflictSeverityDTO severity;
@@ -49,50 +50,62 @@ public final class ScheduleConflictDTO {
         this.message = message;
     }
 
+    /** 获取 Type。 */
     public String getType() {
         return type;
     }
 
+    /** 获取 Severity。 */
     public ScheduleConflictSeverityDTO getSeverity() {
         return severity;
     }
 
+    /** 获取 SubjectId。 */
     public String getSubjectId() {
         return subjectId;
     }
 
+    /** 获取 RelatedOfferingId。 */
     public String getRelatedOfferingId() {
         return relatedOfferingId;
     }
 
+    /** 获取 OfferingId。 */
     public String getOfferingId() {
         return offeringId;
     }
 
+    /** 获取 OfferingLabel。 */
     public String getOfferingLabel() {
         return offeringLabel;
     }
 
+    /** 获取 Week。 */
     public int getWeek() {
         return week;
     }
 
+    /** 获取 EndWeek。 */
     public int getEndWeek() {
         return endWeek;
     }
 
+    /** 获取 DayOfWeek。 */
     public int getDayOfWeek() {
         return dayOfWeek;
     }
 
+    /** 获取 StartPeriod。 */
     public int getStartPeriod() {
         return startPeriod;
     }
 
+    /** 获取 EndPeriod。 */
     public int getEndPeriod() {
         return endPeriod;
     }
 
+    /** 获取 Message。 */
     public String getMessage() {
         return message;
     }

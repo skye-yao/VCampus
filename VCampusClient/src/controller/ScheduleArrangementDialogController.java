@@ -55,6 +55,11 @@ import util.AlertUtil;
  * 也不写入 {@link ScheduleSlotEditor}。所有异步结果都带 generation 或关闭标记，
  * 过期响应不得覆盖更新的对话框状态。
  */
+/**
+ * 管理员编辑教学班排课与排课方案的 JavaFX 对话框控制器。
+ *
+ * <p>该页面维护服务端草稿方案；关闭或切换教学班时由 {@link #dispose()} 释放页面订阅和临时状态。
+ */
 public final class ScheduleArrangementDialogController {
     static final String CONFLICT_MESSAGE = "数据已被其他管理员修改";
 

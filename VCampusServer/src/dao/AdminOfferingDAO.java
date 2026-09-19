@@ -16,6 +16,9 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+* Data-access type for AdminOfferingDAO; caller-owned connections are never committed or rolled back here.
+*/
 public class AdminOfferingDAO {
     private static final String SELECT = "SELECT o.offering_id,o.offering_code,o.course_id,"
             + "o.academic_year,o.semester,o.capacity,o.enrolled_count,o.status,o.version,"
@@ -35,10 +38,10 @@ public class AdminOfferingDAO {
             + "','" + AdminCourseActions.UPDATE_OFFERING + "'";
 
     /**
-     * 教学班列表。学期参数同时为 {@code null} 时不按学期限定（旧行为）；
-     * 已取消（status=4）的行一律不返回——课程行的"教学班 N 个"也按 status<>4 计数，
-     * 两处口径必须一致，否则同一屏上会出现两个打架的数字。
-     */
+    * 教学班列表。学期参数同时为 {@code null} 时不按学期限定（旧行为）；
+    * 已取消（status=4）的行一律不返回——课程行的"教学班 N 个"也按 {@code status <> 4} 计数，
+    * 两处口径必须一致，否则同一屏上会出现两个打架的数字。
+    */
     public List<AdminOfferingDTO> list(Connection connection, long courseId, Integer academicYear,
                                        Integer semester) throws SQLException {
         boolean scoped = academicYear != null && semester != null;
@@ -61,10 +64,10 @@ public class AdminOfferingDAO {
     }
 
     /**
-     * 学期下拉的取值来源：全局所有教学班出现过的 (academic_year, semester)，最近优先。
-     * 不过滤 status——取消掉最后一个教学班的学期也要留在下拉里，否则下拉项会随时间消失，
-     * 管理员再也回不到那个学期。
-     */
+    * 学期下拉的取值来源：全局所有教学班出现过的 (academic_year, semester)，最近优先。
+    * 不过滤 status——取消掉最后一个教学班的学期也要留在下拉里，否则下拉项会随时间消失，
+    * 管理员再也回不到那个学期。
+    */
     public List<CourseTermDTO> listTerms(Connection connection) throws SQLException {
         String sql = "SELECT DISTINCT academic_year, semester FROM course_offering"
                 + " ORDER BY academic_year DESC, semester DESC";
@@ -81,6 +84,9 @@ public class AdminOfferingDAO {
         return List.copyOf(terms);
     }
 
+    /**
+    * Locks the database rows for .
+    */
     public void lock(Connection connection, long offeringId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT offering_id FROM course_offering WHERE offering_id=? FOR UPDATE")) {
@@ -107,6 +113,9 @@ public class AdminOfferingDAO {
         }
     }
 
+    /**
+    * Finds  data.
+    */
     public AdminOfferingDTO find(Connection connection, long offeringId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 SELECT + " WHERE o.offering_id=?")) {
@@ -117,6 +126,9 @@ public class AdminOfferingDAO {
         }
     }
 
+    /**
+    * Handles the course-management responsibility of courseStatus.
+    */
     public String courseStatus(Connection connection, long courseId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT status FROM course WHERE course_id=? FOR UPDATE")) {
@@ -127,6 +139,9 @@ public class AdminOfferingDAO {
         }
     }
 
+    /**
+    * Determines whether isTeacher holds.
+    */
     public boolean isTeacher(Connection connection, String uid) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT 1 FROM tbl_user WHERE UID=? AND role=1")) {
@@ -137,6 +152,9 @@ public class AdminOfferingDAO {
         }
     }
 
+    /**
+    * Creates insert data.
+    */
     public long insert(Connection connection, OfferingFields fields, String createdBy)
             throws SQLException {
         String sql = "INSERT INTO course_offering(offering_code,course_id,academic_year,semester,"
@@ -159,6 +177,9 @@ public class AdminOfferingDAO {
         }
     }
 
+    /**
+    * Persists update data.
+    */
     public int update(Connection connection, long offeringId, int expectedVersion,
                       OfferingFields fields) throws SQLException {
         String sql = "UPDATE course_offering SET offering_code=?, course_id=?, academic_year=?,"
@@ -177,6 +198,9 @@ public class AdminOfferingDAO {
         }
     }
 
+    /**
+    * Removes or cancels cancel data.
+    */
     public int cancel(Connection connection, long offeringId, int expectedVersion,
                       String adminUid, Instant cancelledAt) throws SQLException {
         String sql = "UPDATE course_offering SET status=4, cancelled_by=?, cancelled_at=?,"
@@ -191,6 +215,9 @@ public class AdminOfferingDAO {
         }
     }
 
+    /**
+    * Removes or cancels deleteDraft data.
+    */
     public int deleteDraft(Connection connection, long offeringId, int expectedVersion)
             throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
@@ -201,6 +228,9 @@ public class AdminOfferingDAO {
         }
     }
 
+    /**
+    * Removes or cancels deleteStaff data.
+    */
     public void deleteStaff(Connection connection, long offeringId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "DELETE FROM course_offering_teacher WHERE offering_id=?")) {
@@ -209,6 +239,9 @@ public class AdminOfferingDAO {
         }
     }
 
+    /**
+    * Handles the course-management responsibility of replaceStaff.
+    */
     public void replaceStaff(Connection connection, long offeringId, String teacherUid,
                              String assistantUid) throws SQLException {
         deleteStaff(connection, offeringId);
@@ -226,6 +259,9 @@ public class AdminOfferingDAO {
         }
     }
 
+    /**
+    * Determines whether hasEnrollment holds.
+    */
     public boolean hasEnrollment(Connection connection, long offeringId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT 1 FROM enrollment WHERE offering_id=? LIMIT 1")) {
@@ -236,6 +272,9 @@ public class AdminOfferingDAO {
         }
     }
 
+    /**
+    * Determines whether hasDependencies holds.
+    */
     public boolean hasDependencies(Connection connection, long offeringId) throws SQLException {
         String sql = "SELECT EXISTS(SELECT 1 FROM course_schedule_rule WHERE course_offering_id=?)"
                 + " OR EXISTS(SELECT 1 FROM course_schedule_arrangement WHERE offering_id=?)"
@@ -259,6 +298,9 @@ public class AdminOfferingDAO {
         }
     }
 
+    /**
+    * Handles the course-management responsibility of statusLabel.
+    */
     public static String statusLabel(int value) {
         return switch (value) {
             case 1 -> "NOT_OPEN";
@@ -280,10 +322,16 @@ public class AdminOfferingDAO {
                 rows.getInt("version"));
     }
 
+    /**
+    * Internal course-management type OfferingRow.
+    */
     public record OfferingRow(long offeringId, long courseId, int academicYear, int semester,
                               int capacity, int enrolledCount, int status, int version) {
     }
 
+    /**
+    * Internal course-management type OfferingFields.
+    */
     public record OfferingFields(String offeringCode, long courseId, int academicYear,
                                  int semester, int capacity, int status) {
     }

@@ -1,5 +1,6 @@
 package model.course.admin;
 
+/** 管理端教学班名单中一名学生及其可移除状态的视图。 */
 public final class OfferingStudentView {
     private final String enrollmentId;
     private final String uid;
@@ -10,6 +11,7 @@ public final class OfferingStudentView {
     private final boolean removable;
     private final String blockedReason;
 
+    /** 创建教学班学生视图。 */
     public OfferingStudentView(String enrollmentId, String uid, String name,
             String major, int cohortYear, String enrollmentStatus,
             boolean removable, String blockedReason) {

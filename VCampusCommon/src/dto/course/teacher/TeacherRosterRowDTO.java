@@ -27,30 +27,37 @@ public final class TeacherRosterRowDTO {
         this.droppedAt = droppedAt;
     }
 
+    /** 获取 EnrollmentId。 */
     public String getEnrollmentId() {
         return enrollmentId;
     }
 
+    /** 获取 StudentUid。 */
     public String getStudentUid() {
         return studentUid;
     }
 
+    /** 获取 StudentName。 */
     public String getStudentName() {
         return studentName;
     }
 
+    /** 获取 Major。 */
     public String getMajor() {
         return major;
     }
 
+    /** 获取 EnrollmentStatus。 */
     public String getEnrollmentStatus() {
         return enrollmentStatus;
     }
 
+    /** 获取 SelectedAt。 */
     public String getSelectedAt() {
         return selectedAt;
     }
 
+    /** 获取 DroppedAt。 */
     public String getDroppedAt() {
         return droppedAt;
     }

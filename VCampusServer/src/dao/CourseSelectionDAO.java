@@ -11,7 +11,13 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
+/**
+* Data-access type for CourseSelectionDAO; caller-owned connections are never committed or rolled back here.
+*/
 public class CourseSelectionDAO {
+    /**
+    * Locks the database rows for StudentProfile.
+    */
     public void lockStudentProfile(Connection connection, String uid) throws SQLException {
         String sql = "SELECT sap.profile_id FROM student_academic_profile sap"
                 + " JOIN tbl_user u ON u.UID = sap.uid AND u.role = 2"
@@ -24,6 +30,9 @@ public class CourseSelectionDAO {
         }
     }
 
+    /**
+    * Locks the database rows for OfferingsAscending.
+    */
     public List<Long> lockOfferingsAscending(Connection connection,
                                              Collection<Long> offeringIds) throws SQLException {
         List<Long> sorted = offeringIds.stream().distinct().sorted().toList();
@@ -40,11 +49,17 @@ public class CourseSelectionDAO {
         return List.copyOf(locked);
     }
 
+    /**
+    * Determines whether hasActiveWaiters holds.
+    */
     public boolean hasActiveWaiters(Connection connection, long offeringId) throws SQLException {
         return exists(connection, "SELECT 1 FROM course_waitlist"
                 + " WHERE offering_id = ? AND status = 'WAITING' LIMIT 1", offeringId);
     }
 
+    /**
+    * Determines whether hasActiveWaitlist holds.
+    */
     public boolean hasActiveWaitlist(Connection connection, String uid, long offeringId)
             throws SQLException {
         String sql = "SELECT 1 FROM course_waitlist WHERE uid = ? AND offering_id = ?"
@@ -58,6 +73,9 @@ public class CourseSelectionDAO {
         }
     }
 
+    /**
+    * Finds EnrolledCourseAndTimeConflicts data.
+    */
     public List<Long> findEnrolledCourseAndTimeConflicts(Connection connection, String uid,
                                                           int academicYear, int semester,
                                                           long offeringId, long schedulePlanId)
@@ -87,6 +105,9 @@ public class CourseSelectionDAO {
         return List.copyOf(conflicts);
     }
 
+    /**
+    * Persists upsertPlan data.
+    */
     public void upsertPlan(Connection connection, String uid, long offeringId,
                            String state, String reason) throws SQLException {
         String sql = "INSERT INTO course_plan_item(uid,offering_id,status,last_failure_reason)"
@@ -101,6 +122,9 @@ public class CourseSelectionDAO {
         }
     }
 
+    /**
+    * Removes or cancels deletePlan data.
+    */
     public void deletePlan(Connection connection, String uid, long offeringId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "DELETE FROM course_plan_item WHERE uid=? AND offering_id=?")) {
@@ -110,6 +134,9 @@ public class CourseSelectionDAO {
         }
     }
 
+    /**
+    * Handles the course-management responsibility of enroll.
+    */
     public void enroll(Connection connection, String uid, long offeringId) throws SQLException {
         String sql = "INSERT INTO enrollment"
                 + "(offering_id,course_id,academic_year,semester,uid,status,select_time,drop_time)"
@@ -123,6 +150,9 @@ public class CourseSelectionDAO {
         }
     }
 
+    /**
+    * Removes or cancels drop data.
+    */
     public void drop(Connection connection, String uid, long offeringId, Instant now)
             throws SQLException {
         String sql = "UPDATE enrollment SET status=3,drop_time=?"
@@ -135,6 +165,9 @@ public class CourseSelectionDAO {
         }
     }
 
+    /**
+    * Handles the course-management responsibility of changeEnrolledCount.
+    */
     public void changeEnrolledCount(Connection connection, long offeringId, int delta)
             throws SQLException {
         String sql = "UPDATE course_offering o SET o.enrolled_count=o.enrolled_count+?"
@@ -154,6 +187,9 @@ public class CourseSelectionDAO {
         }
     }
 
+    /**
+    * Handles the course-management responsibility of offering.
+    */
     public OfferingRow offering(Connection connection, long offeringId) throws SQLException {
         String sql = "SELECT offering_id,course_id,academic_year,semester,status,capacity,enrolled_count"
                 + " FROM course_offering WHERE offering_id=? FOR UPDATE";
@@ -169,6 +205,9 @@ public class CourseSelectionDAO {
         }
     }
 
+    /**
+    * Handles the course-management responsibility of window.
+    */
     public WindowRow window(Connection connection, int academicYear, int semester)
             throws SQLException {
         String sql = "SELECT win.schedule_plan_id,win.plan_open_at,win.selection_close_at,"
@@ -187,6 +226,9 @@ public class CourseSelectionDAO {
         }
     }
 
+    /**
+    * Handles the course-management responsibility of eligible.
+    */
     public boolean eligible(Connection connection, String uid, long offeringId)
             throws SQLException {
         String sql = "SELECT 1 FROM course_offering o JOIN course c ON c.course_id=o.course_id"
@@ -206,6 +248,9 @@ public class CourseSelectionDAO {
         }
     }
 
+    /**
+    * Handles the course-management responsibility of planState.
+    */
     public String planState(Connection connection, String uid, long offeringId)
             throws SQLException {
         String sql = "SELECT status FROM course_plan_item WHERE uid=? AND offering_id=?";
@@ -218,6 +263,9 @@ public class CourseSelectionDAO {
         }
     }
 
+    /**
+    * Handles the course-management responsibility of enrolled.
+    */
     public boolean enrolled(Connection connection, String uid, long offeringId)
             throws SQLException {
         String sql = "SELECT 1 FROM enrollment WHERE uid=? AND offering_id=? AND status=2 LIMIT 1";
@@ -230,6 +278,9 @@ public class CourseSelectionDAO {
         }
     }
 
+    /**
+    * Handles the course-management responsibility of activeOfferReservations.
+    */
     public int activeOfferReservations(Connection connection, long offeringId)
             throws SQLException {
         String sql = "SELECT COUNT(*) FROM course_waitlist WHERE offering_id=?"
@@ -257,21 +308,39 @@ public class CourseSelectionDAO {
         return value.toLocalDateTime().toInstant(ZoneOffset.UTC);
     }
 
+    /**
+    * Internal course-management type OfferingRow.
+    */
     public record OfferingRow(long offeringId, long courseId, int academicYear, int semester,
                               int status, int capacity, int enrolledCount) {
     }
 
+    /**
+    * Internal course-management type WindowRow.
+    */
     public record WindowRow(long schedulePlanId, Instant planOpenAt, Instant selectionOpenAt,
                             Instant selectionCloseAt, Instant dropDeadline) {
     }
 
+    /**
+    * Internal course-management type MissingRowException.
+    */
     public static class MissingRowException extends SQLException {
+        /**
+        * Handles the course-management responsibility of MissingRowException.
+        */
         public MissingRowException(String object) {
             super("Missing " + object);
         }
     }
 
+    /**
+    * Internal course-management type CapacityInvariantException.
+    */
     public static class CapacityInvariantException extends SQLException {
+        /**
+        * Handles the course-management responsibility of CapacityInvariantException.
+        */
         public CapacityInvariantException(String message) {
             super(message);
         }

@@ -51,6 +51,7 @@ import protocol.Message;
 import protocol.MessageCode;
 import protocol.MessageType;
 
+/** 通过 TCP 协议传输实现的学生课程与选课异步服务。 */
 public final class SocketCourseService implements CourseService {
     private static final String MODULE = "course";
 

@@ -1,5 +1,6 @@
 package dto.course.admin.catalog;
 
+/** 教务模块的 AdminCourseDTO 数据传输对象。 */
 public final class AdminCourseDTO {
     private final String courseId;
     private final String courseCode;
@@ -34,54 +35,67 @@ public final class AdminCourseDTO {
         this.version = version;
     }
 
+    /** 获取 CourseId。 */
     public String getCourseId() {
         return courseId;
     }
 
+    /** 获取 CourseCode。 */
     public String getCourseCode() {
         return courseCode;
     }
 
+    /** 获取 CourseName。 */
     public String getCourseName() {
         return courseName;
     }
 
+    /** 获取 CourseType。 */
     public String getCourseType() {
         return courseType;
     }
 
+    /** 获取 Credit。 */
     public double getCredit() {
         return credit;
     }
 
+    /** 获取 CreditHours。 */
     public int getCreditHours() {
         return creditHours;
     }
 
+    /** 获取 Description。 */
     public String getDescription() {
         return description;
     }
 
+    /** 获取 Prerequisites。 */
     public String getPrerequisites() {
         return prerequisites;
     }
 
+    /** 判断 AllowCrossMajor 是否成立。 */
     public boolean isAllowCrossMajor() {
         return allowCrossMajor;
     }
 
+    /** 判断 FinalExam 是否成立。 */
     public boolean isFinalExam() {
         return finalExam;
     }
 
+    /** 获取 Status。 */
     public String getStatus() {
         return status;
     }
 
+    /** 获取 OfferingCount。 */
     public int getOfferingCount() {
         return offeringCount;
     }
 
+    /** 获取 Version。 */
     public int getVersion() {
         return version;
     }

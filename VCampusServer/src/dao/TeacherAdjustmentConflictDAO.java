@@ -8,19 +8,22 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Teacher-side reads for the shared adjustment conflict check: the offering's term (which resolves
- * the published plan and calendar domain), whether a target date is a real teaching day of that
- * calendar, and which normally enrolled students of one offering also sit in another.
- *
- * <p>Student risk is limited to {@code enrollment.status = 2} in <em>both</em> offerings, so a
- * dropped enrollment never produces a conflict and students of other classes are never listed.
- */
+* Teacher-side reads for the shared adjustment conflict check: the offering's term (which resolves
+* the published plan and calendar domain), whether a target date is a real teaching day of that
+* calendar, and which normally enrolled students of one offering also sit in another.
+*
+* <p>Student risk is limited to {@code enrollment.status = 2} in <em>both</em> offerings, so a
+* dropped enrollment never produces a conflict and students of other classes are never listed.
+*/
 public class TeacherAdjustmentConflictDAO {
 
     /** The term an offering belongs to; the same term identifies its published plan. */
     public record OfferingTerm(int academicYear, int semester) {
     }
 
+    /**
+    * Handles the course-management responsibility of offeringTerm.
+    */
     public OfferingTerm offeringTerm(Connection connection, long offeringId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT academic_year,semester FROM course_offering WHERE offering_id=?")) {
@@ -33,10 +36,10 @@ public class TeacherAdjustmentConflictDAO {
     }
 
     /**
-     * True only when the date belongs to the given calendar and is marked as a teaching day, so a
-     * target date from another term's calendar or a non-teaching day is never checked as if it
-     * could carry a class.
-     */
+    * True only when the date belongs to the given calendar and is marked as a teaching day, so a
+    * target date from another term's calendar or a non-teaching day is never checked as if it
+    * could carry a class.
+    */
     public boolean isTeachingDate(Connection connection, long calendarDateId, long calendarId)
             throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
@@ -50,10 +53,10 @@ public class TeacherAdjustmentConflictDAO {
     }
 
     /**
-     * UIDs of the students normally enrolled in both offerings, ordered by UID so repeated checks
-     * of the same pair report the same sequence. A uid in only one of the two offerings, or with a
-     * dropped enrollment on either side, is not returned.
-     */
+    * UIDs of the students normally enrolled in both offerings, ordered by UID so repeated checks
+    * of the same pair report the same sequence. A uid in only one of the two offerings, or with a
+    * dropped enrollment on either side, is not returned.
+    */
     public List<String> sharedNormalStudents(Connection connection, long offeringId,
             long otherOfferingId) throws SQLException {
         String sql = "SELECT e1.uid FROM enrollment e1"

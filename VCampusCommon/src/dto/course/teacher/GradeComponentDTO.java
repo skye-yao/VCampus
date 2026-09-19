@@ -18,14 +18,17 @@ public final class GradeComponentDTO {
         this.weightBasisPoints = weightBasisPoints;
     }
 
+    /** 获取 Code。 */
     public GradeComponentCodeDTO getCode() {
         return code;
     }
 
+    /** 判断 Enabled 是否成立。 */
     public boolean isEnabled() {
         return enabled;
     }
 
+    /** 获取 WeightBasisPoints。 */
     public int getWeightBasisPoints() {
         return weightBasisPoints;
     }

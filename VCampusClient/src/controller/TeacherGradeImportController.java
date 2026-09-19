@@ -91,6 +91,7 @@ import util.AlertUtil;
  *
  * <p>所有节点都可能为 {@code null}，弹窗与文件选择都可注入，因此控制器测试不需要 JavaFX 工具包。
  */
+/** 教师成绩 Excel 导入、预览修订及确认写入的 JavaFX 页面控制器。 */
 public final class TeacherGradeImportController {
 
     /** 下载目标已存在时的覆盖确认（在 FileChooser 返回之后、传输开始之前在 FX 线程提问）。 */

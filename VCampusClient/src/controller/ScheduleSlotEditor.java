@@ -8,6 +8,7 @@ import dto.course.admin.schedule.ScheduleSlotDTO;
  * 只保存该行的数值状态与本地校验，不保存任何服务端权威状态（安排标识、版本、方案修订），
  * 也不持有 JavaFX 控件，因此可以脱离 JavaFX 单独测试。
  */
+/** 排课编辑器中单个星期与节次区间的可变 View 模型。 */
 public final class ScheduleSlotEditor {
     static final int MIN_WEEKDAY = 1;
     static final int MAX_WEEKDAY = 7;
@@ -19,9 +20,11 @@ public final class ScheduleSlotEditor {
     private int startPeriod;
     private int endPeriod;
 
+    /** 创建默认的排课节次编辑值。 */
     public ScheduleSlotEditor() {
     }
 
+    /** 从服务端排课节次 DTO 创建可编辑副本。 */
     public ScheduleSlotEditor(ScheduleSlotDTO slot) {
         if (slot != null) {
             this.dayOfWeek = slot.getDayOfWeek();
@@ -64,6 +67,7 @@ public final class ScheduleSlotEditor {
         return endPeriod;
     }
 
+    /** 将当前编辑值转换为提交排课服务的 DTO。 */
     public ScheduleSlotDTO value() {
         return new ScheduleSlotDTO(dayOfWeek, startPeriod, endPeriod);
     }

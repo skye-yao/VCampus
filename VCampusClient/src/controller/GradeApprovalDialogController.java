@@ -15,6 +15,7 @@ import javafx.scene.layout.VBox;
  *
  * <p>文案完全来自 {@link GradeApprovalController} 的纯文本函数，避免同一份统计说明出现两种版本。
  */
+/** 管理员审核单次成绩提交详情的 JavaFX 对话框控制器。 */
 public final class GradeApprovalDialogController {
     private GradeSubmissionDetailDTO detail;
 

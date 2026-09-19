@@ -43,58 +43,72 @@ public final class TeacherOfferingDTO {
         this.canRequestAdjustment = canRequestAdjustment;
     }
 
+    /** 获取 OfferingId。 */
     public String getOfferingId() {
         return offeringId;
     }
 
+    /** 获取 OfferingCode。 */
     public String getOfferingCode() {
         return offeringCode;
     }
 
+    /** 获取 OfferingName。 */
     public String getOfferingName() {
         return offeringName;
     }
 
+    /** 获取 CourseId。 */
     public String getCourseId() {
         return courseId;
     }
 
+    /** 获取 CourseCode。 */
     public String getCourseCode() {
         return courseCode;
     }
 
+    /** 获取 CourseName。 */
     public String getCourseName() {
         return courseName;
     }
 
+    /** 获取 Credit。 */
     public double getCredit() {
         return credit;
     }
 
+    /** 获取 AcademicYear。 */
     public int getAcademicYear() {
         return academicYear;
     }
 
+    /** 获取 Semester。 */
     public int getSemester() {
         return semester;
     }
 
+    /** 获取 EnrolledCount。 */
     public int getEnrolledCount() {
         return enrolledCount;
     }
 
+    /** 获取 Capacity。 */
     public int getCapacity() {
         return capacity;
     }
 
+    /** 获取 Status。 */
     public String getStatus() {
         return status;
     }
 
+    /** 判断 CanEditGrades 是否成立。 */
     public boolean isCanEditGrades() {
         return canEditGrades;
     }
 
+    /** 判断 CanRequestAdjustment 是否成立。 */
     public boolean isCanRequestAdjustment() {
         return canRequestAdjustment;
     }

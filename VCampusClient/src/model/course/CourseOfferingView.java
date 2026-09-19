@@ -3,6 +3,7 @@ package model.course;
 import java.time.Instant;
 import java.util.List;
 
+/** 教学班及其教师、课次和学生选课状态的客户端视图。 */
 public final class CourseOfferingView {
     private final long offeringId;
     /** 教学班代码（如 {@code CS101-2026-2-A}）：全部页签的教学班行标题显示的就是它。 */
@@ -17,6 +18,7 @@ public final class CourseOfferingView {
     private final Instant offeredAt;
     private final Instant expiresAt;
 
+    /** 创建教学班视图，并不可变复制教师和课次列表。 */
     public CourseOfferingView(long offeringId, String offeringCode, long courseId,
             List<CourseTeacherView> teachers, List<CourseMeetingView> meetings,
             int enrolledCount, int capacity, SelectionStatus selectionStatus,

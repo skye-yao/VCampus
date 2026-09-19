@@ -18,14 +18,17 @@ public final class WithdrawTeacherAdjustmentRequestDTO {
         this.expectedVersion = expectedVersion;
     }
 
+    /** 获取 OperationId。 */
     public String getOperationId() {
         return operationId;
     }
 
+    /** 获取 RequestId。 */
     public String getRequestId() {
         return requestId;
     }
 
+    /** 获取 ExpectedVersion。 */
     public int getExpectedVersion() {
         return expectedVersion;
     }

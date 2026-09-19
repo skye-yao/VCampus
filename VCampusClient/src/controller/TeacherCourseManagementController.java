@@ -35,6 +35,7 @@ import util.PageLeaveGuard;
  * 教学班）都先问一次当前活动的 {@link PageLeaveGuard}，被拒绝就停在原页；离开成功后由子页自己的
  * {@code unload}/{@code release} 取消在途请求，因此不存在还在写界面的过期子页控制器。
  */
+/** 教师端课程管理入口的 JavaFX 控制器，负责切换教务子页面。 */
 public final class TeacherCourseManagementController {
     private static volatile String requestedDashboardPage;
     /** 首页文案：四个入口全部已接入。 */

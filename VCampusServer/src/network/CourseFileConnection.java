@@ -27,29 +27,29 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * 一条文件短连接的完整生命周期：读元数据 → 兑换票据 → 传输原始字节 → 回执 → 关闭。
- *
- * <p>线协议（两个方向同形，绝不与业务 readLine 连接混用）：
- *
- * <pre>
- * 请求：int   metadataLength（1..4096）
- *       byte  metadataLength 个 UTF-8 JSON：{"ticket","token","direction","size","sha256"}
- *       byte  上传时才有的 payload，长度恰好等于已声明并核对过的 size
- * 响应：int   responseLength
- *       byte  responseLength 个 UTF-8 JSON：{"status":"OK"|"ERROR","message":...}
- * </pre>
- *
- * <p>元数据里的 token 必须解析出仍然有效的 Session，且该会话就是票据签发时的那个（教师 UID 与
- * token 都要一致），否则一个教师可以兑换别人的票据。方向、长度、摘要三者都要与票据逐项核对：
- * 方向不符是把下载票当上传用，长度不符是伪造声明，摘要不符是内容被替换。
- *
- * <p>上传先写 {@code .part} 临时文件，长度与 SHA-256 都核对通过后才原子改名到票据落点；提前
- * EOF、摘要不符、写盘失败都会删除半截文件，服务端不会留下半个工作簿。落盘成功之后才向票据服务
- * 交接「已落地」状态，业务侧随后的导入预览据此拿到同一个文件；失败的上传不会交接。下载方向反过来：
- * 票据一经消费（兑换成功）这份服务端生成的文件就再没人能领取，因此「字节发完（或中途断开）」与
- * 「消费之后长度/摘要核对失败」两条路都会当场回收它——留着只会变成票据服务看不见的孤儿，
- * 一份被下载过的模板会一直占到停服。所有外部可见的错误文案都是固定中文短语，异常堆栈只进服务端日志。
- */
+* 一条文件短连接的完整生命周期：读元数据 → 兑换票据 → 传输原始字节 → 回执 → 关闭。
+*
+* <p>线协议（两个方向同形，绝不与业务 readLine 连接混用）：
+*
+* <pre>
+* 请求：int   metadataLength（1..4096）
+*       byte  metadataLength 个 UTF-8 JSON：{"ticket","token","direction","size","sha256"}
+*       byte  上传时才有的 payload，长度恰好等于已声明并核对过的 size
+* 响应：int   responseLength
+*       byte  responseLength 个 UTF-8 JSON：{"status":"OK"|"ERROR","message":...}
+* </pre>
+*
+* <p>元数据里的 token 必须解析出仍然有效的 Session，且该会话就是票据签发时的那个（教师 UID 与
+* token 都要一致），否则一个教师可以兑换别人的票据。方向、长度、摘要三者都要与票据逐项核对：
+* 方向不符是把下载票当上传用，长度不符是伪造声明，摘要不符是内容被替换。
+*
+* <p>上传先写 {@code .part} 临时文件，长度与 SHA-256 都核对通过后才原子改名到票据落点；提前
+* EOF、摘要不符、写盘失败都会删除半截文件，服务端不会留下半个工作簿。落盘成功之后才向票据服务
+* 交接「已落地」状态，业务侧随后的导入预览据此拿到同一个文件；失败的上传不会交接。下载方向反过来：
+* 票据一经消费（兑换成功）这份服务端生成的文件就再没人能领取，因此「字节发完（或中途断开）」与
+* 「消费之后长度/摘要核对失败」两条路都会当场回收它——留着只会变成票据服务看不见的孤儿，
+* 一份被下载过的模板会一直占到停服。所有外部可见的错误文案都是固定中文短语，异常堆栈只进服务端日志。
+*/
 public final class CourseFileConnection implements AutoCloseable {
 
     /** 元数据长度上限，与设计第 9 节一致。 */
@@ -69,6 +69,9 @@ public final class CourseFileConnection implements AutoCloseable {
     private final TeacherFileTicketService tickets;
     private final AtomicBoolean closed = new AtomicBoolean();
 
+    /**
+    * Handles the course-management responsibility of CourseFileConnection.
+    */
     public CourseFileConnection(Socket socket, TeacherFileTicketService tickets) {
         if (socket == null || tickets == null) {
             throw new IllegalArgumentException("文件连接缺少 Socket 或票据服务");
@@ -78,8 +81,8 @@ public final class CourseFileConnection implements AutoCloseable {
     }
 
     /**
-     * 处理这条短连接；任何失败都只回一条 ERROR 回执并关闭连接，不向调用方抛异常。
-     */
+    * 处理这条短连接；任何失败都只回一条 ERROR 回执并关闭连接，不向调用方抛异常。
+    */
     public void run() {
         DataOutputStream out = null;
         try {
@@ -121,6 +124,9 @@ public final class CourseFileConnection implements AutoCloseable {
     }
 
     @Override
+    /**
+    * Handles the course-management responsibility of close.
+    */
     public void close() {
         if (!closed.compareAndSet(false, true)) {
             return;
@@ -133,8 +139,8 @@ public final class CourseFileConnection implements AutoCloseable {
     }
 
     /**
-     * 长度前缀元数据。长度必须落在 1..4096，越界立即拒绝，绝不按声明分配内存。
-     */
+    * 长度前缀元数据。长度必须落在 1..4096，越界立即拒绝，绝不按声明分配内存。
+    */
     private static Metadata readMetadata(DataInputStream in) throws IOException {
         int metadataLength;
         try {
@@ -152,14 +158,14 @@ public final class CourseFileConnection implements AutoCloseable {
     }
 
     /**
-     * 先按 Session 与票据核对身份，再逐项核对方向、长度与摘要。
-     *
-     * <p>{@code tickets.claim} 在身份、有效期与用途通过之后就把票据消费掉了（下载方向是直接摘除
-     * 条目），长度与摘要是**消费之后**才核对的。所以这里每一条核对失败都必须顺手回收票据落点：
-     * 下载方向的条目已经不在票据表里，{@code purgeExpired} 再也看不见它，服务端自己生成的那份
-     * 工作簿会一直占到停服；上传方向的条目仍在（{@code TRANSFERRED}）由清理器兜底，而落点文件此时
-     * 根本还没写出来，删除是空操作。长度与摘要不符说明这次连接的声明不可信，它不配拿到那份文件。
-     */
+    * 先按 Session 与票据核对身份，再逐项核对方向、长度与摘要。
+    *
+    * <p>{@code tickets.claim} 在身份、有效期与用途通过之后就把票据消费掉了（下载方向是直接摘除
+    * 条目），长度与摘要是**消费之后**才核对的。所以这里每一条核对失败都必须顺手回收票据落点：
+    * 下载方向的条目已经不在票据表里，{@code purgeExpired} 再也看不见它，服务端自己生成的那份
+    * 工作簿会一直占到停服；上传方向的条目仍在（{@code TRANSFERRED}）由清理器兜底，而落点文件此时
+    * 根本还没写出来，删除是空操作。长度与摘要不符说明这次连接的声明不可信，它不配拿到那份文件。
+    */
     private Ticket claim(Metadata metadata) throws TransferFailure {
         UserSession session = SessionManager.getInstance().getSession(metadata.token());
         if (session == null) {
@@ -268,6 +274,9 @@ public final class CourseFileConnection implements AutoCloseable {
         }
     }
 
+    /**
+    * Internal course-management type Metadata.
+    */
     private record Metadata(String ticket, String token, String direction, long size, String sha256) {
 
         static Metadata parse(String json) throws IOException {

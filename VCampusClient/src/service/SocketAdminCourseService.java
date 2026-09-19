@@ -49,6 +49,7 @@ import protocol.MessageCode;
 import protocol.MessageType;
 import session.ClientSession;
 
+/** 通过 TCP 协议传输实现的管理员教务异步服务。 */
 public final class SocketAdminCourseService implements AdminCourseService {
     private static final String MODULE = "courseAdmin";
 

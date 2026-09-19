@@ -41,6 +41,9 @@ public class AdminEnrollmentDAO {
     private final CourseSelectionDAO selectionDAO = new CourseSelectionDAO();
     private final CourseWaitlistDAO waitlistDAO = new CourseWaitlistDAO();
 
+    /**
+    * Handles the course-management responsibility of searchStudents.
+    */
     public AdminEnrollmentPageDTO<StudentSearchResultDTO> searchStudents(Connection connection,
             String query, int page, int size) throws SQLException {
         String where = STUDENT_FROM + " WHERE u.role=2 AND sap.status='ACTIVE'" + SEARCH;
@@ -62,6 +65,9 @@ public class AdminEnrollmentDAO {
         return new AdminEnrollmentPageDTO<>(items, total, page, size);
     }
 
+    /**
+    * Lists OfferingStudents data.
+    */
     public AdminEnrollmentPageDTO<OfferingStudentDTO> listOfferingStudents(Connection connection,
             long offeringId, String query, int page, int size) throws SQLException {
         String where = ENROLLMENT_FROM + " WHERE e.offering_id=? AND e.status=2" + SEARCH;
@@ -85,6 +91,9 @@ public class AdminEnrollmentDAO {
         return new AdminEnrollmentPageDTO<>(items, total, page, size);
     }
 
+    /**
+    * Finds Student data.
+    */
     public StudentRow findStudent(Connection connection, String uid) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT " + STUDENT_COLUMNS + STUDENT_FROM + " WHERE u.UID=?")) {
@@ -98,6 +107,9 @@ public class AdminEnrollmentDAO {
         waitlistDAO.lockStudentProfile(connection, uid);
     }
 
+    /**
+    * Finds Offering data.
+    */
     public OfferingRow findOffering(Connection connection, long offeringId) throws SQLException {
         String sql = "SELECT o.offering_id,o.course_id,o.academic_year,o.semester,o.status,"
                 + "o.capacity,o.enrolled_count,c.status AS course_status,c.prerequisites"
@@ -115,6 +127,9 @@ public class AdminEnrollmentDAO {
         }
     }
 
+    /**
+    * Handles the course-management responsibility of activeOfferingIds.
+    */
     public List<Long> activeOfferingIds(Connection connection, String uid) throws SQLException {
         List<Long> ids = new ArrayList<>();
         try (PreparedStatement statement = connection.prepareStatement(
@@ -125,10 +140,16 @@ public class AdminEnrollmentDAO {
         return List.copyOf(ids);
     }
 
+    /**
+    * Locks the database rows for OfferingsAscending.
+    */
     public List<Long> lockOfferingsAscending(Connection connection, Collection<Long> ids) throws SQLException {
         return selectionDAO.lockOfferingsAscending(connection, ids);
     }
 
+    /**
+    * Finds Enrollment data.
+    */
     public EnrollmentRow findEnrollment(Connection connection, String uid, long offeringId, boolean lock)
             throws SQLException {
         String sql = "SELECT enrollment_id,status FROM enrollment WHERE uid=? AND offering_id=?"
@@ -142,6 +163,9 @@ public class AdminEnrollmentDAO {
         }
     }
 
+    /**
+    * Finds OfferingStudent data.
+    */
     public OfferingStudentDTO findOfferingStudent(Connection connection, String uid, long offeringId)
             throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("SELECT " + ENROLLMENT_COLUMNS
@@ -152,6 +176,9 @@ public class AdminEnrollmentDAO {
         }
     }
 
+    /**
+    * Handles the course-management responsibility of sameCourseActiveOfferingId.
+    */
     public Long sameCourseActiveOfferingId(Connection connection, String uid, OfferingRow offering) throws SQLException {
         String sql = "SELECT offering_id FROM enrollment WHERE uid=? AND academic_year=? AND semester=?"
                 + " AND course_id=? AND offering_id<>? AND status=2 LIMIT 1";
@@ -165,6 +192,9 @@ public class AdminEnrollmentDAO {
         }
     }
 
+    /**
+    * Handles the course-management responsibility of otherOfferReservations.
+    */
     public int otherOfferReservations(Connection connection, long offeringId, String uid, Instant now)
             throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("SELECT COUNT(*) FROM course_waitlist"
@@ -193,6 +223,9 @@ public class AdminEnrollmentDAO {
         }
     }
 
+    /**
+    * Determines whether hasPassingGrade holds.
+    */
     public boolean hasPassingGrade(Connection connection, String uid, long courseId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("SELECT 1 FROM enrollment e"
                 + " JOIN grade g ON g.enrollment_id=e.enrollment_id"
@@ -203,6 +236,9 @@ public class AdminEnrollmentDAO {
         }
     }
 
+    /**
+    * Handles the course-management responsibility of gradeWorkflowLocked.
+    */
     public boolean gradeWorkflowLocked(Connection connection, long enrollmentId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("SELECT " + GRADE_LOCKED
                 + " FROM enrollment e WHERE e.enrollment_id=?")) {
@@ -219,6 +255,9 @@ public class AdminEnrollmentDAO {
                 + " WHERE gi.enrollment_id=? ORDER BY gs.submission_id,gi.item_id FOR UPDATE", enrollmentId);
     }
 
+    /**
+    * Handles the course-management responsibility of enroll.
+    */
     public void enroll(Connection connection, String uid, OfferingRow offering, EnrollmentRow existing, Instant now)
             throws SQLException {
         if (existing == null) {
@@ -243,6 +282,9 @@ public class AdminEnrollmentDAO {
         }
     }
 
+    /**
+    * Removes or cancels drop data.
+    */
     public void drop(Connection connection, long enrollmentId, Instant now) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("UPDATE enrollment"
                 + " SET status=3,drop_time=? WHERE enrollment_id=? AND status=2")) {
@@ -263,6 +305,9 @@ public class AdminEnrollmentDAO {
         }
     }
 
+    /**
+    * Handles the course-management responsibility of settleWaitlistAndPlan.
+    */
     public void settleWaitlistAndPlan(Connection connection, String uid, long offeringId) throws SQLException {
         CourseWaitlistDAO.WaitlistRow row = waitlistDAO.findForUpdate(connection, uid, offeringId);
         if (row != null && ("WAITING".equals(row.status()) || "OFFERED".equals(row.status()))) {
@@ -271,6 +316,9 @@ public class AdminEnrollmentDAO {
         selectionDAO.deletePlan(connection, uid, offeringId);
     }
 
+    /**
+    * Removes or cancels deletePlan data.
+    */
     public void deletePlan(Connection connection, String uid, long offeringId) throws SQLException {
         selectionDAO.deletePlan(connection, uid, offeringId);
     }
@@ -315,12 +363,27 @@ public class AdminEnrollmentDAO {
         return Timestamp.valueOf(instant.atOffset(ZoneOffset.UTC).toLocalDateTime());
     }
 
+    /**
+    * Internal course-management type StudentRow.
+    */
     public record StudentRow(String uid, String name, String major, int cohortYear, int role, String status) {
+        /**
+        * Handles the course-management responsibility of active.
+        */
         public boolean active() { return role == 2 && "ACTIVE".equals(status); }
+        /**
+        * Handles the course-management responsibility of dto.
+        */
         public StudentSearchResultDTO dto() { return new StudentSearchResultDTO(uid, name, major, cohortYear, status); }
     }
 
+    /**
+    * Internal course-management type OfferingRow.
+    */
     public record OfferingRow(long offeringId, long courseId, int academicYear, int semester, int status,
                               int capacity, int enrolledCount, String courseStatus, String prerequisites) { }
+    /**
+    * Internal course-management type EnrollmentRow.
+    */
     public record EnrollmentRow(long enrollmentId, int status) { }
 }

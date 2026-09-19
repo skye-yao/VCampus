@@ -28,11 +28,11 @@ import static dto.course.admin.schedule.ScheduleConflictSeverityDTO.BLOCKING;
 import static dto.course.admin.schedule.ScheduleConflictSeverityDTO.OVERRIDABLE;
 
 /**
- * Draft scheduling mutations. Each write runs in one READ_COMMITTED transaction that replays the
- * stored result for a repeated operation identity, locks the aggregate, validates structure and
- * referenced objects, rebuilds the arrangement's normalized children, recalculates conflicts from
- * the authoritative transactional state, and records the audit row.
- */
+* Draft scheduling mutations. Each write runs in one READ_COMMITTED transaction that replays the
+* stored result for a repeated operation identity, locks the aggregate, validates structure and
+* referenced objects, rebuilds the arrangement's normalized children, recalculates conflicts from
+* the authoritative transactional state, and records the audit row.
+*/
 public class ScheduleManagementService {
     private static final Gson GSON = new Gson();
     private static final Type ARRANGEMENT_RESULT_TYPE =
@@ -61,6 +61,9 @@ public class ScheduleManagementService {
     private final CourseConflictService conflicts;
     private final java.time.Clock clock;
 
+    /**
+    * Handles the course-management responsibility of ScheduleManagementService.
+    */
     public ScheduleManagementService() {
         this(new AdminScheduleDAO(), new AdminScheduleConflictDAO(), java.time.Clock.systemUTC());
     }
@@ -76,6 +79,9 @@ public class ScheduleManagementService {
 
     // ------------------------------------------------------------------ reads
 
+    /**
+    * Lists Resources data.
+    */
     public List<ScheduleResourceDTO> listResources(String type, String query) {
         if (type != null && !TEACHER_RESOURCE.equals(type) && !CLASSROOM_RESOURCE.equals(type)) {
             throw new IllegalArgumentException("未知的排课资源类型");
@@ -87,6 +93,9 @@ public class ScheduleManagementService {
         }
     }
 
+    /**
+    * Obtains dPlan data.
+    */
     public SchedulePlanDTO loadPlan(int academicYear, int semester) {
         if (academicYear <= 0) throw new IllegalArgumentException("学年无效");
         if (semester < 1 || semester > 3) throw new IllegalArgumentException("学期无效");
@@ -100,6 +109,9 @@ public class ScheduleManagementService {
         }
     }
 
+    /**
+    * Lists Arrangements data.
+    */
     public List<ScheduleArrangementDTO> listArrangements(String planId, String offeringId) {
         long plan = AdminOperationTransaction.parseId(planId, "planId");
         String offering = AdminOperationTransaction.blankToNull(offeringId);
@@ -115,9 +127,9 @@ public class ScheduleManagementService {
     }
 
     /**
-     * 表单级预检查：返回前把跨周的同一冲突合并为区间，界面上不再按周刷屏。
-     * 同一条连接上顺带读出该方案的方案级冲突快照，让「预检查冲突」一次往返就能刷新两处列表。
-     */
+    * 表单级预检查：返回前把跨周的同一冲突合并为区间，界面上不再按周刷屏。
+    * 同一条连接上顺带读出该方案的方案级冲突快照，让「预检查冲突」一次往返就能刷新两处列表。
+    */
     public CheckArrangementResultDTO checkArrangement(SaveArrangementRequestDTO request) {
         CourseConflictService.Candidate candidate = candidate(request);
         try (Connection connection = DBUtil.getConnection()) {
@@ -133,9 +145,9 @@ public class ScheduleManagementService {
     }
 
     /**
-     * 方案级快照只在前置校验已经给出合法 planId 时读取；空白或不可解析一律当作没有快照，
-     * 不额外抛出（{@link #candidate} 已经用同样的规则拒绝了这些请求）。
-     */
+    * 方案级快照只在前置校验已经给出合法 planId 时读取；空白或不可解析一律当作没有快照，
+    * 不额外抛出（{@link #candidate} 已经用同样的规则拒绝了这些请求）。
+    */
     private static Long planIdOrNull(String value) {
         if (value == null || value.isBlank()) return null;
         try {
@@ -147,6 +159,9 @@ public class ScheduleManagementService {
 
     // ----------------------------------------------------------------- writes
 
+    /**
+    * Persists save data.
+    */
     public AdminOperationResultDTO<ScheduleArrangementDTO> save(String adminUid,
                                                                 SaveArrangementRequestDTO request) {
         CourseConflictService.Candidate candidate = candidate(request);
@@ -228,6 +243,9 @@ public class ScheduleManagementService {
                 ARRANGEMENT_RESULT_TYPE, lock, mutation);
     }
 
+    /**
+    * Removes or cancels delete data.
+    */
     public AdminOperationResultDTO<Void> delete(String adminUid, String arrangementId,
                                                 int expectedVersion, String operationId) {
         long id = AdminOperationTransaction.parseId(arrangementId, "arrangementId");
@@ -267,6 +285,9 @@ public class ScheduleManagementService {
                 mutation);
     }
 
+    /**
+    * Handles the course-management responsibility of publish.
+    */
     public AdminOperationResultDTO<SchedulePlanDTO> publish(String adminUid, String planId,
                                                             int expectedRevision, String operationId,
                                                             boolean force, String overrideReason) {
@@ -321,10 +342,10 @@ public class ScheduleManagementService {
     }
 
     /**
-     * Opens the editable draft of a term, optionally seeding it from the term's current published
-     * plan. This is the only way a DRAFT plan can come into existence — every other scheduling
-     * write requires one to exist already.
-     */
+    * Opens the editable draft of a term, optionally seeding it from the term's current published
+    * plan. This is the only way a DRAFT plan can come into existence — every other scheduling
+    * write requires one to exist already.
+    */
     public AdminOperationResultDTO<SchedulePlanDTO> createDraftPlan(String adminUid, int academicYear,
                                                                     int semester, boolean copyPublished,
                                                                     String operationId) {
@@ -379,30 +400,30 @@ public class ScheduleManagementService {
     }
 
     /**
-     * Copies every arrangement of {@code source} that can be carried over into {@code targetPlanId}
-     * by re-running the same child writer {@code save} uses, so the copied {@code course_occurrence}
-     * UTC windows are derived from the calendar exactly as a hand-edited arrangement would be.
-     * Returns the number of rows copied; the caller reports the remainder of {@code source} as
-     * skipped.
-     *
-     * <p>Rows that cannot form a candidate — no teacher, or no slots — are skipped rather than
-     * fatal. The demo seed's arrangement 4104 is deliberately teacher-less, and
-     * {@code writeChildren} would hand a null business id to {@code ensureResource}. The skip also
-     * keeps this consistent with the read path, which now tolerates exactly the same rows.
-     *
-     * <p>Two more shapes are skipped instead of failing the whole copy. A null {@code classroom_id}
-     * is a legal historical row ({@code V004} declares the column nullable) that
-     * {@code writeChildren} would unbox while naming the classroom resource. And a row whose weeks
-     * or periods have no window in this term's teaching calendar would be dereferenced as null
-     * there; {@code save} refuses such rows up front through {@link #requireSlotWindows}, and this
-     * is the only other writer of child rows, so it vets them the same way and skips what fails.
-     * Skipping happens before the parent row is inserted, so a skipped row leaves nothing behind.
-     *
-     * <p>{@code writeChildren} reads only offeringId/teacherUid/assistantUid/classroomId/slots/
-     * startWeek/endWeek off the candidate — never {@code arrangementId()}, which it takes as its own
-     * parameter. Reusing the source row's candidate is therefore safe; do not "fix" it by passing the
-     * source arrangement id into {@code writeChildren}.
-     */
+    * Copies every arrangement of {@code source} that can be carried over into {@code targetPlanId}
+    * by re-running the same child writer {@code save} uses, so the copied {@code course_occurrence}
+    * UTC windows are derived from the calendar exactly as a hand-edited arrangement would be.
+    * Returns the number of rows copied; the caller reports the remainder of {@code source} as
+    * skipped.
+    *
+    * <p>Rows that cannot form a candidate — no teacher, or no slots — are skipped rather than
+    * fatal. The demo seed's arrangement 4104 is deliberately teacher-less, and
+    * {@code writeChildren} would hand a null business id to {@code ensureResource}. The skip also
+    * keeps this consistent with the read path, which now tolerates exactly the same rows.
+    *
+    * <p>Two more shapes are skipped instead of failing the whole copy. A null {@code classroom_id}
+    * is a legal historical row ({@code V004} declares the column nullable) that
+    * {@code writeChildren} would unbox while naming the classroom resource. And a row whose weeks
+    * or periods have no window in this term's teaching calendar would be dereferenced as null
+    * there; {@code save} refuses such rows up front through {@link #requireSlotWindows}, and this
+    * is the only other writer of child rows, so it vets them the same way and skips what fails.
+    * Skipping happens before the parent row is inserted, so a skipped row leaves nothing behind.
+    *
+    * <p>{@code writeChildren} reads only offeringId/teacherUid/assistantUid/classroomId/slots/
+    * startWeek/endWeek off the candidate — never {@code arrangementId()}, which it takes as its own
+    * parameter. Reusing the source row's candidate is therefore safe; do not "fix" it by passing the
+    * source arrangement id into {@code writeChildren}.
+    */
     private int copyArrangements(Connection connection, long sourcePlanId,
                                  List<ScheduleArrangementDTO> source, long targetPlanId,
                                  AdminScheduleDAO.CalendarContext calendar, String adminUid)
@@ -490,11 +511,11 @@ public class ScheduleManagementService {
     }
 
     /**
-     * The single predicate behind {@link #requireSlotWindows}: true when every week and slot of the
-     * candidate resolves to a window in the calendar. {@code save} refuses the candidate when it is
-     * false, the copy path skips the row instead, and only a candidate that passes reaches the
-     * windows {@link #writeChildren} dereferences.
-     */
+    * The single predicate behind {@link #requireSlotWindows}: true when every week and slot of the
+    * candidate resolves to a window in the calendar. {@code save} refuses the candidate when it is
+    * false, the copy path skips the row instead, and only a candidate that passes reaches the
+    * windows {@link #writeChildren} dereferences.
+    */
     private static boolean hasSlotWindows(AdminScheduleDAO.CalendarContext calendar,
                                           CourseConflictService.Candidate candidate) {
         for (ScheduleSlotDTO slot : candidate.slots()) {
@@ -559,10 +580,10 @@ public class ScheduleManagementService {
     }
 
     /**
-     * Rebuilds the arrangement's normalized children. Callers must have vetted the candidate's slot
-     * windows first — {@code save} through {@link #requireSlotWindows}, the copy path through
-     * {@link #hasSlotWindows} — so every window dereferenced below is known non-null.
-     */
+    * Rebuilds the arrangement's normalized children. Callers must have vetted the candidate's slot
+    * windows first — {@code save} through {@link #requireSlotWindows}, the copy path through
+    * {@link #hasSlotWindows} — so every window dereferenced below is known non-null.
+    */
     private void writeChildren(Connection connection, long arrangementId, long planId,
                                CourseConflictService.Candidate candidate,
                                AdminScheduleDAO.CalendarContext calendar) throws SQLException {
@@ -653,7 +674,7 @@ public class ScheduleManagementService {
     }
 
     /** Null-safe: an unfinished transaction is rolled back even when no failure is in flight,
-     *  and a failed rollback is swallowed rather than replacing an escaping {@link Error}. */
+    *  and a failed rollback is swallowed rather than replacing an escaping {@link Error}. */
     private static void rollback(Connection connection, Throwable failure) {
         try {
             connection.rollback();
@@ -677,34 +698,61 @@ public class ScheduleManagementService {
     }
 
     @FunctionalInterface
+    /**
+    * Internal course-management type Lock.
+    */
     private interface Lock {
         void apply(Connection connection) throws SQLException;
     }
 
     @FunctionalInterface
+    /**
+    * Internal course-management type Mutation.
+    */
     private interface Mutation<T> {
         Outcome<T> apply(Connection connection) throws SQLException;
     }
 
+    /**
+    * Internal course-management type Outcome.
+    */
     private record Outcome<T>(AdminOperationResultDTO<T> result, String targetType, String targetId,
                               List<ScheduleConflictDTO> conflicts, boolean forced,
                               String overrideReason) {
     }
 
+    /**
+    * Internal course-management type NotFoundException.
+    */
     public static class NotFoundException extends RuntimeException {
+        /**
+        * Handles the course-management responsibility of NotFoundException.
+        */
         public NotFoundException(String message) { super(message); }
     }
 
+    /**
+    * Internal course-management type ConflictException.
+    */
     public static class ConflictException extends RuntimeException {
         private final Object entity;
         private final List<ScheduleConflictDTO> conflicts;
 
+        /**
+        * Handles the course-management responsibility of ConflictException.
+        */
         public ConflictException(String message) { this(message, null, List.of()); }
 
+        /**
+        * Handles the course-management responsibility of ConflictException.
+        */
         public ConflictException(String message, Object entity) {
             this(message, entity, List.of());
         }
 
+        /**
+        * Handles the course-management responsibility of ConflictException.
+        */
         public ConflictException(String message, Object entity,
                                  List<ScheduleConflictDTO> conflicts) {
             super(message);
@@ -712,8 +760,14 @@ public class ScheduleManagementService {
             this.conflicts = conflicts == null ? List.of() : List.copyOf(conflicts);
         }
 
+        /**
+        * Obtains Entity data.
+        */
         public Object getEntity() { return entity; }
 
+        /**
+        * Obtains Conflicts data.
+        */
         public List<ScheduleConflictDTO> getConflicts() { return conflicts; }
     }
 }

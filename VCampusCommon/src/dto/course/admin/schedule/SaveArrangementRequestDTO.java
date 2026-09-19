@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+/** 教务模块的 SaveArrangementRequestDTO 数据传输对象。 */
 public final class SaveArrangementRequestDTO {
     private final String operationId;
     private final String arrangementId;
@@ -41,56 +42,69 @@ public final class SaveArrangementRequestDTO {
         this.overrideReason = overrideReason;
     }
 
+    /** 获取 OperationId。 */
     public String getOperationId() {
         return operationId;
     }
 
+    /** 获取 ArrangementId。 */
     public String getArrangementId() {
         return arrangementId;
     }
 
+    /** 获取 ExpectedVersion。 */
     public int getExpectedVersion() {
         return expectedVersion;
     }
 
+    /** 获取 PlanId。 */
     public String getPlanId() {
         return planId;
     }
 
+    /** 获取 OfferingId。 */
     public String getOfferingId() {
         return offeringId;
     }
 
+    /** 获取 TeacherUid。 */
     public String getTeacherUid() {
         return teacherUid;
     }
 
+    /** 获取 AssistantUid。 */
     public String getAssistantUid() {
         return assistantUid;
     }
 
+    /** 获取 ClassroomId。 */
     public String getClassroomId() {
         return classroomId;
     }
 
+    /** 获取 Slots。 */
     public List<ScheduleSlotDTO> getSlots() {
         return slots == null
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(slots);
     }
 
+    /** 获取 StartWeek。 */
     public int getStartWeek() {
         return startWeek;
     }
 
+    /** 获取 EndWeek。 */
     public int getEndWeek() {
         return endWeek;
     }
 
+    /** 判断 Force 是否成立。 */
     public boolean isForce() {
         return force;
     }
 
+    /** 获取 OverrideReason。 */
     public String getOverrideReason() {
         return overrideReason;
     }

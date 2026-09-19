@@ -15,10 +15,12 @@ public final class GradeRowInputDTO {
         this.scores = scores;
     }
 
+    /** 获取 EnrollmentId。 */
     public String getEnrollmentId() {
         return enrollmentId;
     }
 
+    /** 获取 Scores。 */
     public GradeScoresDTO getScores() {
         return scores;
     }

@@ -20,18 +20,22 @@ public final class TeacherOperationResultDTO<T> {
         this.replayed = replayed;
     }
 
+    /** 获取 OperationId。 */
     public String getOperationId() {
         return operationId;
     }
 
+    /** 获取 Message。 */
     public String getMessage() {
         return message;
     }
 
+    /** 获取 Value。 */
     public T getValue() {
         return value;
     }
 
+    /** 判断 Replayed 是否成立。 */
     public boolean isReplayed() {
         return replayed;
     }

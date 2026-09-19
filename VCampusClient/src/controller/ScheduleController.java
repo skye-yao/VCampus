@@ -35,6 +35,7 @@ import service.CourseServices;
 import session.ClientSession;
 import util.AlertUtil;
 
+/** 学生按教学周查看课表的 JavaFX 页面控制器。 */
 public final class ScheduleController {
     /**
      * 节次列的固定宽度：行头是 {@code 第 13 节 18:00:00-18:45:00}（11px 字号约 120px 字形），窄了
@@ -70,6 +71,7 @@ public final class ScheduleController {
     @FXML private GridPane scheduleGrid;
     @FXML private VBox noticeList;
 
+    /** 创建学生课表控制器并取得共享课程服务。 */
     public ScheduleController() {
         this(CourseServices.current(), AlertUtil::showInfo, AlertUtil::showError,
                 ScheduleController::runOnFxThread);
@@ -84,6 +86,7 @@ public final class ScheduleController {
     }
 
     @FXML
+    /** 由 FXMLLoader 在字段注入后装配周次控件并加载课表。 */
     public void initialize() {
         if (weekSpinner != null) {
             configureWeekSpinner();
@@ -117,6 +120,7 @@ public final class ScheduleController {
     }
 
     @FXML
+    /** 异步重新加载当前选定学期与周次的课表。 */
     public void refresh() {
         fxExecutor.accept(() -> loadWeek(requestedWeek));
     }

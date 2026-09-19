@@ -11,18 +11,18 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Reads the effective schedule: occurrences that still occupy resources, with the ones replaced
- * by an ACTIVE temporary adjustment removed and the ACTIVE adjustments themselves added at their
- * replacement time and resources.
- *
- * <p>The overlap predicate is exactly {@code start_at < candidate_end AND end_at > candidate_start}
- * so that two slots which merely touch at a boundary instant are not reported as overlapping.
- */
+* Reads the effective schedule: occurrences that still occupy resources, with the ones replaced
+* by an ACTIVE temporary adjustment removed and the ACTIVE adjustments themselves added at their
+* replacement time and resources.
+*
+* <p>The overlap predicate is exactly {@code start_at < candidate_end AND end_at > candidate_start}
+* so that two slots which merely touch at a boundary instant are not reported as overlapping.
+*/
 public class AdminScheduleConflictDAO {
     /**
-     * Effective occurrences overlapping the candidate window. Both branches carry the required
-     * half-open predicate; only the second one is expressed against the adjustment's own columns.
-     */
+    * Effective occurrences overlapping the candidate window. Both branches carry the required
+    * half-open predicate; only the second one is expressed against the adjustment's own columns.
+    */
     private static final String OVERLAPPING = "SELECT o.id AS occurrence_id,"
             + " a.arrangement_id,a.offering_id,a.teacher_uid,a.assistant_uid,a.classroom_id,"
             + " o.start_at,o.end_at"
@@ -47,6 +47,9 @@ public class AdminScheduleConflictDAO {
             + " AND j.start_at_utc < ? AND j.end_at_utc > ?"
             + " AND a.arrangement_id<>?";
 
+    /**
+    * Handles the course-management responsibility of overlapping.
+    */
     public List<EffectiveOccurrence> overlapping(Connection connection, long planId,
                                                  Timestamp candidateStart, Timestamp candidateEnd,
                                                  Long excludedArrangementId) throws SQLException {
@@ -69,13 +72,13 @@ public class AdminScheduleConflictDAO {
     }
 
     /**
-     * The same effective schedule as {@link #overlapping}, but only the named original occurrences
-     * are ignored — never a whole arrangement. Both branches carry the same exclusion: the base
-     * branch matches {@code o.id} and the adjustment branch matches {@code j.original_occurrence_id}
-     * so an ACTIVE adjustment disappears together with the original it replaced. An empty (or null)
-     * set adds no predicate at all instead of an invalid {@code NOT IN ()}; the ids are expanded as
-     * {@code ?} placeholders, never concatenated into the SQL text.
-     */
+    * The same effective schedule as {@link #overlapping}, but only the named original occurrences
+    * are ignored — never a whole arrangement. Both branches carry the same exclusion: the base
+    * branch matches {@code o.id} and the adjustment branch matches {@code j.original_occurrence_id}
+    * so an ACTIVE adjustment disappears together with the original it replaced. An empty (or null)
+    * set adds no predicate at all instead of an invalid {@code NOT IN ()}; the ids are expanded as
+    * {@code ?} placeholders, never concatenated into the SQL text.
+    */
     public List<EffectiveOccurrence> overlappingExcludingOccurrences(Connection connection,
             long planId, Timestamp candidateStart, Timestamp candidateEnd,
             Set<Long> excludedOccurrenceIds) throws SQLException {
@@ -191,10 +194,19 @@ public class AdminScheduleConflictDAO {
         return List.copyOf(result);
     }
 
+    /**
+    * Internal course-management type StudentWindow.
+    */
     public record StudentWindow(int week, int dayOfWeek, int startPeriod, int endPeriod,
                                 Timestamp startAt, Timestamp endAt) { }
 
+    /**
+    * Internal course-management type PublishedPlanUnavailableException.
+    */
     public static class PublishedPlanUnavailableException extends SQLException {
+        /**
+        * Handles the course-management responsibility of PublishedPlanUnavailableException.
+        */
         public PublishedPlanUnavailableException() { super("Current published schedule plan is unavailable"); }
     }
 

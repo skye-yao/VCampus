@@ -26,29 +26,29 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 教师成绩工作副本（{@code teacher_grade_book}）与草稿明细（{@code teacher_grade_draft_item}）
- * 的读与写、提交批次（{@code grade_submission}/{@code grade_submission_item}）的写入，
- * 外加名单摘要与成绩录入列表所需的只读查询。
- *
- * <p>所有写方法都在调用方事务内执行，调用方负责锁顺序：先锁 offering，再锁工作副本行，最后按
- * {@code enrollment_id} 升序写明细。提交在同一顺序里新建批次行（offering → book → 明细 → 批次），
- * 审批路径只锁批次、不回锁工作副本，两边不存在环。{@link #upsertItem} 与
- * {@link #insertSubmissionItem} 是可覆写的接缝，用来证明保存与提交事务的回滚都是整笔的。
- *
- * <p>{@link #rosterDigest} 是名单摘要的唯一定义：<b>正常（status=2）选课记录 ID 升序、每个 ID
- * 后跟随一个换行符、UTF-8 字节的 SHA-256 小写十六进制</b>。计算与复核都调用这一个方法，
- * 任何一处都不再自行拼装字符串。
- *
- * <p>{@code scheme_json} 是 NOT NULL：工作副本永远带着一份完整方案，读不到工作副本时由服务层
- * 提供默认方案，而不是让这里写一份空方案。
- */
+* 教师成绩工作副本（{@code teacher_grade_book}）与草稿明细（{@code teacher_grade_draft_item}）
+* 的读与写、提交批次（{@code grade_submission}/{@code grade_submission_item}）的写入，
+* 外加名单摘要与成绩录入列表所需的只读查询。
+*
+* <p>所有写方法都在调用方事务内执行，调用方负责锁顺序：先锁 offering，再锁工作副本行，最后按
+* {@code enrollment_id} 升序写明细。提交在同一顺序里新建批次行（offering → book → 明细 → 批次），
+* 审批路径只锁批次、不回锁工作副本，两边不存在环。{@link #upsertItem} 与
+* {@link #insertSubmissionItem} 是可覆写的接缝，用来证明保存与提交事务的回滚都是整笔的。
+*
+* <p>{@link #rosterDigest} 是名单摘要的唯一定义：<b>正常（status=2）选课记录 ID 升序、每个 ID
+* 后跟随一个换行符、UTF-8 字节的 SHA-256 小写十六进制</b>。计算与复核都调用这一个方法，
+* 任何一处都不再自行拼装字符串。
+*
+* <p>{@code scheme_json} 是 NOT NULL：工作副本永远带着一份完整方案，读不到工作副本时由服务层
+* 提供默认方案，而不是让这里写一份空方案。
+*/
 public class TeacherGradeBookDAO {
     private static final Gson GSON = new Gson();
     private static final char SEPARATOR = '\n';
     /**
-     * 非锁定读的工作副本列；{@code b.} 前缀与 {@link #LIST_FROM} 的别名一致，批次状态与审核意见
-     * 都来自同一次 {@code grade_submission} join（列表页与成绩表用同一份列清单）。
-     */
+    * 非锁定读的工作副本列；{@code b.} 前缀与 {@link #LIST_FROM} 的别名一致，批次状态与审核意见
+    * 都来自同一次 {@code grade_submission} join（列表页与成绩表用同一份列清单）。
+    */
     private static final String BOOK_COLUMNS = "b.revision,b.draft_open,b.draft_kind,"
             + "b.base_submission_id,b.last_submission_id,b.scheme_json,b.correction_reason,"
             + "s.status AS submission_status,s.review_comment AS review_comment";
@@ -75,9 +75,9 @@ public class TeacherGradeBookDAO {
             + "     ON i.offering_id=e.offering_id AND i.enrollment_id=e.enrollment_id";
 
     /**
-     * 名单摘要的规范形式（见类注释）。{@code enrollmentIds} 允许任意顺序，这里负责排序；
-     * 空名单的摘要是空字符串的 SHA-256。
-     */
+    * 名单摘要的规范形式（见类注释）。{@code enrollmentIds} 允许任意顺序，这里负责排序；
+    * 空名单的摘要是空字符串的 SHA-256。
+    */
     public static String rosterDigest(List<Long> enrollmentIds) {
         List<Long> sorted = new ArrayList<>(enrollmentIds);
         sorted.sort(null);
@@ -94,6 +94,9 @@ public class TeacherGradeBookDAO {
         }
     }
 
+    /**
+    * Handles the course-management responsibility of schemeJson.
+    */
     public static String schemeJson(GradeSchemeDTO scheme) {
         return GSON.toJson(scheme);
     }
@@ -133,14 +136,14 @@ public class TeacherGradeBookDAO {
     }
 
     /**
-     * 写事务里的工作副本行锁；与 offering 锁一起构成“offering → book → 明细”的顺序。
-     *
-     * <p>这个 SELECT 刻意不 join {@code grade_submission}：MySQL 的锁定读会把 join 到的批次行也锁住，
-     * 等于在 plan 规定的 offering → grade_book 之间多插一个锁，而审批先改批次状态、再动工作副本，
-     * 两边顺序互为倒序，驳回后的重提保存会死锁（1213）。批次状态因此单独做一次非锁定读：
-     * 驳回是终态，非锁定读最多“还没有看到 REJECTED”，只会让这次保存拿到一个可重试的冲突，
-     * 不会放行不该放行的写入。
-     */
+    * 写事务里的工作副本行锁；与 offering 锁一起构成“offering → book → 明细”的顺序。
+    *
+    * <p>这个 SELECT 刻意不 join {@code grade_submission}：MySQL 的锁定读会把 join 到的批次行也锁住，
+    * 等于在 plan 规定的 offering → grade_book 之间多插一个锁，而审批先改批次状态、再动工作副本，
+    * 两边顺序互为倒序，驳回后的重提保存会死锁（1213）。批次状态因此单独做一次非锁定读：
+    * 驳回是终态，非锁定读最多“还没有看到 REJECTED”，只会让这次保存拿到一个可重试的冲突，
+    * 不会放行不该放行的写入。
+    */
     public GradeBookRow findBookForUpdate(Connection connection, long offeringId)
             throws SQLException {
         String sql = "SELECT " + BOOK_COLUMNS_LOCKED + " FROM teacher_grade_book"
@@ -173,11 +176,11 @@ public class TeacherGradeBookDAO {
     }
 
     /**
-     * 某个批次属于哪个教学班、现在是什么状态；批次不存在返回 null。
-     *
-     * <p>版本变更（驳回重开/更正）用它核对来源批次：只认「本班最后一次提交」这一条，既要状态对得上，
-     * 也要它确实属于这个教学班——别人的批次号不能当来源。
-     */
+    * 某个批次属于哪个教学班、现在是什么状态；批次不存在返回 null。
+    *
+    * <p>版本变更（驳回重开/更正）用它核对来源批次：只认「本班最后一次提交」这一条，既要状态对得上，
+    * 也要它确实属于这个教学班——别人的批次号不能当来源。
+    */
     public SubmissionRef findSubmissionRef(Connection connection, long submissionId)
             throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
@@ -210,10 +213,10 @@ public class TeacherGradeBookDAO {
     }
 
     /**
-     * 提交之后名单是否变化：当前正常名单的 <b>UID 集合</b>与批次捕获的身份快照集合是否不同。
-     * 新批次写入 student_uid_snapshot；V007 之前的批次没有快照，退回按 enrollment 的 uid 计算，
-     * 不猜测身份。已退课学生的 UID 仍在批次集合里，所以退课同样算名单变化。
-     */
+    * 提交之后名单是否变化：当前正常名单的 <b>UID 集合</b>与批次捕获的身份快照集合是否不同。
+    * 新批次写入 student_uid_snapshot；V007 之前的批次没有快照，退回按 enrollment 的 uid 计算，
+    * 不猜测身份。已退课学生的 UID 仍在批次集合里，所以退课同样算名单变化。
+    */
     public boolean rosterChangedSinceSubmission(Connection connection, long offeringId,
                                                 long submissionId) throws SQLException {
         Set<String> current = new HashSet<>();
@@ -282,9 +285,9 @@ public class TeacherGradeBookDAO {
     }
 
     /**
-     * 成绩录入列表：本人担任 {@code role=0} 任课教师的教学班，连同工作副本状态。
-     * 嵌入的教学班摘要只带原始字段，名单人数与可编辑位由服务层按当前名单补齐。
-     */
+    * 成绩录入列表：本人担任 {@code role=0} 任课教师的教学班，连同工作副本状态。
+    * 嵌入的教学班摘要只带原始字段，名单人数与可编辑位由服务层按当前名单补齐。
+    */
     public List<ListedOffering> listOfferings(Connection connection, String uid, int academicYear,
                                               int semester, int limit, int offset)
             throws SQLException {
@@ -310,6 +313,9 @@ public class TeacherGradeBookDAO {
         }
     }
 
+    /**
+    * Handles the course-management responsibility of countOfferings.
+    */
     public long countOfferings(Connection connection, String uid, int academicYear, int semester)
             throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
@@ -351,16 +357,16 @@ public class TeacherGradeBookDAO {
     }
 
     /**
-     * 驳回后的惰性重开：只翻转草稿状态，不动 revision（随后那次方案更新才递增版本）。
-     * {@code revision} 与 {@code last_submission_id} 都参与条件，过期请求不会重开草稿。
-     *
-     * <p>它同时把 {@code correction_reason} 清空，这一点与 {@link #reopenFromSubmission} 完全一致：
-     * 重提不是更正，草稿、随后的批次与每一条变更审计都不该带着上一轮更正的原因。被驳回的批次本身
-     * 就是一次更正时尤其要紧——否则「直接保存重开」与「按下重开按钮」会留下两种形状的成绩版本，
-     * 而 {@code submission_kind='RESUBMISSION'} 的批次上挂着一条更正原因就是一条假的来源记录。
-     *
-     * @return 受影响行数，调用方必须要求恰好 1
-     */
+    * 驳回后的惰性重开：只翻转草稿状态，不动 revision（随后那次方案更新才递增版本）。
+    * {@code revision} 与 {@code last_submission_id} 都参与条件，过期请求不会重开草稿。
+    *
+    * <p>它同时把 {@code correction_reason} 清空，这一点与 {@link #reopenFromSubmission} 完全一致：
+    * 重提不是更正，草稿、随后的批次与每一条变更审计都不该带着上一轮更正的原因。被驳回的批次本身
+    * 就是一次更正时尤其要紧——否则「直接保存重开」与「按下重开按钮」会留下两种形状的成绩版本，
+    * 而 {@code submission_kind='RESUBMISSION'} 的批次上挂着一条更正原因就是一条假的来源记录。
+    *
+    * @return 受影响行数，调用方必须要求恰好 1
+    */
     public int reopenForResubmission(Connection connection, long offeringId, int revision,
                                      long rejectedSubmissionId) throws SQLException {
         String sql = "UPDATE teacher_grade_book SET draft_open=1,draft_kind='RESUBMISSION',"
@@ -376,14 +382,14 @@ public class TeacherGradeBookDAO {
     }
 
     /**
-     * 删除本班所有不在当前正常名单里的草稿行（名单里已经退课/移出的学生不再占着一条草稿）。
-     *
-     * <p>只删「不在名单里」的行，不是清空整份草稿：重建可编辑副本时，快照里同时属于当前名单的分数
-     * 由调用方紧接着写回，而草稿行里那些没进过任何批次的残余值不会被当成历史事实。
-     *
-     * @param rosterEnrollmentIds 当前正常名单的选课记录 ID，空名单表示删除本班所有草稿行
-     * @return 受影响行数
-     */
+    * 删除本班所有不在当前正常名单里的草稿行（名单里已经退课/移出的学生不再占着一条草稿）。
+    *
+    * <p>只删「不在名单里」的行，不是清空整份草稿：重建可编辑副本时，快照里同时属于当前名单的分数
+    * 由调用方紧接着写回，而草稿行里那些没进过任何批次的残余值不会被当成历史事实。
+    *
+    * @param rosterEnrollmentIds 当前正常名单的选课记录 ID，空名单表示删除本班所有草稿行
+    * @return 受影响行数
+    */
     public int deleteItemsOutsideRoster(Connection connection, long offeringId,
                                         List<Long> rosterEnrollmentIds) throws SQLException {
         StringBuilder sql = new StringBuilder(
@@ -404,16 +410,16 @@ public class TeacherGradeBookDAO {
     }
 
     /**
-     * 从最后一次批次重建可编辑副本：把草稿翻回开放、写上类型与基础批次，更正原因一次写入。
-     *
-     * <p>与 {@link #reopenForResubmission} 的区别只有「类型与原因由调用方决定」：显式入口既能从
-     * REJECTED 重提（原因 NULL），也能从 APPROVED 发起更正（原因必填）。<b>不递增 revision</b>——
-     * 随后的 {@link #updateScheme} 才递增，这一点与惰性重开完全一致，两条路留下的工作副本形状相同。
-     * 条件里的 {@code revision}、{@code draft_open=0} 与 {@code last_submission_id} 保证过期请求
-     * 不会重开草稿，也不会用别的批次当基础。
-     *
-     * @return 受影响行数，调用方必须要求恰好 1
-     */
+    * 从最后一次批次重建可编辑副本：把草稿翻回开放、写上类型与基础批次，更正原因一次写入。
+    *
+    * <p>与 {@link #reopenForResubmission} 的区别只有「类型与原因由调用方决定」：显式入口既能从
+    * REJECTED 重提（原因 NULL），也能从 APPROVED 发起更正（原因必填）。<b>不递增 revision</b>——
+    * 随后的 {@link #updateScheme} 才递增，这一点与惰性重开完全一致，两条路留下的工作副本形状相同。
+    * 条件里的 {@code revision}、{@code draft_open=0} 与 {@code last_submission_id} 保证过期请求
+    * 不会重开草稿，也不会用别的批次当基础。
+    *
+    * @return 受影响行数，调用方必须要求恰好 1
+    */
     public int reopenFromSubmission(Connection connection, long offeringId, int revision,
                                     String draftKind, long sourceSubmissionId,
                                     String correctionReason, String updatedBy, Instant updatedAt)
@@ -436,11 +442,11 @@ public class TeacherGradeBookDAO {
     }
 
     /**
-     * 保存草稿唯一允许的工作副本更新：方案、版本与最后修改人一起原子更新，并只认还开着的、
-     * 版本匹配的行。调用方必须在事务内检查返回值恰好为 1，否则不得继续写明细。
-     *
-     * @return 受影响行数，0 表示版本过期或草稿已关闭
-     */
+    * 保存草稿唯一允许的工作副本更新：方案、版本与最后修改人一起原子更新，并只认还开着的、
+    * 版本匹配的行。调用方必须在事务内检查返回值恰好为 1，否则不得继续写明细。
+    *
+    * @return 受影响行数，0 表示版本过期或草稿已关闭
+    */
     public int updateScheme(Connection connection, long offeringId, int expectedRevision,
                             String schemeJson, String updatedBy, Instant updatedAt)
             throws SQLException {
@@ -480,9 +486,9 @@ public class TeacherGradeBookDAO {
     // ------------------------------------------------------------------ 提交
 
     /**
-     * 该教学班唯一的 PENDING 批次；没有返回 {@code null}。调用方已持 offering 锁，所以这个非锁定
-     * 读与随后的批次插入处在同一个串行区间里，“每班至多一个 PENDING”因此不依赖读的隔离级别。
-     */
+    * 该教学班唯一的 PENDING 批次；没有返回 {@code null}。调用方已持 offering 锁，所以这个非锁定
+    * 读与随后的批次插入处在同一个串行区间里，“每班至多一个 PENDING”因此不依赖读的隔离级别。
+    */
     public Long findPendingSubmission(Connection connection, long offeringId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT submission_id FROM grade_submission WHERE offering_id=? AND status='PENDING'")) {
@@ -506,11 +512,11 @@ public class TeacherGradeBookDAO {
     }
 
     /**
-     * 建立 immutable 批次头：方案/名单摘要/身份快照与统计一次写入，状态从 PENDING 开始。
-     * {@code grade_level} 不在明细里写：新批次不编造等级编码。
-     *
-     * @return 新批次的 submission_id
-     */
+    * 建立 immutable 批次头：方案/名单摘要/身份快照与统计一次写入，状态从 PENDING 开始。
+    * {@code grade_level} 不在明细里写：新批次不编造等级编码。
+    *
+    * @return 新批次的 submission_id
+    */
     public long insertSubmission(Connection connection, SubmissionInsert insert) throws SQLException {
         String sql = "INSERT INTO grade_submission(offering_id,version,submitted_by,submitted_at,"
                 + "status,scheme_snapshot_json,roster_digest,base_submission_id,correction_reason,"
@@ -542,9 +548,9 @@ public class TeacherGradeBookDAO {
     }
 
     /**
-     * 写一条批次明细快照：四项分数（禁用项已置 NULL）、服务器重算的总评/绩点与提交时捕获的身份。
-     * 可覆写接缝，用于证明提交事务的整笔回滚。
-     */
+    * 写一条批次明细快照：四项分数（禁用项已置 NULL）、服务器重算的总评/绩点与提交时捕获的身份。
+    * 可覆写接缝，用于证明提交事务的整笔回滚。
+    */
     public void insertSubmissionItem(Connection connection, long submissionId,
                                      SubmissionItemRow item) throws SQLException {
         String sql = "INSERT INTO grade_submission_item(submission_id,enrollment_id,daily_score,"
@@ -567,11 +573,11 @@ public class TeacherGradeBookDAO {
     }
 
     /**
-     * 关闭草稿并记录最后一次批次：明细全部写完后才执行，版本与 {@code draft_open} 一起参与条件，
-     * 任何在提交途中被改动的草稿都不会被静默关闭。
-     *
-     * @return 受影响行数，调用方必须要求恰好 1
-     */
+    * 关闭草稿并记录最后一次批次：明细全部写完后才执行，版本与 {@code draft_open} 一起参与条件，
+    * 任何在提交途中被改动的草稿都不会被静默关闭。
+    *
+    * @return 受影响行数，调用方必须要求恰好 1
+    */
     public int markSubmitted(Connection connection, long offeringId, int revision, long submissionId,
                              String updatedBy, Instant updatedAt) throws SQLException {
         String sql = "UPDATE teacher_grade_book SET draft_open=0,last_submission_id=?,updated_by=?,"
@@ -604,10 +610,10 @@ public class TeacherGradeBookDAO {
     }
 
     /**
-     * 解析工作副本行。{@code submissionStatus} 与 {@code reviewComment} 由调用方从 join 出来的
-     * 批次列读取；锁定读（{@link #findBookForUpdate}）刻意不 join {@code grade_submission}，
-     * 因此传 null——它不在这里读批次列，避免把不存在的列名变成 SQLException。
-     */
+    * 解析工作副本行。{@code submissionStatus} 与 {@code reviewComment} 由调用方从 join 出来的
+    * 批次列读取；锁定读（{@link #findBookForUpdate}）刻意不 join {@code grade_submission}，
+    * 因此传 null——它不在这里读批次列，避免把不存在的列名变成 SQLException。
+    */
     private static GradeBookRow bookRow(ResultSet rows, String submissionStatus,
             String reviewComment) throws SQLException {
         int revision = rows.getInt("revision");
@@ -634,9 +640,9 @@ public class TeacherGradeBookDAO {
     }
 
     /**
-     * 工作副本的一行；service 用它判断草稿状态，余额列按需读取。
-     * {@code reviewComment} 是最后一次批次的审核意见（非锁定读才有；锁定读不 join 批次行）。
-     */
+    * 工作副本的一行；service 用它判断草稿状态，余额列按需读取。
+    * {@code reviewComment} 是最后一次批次的审核意见（非锁定读才有；锁定读不 join 批次行）。
+    */
     public record GradeBookRow(int revision, boolean draftOpen, String draftKind,
                                Long baseSubmissionId, Long lastSubmissionId,
                                GradeSchemeDTO scheme, String correctionReason,

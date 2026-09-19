@@ -43,30 +43,37 @@ public final class AdjustmentTargetDTO {
                 originalAssistant, originalClassroom, null);
     }
 
+    /** 获取 OriginalOccurrenceId。 */
     public String getOriginalOccurrenceId() {
         return originalOccurrenceId;
     }
 
+    /** 获取 Week。 */
     public int getWeek() {
         return week;
     }
 
+    /** 获取 OriginalStartAt。 */
     public String getOriginalStartAt() {
         return originalStartAt;
     }
 
+    /** 获取 OriginalEndAt。 */
     public String getOriginalEndAt() {
         return originalEndAt;
     }
 
+    /** 获取 OriginalTeacher。 */
     public String getOriginalTeacher() {
         return originalTeacher;
     }
 
+    /** 获取 OriginalAssistant。 */
     public String getOriginalAssistant() {
         return originalAssistant;
     }
 
+    /** 获取 OriginalClassroom。 */
     public String getOriginalClassroom() {
         return originalClassroom;
     }

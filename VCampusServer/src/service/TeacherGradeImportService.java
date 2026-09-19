@@ -40,34 +40,34 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * 教师成绩 Excel 的导入预览与原子确认（设计第 9 节的后半段）。
- *
- * <p>分工：文件票据与短连接负责把字节搬到服务端（T1），表格服务负责解析成原样行（T2），本类负责
- * 「预览 → 修订 → 确认」这三步业务。预览解析完**立即删除**上传的临时文件：候选已经在内存里
- * （最多 5000 行 × 6 个短列），确认阶段不需要文件，因此确认时的「删除临时文件」是一个已经完成的
- * 动作，而不是要跨两个请求维持的资源。
- *
- * <p>预览不写任何库表；确认只写**草稿**，不是提交审批（{@code requireComplete=false}）。提交成绩
- * 仍然要求所有启用项完整，这条规则没有被导入绕过。
- *
- * <p>归属、名单、方案在预览和确认都校验：预览走 {@link TeacherGradeBookService#getGradeBook}
- * （它内部就是 {@link TeacherAccessPolicy#requireViewOffering} 加 {@code canEditGrades}），并复核
- * 票据版本、草稿版本与名单摘要；确认则在事务内由 {@code saveTransaction} 重新锁 offering、
- * 复查 {@code role=0}、复核 rosterDigest。两个阶段用**同一次**成绩表读取得到名单与摘要
- * （{@code listRosterScores} 的行 + {@code rosterDigest(normalEnrollmentIds)} 的摘要），因此预览
- * 认下的名单就是确认要校验的名单，不会出现「预览放行、确认说不认识」的错位。
- *
- * <p>候选合法内容与非法原文严格分开：{@code candidate} 里只有服务端认得的分数，非法单元格的原文
- * 只出现在 issues 里，界面据此显示错误而不是拿旧值冒充导入成功。缺列与空白单元格**不是**错误，
- * 它们保留 baseDraft 的值（尚无值就保持 NULL），绝不写成 0。
- *
- * <p>幂等与重放：确认的令牌在 {@code commit} 成功之后才消费。若响应丢失，客户端用同一个
- * operationId 重试时令牌已经不在了，也就无法重建候选——这时按 operationId 查教师操作日志，
- * 有已提交结果就重放（{@code replayed=true}），没有才报「导入预览已过期」。令牌还活着时走正常
- * 路径，由 {@code saveTransaction} 自己的 {@code operations.find} 做带摘要校验的完整重放，
- * 「同 operationId、不同内容 ⇒ 冲突」这条性质因此不受影响。
- * </p>
- */
+* 教师成绩 Excel 的导入预览与原子确认（设计第 9 节的后半段）。
+*
+* <p>分工：文件票据与短连接负责把字节搬到服务端（T1），表格服务负责解析成原样行（T2），本类负责
+* 「预览 → 修订 → 确认」这三步业务。预览解析完**立即删除**上传的临时文件：候选已经在内存里
+* （最多 5000 行 × 6 个短列），确认阶段不需要文件，因此确认时的「删除临时文件」是一个已经完成的
+* 动作，而不是要跨两个请求维持的资源。
+*
+* <p>预览不写任何库表；确认只写**草稿**，不是提交审批（{@code requireComplete=false}）。提交成绩
+* 仍然要求所有启用项完整，这条规则没有被导入绕过。
+*
+* <p>归属、名单、方案在预览和确认都校验：预览走 {@link TeacherGradeBookService#getGradeBook}
+* （它内部就是 {@link TeacherAccessPolicy#requireViewOffering} 加 {@code canEditGrades}），并复核
+* 票据版本、草稿版本与名单摘要；确认则在事务内由 {@code saveTransaction} 重新锁 offering、
+* 复查 {@code role=0}、复核 rosterDigest。两个阶段用**同一次**成绩表读取得到名单与摘要
+* （{@code listRosterScores} 的行 + {@code rosterDigest(normalEnrollmentIds)} 的摘要），因此预览
+* 认下的名单就是确认要校验的名单，不会出现「预览放行、确认说不认识」的错位。
+*
+* <p>候选合法内容与非法原文严格分开：{@code candidate} 里只有服务端认得的分数，非法单元格的原文
+* 只出现在 issues 里，界面据此显示错误而不是拿旧值冒充导入成功。缺列与空白单元格**不是**错误，
+* 它们保留 baseDraft 的值（尚无值就保持 NULL），绝不写成 0。
+*
+* <p>幂等与重放：确认的令牌在 {@code commit} 成功之后才消费。若响应丢失，客户端用同一个
+* operationId 重试时令牌已经不在了，也就无法重建候选——这时按 operationId 查教师操作日志，
+* 有已提交结果就重放（{@code replayed=true}），没有才报「导入预览已过期」。令牌还活着时走正常
+* 路径，由 {@code saveTransaction} 自己的 {@code operations.find} 做带摘要校验的完整重放，
+* 「同 operationId、不同内容 ⇒ 冲突」这条性质因此不受影响。
+* </p>
+*/
 public class TeacherGradeImportService {
 
     /** 令牌不存在、已过期或属于别的教师时的统一文案（三种情况不区分）。 */
@@ -91,6 +91,9 @@ public class TeacherGradeImportService {
     /** 只做文件与文本，不碰数据库：与 Handler 里的表格能力是同一个实现类。 */
     private final TeacherSpreadsheetService spreadsheets = new TeacherSpreadsheetService();
 
+    /**
+    * Handles the course-management responsibility of TeacherGradeImportService.
+    */
     public TeacherGradeImportService(TeacherFileTicketService tickets, TeacherGradeBookService grades,
                                      TeacherGradeImportStore store) {
         this(tickets, grades, store, new TeacherCourseOperationDAO());
@@ -108,10 +111,10 @@ public class TeacherGradeImportService {
     // ------------------------------------------------------------------ 预览
 
     /**
-     * 用上传成功的文件生成预览：兑换并消费上传票据 → 核对归属/版本/方案/名单 → 解析 → 删除临时文件。
-     *
-     * <p>解析失败时临时文件同样删除：一次失败的导入不该在服务端留下任何半成品，教师重新上传即可。
-     */
+    * 用上传成功的文件生成预览：兑换并消费上传票据 → 核对归属/版本/方案/名单 → 解析 → 删除临时文件。
+    *
+    * <p>解析失败时临时文件同样删除：一次失败的导入不该在服务端留下任何半成品，教师重新上传即可。
+    */
     public GradeImportPreviewDTO preview(String uid, UserSession session,
             PreviewGradeImportRequestDTO raw) {
         String teacher = requireTeacher(uid, session);
@@ -174,10 +177,10 @@ public class TeacherGradeImportService {
     // ------------------------------------------------------------------ 确认
 
     /**
-     * 确认导入：一个事务里写候选草稿 + 审计 + 教师操作日志，提交成功之后才消费令牌。
-     *
-     * <p>不写提交批次：确认导入不是提交审批，整份启用项是否完整仍由提交通道把关。
-     */
+    * 确认导入：一个事务里写候选草稿 + 审计 + 教师操作日志，提交成功之后才消费令牌。
+    *
+    * <p>不写提交批次：确认导入不是提交审批，整份启用项是否完整仍由提交通道把关。
+    */
     public TeacherOperationResultDTO<TeacherGradeBookDTO> confirm(String uid,
             ConfirmGradeImportRequestDTO raw) {
         String teacher = requireUid(uid);
@@ -217,12 +220,12 @@ public class TeacherGradeImportService {
     // ------------------------------------------------------- 候选与问题的合并
 
     /**
-     * 从原始解析行与修正记录重新算出候选与问题：每一轮都从零重算，所以修订不会累积中间状态。
-     *
-     * <p>行级判定是「整行要么导入、要么不导入」：有任何未解决的问题（或已被教师排除）的行都不进入
-     * 候选，教师必须先修正或明确排除它。这样界面上不会出现「一半导入、一半是旧值」的行，也不会
-     * 把候选里的旧值显示成导入成功。
-     */
+    * 从原始解析行与修正记录重新算出候选与问题：每一轮都从零重算，所以修订不会累积中间状态。
+    *
+    * <p>行级判定是「整行要么导入、要么不导入」：有任何未解决的问题（或已被教师排除）的行都不进入
+    * 候选，教师必须先修正或明确排除它。这样界面上不会出现「一半导入、一半是旧值」的行，也不会
+    * 把候选里的旧值显示成导入成功。
+    */
     private Merged merge(TeacherGradeImportStore.Preview preview) {
         Map<Integer, GradeImportCorrectionDTO> corrections = preview.correctionsByRow();
         Set<Integer> excluded = new HashSet<>(preview.excludedRows());
@@ -327,11 +330,11 @@ public class TeacherGradeImportService {
     }
 
     /**
-     * 成绩单元格的数值判定：缺列（null）与空白（""）都不是错误；其余文本必须是合法分数。
-     *
-     * <p>合法性只有 {@link GradeCalculator#validateScores} 一个出口（0..100、最多两位小数），这里
-     * 只是把它换成面向教师的说明；{@code rawValue} 始终是文件里的原文。
-     */
+    * 成绩单元格的数值判定：缺列（null）与空白（""）都不是错误；其余文本必须是合法分数。
+    *
+    * <p>合法性只有 {@link GradeCalculator#validateScores} 一个出口（0..100、最多两位小数），这里
+    * 只是把它换成面向教师的说明；{@code rawValue} 始终是文件里的原文。
+    */
     private static List<ScoreIssue> scoreIssues(TeacherSpreadsheetRow row) {
         List<ScoreIssue> issues = new ArrayList<>();
         for (GradeComponentCodeDTO code : GradeComponentCodeDTO.values()) {
@@ -374,10 +377,10 @@ public class TeacherGradeImportService {
     // ------------------------------------------------------------------ 读表
 
     /**
-     * 预览用的名单与原草稿值，全部来自**同一个**成绩表读取：名单是它列出的正常学生
-     * （{@code listRosterScores}），摘要是它给出的 {@code rosterDigest(normalEnrollmentIds)}，
-     * 确认时 {@code saveTransaction} 复核的是同一个摘要。
-     */
+    * 预览用的名单与原草稿值，全部来自**同一个**成绩表读取：名单是它列出的正常学生
+    * （{@code listRosterScores}），摘要是它给出的 {@code rosterDigest(normalEnrollmentIds)}，
+    * 确认时 {@code saveTransaction} 复核的是同一个摘要。
+    */
     private static List<TeacherRosterRowDTO> rosterOf(TeacherGradeBookDTO book) {
         List<TeacherRosterRowDTO> roster = new ArrayList<>();
         for (TeacherGradeRowDTO row : book.getRows()) {
@@ -388,10 +391,10 @@ public class TeacherGradeImportService {
     }
 
     /**
-     * 每位正常名单学生的「原草稿值」：先取服务端当前草稿，再用客户端送来的编辑副本覆盖
-     * （编辑器里清空的值就是清空，不能被服务端的旧值顶回来）。客户端没提到的学生保持服务端的值，
-     * 因此一次导入不会把编辑副本里根本没有的学生悄悄写成空。
-     */
+    * 每位正常名单学生的「原草稿值」：先取服务端当前草稿，再用客户端送来的编辑副本覆盖
+    * （编辑器里清空的值就是清空，不能被服务端的旧值顶回来）。客户端没提到的学生保持服务端的值，
+    * 因此一次导入不会把编辑副本里根本没有的学生悄悄写成空。
+    */
     private static Map<Long, GradeScoresDTO> baselineOf(TeacherGradeBookDTO book,
             GradeBookContentDTO base) {
         Map<Long, GradeScoresDTO> baseline = new LinkedHashMap<>();
@@ -445,10 +448,10 @@ public class TeacherGradeImportService {
     // ------------------------------------------------------------------ 确认写库
 
     /**
-     * 确认导入的写事务：连接与生命周期都在这里，草稿写入本身复用
-     * {@link TeacherGradeBookService#saveDraftInTransaction} —— 同一个事务里完成版本复核、候选写入、
-     * 变更审计与教师操作日志，绝不从另一个事务里调用。
-     */
+    * 确认导入的写事务：连接与生命周期都在这里，草稿写入本身复用
+    * {@link TeacherGradeBookService#saveDraftInTransaction} —— 同一个事务里完成版本复核、候选写入、
+    * 变更审计与教师操作日志，绝不从另一个事务里调用。
+    */
     private TeacherOperationResultDTO<TeacherGradeBookDTO> writeDraft(String uid,
             WriteGradeBookRequestDTO request) {
         try (Connection connection = DBUtil.getConnection()) {
@@ -480,12 +483,12 @@ public class TeacherGradeImportService {
     }
 
     /**
-     * 令牌已消费时的重放：按 operationId 查教师操作日志。
-     *
-     * <p>查询与写入在同一个连接上进行（这里没有写入，读的正是并发那一笔提交的事务结果），
-     * 因此并发的第二次确认要么在这里看到已提交结果，要么走正常路径撞上审计表的重复键，
-     * 与该路径已有的恢复逻辑是同一套。没有已保存的结果才报令牌过期。
-     */
+    * 令牌已消费时的重放：按 operationId 查教师操作日志。
+    *
+    * <p>查询与写入在同一个连接上进行（这里没有写入，读的正是并发那一笔提交的事务结果），
+    * 因此并发的第二次确认要么在这里看到已提交结果，要么走正常路径撞上审计表的重复键，
+    * 与该路径已有的恢复逻辑是同一套。没有已保存的结果才报令牌过期。
+    */
     private TeacherOperationResultDTO<TeacherGradeBookDTO> replay(String uid, String operationId) {
         try (Connection connection = DBUtil.getConnection()) {
             TeacherCourseOperationDAO.StoredOperation stored =
@@ -647,6 +650,9 @@ public class TeacherGradeImportService {
     public static final class NotFoundException extends RuntimeException {
         private static final long serialVersionUID = 1L;
 
+        /**
+        * Handles the course-management responsibility of NotFoundException.
+        */
         public NotFoundException(String message) {
             super(message);
         }

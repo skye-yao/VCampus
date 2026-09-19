@@ -27,12 +27,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
 /**
- * 课程事件 outbox 的至少一次投递器。
- *
- * <p>每个周期用一个可关闭的数据库连接有界拉取未 ACK 的事件，按 event_id 顺序向事件
- * 所属账号的全部在线连接发送 PUSH。只有确实向至少一个连接尝试过发送的事件才记录
- * attempt；只有事件所属账号通过 {@code ackCourseEvent} 确认才写入 acked_at。
- */
+* 课程事件 outbox 的至少一次投递器。
+*
+* <p>每个周期用一个可关闭的数据库连接有界拉取未 ACK 的事件，按 event_id 顺序向事件
+* 所属账号的全部在线连接发送 PUSH。只有确实向至少一个连接尝试过发送的事件才记录
+* attempt；只有事件所属账号通过 {@code ackCourseEvent} 确认才写入 acked_at。
+*/
 public final class CourseEventDispatcher implements AutoCloseable {
 
     private static final Duration DEFAULT_INTERVAL = Duration.ofSeconds(5);
@@ -49,6 +49,9 @@ public final class CourseEventDispatcher implements AutoCloseable {
     private final AtomicBoolean started = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
 
+    /**
+    * Handles the course-management responsibility of CourseEventDispatcher.
+    */
     public CourseEventDispatcher(OnlineConnectionRegistry registry, CourseEventOutboxDAO dao,
                                  Supplier<Connection> connectionFactory) {
         this(registry, dao, connectionFactory, Clock.systemUTC(), DEFAULT_INTERVAL,
@@ -74,6 +77,9 @@ public final class CourseEventDispatcher implements AutoCloseable {
         this.executor = executor;
     }
 
+    /**
+    * Handles the course-management responsibility of start.
+    */
     public void start() {
         if (closed.get() || !started.compareAndSet(false, true)) {
             return;
@@ -97,6 +103,9 @@ public final class CourseEventDispatcher implements AutoCloseable {
         }
     }
 
+    /**
+    * Handles the course-management responsibility of acknowledge.
+    */
     public boolean acknowledge(String uid, long eventId) {
         if (uid == null || eventId <= 0) {
             return false;
@@ -195,6 +204,9 @@ public final class CourseEventDispatcher implements AutoCloseable {
     }
 
     @Override
+    /**
+    * Handles the course-management responsibility of close.
+    */
     public void close() {
         if (!closed.compareAndSet(false, true)) {
             return;

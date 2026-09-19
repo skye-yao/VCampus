@@ -37,16 +37,16 @@ import java.util.Set;
 import static dto.course.admin.schedule.ScheduleConflictSeverityDTO.BLOCKING;
 
 /**
- * Administrator review of temporary schedule adjustment requests.
- *
- * <p>A request carries one proposed slot and one or more immutable original-occurrence targets.
- * Approval is all-or-nothing: it expands every target into one ACTIVE adjustment inside a single
- * READ_COMMITTED transaction, publishes exactly one linked notice and records one audit row, while
- * the published base plan, its rules, its weeks, its occurrences and its bookings stay untouched.
- * Conflicts are always recalculated against the effective schedule — occurrences already replaced
- * by an ACTIVE adjustment — after excluding the request's own originals, which are still in place
- * until this very approval commits.
- */
+* Administrator review of temporary schedule adjustment requests.
+*
+* <p>A request carries one proposed slot and one or more immutable original-occurrence targets.
+* Approval is all-or-nothing: it expands every target into one ACTIVE adjustment inside a single
+* READ_COMMITTED transaction, publishes exactly one linked notice and records one audit row, while
+* the published base plan, its rules, its weeks, its occurrences and its bookings stay untouched.
+* Conflicts are always recalculated against the effective schedule — occurrences already replaced
+* by an ACTIVE adjustment — after excluding the request's own originals, which are still in place
+* until this very approval commits.
+*/
 public class ScheduleAdjustmentApprovalService {
     /** A target whose snapshot no longer matches the effective published plan. */
     public static final String TARGET_INVALID = "ADJUSTMENT_TARGET_INVALID";
@@ -80,11 +80,17 @@ public class ScheduleAdjustmentApprovalService {
     private final ScheduleAdjustmentConflictService conflicts;
     private final Clock clock;
 
+    /**
+    * Handles the course-management responsibility of ScheduleAdjustmentApprovalService.
+    */
     public ScheduleAdjustmentApprovalService() {
         this(new ScheduleAdjustmentDAO(), new AdminCourseOperationDAO(),
                 new ScheduleAdjustmentConflictService(), Clock.systemUTC());
     }
 
+    /**
+    * Handles the course-management responsibility of ScheduleAdjustmentApprovalService.
+    */
     public ScheduleAdjustmentApprovalService(ScheduleAdjustmentDAO dao,
                                              AdminCourseOperationDAO operations,
                                              ScheduleAdjustmentConflictService conflicts,
@@ -97,6 +103,9 @@ public class ScheduleAdjustmentApprovalService {
 
     // ------------------------------------------------------------------- reads
 
+    /**
+    * Lists Requests data.
+    */
     public AdjustmentRequestPageDTO listRequests(AdjustmentRequestStatusDTO status, int page, int size) {
         if (page < 1) throw new IllegalArgumentException("页码必须大于 0");
         if (size < 1 || size > 100) throw new IllegalArgumentException("每页条数必须为 1 至 100");
@@ -111,6 +120,9 @@ public class ScheduleAdjustmentApprovalService {
         }
     }
 
+    /**
+    * Obtains Request data.
+    */
     public AdjustmentRequestDetailDTO getRequest(String requestId) {
         long id = AdminOperationTransaction.parseId(requestId, "requestId");
         try (Connection connection = DBUtil.getConnection()) {
@@ -128,6 +140,9 @@ public class ScheduleAdjustmentApprovalService {
 
     // ------------------------------------------------------------------ review
 
+    /**
+    * Handles the course-management responsibility of review.
+    */
     public AdminOperationResultDTO<AdjustmentRequestDetailDTO> review(String adminUid,
             ApprovalDecisionRequestDTO raw) {
         String admin = adminUid == null ? null : adminUid.trim();
@@ -280,11 +295,11 @@ public class ScheduleAdjustmentApprovalService {
     }
 
     /**
-     * The operation log is the only thing two decisions that hold <em>different</em> request locks
-     * still share, so it is where a reused operation id is detected. A losing insert waits for the
-     * winner to commit; every local write is then discarded and the committed operation is read
-     * back as a replay or a digest conflict instead of surfacing as a driver error.
-     */
+    * The operation log is the only thing two decisions that hold <em>different</em> request locks
+    * still share, so it is where a reused operation id is detected. A losing insert waits for the
+    * winner to commit; every local write is then discarded and the committed operation is read
+    * back as a replay or a digest conflict instead of surfacing as a driver error.
+    */
     private AdminOperationResultDTO<AdjustmentRequestDetailDTO> auditOrRecover(Connection connection,
             String admin, ApprovalDecisionRequestDTO request, String action, String digest,
             AdminOperationResultDTO<AdjustmentRequestDetailDTO> result,
@@ -315,14 +330,14 @@ public class ScheduleAdjustmentApprovalService {
     // -------------------------------------------------------------- assessment
 
     /**
-     * Every target's blocking reason, its resolved teaching day and the shared conflict engine's
-     * results, merged and deduplicated in stable week/type/subject order. Targets that cannot be
-     * approved are reported and skipped instead of being handed to the conflict engine, so a
-     * malformed request is always typed rather than fatal.
-     *
-     * <p>The proposed day is resolved per target: an explicit V006 {@code target_calendar_date_id}
-     * first, and legacy rows keep the {@code original_week_no + request.new_weekday} derivation.
-     */
+    * Every target's blocking reason, its resolved teaching day and the shared conflict engine's
+    * results, merged and deduplicated in stable week/type/subject order. Targets that cannot be
+    * approved are reported and skipped instead of being handed to the conflict engine, so a
+    * malformed request is always typed rather than fatal.
+    *
+    * <p>The proposed day is resolved per target: an explicit V006 {@code target_calendar_date_id}
+    * first, and legacy rows keep the {@code original_week_no + request.new_weekday} derivation.
+    */
     private Assessment inspect(Connection connection, ScheduleAdjustmentDAO.RequestRow row,
                                List<ScheduleAdjustmentDAO.TargetRow> targets, Calendars calendars)
             throws SQLException {
@@ -398,9 +413,9 @@ public class ScheduleAdjustmentApprovalService {
     }
 
     /**
-     * The snapshot must still describe the effective published schedule: same offering, still the
-     * calendar's current PUBLISHED plan, and the same week, window and resource arrangement.
-     */
+    * The snapshot must still describe the effective published schedule: same offering, still the
+    * calendar's current PUBLISHED plan, and the same week, window and resource arrangement.
+    */
     private static boolean matches(ScheduleAdjustmentDAO.RequestRow row,
                                    ScheduleAdjustmentDAO.TargetRow target,
                                    ScheduleAdjustmentDAO.OccurrenceRow occurrence) {
@@ -552,7 +567,7 @@ public class ScheduleAdjustmentApprovalService {
     // ------------------------------------------------------------ transaction
 
     /** Null-safe: an unfinished transaction is rolled back even when no failure is in flight,
-     *  and a failed rollback is swallowed rather than replacing an escaping {@link Error}. */
+    *  and a failed rollback is swallowed rather than replacing an escaping {@link Error}. */
     private static void rollback(Connection connection, Throwable failure) {
         try {
             connection.rollback();
@@ -593,6 +608,9 @@ public class ScheduleAdjustmentApprovalService {
         }
     }
 
+    /**
+    * Internal course-management type Assessment.
+    */
     private record Assessment(Map<Long, ScheduleAdjustmentDAO.OccurrenceRow> occurrences,
                              List<ScheduleConflictDTO> conflicts,
                              Map<Long, ResolvedTarget> targets) {
@@ -602,16 +620,31 @@ public class ScheduleAdjustmentApprovalService {
     private record ResolvedTarget(int week, int weekday) {
     }
 
+    /**
+    * Internal course-management type NotFoundException.
+    */
     public static class NotFoundException extends RuntimeException {
+        /**
+        * Handles the course-management responsibility of NotFoundException.
+        */
         public NotFoundException(String message) { super(message); }
     }
 
+    /**
+    * Internal course-management type ConflictException.
+    */
     public static class ConflictException extends RuntimeException {
         private final AdjustmentRequestDetailDTO entity;
         private final List<ScheduleConflictDTO> conflicts;
 
+        /**
+        * Handles the course-management responsibility of ConflictException.
+        */
         public ConflictException(String message) { this(message, null, List.of()); }
 
+        /**
+        * Handles the course-management responsibility of ConflictException.
+        */
         public ConflictException(String message, AdjustmentRequestDetailDTO entity,
                                  List<ScheduleConflictDTO> conflicts) {
             super(message);
@@ -619,8 +652,14 @@ public class ScheduleAdjustmentApprovalService {
             this.conflicts = conflicts == null ? List.of() : List.copyOf(conflicts);
         }
 
+        /**
+        * Obtains Entity data.
+        */
         public AdjustmentRequestDetailDTO getEntity() { return entity; }
 
+        /**
+        * Obtains Conflicts data.
+        */
         public List<ScheduleConflictDTO> getConflicts() { return conflicts; }
     }
 }

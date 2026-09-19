@@ -2,6 +2,7 @@ package model.course;
 
 import java.time.Instant;
 
+/** 课程教学班上课时间与地点的客户端展示模型。 */
 public final class CourseMeetingView {
     private final int dayOfWeek;
     private final int startPeriod;
@@ -13,6 +14,7 @@ public final class CourseMeetingView {
     private final Instant startsAt;
     private final Instant endsAt;
 
+    /** 创建一条课程上课安排，并将可选 UTC 时间解析为 {@link Instant}。 */
     public CourseMeetingView(int dayOfWeek, int startPeriod, int endPeriod,
             int startWeek, int endWeek, String weekPattern, String location,
             String startsAtUtc, String endsAtUtc) {

@@ -20,12 +20,12 @@ import java.time.Clock;
 import java.util.List;
 
 /**
- * 教师端只读课程查询。
- *
- * <p>{@code uid} 必须是服务端校验过的 Session 身份，本类不信任调用方传入的其它归属信息；
- * 所有涉及具体教学班的方法都先经 {@link TeacherAccessPolicy} 重新校验关系，再读取数据。
- * 页大小按设计第 3 节限制为 1..100，页码从 1 开始。
- */
+* 教师端只读课程查询。
+*
+* <p>{@code uid} 必须是服务端校验过的 Session 身份，本类不信任调用方传入的其它归属信息；
+* 所有涉及具体教学班的方法都先经 {@link TeacherAccessPolicy} 重新校验关系，再读取数据。
+* 页大小按设计第 3 节限制为 1..100，页码从 1 开始。
+*/
 public class TeacherCourseQueryService {
     private static final int MAX_PAGE_SIZE = 100;
 
@@ -35,6 +35,9 @@ public class TeacherCourseQueryService {
     private final TeacherScheduleDAO teacherScheduleDAO;
     private final Clock clock;
 
+    /**
+    * Handles the course-management responsibility of TeacherCourseQueryService.
+    */
     public TeacherCourseQueryService() {
         this(new TeacherCourseQueryDAO(), new AdminScheduleDAO(), new TeacherAccessPolicy(),
                 Clock.systemUTC());
@@ -50,10 +53,16 @@ public class TeacherCourseQueryService {
         this.clock = clock;
     }
 
+    /**
+    * Lists Terms data.
+    */
     public List<CourseTermDTO> listTerms(String uid) {
         return read(connection -> queryDAO.listTerms(connection, uid));
     }
 
+    /**
+    * Lists Offerings data.
+    */
     public TeacherPageDTO<TeacherOfferingDTO> listOfferings(String uid, int academicYear,
                                                             int semester, String query,
                                                             int page, int size) {
@@ -64,6 +73,9 @@ public class TeacherCourseQueryService {
                 queryDAO.countOfferings(connection, uid, academicYear, semester, query), page, size));
     }
 
+    /**
+    * Obtains Offering data.
+    */
     public TeacherOfferingDetailDTO getOffering(String uid, String offeringId) {
         long id = parseOfferingId(offeringId);
         return read(connection -> {
@@ -78,6 +90,9 @@ public class TeacherCourseQueryService {
         });
     }
 
+    /**
+    * Lists OfferingStudents data.
+    */
     public TeacherPageDTO<TeacherRosterRowDTO> listOfferingStudents(String uid, String offeringId,
                                                                     String query,
                                                                     Integer enrollmentStatus,
@@ -94,12 +109,12 @@ public class TeacherCourseQueryService {
     }
 
     /**
-     * 名单导出：按与 {@link #listOfferingStudents} **相同**的过滤条件一次取回全部结果，不是当前页。
-     *
-     * <p>归属校验与学生名单列表走同一个入口（{@link TeacherAccessPolicy#requireViewOffering}），
-     * 因此教师导不出别人的名单；导出文件是交给教师当作完整名单使用的，所以超过
-     * {@link TeacherSpreadsheetService#MAX_ROWS} 行时明确报错，绝不截断。
-     */
+    * 名单导出：按与 {@link #listOfferingStudents} **相同**的过滤条件一次取回全部结果，不是当前页。
+    *
+    * <p>归属校验与学生名单列表走同一个入口（{@link TeacherAccessPolicy#requireViewOffering}），
+    * 因此教师导不出别人的名单；导出文件是交给教师当作完整名单使用的，所以超过
+    * {@link TeacherSpreadsheetService#MAX_ROWS} 行时明确报错，绝不截断。
+    */
     public List<TeacherRosterRowDTO> listAllOfferingStudents(String uid, String offeringId, String query,
                                                              Integer enrollmentStatus) {
         long id = parseOfferingId(offeringId);
@@ -118,9 +133,9 @@ public class TeacherCourseQueryService {
     }
 
     /**
-     * 该教学班当前正式方案中的全部安排。没有 PUBLISHED 方案时返回空列表，绝不回退到管理员的
-     * DRAFT 工作方案。
-     */
+    * 该教学班当前正式方案中的全部安排。没有 PUBLISHED 方案时返回空列表，绝不回退到管理员的
+    * DRAFT 工作方案。
+    */
     public List<ScheduleArrangementDTO> listOfferingSchedules(String uid, String offeringId) {
         long id = parseOfferingId(offeringId);
         return read(connection -> {
@@ -139,12 +154,12 @@ public class TeacherCourseQueryService {
     }
 
     /**
-     * 教师在某个教学日历周的课表：当周日期、节次与该教师实际生效的课次。
-     *
-     * <p>{@code week} 为 null 时取今天所在教学周，今天不在学期内时取最小教学周。学年/学期无效、
-     * 该学期没有已发布的教学日历/方案、或 {@code week} 越界时抛 {@link IllegalArgumentException}，
-     * 由上层映射为 BAD_REQUEST，把原因显示在客户端提示区。
-     */
+    * 教师在某个教学日历周的课表：当周日期、节次与该教师实际生效的课次。
+    *
+    * <p>{@code week} 为 null 时取今天所在教学周，今天不在学期内时取最小教学周。学年/学期无效、
+    * 该学期没有已发布的教学日历/方案、或 {@code week} 越界时抛 {@link IllegalArgumentException}，
+    * 由上层映射为 BAD_REQUEST，把原因显示在客户端提示区。
+    */
     public TeacherScheduleWeekDTO loadTeachingSchedule(String uid, int academicYear, int semester,
                                                        Integer week) {
         requireTerm(academicYear, semester);
@@ -192,6 +207,9 @@ public class TeacherCourseQueryService {
     }
 
     @FunctionalInterface
+    /**
+    * Internal course-management type SqlRead.
+    */
     private interface SqlRead<T> {
         T execute(Connection connection) throws SQLException;
     }

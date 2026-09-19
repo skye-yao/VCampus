@@ -13,9 +13,15 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.HexFormat;
 
+/**
+* Data-access type for CourseOperationDAO; caller-owned connections are never committed or rolled back here.
+*/
 public class CourseOperationDAO {
     private static final Gson GSON = new Gson();
 
+    /**
+    * Finds  data.
+    */
     public StoredOperation find(Connection connection, String uid, String operationId)
             throws SQLException {
         String sql = "SELECT request_digest,response_json FROM course_operation_log"
@@ -32,6 +38,9 @@ public class CourseOperationDAO {
         }
     }
 
+    /**
+    * Creates insert data.
+    */
     public void insert(Connection connection, String uid, String operationId, String action,
                        long offeringId, String digest, CourseMutationResultDTO result)
             throws SQLException {
@@ -50,6 +59,9 @@ public class CourseOperationDAO {
         }
     }
 
+    /**
+    * Handles the course-management responsibility of digest.
+    */
     public String digest(String action, CourseTermDTO term, long offeringId) {
         String canonical = action + "\n" + term.getAcademicYear() + "\n"
                 + term.getSemester() + "\n" + offeringId;
@@ -62,6 +74,9 @@ public class CourseOperationDAO {
         }
     }
 
+    /**
+    * Internal course-management type StoredOperation.
+    */
     public record StoredOperation(String requestDigest, CourseMutationResultDTO result) {
     }
 }

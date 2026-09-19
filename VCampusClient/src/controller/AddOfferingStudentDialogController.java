@@ -46,6 +46,7 @@ import util.AlertUtil;
  * <p>服务端权威状态（搜索结果、风险、版本）只保存在控制器字段中。所有异步结果都带 generation
  * 与目标学生校验，过期或已卸载的响应不得覆盖更新的状态，也不得授权写入。</p>
  */
+/** 管理员为教学班添加学生的 JavaFX 对话框控制器。 */
 public final class AddOfferingStudentDialogController {
     static final String CONFLICT_MESSAGE = "数据已被其他管理员修改";
 

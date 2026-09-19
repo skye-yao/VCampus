@@ -26,6 +26,7 @@ public final class TeacherApplicationDetailDTO {
         this.grade = grade;
     }
 
+    /** 获取 Summary。 */
     public TeacherApplicationDTO getSummary() {
         return summary;
     }

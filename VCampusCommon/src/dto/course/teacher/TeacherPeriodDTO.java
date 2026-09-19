@@ -20,18 +20,22 @@ public final class TeacherPeriodDTO {
         this.endTime = endTime;
     }
 
+    /** 获取 Date。 */
     public String getDate() {
         return date;
     }
 
+    /** 获取 Period。 */
     public int getPeriod() {
         return period;
     }
 
+    /** 获取 StartTime。 */
     public String getStartTime() {
         return startTime;
     }
 
+    /** 获取 EndTime。 */
     public String getEndTime() {
         return endTime;
     }

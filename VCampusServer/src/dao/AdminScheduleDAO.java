@@ -24,16 +24,19 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Rows of the scheduling aggregate: plans, resources, arrangements, rules, shared weeks,
- * generated occurrences, resource bookings, publication pointers, and the scheduling-specific
- * administrator operation log. Every write belongs to a caller-owned transaction.
- */
+* Rows of the scheduling aggregate: plans, resources, arrangements, rules, shared weeks,
+* generated occurrences, resource bookings, publication pointers, and the scheduling-specific
+* administrator operation log. Every write belongs to a caller-owned transaction.
+*/
 public class AdminScheduleDAO {
     private static final String TEACHER = "teacher";
     private static final String CLASSROOM = "classroom";
     private static final String DUPLICATE_KEY_STATE = "23000";
     private static final String EXCLUSIVE = "EXCLUSIVE";
 
+    /**
+    * Lists Resources data.
+    */
     public List<ScheduleResourceDTO> listResources(Connection connection, String type, String query)
             throws SQLException {
         String pattern = like(query);
@@ -80,6 +83,9 @@ public class AdminScheduleDAO {
 
     // ---------------------------------------------------------------- calendar
 
+    /**
+    * Obtains dCalendar data.
+    */
     public CalendarContext loadCalendar(Connection connection, long calendarId) throws SQLException {
         String timezone;
         try (PreparedStatement statement = connection.prepareStatement(
@@ -123,6 +129,9 @@ public class AdminScheduleDAO {
         return new CalendarContext(calendarId, ZoneId.of(timezone), byWeekDay, templates);
     }
 
+    /**
+    * Determines whether hasOpenSelectionWindowForOtherPlan holds.
+    */
     public boolean hasOpenSelectionWindowForOtherPlan(Connection connection, long calendarId,
                                                       long planId) throws SQLException {
         String sql = "SELECT 1 FROM course_selection_window w"
@@ -140,11 +149,11 @@ public class AdminScheduleDAO {
     }
 
     /**
-     * True when an occurrence of this arrangement is referenced by a temporary adjustment. Both
-     * {@code course_schedule_adjustment.original_occurrence_id} and
-     * {@code course_schedule_adjustment_target.original_occurrence_id} are RESTRICT, so rewriting or
-     * deleting the occurrence rows would surface as a raw driver error rather than a typed refusal.
-     */
+    * True when an occurrence of this arrangement is referenced by a temporary adjustment. Both
+    * {@code course_schedule_adjustment.original_occurrence_id} and
+    * {@code course_schedule_adjustment_target.original_occurrence_id} are RESTRICT, so rewriting or
+    * deleting the occurrence rows would surface as a raw driver error rather than a typed refusal.
+    */
     public boolean hasAdjustmentHistory(Connection connection, long arrangementId)
             throws SQLException {
         String sql = "SELECT 1 FROM course_occurrence o"
@@ -163,12 +172,12 @@ public class AdminScheduleDAO {
     }
 
     /**
-     * Recomputes the student-facing precomputed conflict table for one plan, replacing whatever it
-     * held. Pairs are stored in normalized order, only positive counts are written, and the
-     * occurrences compared are the <em>effective</em> ones: originals replaced by an ACTIVE
-     * adjustment are dropped and the adjustment itself counts at its replacement instant, matching
-     * {@link AdminScheduleConflictDAO}.
-     */
+    * Recomputes the student-facing precomputed conflict table for one plan, replacing whatever it
+    * held. Pairs are stored in normalized order, only positive counts are written, and the
+    * occurrences compared are the <em>effective</em> ones: originals replaced by an ACTIVE
+    * adjustment are dropped and the adjustment itself counts at its replacement instant, matching
+    * {@link AdminScheduleConflictDAO}.
+    */
     public void rebuildOfferingConflicts(Connection connection, long planId) throws SQLException {
         String effective = "SELECT a.offering_id AS offering_id,o.start_at AS start_at,"
                 + "o.end_at AS end_at FROM course_occurrence o"
@@ -204,6 +213,9 @@ public class AdminScheduleDAO {
 
     // ------------------------------------------------------------------- plans
 
+    /**
+    * Finds Plan data.
+    */
     public PlanRow findPlan(Connection connection, long planId) throws SQLException {
         String sql = "SELECT p.id,p.name,p.calendar_id,p.revision,p.status,"
                 + "c.current_schedule_plan_id FROM schedule_plan p"
@@ -220,6 +232,9 @@ public class AdminScheduleDAO {
         }
     }
 
+    /**
+    * Finds PlanByTerm data.
+    */
     public PlanRow findPlanByTerm(Connection connection, int academicYear, int semester)
             throws SQLException {
         String sql = "SELECT p.id FROM schedule_plan p JOIN teaching_calendar c ON c.id=p.calendar_id"
@@ -287,6 +302,9 @@ public class AdminScheduleDAO {
         }
     }
 
+    /**
+    * Creates insertPlan data.
+    */
     public long insertPlan(Connection connection, String name, long calendarId, int revision,
                            String createdBy) throws SQLException {
         String sql = "INSERT INTO schedule_plan(name,calendar_id,revision,status,created_by)"
@@ -305,24 +323,39 @@ public class AdminScheduleDAO {
         }
     }
 
+    /**
+    * Locks the database rows for Plan.
+    */
     public void lockPlan(Connection connection, long planId) throws SQLException {
         lock(connection, "SELECT id FROM schedule_plan WHERE id=? FOR UPDATE", planId);
     }
 
+    /**
+    * Locks the database rows for Calendar.
+    */
     public void lockCalendar(Connection connection, long calendarId) throws SQLException {
         lock(connection, "SELECT id FROM teaching_calendar WHERE id=? FOR UPDATE", calendarId);
     }
 
+    /**
+    * Locks the database rows for Arrangement.
+    */
     public void lockArrangement(Connection connection, long arrangementId) throws SQLException {
         lock(connection, "SELECT arrangement_id FROM course_schedule_arrangement"
                 + " WHERE arrangement_id=? FOR UPDATE", arrangementId);
     }
 
+    /**
+    * Persists markReady data.
+    */
     public void markReady(Connection connection, long planId) throws SQLException {
         execute(connection, "UPDATE schedule_plan SET status='READY' WHERE id=? AND status='DRAFT'",
                 planId);
     }
 
+    /**
+    * Persists markPublished data.
+    */
     public void markPublished(Connection connection, long planId, String adminUid,
                               Instant publishedAt) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
@@ -335,6 +368,9 @@ public class AdminScheduleDAO {
         }
     }
 
+    /**
+    * Persists updateCalendarPointer data.
+    */
     public void updateCalendarPointer(Connection connection, long calendarId, long planId)
             throws SQLException {
         execute(connection, "UPDATE teaching_calendar SET current_schedule_plan_id=? WHERE id=?",
@@ -343,6 +379,9 @@ public class AdminScheduleDAO {
 
     // ------------------------------------------------------------ arrangements
 
+    /**
+    * Lists Arrangements data.
+    */
     public List<ScheduleArrangementDTO> listArrangements(Connection connection, long planId,
                                                          Long offeringId) throws SQLException {
         String sql = "SELECT a.arrangement_id,a.plan_id,a.offering_id,a.teacher_uid,"
@@ -394,6 +433,9 @@ public class AdminScheduleDAO {
         return List.copyOf(arrangements);
     }
 
+    /**
+    * Finds Arrangement data.
+    */
     public ScheduleArrangementDTO findArrangement(Connection connection, long arrangementId)
             throws SQLException {
         long planId;
@@ -411,6 +453,9 @@ public class AdminScheduleDAO {
         return null;
     }
 
+    /**
+    * Handles the course-management responsibility of arrangementRow.
+    */
     public ArrangementRow arrangementRow(Connection connection, long arrangementId)
             throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
@@ -423,6 +468,9 @@ public class AdminScheduleDAO {
         }
     }
 
+    /**
+    * Creates insertArrangement data.
+    */
     public long insertArrangement(Connection connection, long planId, long offeringId,
                                   String teacherUid, String assistantUid, Long classroomId,
                                   String adminUid) throws SQLException {
@@ -446,6 +494,9 @@ public class AdminScheduleDAO {
         }
     }
 
+    /**
+    * Persists updateArrangement data.
+    */
     public int updateArrangement(Connection connection, long arrangementId, int expectedVersion,
                                  String teacherUid, String assistantUid, Long classroomId)
             throws SQLException {
@@ -463,6 +514,9 @@ public class AdminScheduleDAO {
         }
     }
 
+    /**
+    * Removes or cancels deleteArrangement data.
+    */
     public void deleteArrangement(Connection connection, long arrangementId) throws SQLException {
         execute(connection, "DELETE FROM course_schedule_arrangement WHERE arrangement_id=?",
                 arrangementId);
@@ -479,6 +533,9 @@ public class AdminScheduleDAO {
                 arrangementId);
     }
 
+    /**
+    * Creates insertRule data.
+    */
     public long insertRule(Connection connection, long planId, long offeringId, long arrangementId,
                            ScheduleSlotDTO slot) throws SQLException {
         String sql = "INSERT INTO course_schedule_rule"
@@ -500,11 +557,17 @@ public class AdminScheduleDAO {
         }
     }
 
+    /**
+    * Creates insertRuleWeek data.
+    */
     public void insertRuleWeek(Connection connection, long ruleId, int weekNo) throws SQLException {
         execute(connection, "INSERT INTO course_schedule_rule_week(rule_id,week_no) VALUES(?,?)",
                 ruleId, weekNo);
     }
 
+    /**
+    * Creates insertOccurrence data.
+    */
     public long insertOccurrence(Connection connection, long ruleId, long planId, Timestamp startAt,
                                  Timestamp endAt, int weekNo, int weekday) throws SQLException {
         String sql = "INSERT INTO course_occurrence(rule_id,plan_id,start_at,end_at,week_no,"
@@ -525,6 +588,9 @@ public class AdminScheduleDAO {
         }
     }
 
+    /**
+    * Handles the course-management responsibility of ensureResource.
+    */
     public long ensureResource(Connection connection, String type, String businessId)
             throws SQLException {
         Long existing = resourceId(connection, type, businessId);
@@ -548,6 +614,9 @@ public class AdminScheduleDAO {
         }
     }
 
+    /**
+    * Creates insertBooking data.
+    */
     public void insertBooking(Connection connection, long planId, long occurrenceId, long resourceId,
                               String role) throws SQLException {
         execute(connection, "INSERT INTO resource_booking(plan_id,occurrence_id,resource_id,"
@@ -556,6 +625,9 @@ public class AdminScheduleDAO {
 
     // ------------------------------------------------------- referenced objects
 
+    /**
+    * Handles the course-management responsibility of offeringState.
+    */
     public OfferingState offeringState(Connection connection, long offeringId) throws SQLException {
         String sql = "SELECT o.capacity,o.status,o.offering_code,c.status AS course_status"
                 + " FROM course_offering o JOIN course c ON c.course_id=o.course_id"
@@ -570,6 +642,9 @@ public class AdminScheduleDAO {
         }
     }
 
+    /**
+    * Handles the course-management responsibility of classroomCapacity.
+    */
     public Integer classroomCapacity(Connection connection, long classroomId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT capacity FROM classroom WHERE id=?")) {
@@ -580,6 +655,9 @@ public class AdminScheduleDAO {
         }
     }
 
+    /**
+    * Determines whether isTeacher holds.
+    */
     public boolean isTeacher(Connection connection, String uid) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT 1 FROM tbl_user WHERE UID=? AND role=1")) {
@@ -592,6 +670,9 @@ public class AdminScheduleDAO {
 
     // ------------------------------------------------------------- operation log
 
+    /**
+    * Creates insertOperation data.
+    */
     public void insertOperation(Connection connection, String adminUid, String operationId,
                                 String action, String targetType, String targetId, String digest,
                                 String requestJson, String conflictSnapshotJson, boolean forced,
@@ -707,23 +788,41 @@ public class AdminScheduleDAO {
         return timestamp(local.toInstant());
     }
 
+    /**
+    * Internal course-management type PlanRow.
+    */
     public record PlanRow(long planId, String name, long calendarId, int revision, String status,
                           Long currentPlanId) {
     }
 
+    /**
+    * Internal course-management type ArrangementRow.
+    */
     public record ArrangementRow(long arrangementId, long planId, long offeringId, String teacherUid,
                                  String assistantUid, Long classroomId, String status, int version) {
     }
 
+    /**
+    * Internal course-management type OfferingState.
+    */
     public record OfferingState(int capacity, int status, String courseStatus, String offeringCode) {
     }
 
+    /**
+    * Internal course-management type CalendarDay.
+    */
     public record CalendarDay(LocalDate date, int weekNo, int weekday, long templateId) {
     }
 
+    /**
+    * Internal course-management type Period.
+    */
     public record Period(LocalTime start, LocalTime end) {
     }
 
+    /**
+    * Internal course-management type Window.
+    */
     public record Window(Timestamp start, Timestamp end) {
     }
 
@@ -742,18 +841,24 @@ public class AdminScheduleDAO {
             this.templates = templates;
         }
 
+        /**
+        * Handles the course-management responsibility of calendarId.
+        */
         public long calendarId() {
             return calendarId;
         }
 
+        /**
+        * Handles the course-management responsibility of zone.
+        */
         public ZoneId zone() {
             return zone;
         }
 
         /**
-         * The UTC window for one slot in one teaching week, or {@code null} when the week has no
-         * such teaching day or the period numbers are undefined for that day's template.
-         */
+        * The UTC window for one slot in one teaching week, or {@code null} when the week has no
+        * such teaching day or the period numbers are undefined for that day's template.
+        */
         public Window window(int weekNo, int weekday, int startPeriod, int endPeriod) {
             CalendarDay day = byWeekDay.get(key(weekNo, weekday));
             if (day == null) return null;
@@ -767,6 +872,9 @@ public class AdminScheduleDAO {
         }
     }
 
+    /**
+    * Internal course-management type Aggregate.
+    */
     private static final class Aggregate {
         private final ArrangementRow row;
         private final Map<String, ScheduleSlotDTO> slots = new LinkedHashMap<>();

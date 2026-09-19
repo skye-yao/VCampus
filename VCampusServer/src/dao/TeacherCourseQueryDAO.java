@@ -15,13 +15,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 教师端只读查询：本人教学班、教学班详情与教师名单、学生名单、学期，以及某学期当前正式排课
- * 方案。所有可见性都按“当前”关系判定，绝不把历史任课关系算成当前权限。
- *
- * <p>教学班列表与计数共用 {@link #OFFERING_FROM} 与 {@link #bindOfferingFilter}，学生名单的
- * 列表与计数共用 {@link #ROSTER_FROM} 与 {@link #rosterFilter}，避免过滤条件漂移。
- * 姓名和课程检索一律使用绑定参数并转义 LIKE 通配符。
- */
+* 教师端只读查询：本人教学班、教学班详情与教师名单、学生名单、学期，以及某学期当前正式排课
+* 方案。所有可见性都按“当前”关系判定，绝不把历史任课关系算成当前权限。
+*
+* <p>教学班列表与计数共用 {@link #OFFERING_FROM} 与 {@link #bindOfferingFilter}，学生名单的
+* 列表与计数共用 {@link #ROSTER_FROM} 与 {@link #rosterFilter}，避免过滤条件漂移。
+* 姓名和课程检索一律使用绑定参数并转义 LIKE 通配符。
+*/
 public class TeacherCourseQueryDAO {
     private static final String LIKE_ESCAPE = "!";
     /** 系统角色先要是“教师”（设计第 4 节），再谈教学班关系。 */
@@ -54,6 +54,9 @@ public class TeacherCourseQueryDAO {
             + "e.select_time,e.drop_time,u.name,COALESCE(m.major_name,u.major) AS major"
             + ROSTER_FROM;
 
+    /**
+    * Lists Terms data.
+    */
     public List<CourseTermDTO> listTerms(Connection connection, String uid) throws SQLException {
         // 教师学期来自本人实际关联的教学班，不依赖 course_selection_window：
         // 没有选课窗口的历史学期教师仍然要能看到自己的教学班。
@@ -78,6 +81,9 @@ public class TeacherCourseQueryDAO {
         return List.copyOf(terms);
     }
 
+    /**
+    * Lists Offerings data.
+    */
     public List<TeacherOfferingDTO> listOfferings(Connection connection, String uid,
                                                   int academicYear, int semester, String query,
                                                   int limit, int offset) throws SQLException {
@@ -102,6 +108,9 @@ public class TeacherCourseQueryDAO {
         return List.copyOf(offerings);
     }
 
+    /**
+    * Handles the course-management responsibility of countOfferings.
+    */
     public long countOfferings(Connection connection, String uid, int academicYear, int semester,
                                String query) throws SQLException {
         String pattern = like(query);
@@ -118,6 +127,9 @@ public class TeacherCourseQueryDAO {
         }
     }
 
+    /**
+    * Finds Offering data.
+    */
     public OfferingDetail findOffering(Connection connection, String uid, long offeringId)
             throws SQLException {
         String sql = "SELECT o.offering_id,o.offering_code,o.academic_year,o.semester,"
@@ -141,6 +153,9 @@ public class TeacherCourseQueryDAO {
         }
     }
 
+    /**
+    * Lists OfferingTeachers data.
+    */
     public List<ScheduleResourceDTO> listOfferingTeachers(Connection connection, long offeringId)
             throws SQLException {
         String sql = "SELECT t.uid,tu.name FROM course_offering_teacher t"
@@ -160,6 +175,9 @@ public class TeacherCourseQueryDAO {
         return List.copyOf(teachers);
     }
 
+    /**
+    * Lists Students data.
+    */
     public List<TeacherRosterRowDTO> listStudents(Connection connection, long offeringId,
                                                   String query, Integer enrollmentStatus,
                                                   int limit, int offset) throws SQLException {
@@ -178,6 +196,9 @@ public class TeacherCourseQueryDAO {
         return List.copyOf(roster);
     }
 
+    /**
+    * Handles the course-management responsibility of countStudents.
+    */
     public long countStudents(Connection connection, long offeringId, String query,
                               Integer enrollmentStatus) throws SQLException {
         String pattern = like(query);
@@ -192,13 +213,13 @@ public class TeacherCourseQueryDAO {
     }
 
     /**
-     * 导出用：按与列表**完全相同**的过滤条件一次取回名单，最多 {@code limit} 行、不带 OFFSET。
-     *
-     * <p>导出不是「当前页」：调用方传入「上限 + 1」行，一次查询就能判断是否超限并明确报错，既不用
-     * 发第二次 COUNT，也不存在「计数与取数之间名单变化」导致的静默截断。过滤条件与排序列与
-     * {@link #listStudents} 共用 {@link #ROSTER_SELECT}、{@link #rosterFilter}，导出与列表的口径
-     * 不会各自漂移。
-     */
+    * 导出用：按与列表**完全相同**的过滤条件一次取回名单，最多 {@code limit} 行、不带 OFFSET。
+    *
+    * <p>导出不是「当前页」：调用方传入「上限 + 1」行，一次查询就能判断是否超限并明确报错，既不用
+    * 发第二次 COUNT，也不存在「计数与取数之间名单变化」导致的静默截断。过滤条件与排序列与
+    * {@link #listStudents} 共用 {@link #ROSTER_SELECT}、{@link #rosterFilter}，导出与列表的口径
+    * 不会各自漂移。
+    */
     public List<TeacherRosterRowDTO> listStudentsForExport(Connection connection, long offeringId,
             String query, Integer enrollmentStatus, int limit) throws SQLException {
         String pattern = like(query);
@@ -228,10 +249,10 @@ public class TeacherCourseQueryDAO {
     }
 
     /**
-     * 该学期当前正式排课方案：只考虑 {@code status='PUBLISHED'}，并在多个候选里优先选择
-     * {@code teaching_calendar.current_schedule_plan_id} 指向的那个。没有正式方案时返回
-     * {@code null}，调用方据此返回空列表，绝不回退到管理员的工作 DRAFT。
-     */
+    * 该学期当前正式排课方案：只考虑 {@code status='PUBLISHED'}，并在多个候选里优先选择
+    * {@code teaching_calendar.current_schedule_plan_id} 指向的那个。没有正式方案时返回
+    * {@code null}，调用方据此返回空列表，绝不回退到管理员的工作 DRAFT。
+    */
     public Long findPublishedPlanId(Connection connection, int academicYear, int semester)
             throws SQLException {
         String sql = "SELECT p.id FROM schedule_plan p"

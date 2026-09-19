@@ -13,16 +13,19 @@ import java.sql.SQLException;
 import java.util.HexFormat;
 
 /**
- * Idempotent teacher-write audit log ({@code teacher_course_operation_log}, V005).
- *
- * <p>成功写入与业务变更在同一事务：{@code insert} 由调用方在当前事务里执行，主键
- * {@code (teacher_uid, operation_id)} 的重复键说明同一操作被并发重复提交，调用方据此回滚并重读
- * 已提交结果（重放或摘要冲突），而不是把它当成驱动错误。摘要与管理员侧完全一致：动作名加换行加
- * 规范化请求 JSON 的 SHA-256 十六进制小写。
- */
+* Idempotent teacher-write audit log ({@code teacher_course_operation_log}, V005).
+*
+* <p>成功写入与业务变更在同一事务：{@code insert} 由调用方在当前事务里执行，主键
+* {@code (teacher_uid, operation_id)} 的重复键说明同一操作被并发重复提交，调用方据此回滚并重读
+* 已提交结果（重放或摘要冲突），而不是把它当成驱动错误。摘要与管理员侧完全一致：动作名加换行加
+* 规范化请求 JSON 的 SHA-256 十六进制小写。
+*/
 public class TeacherCourseOperationDAO {
     private static final Gson GSON = new Gson();
 
+    /**
+    * Finds  data.
+    */
     public StoredOperation find(Connection connection, String teacherUid, String operationId)
             throws SQLException {
         String sql = "SELECT request_digest,response_json,result_code FROM teacher_course_operation_log"
@@ -38,6 +41,9 @@ public class TeacherCourseOperationDAO {
         }
     }
 
+    /**
+    * Creates insert data.
+    */
     public void insert(Connection connection, String teacherUid, String operationId, String action,
                        String targetType, String targetId, String requestDigest, String requestJson,
                        String responseJson, String resultCode) throws SQLException {
@@ -70,10 +76,16 @@ public class TeacherCourseOperationDAO {
         }
     }
 
+    /**
+    * Handles the course-management responsibility of json.
+    */
     public String json(Object value) {
         return GSON.toJson(value);
     }
 
+    /**
+    * Handles the course-management responsibility of decode.
+    */
     public <T> T decode(String responseJson, Type type) {
         return GSON.fromJson(responseJson, type);
     }

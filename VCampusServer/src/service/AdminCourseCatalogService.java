@@ -18,6 +18,9 @@ import java.sql.SQLException;
 import java.time.Clock;
 import java.util.List;
 
+/**
+* Internal course-management type AdminCourseCatalogService.
+*/
 public class AdminCourseCatalogService {
     private static final Type RESULT_TYPE =
             new TypeToken<AdminOperationResultDTO<AdminCourseDTO>>() { }.getType();
@@ -29,6 +32,9 @@ public class AdminCourseCatalogService {
     private final AdminOperationTransaction transaction;
     private final Clock clock;
 
+    /**
+    * Handles the course-management responsibility of AdminCourseCatalogService.
+    */
     public AdminCourseCatalogService() {
         this(Clock.systemUTC());
     }
@@ -45,6 +51,9 @@ public class AdminCourseCatalogService {
         this.clock = clock;
     }
 
+    /**
+    * Lists  data.
+    */
     public List<AdminCourseDTO> list(String query, String status, Integer academicYear,
                                      Integer semester) {
         String statusFilter = AdminOperationTransaction.blankToNull(status);
@@ -67,6 +76,9 @@ public class AdminCourseCatalogService {
         }
     }
 
+    /**
+    * Creates create data.
+    */
     public AdminOperationResultDTO<AdminCourseDTO> create(String adminUid,
                                                           CourseEditorRequestDTO request) {
         AdminCourseCatalogDAO.CourseFields fields = fields(request);
@@ -87,6 +99,9 @@ public class AdminCourseCatalogService {
                 });
     }
 
+    /**
+    * Persists update data.
+    */
     public AdminOperationResultDTO<AdminCourseDTO> update(String adminUid,
                                                           CourseEditorRequestDTO request) {
         AdminCourseCatalogDAO.CourseFields fields = fields(request);
@@ -106,6 +121,9 @@ public class AdminCourseCatalogService {
                 });
     }
 
+    /**
+    * Handles the course-management responsibility of archive.
+    */
     public AdminOperationResultDTO<AdminCourseDTO> archive(String adminUid, String courseId,
                                                            int expectedVersion,
                                                            String operationId) {
@@ -125,6 +143,9 @@ public class AdminCourseCatalogService {
                 });
     }
 
+    /**
+    * Handles the course-management responsibility of restore.
+    */
     public AdminOperationResultDTO<AdminCourseDTO> restore(String adminUid, String courseId,
                                                            int expectedVersion,
                                                            String operationId) {
@@ -177,20 +198,38 @@ public class AdminCourseCatalogService {
                 request.isAllowCrossMajor(), request.isFinalExam());
     }
 
+    /**
+    * Internal course-management type NotFoundException.
+    */
     public static class NotFoundException extends RuntimeException {
+        /**
+        * Handles the course-management responsibility of NotFoundException.
+        */
         public NotFoundException(String message) { super(message); }
     }
 
+    /**
+    * Internal course-management type ConflictException.
+    */
     public static class ConflictException extends RuntimeException {
         private final AdminCourseDTO latest;
 
+        /**
+        * Handles the course-management responsibility of ConflictException.
+        */
         public ConflictException(String message) { this(message, null); }
 
+        /**
+        * Handles the course-management responsibility of ConflictException.
+        */
         public ConflictException(String message, AdminCourseDTO latest) {
             super(message);
             this.latest = latest;
         }
 
+        /**
+        * Obtains Latest data.
+        */
         public AdminCourseDTO getLatest() { return latest; }
     }
 }

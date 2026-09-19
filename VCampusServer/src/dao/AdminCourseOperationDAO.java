@@ -15,9 +15,15 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.HexFormat;
 
+/**
+* Data-access type for AdminCourseOperationDAO; caller-owned connections are never committed or rolled back here.
+*/
 public class AdminCourseOperationDAO {
     private static final Gson GSON = new Gson();
 
+    /**
+    * Finds  data.
+    */
     public StoredOperation find(Connection connection, String adminUid, String operationId)
             throws SQLException {
         String sql = "SELECT request_digest,response_json FROM admin_course_operation_log"
@@ -33,6 +39,9 @@ public class AdminCourseOperationDAO {
         }
     }
 
+    /**
+    * Creates insert data.
+    */
     public void insert(Connection connection, String adminUid, String operationId, String action,
                        String targetType, String targetId, String digest, Object request,
                        String resultCode, Object response, Instant completedAt)
@@ -69,6 +78,9 @@ public class AdminCourseOperationDAO {
         }
     }
 
+    /**
+    * Handles the course-management responsibility of digest.
+    */
     public String digest(String action, Object request) {
         String canonical = action + "\n" + GSON.toJson(request);
         try {
@@ -80,10 +92,16 @@ public class AdminCourseOperationDAO {
         }
     }
 
+    /**
+    * Handles the course-management responsibility of decode.
+    */
     public <T> T decode(String responseJson, Type type) {
         return GSON.fromJson(responseJson, type);
     }
 
+    /**
+    * Internal course-management type StoredOperation.
+    */
     public record StoredOperation(String requestDigest, String responseJson) {
     }
 }

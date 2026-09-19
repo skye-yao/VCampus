@@ -30,6 +30,7 @@ public final class TeacherAdjustmentPreviewDTO {
                 : Collections.unmodifiableList(conflicts);
     }
 
+    /** 判断 CanSubmit 是否成立。 */
     public boolean isCanSubmit() {
         return canSubmit;
     }

@@ -19,10 +19,12 @@ public final class PreviewGradeImportRequestDTO {
         this.baseDraft = baseDraft;
     }
 
+    /** 获取 UploadTicket。 */
     public String getUploadTicket() {
         return uploadTicket;
     }
 
+    /** 获取 BaseDraft。 */
     public GradeBookContentDTO getBaseDraft() {
         return baseDraft;
     }

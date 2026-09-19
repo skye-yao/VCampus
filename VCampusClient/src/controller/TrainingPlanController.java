@@ -21,6 +21,7 @@ import service.CourseService;
 import service.CourseServices;
 import util.AlertUtil;
 
+/** 学生查看培养方案分组、学分要求与完成情况的 JavaFX 页面控制器。 */
 public final class TrainingPlanController {
     private final CourseService service;
     private final BiConsumer<String, String> errorReporter;
@@ -33,6 +34,7 @@ public final class TrainingPlanController {
     @FXML private ProgressBar overallProgressBar;
     @FXML private VBox planGroupList;
 
+    /** 创建培养方案页面控制器并取得共享课程服务。 */
     public TrainingPlanController() {
         this(CourseServices.current(), AlertUtil::showError,
                 TrainingPlanController::runOnFxThread, null);
@@ -53,11 +55,13 @@ public final class TrainingPlanController {
     }
 
     @FXML
+    /** 由 FXMLLoader 在字段注入后开始加载培养方案。 */
     public void initialize() {
         display.apply(PlanPresentation.state("暂无培养方案"));
     }
 
     @FXML
+    /** 异步重新加载培养方案分组及完成情况。 */
     public void refresh() {
         fxExecutor.accept(this::loadTrainingPlan);
     }

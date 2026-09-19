@@ -29,10 +29,12 @@ public final class ReviseGradeImportRequestDTO {
                 ? List.of() : List.copyOf(excludedRows);
     }
 
+    /** 获取 ImportToken。 */
     public String getImportToken() {
         return importToken;
     }
 
+    /** 获取 ExpectedPreviewRevision。 */
     public int getExpectedPreviewRevision() {
         return expectedPreviewRevision;
     }

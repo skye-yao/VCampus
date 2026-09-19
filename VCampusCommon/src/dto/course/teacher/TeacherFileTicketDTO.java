@@ -40,30 +40,37 @@ public final class TeacherFileTicketDTO {
         this.expiresAt = expiresAt;
     }
 
+    /** 获取 Ticket。 */
     public String getTicket() {
         return ticket;
     }
 
+    /** 获取 Direction。 */
     public String getDirection() {
         return direction;
     }
 
+    /** 获取 Port。 */
     public int getPort() {
         return port;
     }
 
+    /** 获取 ByteLength。 */
     public long getByteLength() {
         return byteLength;
     }
 
+    /** 获取 MaxBytes。 */
     public long getMaxBytes() {
         return maxBytes;
     }
 
+    /** 获取 Sha256。 */
     public String getSha256() {
         return sha256;
     }
 
+    /** 获取 ExpiresAt。 */
     public String getExpiresAt() {
         return expiresAt;
     }

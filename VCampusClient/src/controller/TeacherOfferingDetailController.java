@@ -54,6 +54,7 @@ import util.FadingNotice;
  * <p>打开另一个教学班或 {@link #release()} 之后，任何在途响应都被丢弃（generation + active 判定），
  * 页面也不会保留上一个教学班的数据。
  */
+/** 教师查看教学班课程、名单和排课明细的 JavaFX 页面控制器。 */
 public final class TeacherOfferingDetailController {
     /** 名单分页大小，与列表页共用固定页长。 */
     static final int ROSTER_PAGE_SIZE = 20;

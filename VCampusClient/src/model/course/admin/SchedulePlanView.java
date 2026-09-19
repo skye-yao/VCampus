@@ -6,6 +6,7 @@ import java.util.List;
 
 import dto.course.admin.schedule.ScheduleConflictDTO;
 
+/** 管理端排课方案及其冲突摘要的视图。 */
 public final class SchedulePlanView {
     private final String planId;
     private final String name;
@@ -14,6 +15,7 @@ public final class SchedulePlanView {
     private final boolean current;
     private final List<ScheduleConflictDTO> conflicts;
 
+    /** 创建排课方案视图，并防御性复制冲突列表。 */
     public SchedulePlanView(String planId, String name, int revision, String status,
             boolean current, List<ScheduleConflictDTO> conflicts) {
         this.planId = planId;

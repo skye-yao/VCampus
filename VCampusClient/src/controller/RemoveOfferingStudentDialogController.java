@@ -44,6 +44,7 @@ import util.AlertUtil;
  * <p>不可移除的学生展示明确原因并禁用删除按钮。列表响应带 generation 校验，
  * 写入完成后重载权威花名册并通知目录刷新展开的教学班行。</p>
  */
+/** 管理员从教学班移除学生的 JavaFX 对话框控制器。 */
 public final class RemoveOfferingStudentDialogController {
     static final String CONFLICT_MESSAGE = "数据已被其他管理员修改";
 

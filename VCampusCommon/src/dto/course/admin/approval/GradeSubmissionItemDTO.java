@@ -1,5 +1,6 @@
 package dto.course.admin.approval;
 
+/** 教务模块的 GradeSubmissionItemDTO 数据传输对象。 */
 public final class GradeSubmissionItemDTO {
     private final String enrollmentId;
     private final String studentUid;
@@ -28,42 +29,52 @@ public final class GradeSubmissionItemDTO {
         this.gradePoint = gradePoint;
     }
 
+    /** 获取 EnrollmentId。 */
     public String getEnrollmentId() {
         return enrollmentId;
     }
 
+    /** 获取 StudentUid。 */
     public String getStudentUid() {
         return studentUid;
     }
 
+    /** 获取 StudentName。 */
     public String getStudentName() {
         return studentName;
     }
 
+    /** 获取 DailyScore。 */
     public Double getDailyScore() {
         return dailyScore;
     }
 
+    /** 获取 MidtermScore。 */
     public Double getMidtermScore() {
         return midtermScore;
     }
 
+    /** 获取 ExperimentScore。 */
     public Double getExperimentScore() {
         return experimentScore;
     }
 
+    /** 获取 FinaltermScore。 */
     public Double getFinaltermScore() {
         return finaltermScore;
     }
 
+    /** 获取 Score。 */
     public Double getScore() {
         return score;
     }
 
+    /** 获取 GradeLevel。 */
     public Integer getGradeLevel() {
         return gradeLevel;
     }
 
+    /** 获取 GradePoint。 */
     public Double getGradePoint() {
         return gradePoint;
     }

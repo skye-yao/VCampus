@@ -43,34 +43,42 @@ public final class AdjustmentRequestSummaryDTO {
                 submittedAt);
     }
 
+    /** 获取 RequestId。 */
     public String getRequestId() {
         return requestId;
     }
 
+    /** 获取 CourseName。 */
     public String getCourseName() {
         return courseName;
     }
 
+    /** 获取 OfferingCode。 */
     public String getOfferingCode() {
         return offeringCode;
     }
 
+    /** 获取 ApplicantUid。 */
     public String getApplicantUid() {
         return applicantUid;
     }
 
+    /** 获取 ApplicantName。 */
     public String getApplicantName() {
         return applicantName;
     }
 
+    /** 获取 TargetWeekCount。 */
     public int getTargetWeekCount() {
         return targetWeekCount;
     }
 
+    /** 获取 Status。 */
     public AdjustmentRequestStatusDTO getStatus() {
         return status;
     }
 
+    /** 获取 SubmittedAt。 */
     public String getSubmittedAt() {
         return submittedAt;
     }

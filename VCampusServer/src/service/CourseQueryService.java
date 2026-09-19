@@ -19,12 +19,18 @@ import java.sql.SQLException;
 import java.time.Clock;
 import java.util.List;
 
+/**
+* Internal course-management type CourseQueryService.
+*/
 public class CourseQueryService {
     private final CourseQueryDAO queryDAO;
     private final CourseScheduleDAO scheduleDAO;
     private final CourseAcademicDAO academicDAO;
     private final Clock clock;
 
+    /**
+    * Handles the course-management responsibility of CourseQueryService.
+    */
     public CourseQueryService() {
         this(new CourseQueryDAO(), new CourseScheduleDAO(), new CourseAcademicDAO(),
                 Clock.systemUTC());
@@ -39,14 +45,23 @@ public class CourseQueryService {
         this.clock = clock;
     }
 
+    /**
+    * Lists Terms data.
+    */
     public List<CourseTermDTO> listTerms(String uid) {
         return read(connection -> queryDAO.listTerms(connection, uid));
     }
 
+    /**
+    * Lists Courses data.
+    */
     public List<CourseDTO> listCourses(String uid, int academicYear, int semester) {
         return read(connection -> queryDAO.listCourses(connection, uid, academicYear, semester));
     }
 
+    /**
+    * Lists CourseOfferings data.
+    */
     public List<CourseOfferingDTO> listCourseOfferings(String uid, int academicYear,
                                                        int semester, long courseId) {
         return read(connection -> {
@@ -57,6 +72,9 @@ public class CourseQueryService {
         });
     }
 
+    /**
+    * Obtains dSelectionSnapshot data.
+    */
     public CoursePlanSnapshotDTO loadSelectionSnapshot(String uid, int academicYear,
                                                        int semester) {
         return read(connection -> queryDAO.loadSelectionSnapshot(
@@ -64,30 +82,39 @@ public class CourseQueryService {
     }
 
     /**
-     * 学生某个教学日历周的课表。
-     *
-     * <p>{@code week} 为 null（或非正）时取今天所在教学周，今天不在学期内时取最小教学周；给出明确
-     * 周次时行为与旧实现完全一致（教学周范围之外就是一周空课表）。响应带上教学日历的
-     * {@code minWeek}/{@code maxWeek}/{@code currentWeek}，周次控件与「回到本周」据此取值。学年/学期
-     * 无效或该学期没有已发布的教学日历/方案时抛 {@link IllegalArgumentException} / {@link DatabaseException}，
-     * 由上层映射为错误响应。
-     */
+    * 学生某个教学日历周的课表。
+    *
+    * <p>{@code week} 为 null（或非正）时取今天所在教学周，今天不在学期内时取最小教学周；给出明确
+    * 周次时行为与旧实现完全一致（教学周范围之外就是一周空课表）。响应带上教学日历的
+    * {@code minWeek}/{@code maxWeek}/{@code currentWeek}，周次控件与「回到本周」据此取值。学年/学期
+    * 无效或该学期没有已发布的教学日历/方案时抛 {@link IllegalArgumentException} / {@link DatabaseException}，
+    * 由上层映射为错误响应。
+    */
     public CourseScheduleWeekDTO loadSchedule(String uid, int academicYear,
                                               int semester, Integer week) {
         return read(connection -> scheduleDAO.loadSchedule(
                 connection, uid, academicYear, semester, week, clock));
     }
 
+    /**
+    * Obtains dNotices data.
+    */
     public List<CourseNoticeDTO> loadNotices(String uid, int academicYear,
                                              int semester, int week) {
         return read(connection -> scheduleDAO.loadNotices(
                 connection, uid, academicYear, semester, week));
     }
 
+    /**
+    * Obtains dGrades data.
+    */
     public GradeSummaryDTO loadGrades(String uid, int academicYear, int semester) {
         return read(connection -> academicDAO.loadGrades(connection, uid, academicYear, semester));
     }
 
+    /**
+    * Obtains dTrainingPlan data.
+    */
     public List<TrainingPlanGroupDTO> loadTrainingPlan(String uid) {
         return read(connection -> academicDAO.loadTrainingPlan(connection, uid));
     }
@@ -103,11 +130,20 @@ public class CourseQueryService {
     }
 
     @FunctionalInterface
+    /**
+    * Internal course-management type SqlRead.
+    */
     private interface SqlRead<T> {
         T execute(Connection connection) throws SQLException;
     }
 
+    /**
+    * Internal course-management type NotFoundException.
+    */
     public static class NotFoundException extends RuntimeException {
+        /**
+        * Handles the course-management responsibility of NotFoundException.
+        */
         public NotFoundException(String message) {
             super(message);
         }

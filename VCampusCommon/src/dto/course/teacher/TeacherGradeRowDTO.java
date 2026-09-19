@@ -36,30 +36,37 @@ public final class TeacherGradeRowDTO {
         this.errors = immutableCopy(errors);
     }
 
+    /** 获取 EnrollmentId。 */
     public String getEnrollmentId() {
         return enrollmentId;
     }
 
+    /** 获取 StudentUid。 */
     public String getStudentUid() {
         return studentUid;
     }
 
+    /** 获取 StudentName。 */
     public String getStudentName() {
         return studentName;
     }
 
+    /** 获取 Scores。 */
     public GradeScoresDTO getScores() {
         return scores;
     }
 
+    /** 获取 TotalScore。 */
     public BigDecimal getTotalScore() {
         return totalScore;
     }
 
+    /** 获取 GradePoint。 */
     public BigDecimal getGradePoint() {
         return gradePoint;
     }
 
+    /** 判断 Complete 是否成立。 */
     public boolean isComplete() {
         return complete;
     }

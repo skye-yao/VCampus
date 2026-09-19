@@ -53,6 +53,7 @@ import service.TeacherCourseServices;
  * <p>分页与竞态沿用仓库约定：列表/详情各有 generation，页面被 {@link #unload()} 卸下或已经发出
  * 新请求时，迟到的旧响应一律丢弃。所有节点都可能为 {@code null}，控制器测试因此无需工具包。
  */
+/** 教师查看调课申请与成绩提交处理结果的 JavaFX 页面控制器。 */
 public final class TeacherApplicationsController {
     static final int PAGE_SIZE = 20;
     static final String LOAD_FAILURE_TEXT = "我的申请加载失败，请重试";

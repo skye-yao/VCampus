@@ -14,11 +14,14 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+* Data-access type for AdminCourseCatalogDAO; caller-owned connections are never committed or rolled back here.
+*/
 public class AdminCourseCatalogDAO {
     /**
-     * {@code offering_count} 的口径：只看非取消的教学班。学期化与否取决于调用方——
-     * 课程列表带学期参数时，行上的计数必须和展开后看到的行数一致。
-     */
+    * {@code offering_count} 的口径：只看非取消的教学班。学期化与否取决于调用方——
+    * 课程列表带学期参数时，行上的计数必须和展开后看到的行数一致。
+    */
     private static String offeringCountExpression(boolean termScoped) {
         return "(SELECT COUNT(*) FROM course_offering o WHERE o.course_id=c.course_id"
                 + " AND o.status<>4"
@@ -33,6 +36,9 @@ public class AdminCourseCatalogDAO {
                 + offeringCountExpression(termScoped) + " FROM course c";
     }
 
+    /**
+    * Lists  data.
+    */
     public List<AdminCourseDTO> list(Connection connection, String query, String status,
                                      Integer academicYear, Integer semester) throws SQLException {
         boolean termScoped = academicYear != null && semester != null;
@@ -67,6 +73,9 @@ public class AdminCourseCatalogDAO {
         return List.copyOf(courses);
     }
 
+    /**
+    * Locks the database rows for .
+    */
     public void lock(Connection connection, long courseId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT course_id FROM course WHERE course_id=? FOR UPDATE")) {
@@ -77,6 +86,9 @@ public class AdminCourseCatalogDAO {
         }
     }
 
+    /**
+    * Finds  data.
+    */
     public AdminCourseDTO find(Connection connection, long courseId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 select(false) + " WHERE c.course_id=?")) {
@@ -87,6 +99,9 @@ public class AdminCourseCatalogDAO {
         }
     }
 
+    /**
+    * Creates insert data.
+    */
     public long insert(Connection connection, CourseFields fields) throws SQLException {
         String sql = "INSERT INTO course(course_code,course_name,credit,credit_hours,course_type,"
                 + "allow_cross_major,description,prerequisites,final_exam)"
@@ -110,6 +125,9 @@ public class AdminCourseCatalogDAO {
         }
     }
 
+    /**
+    * Persists update data.
+    */
     public int update(Connection connection, long courseId, int expectedVersion,
                       CourseFields fields) throws SQLException {
         String sql = "UPDATE course SET course_name=?, credit=?, credit_hours=?, course_type=?,"
@@ -130,6 +148,9 @@ public class AdminCourseCatalogDAO {
         }
     }
 
+    /**
+    * Handles the course-management responsibility of archive.
+    */
     public int archive(Connection connection, long courseId, int expectedVersion,
                        String adminUid, Instant archivedAt) throws SQLException {
         String sql = "UPDATE course SET status='ARCHIVED', archived_by=?, archived_at=?,"
@@ -144,6 +165,9 @@ public class AdminCourseCatalogDAO {
         }
     }
 
+    /**
+    * Handles the course-management responsibility of restore.
+    */
     public int restore(Connection connection, long courseId, int expectedVersion)
             throws SQLException {
         String sql = "UPDATE course SET status='ACTIVE', archived_by=NULL, archived_at=NULL,"
@@ -155,6 +179,9 @@ public class AdminCourseCatalogDAO {
         }
     }
 
+    /**
+    * Determines whether hasActiveOfferings holds.
+    */
     public boolean hasActiveOfferings(Connection connection, long courseId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT 1 FROM course_offering WHERE course_id=? AND status IN (1,2,3) LIMIT 1")) {
@@ -170,6 +197,9 @@ public class AdminCourseCatalogDAO {
         return value.replace("!", "!!").replace("%", "!%").replace("_", "!_");
     }
 
+    /**
+    * Handles the course-management responsibility of courseTypeLabel.
+    */
     public static String courseTypeLabel(int value) {
         return switch (value) {
             case 1 -> "必修";
@@ -180,6 +210,9 @@ public class AdminCourseCatalogDAO {
         };
     }
 
+    /**
+    * Handles the course-management responsibility of courseTypeCode.
+    */
     public static int courseTypeCode(String label) {
         if (label == null) throw new IllegalArgumentException("课程类型无效");
         return switch (label.trim()) {
@@ -201,6 +234,9 @@ public class AdminCourseCatalogDAO {
                 rows.getString("status"), rows.getInt("offering_count"), rows.getInt("version"));
     }
 
+    /**
+    * Internal course-management type CourseFields.
+    */
     public record CourseFields(String courseCode, String courseName, int courseType,
                                BigDecimal credit, int creditHours, String description,
                                String prerequisites, boolean allowCrossMajor, boolean finalExam) {

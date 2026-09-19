@@ -17,19 +17,25 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+* Data-access type for CourseEventOutboxDAO; caller-owned connections are never committed or rolled back here.
+*/
 public class CourseEventOutboxDAO {
     private static final Gson GSON = new Gson();
 
+    /**
+    * Internal course-management type OutboxEvent.
+    */
     public record OutboxEvent(long eventId, String uid, String eventType, int academicYear,
             int semester, Long offeringId, String payload, Instant createdAt) {
     }
 
     /**
-     * 仅返回 {@code onlineUids} 中账号的未 ACK 事件，按 event_id 升序有界返回。
-     *
-     * <p>空集合直接返回空列表，避免生成 {@code IN ()} 这类非法 SQL；离线账号的事件不会占用
-     * 批次名额，因此离线积压不会饿死后续在线账号的事件。
-     */
+    * 仅返回 {@code onlineUids} 中账号的未 ACK 事件，按 event_id 升序有界返回。
+    *
+    * <p>空集合直接返回空列表，避免生成 {@code IN ()} 这类非法 SQL；离线账号的事件不会占用
+    * 批次名额，因此离线积压不会饿死后续在线账号的事件。
+    */
     public List<OutboxEvent> pending(Connection connection, Collection<String> onlineUids, int limit)
             throws SQLException {
         if (limit <= 0) {
@@ -73,6 +79,9 @@ public class CourseEventOutboxDAO {
         return events;
     }
 
+    /**
+    * Persists markAttempt data.
+    */
     public void markAttempt(Connection connection, long eventId, Instant now) throws SQLException {
         String sql = "UPDATE course_event_outbox SET attempt_count = attempt_count + 1, "
                 + "last_sent_at = ? WHERE event_id = ? AND acked_at IS NULL";
@@ -84,11 +93,11 @@ public class CourseEventOutboxDAO {
     }
 
     /**
-     * 事件所有者的 ACK 幂等：首次与重复 ACK 均返回 true；非所有者或不存在的行返回 false。
-     *
-     * <p>先按 (event_id, uid) 判定归属，再仅在 {@code acked_at IS NULL} 时写入时间戳；重复
-     * ACK 保留首次确认时间且仍视为成功，避免同账号多连接竞争时第二个客户端收到失败响应。
-     */
+    * 事件所有者的 ACK 幂等：首次与重复 ACK 均返回 true；非所有者或不存在的行返回 false。
+    *
+    * <p>先按 (event_id, uid) 判定归属，再仅在 {@code acked_at IS NULL} 时写入时间戳；重复
+    * ACK 保留首次确认时间且仍视为成功，避免同账号多连接竞争时第二个客户端收到失败响应。
+    */
     public boolean acknowledge(Connection connection, String uid, long eventId, Instant now)
             throws SQLException {
         if (uid == null) {
@@ -123,6 +132,9 @@ public class CourseEventOutboxDAO {
         return Timestamp.valueOf(instant.atOffset(ZoneOffset.UTC).toLocalDateTime());
     }
 
+    /**
+    * Creates insert data.
+    */
     public void insert(Connection connection, String uid, CoursePushEventTypeDTO eventType,
                        CourseTermDTO term, long offeringId, Instant occurredAt,
                        Instant expiresAt, String message) throws SQLException {

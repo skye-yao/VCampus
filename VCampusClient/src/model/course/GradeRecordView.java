@@ -1,5 +1,6 @@
 package model.course;
 
+/** 学生单门课程的总评、绩点与各成绩组成展示记录。 */
 public final class GradeRecordView {
     private final String term;
     private final String courseCode;
@@ -12,6 +13,7 @@ public final class GradeRecordView {
     private final Double experimentScore;
     private final Double finalScore;
 
+    /** 创建课程成绩展示记录。 */
     public GradeRecordView(String term, String courseCode, String courseName,
             double credit, double score, double gradePoint, Double dailyScore,
             Double midtermScore, Double experimentScore, Double finalScore) {

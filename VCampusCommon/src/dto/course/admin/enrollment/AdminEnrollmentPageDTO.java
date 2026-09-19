@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+/** 教务模块的 AdminEnrollmentPageDTO 数据传输对象。 */
 public final class AdminEnrollmentPageDTO<T> {
     private final List<T> items;
     private final long totalCount;
@@ -19,20 +20,24 @@ public final class AdminEnrollmentPageDTO<T> {
         this.pageSize = pageSize;
     }
 
+    /** 获取 Items。 */
     public List<T> getItems() {
         return items == null
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(items);
     }
 
+    /** 获取 TotalCount。 */
     public long getTotalCount() {
         return totalCount;
     }
 
+    /** 获取 PageNumber。 */
     public int getPageNumber() {
         return pageNumber;
     }
 
+    /** 获取 PageSize。 */
     public int getPageSize() {
         return pageSize;
     }

@@ -24,14 +24,17 @@ public final class ConfirmGradeImportRequestDTO {
         this.expectedRevision = expectedRevision;
     }
 
+    /** 获取 OperationId。 */
     public String getOperationId() {
         return operationId;
     }
 
+    /** 获取 ImportToken。 */
     public String getImportToken() {
         return importToken;
     }
 
+    /** 获取 ExpectedPreviewRevision。 */
     public int getExpectedPreviewRevision() {
         return expectedPreviewRevision;
     }

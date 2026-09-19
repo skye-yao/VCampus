@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+/** 教务模块的 ScheduleArrangementDTO 数据传输对象。 */
 public final class ScheduleArrangementDTO {
     private final String arrangementId;
     private final String planId;
@@ -36,48 +37,59 @@ public final class ScheduleArrangementDTO {
         this.version = version;
     }
 
+    /** 获取 ArrangementId。 */
     public String getArrangementId() {
         return arrangementId;
     }
 
+    /** 获取 PlanId。 */
     public String getPlanId() {
         return planId;
     }
 
+    /** 获取 OfferingId。 */
     public String getOfferingId() {
         return offeringId;
     }
 
+    /** 获取 Teacher。 */
     public ScheduleResourceDTO getTeacher() {
         return teacher;
     }
 
+    /** 获取 Assistant。 */
     public ScheduleResourceDTO getAssistant() {
         return assistant;
     }
 
+    /** 获取 Classroom。 */
     public ScheduleResourceDTO getClassroom() {
         return classroom;
     }
 
+    /** 获取 Slots。 */
     public List<ScheduleSlotDTO> getSlots() {
         return slots == null
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(slots);
     }
 
+    /** 获取 StartWeek。 */
     public int getStartWeek() {
         return startWeek;
     }
 
+    /** 获取 EndWeek。 */
     public int getEndWeek() {
         return endWeek;
     }
 
+    /** 获取 Status。 */
     public String getStatus() {
         return status;
     }
 
+    /** 获取 Version。 */
     public int getVersion() {
         return version;
     }

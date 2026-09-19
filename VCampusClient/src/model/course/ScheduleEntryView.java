@@ -1,5 +1,6 @@
 package model.course;
 
+/** 课表网格中一条教学班课次及其调课信息的展示视图。 */
 public final class ScheduleEntryView {
     private final long offeringId;
     private final String term;
@@ -18,6 +19,7 @@ public final class ScheduleEntryView {
     private final String adjustedScheduleText;
     private final String adjustmentReason;
 
+    /** 创建没有调课信息的普通课表条目。 */
     public ScheduleEntryView(long offeringId, String term, String courseCode,
             String courseName, String teacher, String location, int dayOfWeek,
             int startPeriod, int periodCount, int startWeek, int endWeek) {
@@ -42,6 +44,7 @@ public final class ScheduleEntryView {
         this.adjustmentReason = null;
     }
 
+    /** 创建可携带调课前后文本的课表条目。 */
     public ScheduleEntryView(long offeringId, String term, String courseCode,
             String courseName, String teacher, String location, int dayOfWeek,
             int startPeriod, int periodCount, int startWeek, int endWeek,
@@ -130,6 +133,7 @@ public final class ScheduleEntryView {
         return adjustmentReason;
     }
 
+    /** 判断该课次是否在指定教学周生效。 */
     public boolean isActiveInWeek(int week) {
         return week >= startWeek && week <= endWeek;
     }

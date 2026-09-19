@@ -14,6 +14,7 @@ import javafx.scene.layout.VBox;
  *
  * <p>文案完全来自 {@link AdminApprovalController} 的纯文本函数，避免同一份说明出现两种版本。
  */
+/** 管理员审批单条调课申请的 JavaFX 对话框控制器。 */
 public final class AdjustmentApprovalDialogController {
     private AdjustmentRequestDetailDTO detail;
 

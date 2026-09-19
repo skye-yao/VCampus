@@ -18,10 +18,12 @@ public final class CheckArrangementResultDTO {
         this.planConflicts = copy(planConflicts);
     }
 
+    /** 获取 ArrangementConflicts。 */
     public List<ScheduleConflictDTO> getArrangementConflicts() {
         return arrangementConflicts;
     }
 
+    /** 获取 PlanConflicts。 */
     public List<ScheduleConflictDTO> getPlanConflicts() {
         return planConflicts;
     }

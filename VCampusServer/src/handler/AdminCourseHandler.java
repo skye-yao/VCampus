@@ -32,13 +32,16 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
+/**
+* Internal course-management type AdminCourseHandler.
+*/
 public class AdminCourseHandler {
     private static final String MODULE = "courseAdmin";
 
     /**
-     * 动作登记表里已定义、但由后续计划开放的管理员操作。当前所有登记动作均已开放，故为空；
-     * 保留该集合以便后续计划登记新动作时仍能统一返回"尚未开放"。
-     */
+    * 动作登记表里已定义、但由后续计划开放的管理员操作。当前所有登记动作均已开放，故为空；
+    * 保留该集合以便后续计划登记新动作时仍能统一返回"尚未开放"。
+    */
     private static final Set<String> UNAVAILABLE_ACTIONS = Set.of();
 
     private final AdminCourseCatalogService catalog;
@@ -49,6 +52,9 @@ public class AdminCourseHandler {
     private final GradeApprovalService grades;
     private final Gson gson = new Gson();
 
+    /**
+    * Handles the course-management responsibility of AdminCourseHandler.
+    */
     public AdminCourseHandler() {
         this(new AdminCourseCatalogService(), new AdminOfferingService(),
                 new ScheduleManagementService(), new AdminEnrollmentService(),
@@ -56,21 +62,30 @@ public class AdminCourseHandler {
     }
 
     /**
-     * Catalog-only handler. Scheduling stays unavailable here so the Task 1 regression that
-     * pins "该管理员操作尚未开放" for a scheduling action remains valid; production uses the
-     * no-argument constructor, which wires the real scheduling service.
-     */
+    * Catalog-only handler. Scheduling stays unavailable here so the Task 1 regression that
+    * pins "该管理员操作尚未开放" for a scheduling action remains valid; production uses the
+    * no-argument constructor, which wires the real scheduling service.
+    */
+    /**
+    * Handles the course-management responsibility of AdminCourseHandler.
+    */
     public AdminCourseHandler(AdminCourseCatalogService catalog,
                               AdminOfferingService offerings) {
         this(catalog, offerings, null);
     }
 
+    /**
+    * Handles the course-management responsibility of AdminCourseHandler.
+    */
     public AdminCourseHandler(AdminCourseCatalogService catalog,
                               AdminOfferingService offerings,
                               ScheduleManagementService scheduling) {
         this(catalog, offerings, scheduling, null);
     }
 
+    /**
+    * Handles the course-management responsibility of AdminCourseHandler.
+    */
     public AdminCourseHandler(AdminCourseCatalogService catalog,
                               AdminOfferingService offerings,
                               ScheduleManagementService scheduling,
@@ -78,6 +93,9 @@ public class AdminCourseHandler {
         this(catalog, offerings, scheduling, enrollment, null);
     }
 
+    /**
+    * Handles the course-management responsibility of AdminCourseHandler.
+    */
     public AdminCourseHandler(AdminCourseCatalogService catalog,
                               AdminOfferingService offerings,
                               ScheduleManagementService scheduling,
@@ -100,6 +118,9 @@ public class AdminCourseHandler {
         this.grades = grades;
     }
 
+    /**
+    * Dispatches the course-management protocol request by action.
+    */
     public Message handle(Message request) {
         Message response = response(request);
         UserSession session = SessionManager.getInstance().getSession(request.getToken());
@@ -330,9 +351,9 @@ public class AdminCourseHandler {
     }
 
     /**
-     * 调课状态解析：缺省交给服务端默认 PENDING，未知值一律 400。
-     * 调课是四态，教师撤销的 WITHDRAWN 必须能被筛选出来。
-     */
+    * 调课状态解析：缺省交给服务端默认 PENDING，未知值一律 400。
+    * 调课是四态，教师撤销的 WITHDRAWN 必须能被筛选出来。
+    */
     private static AdjustmentRequestStatusDTO adjustmentStatus(Message request) {
         String status = optionalText(request, "status");
         if (status == null) return null;
@@ -345,9 +366,9 @@ public class AdminCourseHandler {
     }
 
     /**
-     * 成绩状态解析保持三态：成绩提交没有“撤销”，不能因为调课新增了 WITHDRAWN
-     * 就让成绩列表承认一个不存在的状态。
-     */
+    * 成绩状态解析保持三态：成绩提交没有“撤销”，不能因为调课新增了 WITHDRAWN
+    * 就让成绩列表承认一个不存在的状态。
+    */
     private static ApprovalStatusDTO gradeStatus(Message request) {
         String status = optionalText(request, "status");
         if (status == null) return null;
@@ -403,11 +424,11 @@ public class AdminCourseHandler {
     }
 
     /**
-     * Parses a grade decision. Grade approval never forwards {@code force} (R12): a true flag is
-     * refused here, so every accepted decision reaches the service with {@code force = false} and no
-     * override reason, and the service's own defensive refusal stays a safety net rather than the
-     * only guard.
-     */
+    * Parses a grade decision. Grade approval never forwards {@code force} (R12): a true flag is
+    * refused here, so every accepted decision reaches the service with {@code force = false} and no
+    * override reason, and the service's own defensive refusal stays a safety net rather than the
+    * only guard.
+    */
     private ApprovalDecisionRequestDTO gradeDecision(Message request) {
         Object value = request.getData() == null ? null : request.getData().get("request");
         if (!(value instanceof Map<?, ?> values)) {
@@ -577,9 +598,9 @@ public class AdminCourseHandler {
     }
 
     /**
-     * 可选整数：字段缺席或为 null 时返回 {@code null}，让调用方按"不限定"处理。
-     * 字段在但格式不对仍然抛——那是客户端 bug，不能静默降级成"不限定"。
-     */
+    * 可选整数：字段缺席或为 null 时返回 {@code null}，让调用方按"不限定"处理。
+    * 字段在但格式不对仍然抛——那是客户端 bug，不能静默降级成"不限定"。
+    */
     private static Integer optionalInteger(Message request, String key) {
         Map<String, Object> data = request.getData();
         if (data == null || data.get(key) == null) return null;

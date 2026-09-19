@@ -35,22 +35,27 @@ public final class TeacherAdjustmentOptionsDTO {
                 : Collections.unmodifiableList(new ArrayList<>(values));
     }
 
+    /** 获取 CalendarId。 */
     public String getCalendarId() {
         return calendarId;
     }
 
+    /** 获取 Timezone。 */
     public String getTimezone() {
         return timezone;
     }
 
+    /** 获取 Dates。 */
     public List<TeacherCalendarDateDTO> getDates() {
         return unmodifiable(dates);
     }
 
+    /** 获取 Periods。 */
     public List<TeacherPeriodDTO> getPeriods() {
         return unmodifiable(periods);
     }
 
+    /** 获取 Classrooms。 */
     public List<ScheduleResourceDTO> getClassrooms() {
         return unmodifiable(classrooms);
     }

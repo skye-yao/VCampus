@@ -7,6 +7,9 @@ import java.util.List;
 import model.course.ScheduleDisplayKind;
 import model.course.ScheduleEntryView;
 
+/**
+ * 学生课表的一日冲突布局工具，将重叠课次分配到并列显示列。
+ */
 final class ScheduleLayout {
     private ScheduleLayout() {
     }

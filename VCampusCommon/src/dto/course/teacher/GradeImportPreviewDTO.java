@@ -43,6 +43,7 @@ public final class GradeImportPreviewDTO {
         this.expiresAt = expiresAt;
     }
 
+    /** 获取 ImportToken。 */
     public String getImportToken() {
         return importToken;
     }
@@ -57,14 +58,17 @@ public final class GradeImportPreviewDTO {
         return candidate;
     }
 
+    /** 获取 TotalRows。 */
     public int getTotalRows() {
         return totalRows;
     }
 
+    /** 获取 ValidRows。 */
     public int getValidRows() {
         return validRows;
     }
 
+    /** 获取 ErrorRows。 */
     public int getErrorRows() {
         return errorRows;
     }

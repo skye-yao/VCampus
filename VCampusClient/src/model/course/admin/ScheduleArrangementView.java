@@ -7,6 +7,7 @@ import java.util.List;
 import dto.course.admin.schedule.ScheduleResourceDTO;
 import dto.course.admin.schedule.ScheduleSlotDTO;
 
+/** 管理端排课方案中一个教学班的资源、时段和版本视图。 */
 public final class ScheduleArrangementView {
     private final String arrangementId;
     private final String planId;
@@ -20,6 +21,7 @@ public final class ScheduleArrangementView {
     private final String status;
     private final int version;
 
+    /** 创建排课安排视图，并防御性复制时段列表。 */
     public ScheduleArrangementView(String arrangementId, String planId, String offeringId,
             ScheduleResourceDTO teacher, ScheduleResourceDTO assistant,
             ScheduleResourceDTO classroom, List<ScheduleSlotDTO> slots,

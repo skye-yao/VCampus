@@ -25,12 +25,12 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 教师调课申请的读与写。
- *
- * <p>读：选项域（教学日历的教学日、节次与教室资源）、原课次快照（含生效调课后的有效教师）、
- * 本人 PENDING 申请已占用的目标。写：申请头、不可变目标快照、撤销的条件更新。所有写方法都在
- * 调用方事务内执行，{@link #insertTarget} 是本测试用于注入中途失败的可覆写接缝。
- */
+* 教师调课申请的读与写。
+*
+* <p>读：选项域（教学日历的教学日、节次与教室资源）、原课次快照（含生效调课后的有效教师）、
+* 本人 PENDING 申请已占用的目标。写：申请头、不可变目标快照、撤销的条件更新。所有写方法都在
+* 调用方事务内执行，{@link #insertTarget} 是本测试用于注入中途失败的可覆写接缝。
+*/
 public class TeacherAdjustmentDAO {
     private static final String CLASSROOM = "classroom";
     private static final DateTimeFormatter CLOCK = DateTimeFormatter.ofPattern("HH:mm:ss");
@@ -48,9 +48,9 @@ public class TeacherAdjustmentDAO {
     }
 
     /**
-     * 原课次在有效课表里的完整状态：所属教学班、时间、原快照资源，以及生效调课（如果有）。
-     * {@code effectiveTeacherUid} 就是“当前实际讲授该课次的人”，权限与冲突检查都以它为准。
-     */
+    * 原课次在有效课表里的完整状态：所属教学班、时间、原快照资源，以及生效调课（如果有）。
+    * {@code effectiveTeacherUid} 就是“当前实际讲授该课次的人”，权限与冲突检查都以它为准。
+    */
     public record Occurrence(long occurrenceId, long ruleId, long planId, long offeringId,
                              long calendarId, int weekNo, int teachingWeekday, int startPeriod,
                              int endPeriod, Timestamp startAt, Timestamp endAt, String teacherUid,
@@ -59,6 +59,9 @@ public class TeacherAdjustmentDAO {
                              Long adjustmentId, String adjustedTeacherUid,
                              String adjustedAssistantUid, Long adjustedClassroomId) {
 
+        /**
+        * Handles the course-management responsibility of adjusted.
+        */
         public boolean adjusted() {
             return adjustmentId != null;
         }
@@ -80,9 +83,9 @@ public class TeacherAdjustmentDAO {
     // ------------------------------------------------------------- offering domain
 
     /**
-     * 教学班 → 学期 → 当前 PUBLISHED 方案 → 教学日历。教学班不存在返回 null（调用方按无权限处理），
-     * 方案不可用则抛 {@link IllegalArgumentException}（调用方状态错误）。
-     */
+    * 教学班 → 学期 → 当前 PUBLISHED 方案 → 教学日历。教学班不存在返回 null（调用方按无权限处理），
+    * 方案不可用则抛 {@link IllegalArgumentException}（调用方状态错误）。
+    */
     public OfferingCalendar offeringCalendar(Connection connection, long offeringId)
             throws SQLException {
         Integer academicYear;
@@ -115,6 +118,9 @@ public class TeacherAdjustmentDAO {
         }
     }
 
+    /**
+    * Determines whether isTeacher holds.
+    */
     public boolean isTeacher(Connection connection, String uid) throws SQLException {
         if (uid == null || uid.isBlank()) return false;
         try (PreparedStatement statement = connection.prepareStatement(
@@ -141,6 +147,9 @@ public class TeacherAdjustmentDAO {
 
     // ------------------------------------------------------------- calendar domain
 
+    /**
+    * Handles the course-management responsibility of calendarDate.
+    */
     public CalendarDateRow calendarDate(Connection connection, long calendarId, LocalDate date)
             throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
@@ -171,10 +180,10 @@ public class TeacherAdjustmentDAO {
     }
 
     /**
-     * The row a submitted target stored explicitly. This is authoritative: it keeps the conflict
-     * snapshot on the day the teacher actually picked even when the plan or its calendar changed
-     * after submission, instead of re-deriving a possibly different date row.
-     */
+    * The row a submitted target stored explicitly. This is authoritative: it keeps the conflict
+    * snapshot on the day the teacher actually picked even when the plan or its calendar changed
+    * after submission, instead of re-deriving a possibly different date row.
+    */
     public CalendarDateRow calendarDateById(Connection connection, long calendarDateId)
             throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
@@ -230,6 +239,9 @@ public class TeacherAdjustmentDAO {
         return List.copyOf(periods);
     }
 
+    /**
+    * Handles the course-management responsibility of classrooms.
+    */
     public List<ScheduleResourceDTO> classrooms(Connection connection) throws SQLException {
         List<ScheduleResourceDTO> classrooms = new ArrayList<>();
         try (PreparedStatement statement = connection.prepareStatement(
@@ -246,6 +258,9 @@ public class TeacherAdjustmentDAO {
 
     // ----------------------------------------------------------------- occurrences
 
+    /**
+    * Finds Occurrences data.
+    */
     public Map<Long, Occurrence> findOccurrences(Connection connection, Collection<Long> ids)
             throws SQLException {
         Map<Long, Occurrence> occurrences = new LinkedHashMap<>();
@@ -310,6 +325,9 @@ public class TeacherAdjustmentDAO {
 
     // ---------------------------------------------------------------------- writes
 
+    /**
+    * Creates insertRequest data.
+    */
     public long insertRequest(Connection connection, long offeringId, String requestedBy,
                               String reason, int newWeekday, int startPeriod, int endPeriod,
                               Long classroomId, Instant submittedAt) throws SQLException {
@@ -368,9 +386,9 @@ public class TeacherAdjustmentDAO {
     }
 
     /**
-     * 教师撤销本人的 PENDING 申请。0 行表示不可见、已是终态或版本已变化，由调用方分类为
-     * NOT_FOUND 或 CONFLICT；撤销时间与版本在同一条件更新里写入，绝不伪装成管理员驳回。
-     */
+    * 教师撤销本人的 PENDING 申请。0 行表示不可见、已是终态或版本已变化，由调用方分类为
+    * NOT_FOUND 或 CONFLICT；撤销时间与版本在同一条件更新里写入，绝不伪装成管理员驳回。
+    */
     public int withdraw(Connection connection, long requestId, String teacherUid, int expectedVersion,
                         Instant withdrawnAt) throws SQLException {
         String sql = "UPDATE course_schedule_adjustment_request"
@@ -387,6 +405,9 @@ public class TeacherAdjustmentDAO {
 
     // ---------------------------------------------------------------- my requests
 
+    /**
+    * Lists Mine data.
+    */
     public List<AdjustmentRequestSummaryDTO> listMine(Connection connection, String teacherUid,
             AdjustmentRequestStatusDTO status, int offset, int limit) throws SQLException {
         String sql = "SELECT r.request_id,c.course_name,o.offering_code,r.requested_by,u.name,"
@@ -418,6 +439,9 @@ public class TeacherAdjustmentDAO {
         return List.copyOf(summaries);
     }
 
+    /**
+    * Handles the course-management responsibility of countMine.
+    */
     public long countMine(Connection connection, String teacherUid, AdjustmentRequestStatusDTO status)
             throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(

@@ -65,6 +65,7 @@ import util.FXMLUtil;
  * “点的是哪一张卡片”。页面被 {@link #unload()} 卸下后，在途响应一律丢弃（active + generation
  * 双重判定），不会再写任何控件。
  */
+/** 教师按教学周查看本人课程表的 JavaFX 页面控制器。 */
 public final class TeacherScheduleController {
     static final String LOAD_FAILURE_TEXT = "教学课表加载失败，请重试";
     /** 课次详情弹窗的资源路径；标题由 {@link TeacherCourseDetailDialogController#TITLE} 固定。 */

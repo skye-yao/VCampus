@@ -1,5 +1,6 @@
 package model.course.admin;
 
+/** 管理端教学班的容量、师资和排课状态视图。 */
 public final class AdminOfferingView {
     private final String offeringId;
     private final String offeringCode;
@@ -16,6 +17,7 @@ public final class AdminOfferingView {
     private final String scheduleStatus;
     private final int version;
 
+    /** 创建管理端教学班视图。 */
     public AdminOfferingView(String offeringId, String offeringCode, String courseId,
             int academicYear, int semester, int capacity, int enrolledCount, String status,
             String teacherUid, String teacherName, String assistantUid, String assistantName,

@@ -32,6 +32,7 @@ import service.TeacherCourseServices;
  * <p>本页没有可编辑状态，因此不注册离开守卫：只有真正持有未保存内容的页面才需要拦截关闭。
  * 所有节点都可能为 {@code null}，控制器测试在无工具包、无 FXML 节点的环境下运行。
  */
+/** 教师按学期选择教学班并进入成绩册的 JavaFX 页面控制器。 */
 public final class TeacherGradeController {
     /** 与教学班列表、名单一致的固定页长。 */
     static final int PAGE_SIZE = 20;

@@ -1,5 +1,6 @@
 package model.course.admin;
 
+/** 管理端维护课程目录时使用的课程详情视图。 */
 public final class AdminCourseView {
     private final String courseId;
     private final String courseCode;
@@ -15,6 +16,7 @@ public final class AdminCourseView {
     private final int offeringCount;
     private final int version;
 
+    /** 创建管理端课程视图。 */
     public AdminCourseView(String courseId, String courseCode, String courseName,
             String courseType, double credit, int creditHours, String description,
             String prerequisites, boolean allowCrossMajor, boolean finalExam,

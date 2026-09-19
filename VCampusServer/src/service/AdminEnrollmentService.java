@@ -27,6 +27,9 @@ import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+/**
+* Internal course-management type AdminEnrollmentService.
+*/
 public class AdminEnrollmentService {
     private static final Type RESULT_TYPE = new TypeToken<AdminOperationResultDTO<OfferingStudentDTO>>() { }.getType();
     private static final Logger LOG = Logger.getLogger(AdminEnrollmentService.class.getName());
@@ -36,11 +39,17 @@ public class AdminEnrollmentService {
     private final Clock clock;
     private final WaitlistAdvanceTrigger waitlistTrigger;
 
+    /**
+    * Handles the course-management responsibility of AdminEnrollmentService.
+    */
     public AdminEnrollmentService() {
         this(new AdminEnrollmentDAO(), new AdminCourseOperationDAO(), new AdminEnrollmentRiskService(),
                 Clock.systemUTC(), new CourseWaitlistService());
     }
 
+    /**
+    * Handles the course-management responsibility of AdminEnrollmentService.
+    */
     public AdminEnrollmentService(AdminEnrollmentDAO dao, AdminCourseOperationDAO operations,
             AdminEnrollmentRiskService riskService, Clock clock, WaitlistAdvanceTrigger waitlistTrigger) {
         this.dao = dao;
@@ -50,6 +59,9 @@ public class AdminEnrollmentService {
         this.waitlistTrigger = waitlistTrigger;
     }
 
+    /**
+    * Handles the course-management responsibility of searchStudents.
+    */
     public AdminEnrollmentPageDTO<StudentSearchResultDTO> searchStudents(String query, int page, int size) {
         validatePage(page, size);
         try (Connection connection = DBUtil.getConnection()) {
@@ -57,6 +69,9 @@ public class AdminEnrollmentService {
         } catch (SQLException failure) { throw new DatabaseException("查询学生失败", failure); }
     }
 
+    /**
+    * Lists OfferingStudents data.
+    */
     public AdminEnrollmentPageDTO<OfferingStudentDTO> listOfferingStudents(String offeringId,
             String query, int page, int size) {
         long id = offeringId(offeringId);
@@ -67,6 +82,9 @@ public class AdminEnrollmentService {
         } catch (SQLException failure) { throw new DatabaseException("查询教学班学生失败", failure); }
     }
 
+    /**
+    * Handles the course-management responsibility of previewAdminEnrollment.
+    */
     public AdminEnrollmentPreviewDTO previewAdminEnrollment(String offeringId, String studentUid) {
         long id = offeringId(offeringId);
         String uid = uid(studentUid, "studentUid");
@@ -79,11 +97,17 @@ public class AdminEnrollmentService {
         } catch (SQLException failure) { throw new DatabaseException("检查添加学生风险失败", failure); }
     }
 
+    /**
+    * Handles the course-management responsibility of addStudentToOffering.
+    */
     public AdminOperationResultDTO<OfferingStudentDTO> addStudentToOffering(String adminUid,
             AdminEnrollmentRequestDTO request) {
         return transact(adminUid, request, false);
     }
 
+    /**
+    * Removes or cancels removeStudentFromOffering data.
+    */
     public AdminOperationResultDTO<OfferingStudentDTO> removeStudentFromOffering(String adminUid,
             AdminEnrollmentRequestDTO request) {
         return transact(adminUid, request, true);
@@ -264,7 +288,7 @@ public class AdminEnrollmentService {
     }
 
     /** Null-safe: an unfinished transaction is rolled back even when no failure is in flight,
-     *  and a failed rollback is swallowed rather than replacing an escaping {@link Error}. */
+    *  and a failed rollback is swallowed rather than replacing an escaping {@link Error}. */
     private static void rollback(Connection connection, Throwable failure) {
         try { connection.rollback(); }
         catch (SQLException rollbackFailure) { if (failure != null) failure.addSuppressed(rollbackFailure); }
@@ -278,23 +302,44 @@ public class AdminEnrollmentService {
         }
     }
 
+    /**
+    * Internal course-management type Execution.
+    */
     private record Execution(AdminOperationResultDTO<OfferingStudentDTO> result, Long freedOfferingId) { }
 
+    /**
+    * Internal course-management type ConflictException.
+    */
     public static class ConflictException extends RuntimeException {
         private final OfferingStudentDTO entity;
         private final List<ScheduleConflictDTO> conflicts;
 
+        /**
+        * Handles the course-management responsibility of ConflictException.
+        */
         public ConflictException(String message, OfferingStudentDTO entity, List<ScheduleConflictDTO> conflicts) {
             super(message);
             this.entity = entity;
             this.conflicts = conflicts == null ? List.of() : List.copyOf(conflicts);
         }
 
+        /**
+        * Obtains Entity data.
+        */
         public OfferingStudentDTO getEntity() { return entity; }
+        /**
+        * Obtains Conflicts data.
+        */
         public List<ScheduleConflictDTO> getConflicts() { return conflicts; }
     }
 
+    /**
+    * Internal course-management type NotFoundException.
+    */
     public static class NotFoundException extends RuntimeException {
+        /**
+        * Handles the course-management responsibility of NotFoundException.
+        */
         public NotFoundException(String message) { super(message); }
     }
 }

@@ -1,5 +1,6 @@
 package model.course.admin;
 
+/** 管理端向教学班添加学生时使用的学生搜索结果视图。 */
 public final class StudentSearchResultView {
     private final String uid;
     private final String name;
@@ -7,6 +8,7 @@ public final class StudentSearchResultView {
     private final int cohortYear;
     private final String academicStatus;
 
+    /** 创建学生搜索结果视图。 */
     public StudentSearchResultView(String uid, String name, String major,
             int cohortYear, String academicStatus) {
         this.uid = uid;

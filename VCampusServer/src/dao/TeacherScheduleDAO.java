@@ -27,19 +27,19 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 教师某一教学周的课表读取：日历周、当周日期与节次，以及该教师在该周实际生效的课次。
- *
- * <p>课次归属来自当前正式排课方案里的教学安排（{@code course_schedule_arrangement}）：任课
- * 教师或助教是本人即算本人授课，不要求选课关系，也不要求存在选课窗口。生效调课走两条独立查询：
- * 原 occurrence 所在周返回 {@link ScheduleDisplayKindDTO#ADJUSTED_ORIGINAL}，调课目标时刻落在
- * 哪一周就在那一周返回 {@link ScheduleDisplayKindDTO#ADJUSTED_TARGET}；后者必须由
- * {@code start_at_utc} 经教学日历时区反查日期，绝不能用原 occurrence 的周次代替。
- *
- * <p>日期与节次只来自 {@code calendar_date} 与 {@code period_definition}，因此周数、每周天数与
- * 每日节数都不硬编码。DATETIME 列保存 UTC 墙钟，读取用
- * {@code toLocalDateTime().toInstant(ZoneOffset.UTC)}；{@code TIME} 列是本地墙钟，直接
- * {@code toLocalTime()}。
- */
+* 教师某一教学周的课表读取：日历周、当周日期与节次，以及该教师在该周实际生效的课次。
+*
+* <p>课次归属来自当前正式排课方案里的教学安排（{@code course_schedule_arrangement}）：任课
+* 教师或助教是本人即算本人授课，不要求选课关系，也不要求存在选课窗口。生效调课走两条独立查询：
+* 原 occurrence 所在周返回 {@link ScheduleDisplayKindDTO#ADJUSTED_ORIGINAL}，调课目标时刻落在
+* 哪一周就在那一周返回 {@link ScheduleDisplayKindDTO#ADJUSTED_TARGET}；后者必须由
+* {@code start_at_utc} 经教学日历时区反查日期，绝不能用原 occurrence 的周次代替。
+*
+* <p>日期与节次只来自 {@code calendar_date} 与 {@code period_definition}，因此周数、每周天数与
+* 每日节数都不硬编码。DATETIME 列保存 UTC 墙钟，读取用
+* {@code toLocalDateTime().toInstant(ZoneOffset.UTC)}；{@code TIME} 列是本地墙钟，直接
+* {@code toLocalTime()}。
+*/
 public class TeacherScheduleDAO {
 
     /** Period clock strings are a fixed wire shape; {@code LocalTime.toString()} drops zero seconds. */
@@ -55,11 +55,11 @@ public class TeacherScheduleDAO {
                             TeacherScheduleDAO::compareIds);
 
     /**
-     * 该学期当前正式方案中、属于 {@code uid} 的第 {@code week} 教学周。
-     *
-     * @param week 可为 null：取 {@code clock} 所在教学周，今天不在学期内时取最小教学周
-     * @throws IllegalArgumentException 该学期没有已发布的教学日历/方案，或 week 越界
-     */
+    * 该学期当前正式方案中、属于 {@code uid} 的第 {@code week} 教学周。
+    *
+    * @param week 可为 null：取 {@code clock} 所在教学周，今天不在学期内时取最小教学周
+    * @throws IllegalArgumentException 该学期没有已发布的教学日历/方案，或 week 越界
+    */
     public TeacherScheduleWeekDTO loadTeachingSchedule(Connection connection, String uid,
             int academicYear, int semester, Integer week, Clock clock) throws SQLException {
         TeachingCalendar calendar = currentCalendar(connection, academicYear, semester);
@@ -170,9 +170,9 @@ public class TeacherScheduleDAO {
     }
 
     /**
-     * Periods are per date, because two dates of the same week may use different day templates.
-     * {@code start_time}/{@code end_time} are local wall clocks and must never be read as UTC.
-     */
+    * Periods are per date, because two dates of the same week may use different day templates.
+    * {@code start_time}/{@code end_time} are local wall clocks and must never be read as UTC.
+    */
     private static List<TeacherPeriodDTO> periods(Connection connection, long calendarId, int week)
             throws SQLException {
         String sql = "SELECT cd.local_date, pd.period_no, pd.start_time, pd.end_time"
@@ -217,10 +217,10 @@ public class TeacherScheduleDAO {
     // -------------------------------------------------------------------- 课次
 
     /**
-     * Published occurrences of the week that belong to {@code uid} through the current plan's
-     * arrangement, with the ACTIVE adjustment (if any) riding along. An occurrence without one is
-     * NORMAL; with one it is ADJUSTED_ORIGINAL and keeps its original position, teacher and room.
-     */
+    * Published occurrences of the week that belong to {@code uid} through the current plan's
+    * arrangement, with the ACTIVE adjustment (if any) riding along. An occurrence without one is
+    * NORMAL; with one it is ADJUSTED_ORIGINAL and keeps its original position, teacher and room.
+    */
     private static List<TeacherScheduleEntryDTO> publishedEntries(Connection connection, String uid,
             TeachingCalendar calendar, int effectiveWeek) throws SQLException {
         String sql = "SELECT o.id AS occurrence_id, o.teaching_weekday,"
@@ -296,12 +296,12 @@ public class TeacherScheduleDAO {
     }
 
     /**
-     * ACTIVE adjustments whose target instant falls inside this week's UTC window and whose
-     * effective teacher or assistant is {@code uid}. The requesting teacher is irrelevant here —
-     * that is what makes a substitute see a lesson they do not own. The week and weekday of the
-     * target come from the target instant through the calendar, never from the original
-     * occurrence, so a cross-week move lands in the right week.
-     */
+    * ACTIVE adjustments whose target instant falls inside this week's UTC window and whose
+    * effective teacher or assistant is {@code uid}. The requesting teacher is irrelevant here —
+    * that is what makes a substitute see a lesson they do not own. The week and weekday of the
+    * target come from the target instant through the calendar, never from the original
+    * occurrence, so a cross-week move lands in the right week.
+    */
     private static List<TeacherScheduleEntryDTO> adjustedTargets(Connection connection, String uid,
             TeachingCalendar calendar, Window window) throws SQLException {
         if (window == null) return List.of();
@@ -417,12 +417,21 @@ public class TeacherScheduleDAO {
         return Timestamp.valueOf(LocalDateTime.ofInstant(instant, ZoneOffset.UTC));
     }
 
+    /**
+    * Internal course-management type TeachingCalendar.
+    */
     private record TeachingCalendar(long id, String timezone, ZoneId zone, long planId) {
     }
 
+    /**
+    * Internal course-management type Spot.
+    */
     private record Spot(LocalDate date, int weekNo, int weekday) {
     }
 
+    /**
+    * Internal course-management type Window.
+    */
     private record Window(Instant start, Instant end) {
     }
 }

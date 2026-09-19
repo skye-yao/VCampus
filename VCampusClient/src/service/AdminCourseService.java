@@ -31,6 +31,7 @@ import model.course.admin.ScheduleArrangementView;
 import model.course.admin.SchedulePlanView;
 import model.course.admin.StudentSearchResultView;
 
+/** 管理员课程目录、教学班、排课及审批操作的异步服务契约。 */
 public interface AdminCourseService {
     CompletableFuture<List<AdminCourseView>> listCourses(String query, String status);
 

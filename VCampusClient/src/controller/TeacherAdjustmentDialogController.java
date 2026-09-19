@@ -59,6 +59,7 @@ import service.TeacherCourseServices;
  * <p>所有节点都可能为 {@code null}：控制器测试按仓库约定在无工具包、无 FXML 节点的环境下运行，
  * 状态机与纯文本函数因此与控件渲染分开。
  */
+/** 教师提交或预检调课申请的 JavaFX 对话框控制器。 */
 public final class TeacherAdjustmentDialogController {
     /** 弹窗 Stage 的标题；GUI 冒烟测试靠它在窗口列表里认出弹窗，因此不做成动态标题。 */
     static final String TITLE = "申请调课";

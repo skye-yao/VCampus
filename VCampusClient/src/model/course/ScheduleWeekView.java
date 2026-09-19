@@ -39,6 +39,7 @@ public final class ScheduleWeekView {
         this(week, week, week, null, dates, periods, entries);
     }
 
+    /** 创建带教学周导航范围的课表视图，并防御性复制日期、节次和课次列表。 */
     public ScheduleWeekView(int week, int minWeek, int maxWeek, Integer currentWeek,
             List<CourseCalendarDateDTO> dates, List<CoursePeriodDTO> periods,
             List<ScheduleEntryView> entries) {

@@ -2,7 +2,9 @@ package service;
 
 import model.course.CoursePushEventView;
 
+/** 接收课程状态变化推送的回调契约。 */
 public interface CoursePushListener {
+    /** 处理已转换为 View 的课程推送事件。 */
     void onCourseEvent(CoursePushEventView event);
 
     /**

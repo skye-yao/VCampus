@@ -6,6 +6,7 @@ import java.util.List;
 
 import dto.course.teacher.GradeSchemeDTO;
 
+/** 教务模块的 GradeSubmissionDetailDTO 数据传输对象。 */
 public final class GradeSubmissionDetailDTO {
     private final GradeSubmissionSummaryDTO summary;
     private final List<GradeDistributionBucketDTO> distribution;
@@ -72,30 +73,36 @@ public final class GradeSubmissionDetailDTO {
         this.correctionComparison = correctionComparison;
     }
 
+    /** 获取 Summary。 */
     public GradeSubmissionSummaryDTO getSummary() {
         return summary;
     }
 
+    /** 获取 Distribution。 */
     public List<GradeDistributionBucketDTO> getDistribution() {
         return distribution == null
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(distribution);
     }
 
+    /** 获取 Items。 */
     public List<GradeSubmissionItemDTO> getItems() {
         return items == null
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(items);
     }
 
+    /** 获取 ReviewedBy。 */
     public String getReviewedBy() {
         return reviewedBy;
     }
 
+    /** 获取 ReviewedAt。 */
     public String getReviewedAt() {
         return reviewedAt;
     }
 
+    /** 获取 ReviewComment。 */
     public String getReviewComment() {
         return reviewComment;
     }

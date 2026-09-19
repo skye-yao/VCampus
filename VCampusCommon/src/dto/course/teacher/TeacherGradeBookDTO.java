@@ -62,22 +62,27 @@ public final class TeacherGradeBookDTO {
         this.reviewComment = reviewComment;
     }
 
+    /** 获取 OfferingId。 */
     public String getOfferingId() {
         return offeringId;
     }
 
+    /** 获取 Revision。 */
     public int getRevision() {
         return revision;
     }
 
+    /** 获取 RosterDigest。 */
     public String getRosterDigest() {
         return rosterDigest;
     }
 
+    /** 获取 State。 */
     public String getState() {
         return state;
     }
 
+    /** 获取 Scheme。 */
     public GradeSchemeDTO getScheme() {
         return scheme;
     }
@@ -87,22 +92,27 @@ public final class TeacherGradeBookDTO {
         return unmodifiable(rows);
     }
 
+    /** 获取 LastSubmissionId。 */
     public String getLastSubmissionId() {
         return lastSubmissionId;
     }
 
+    /** 获取 BaseSubmissionId。 */
     public String getBaseSubmissionId() {
         return baseSubmissionId;
     }
 
+    /** 判断 CanEdit 是否成立。 */
     public boolean isCanEdit() {
         return canEdit;
     }
 
+    /** 获取 CorrectionReason。 */
     public String getCorrectionReason() {
         return correctionReason;
     }
 
+    /** 判断 RosterChangedSinceSubmission 是否成立。 */
     public boolean isRosterChangedSinceSubmission() {
         return rosterChangedSinceSubmission;
     }

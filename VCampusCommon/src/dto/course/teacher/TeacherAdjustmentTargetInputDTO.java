@@ -17,10 +17,12 @@ public final class TeacherAdjustmentTargetInputDTO {
         this.targetDate = targetDate;
     }
 
+    /** 获取 OriginalOccurrenceId。 */
     public String getOriginalOccurrenceId() {
         return originalOccurrenceId;
     }
 
+    /** 获取 TargetDate。 */
     public String getTargetDate() {
         return targetDate;
     }

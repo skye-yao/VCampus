@@ -14,7 +14,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+* Data-access type for CourseAcademicDAO; caller-owned connections are never committed or rolled back here.
+*/
 public class CourseAcademicDAO {
+    /**
+    * Obtains dGrades data.
+    */
     public GradeSummaryDTO loadGrades(Connection connection, String studentUid,
                                       int academicYear, int semester) throws SQLException {
         String sql = "SELECT c.course_code, c.course_name, c.credit, g.score, g.grade_point,"
@@ -47,6 +53,9 @@ public class CourseAcademicDAO {
                 cumulative[0], cumulative[1], records);
     }
 
+    /**
+    * Obtains dTrainingPlan data.
+    */
     public List<TrainingPlanGroupDTO> loadTrainingPlan(Connection connection, String studentUid)
             throws SQLException {
         String sql = "SELECT g.group_id, g.group_name, g.required_credits, g.sort_order,"
@@ -144,6 +153,9 @@ public class CourseAcademicDAO {
         }
     }
 
+    /**
+    * Internal course-management type GroupAccumulator.
+    */
     private static final class GroupAccumulator {
         private final String name;
         private final double requiredCredits;
@@ -160,6 +172,9 @@ public class CourseAcademicDAO {
         }
     }
 
+    /**
+    * Internal course-management type RowMappingException.
+    */
     private static final class RowMappingException extends RuntimeException {
         private RowMappingException(SQLException cause) {
             super(cause);

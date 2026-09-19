@@ -24,10 +24,10 @@ import static dto.course.admin.schedule.ScheduleConflictSeverityDTO.BLOCKING;
 import static dto.course.admin.schedule.ScheduleConflictSeverityDTO.OVERRIDABLE;
 
 /**
- * Centralized effective-schedule conflict detection. A conflicting occurrence replaced by an
- * ACTIVE temporary adjustment no longer occupies resources, while the adjustment itself does at
- * its replacement time and resources.
- */
+* Centralized effective-schedule conflict detection. A conflicting occurrence replaced by an
+* ACTIVE temporary adjustment no longer occupies resources, while the adjustment itself does at
+* its replacement time and resources.
+*/
 public class CourseConflictService {
     public static final String OFFERING_OVERLAP = "OFFERING_OVERLAP";
     public static final String TEACHER_OVERLAP = "TEACHER_OVERLAP";
@@ -38,10 +38,16 @@ public class CourseConflictService {
     private final AdminScheduleDAO scheduleDAO;
     private final AdminScheduleConflictDAO conflictDAO;
 
+    /**
+    * Handles the course-management responsibility of CourseConflictService.
+    */
     public CourseConflictService() {
         this(new AdminScheduleDAO(), new AdminScheduleConflictDAO());
     }
 
+    /**
+    * Handles the course-management responsibility of CourseConflictService.
+    */
     public CourseConflictService(AdminScheduleDAO scheduleDAO,
                                  AdminScheduleConflictDAO conflictDAO) {
         this.scheduleDAO = scheduleDAO;
@@ -54,6 +60,9 @@ public class CourseConflictService {
                             int startWeek, int endWeek) {
     }
 
+    /**
+    * Handles the course-management responsibility of check.
+    */
     public List<ScheduleConflictDTO> check(Candidate candidate) {
         try (Connection connection = DBUtil.getConnection()) {
             return check(connection, candidate);
@@ -62,6 +71,9 @@ public class CourseConflictService {
         }
     }
 
+    /**
+    * Handles the course-management responsibility of check.
+    */
     public List<ScheduleConflictDTO> check(Connection connection, Candidate candidate)
             throws SQLException {
         AdminScheduleDAO.PlanRow plan = scheduleDAO.findPlan(connection, candidate.planId());
@@ -73,11 +85,11 @@ public class CourseConflictService {
     }
 
     /**
-     * Same classification against the effective schedule, but occurrences the caller names are
-     * ignored. A temporary adjustment request in flight replaces originals that are still present,
-     * so the approval of that very request has to exclude them explicitly; the arrangement-level
-     * exclusion below cannot express a non-contiguous set of temporary targets.
-     */
+    * Same classification against the effective schedule, but occurrences the caller names are
+    * ignored. A temporary adjustment request in flight replaces originals that are still present,
+    * so the approval of that very request has to exclude them explicitly; the arrangement-level
+    * exclusion below cannot express a non-contiguous set of temporary targets.
+    */
     public List<ScheduleConflictDTO> check(Connection connection, Candidate candidate,
                                            Set<Long> excludedOccurrenceIds)
             throws SQLException {
@@ -179,11 +191,11 @@ public class CourseConflictService {
     }
 
     /**
-     * Full-plan effective check used by reads and by publication. An arrangement that cannot form a
-     * candidate — no teacher, or no slots yet — is skipped rather than fatal: a plan that is being
-     * edited, or merely displayed, may legitimately contain unfinished rows. Publication still
-     * rejects them; see {@link #requirePublishable}.
-     */
+    * Full-plan effective check used by reads and by publication. An arrangement that cannot form a
+    * candidate — no teacher, or no slots yet — is skipped rather than fatal: a plan that is being
+    * edited, or merely displayed, may legitimately contain unfinished rows. Publication still
+    * rejects them; see {@link #requirePublishable}.
+    */
     public List<ScheduleConflictDTO> checkPlan(Connection connection, long planId)
             throws SQLException {
         AdminScheduleDAO.PlanRow plan = scheduleDAO.findPlan(connection, planId);
@@ -207,17 +219,17 @@ public class CourseConflictService {
     }
 
     /**
-     * Publication gate: the plan must exist, hold at least one arrangement, and every arrangement
-     * must name a teacher and carry at least one slot. This is the only place the incompleteness is
-     * fatal — {@link #checkPlan} deliberately tolerates it so that reading a half-finished plan does
-     * not fail.
-     *
-     * <p>An empty plan is refused as well, and with its own message: publishing one advances
-     * {@code teaching_calendar.current_schedule_plan_id} onto a plan with no occurrences, and both
-     * the student and the teacher timetable read that pointer, so a single publish would blank both
-     * at once. The two refusals stay separate on purpose — an administrator told the arrangements
-     * are missing a teacher would look for a row that does not exist.
-     */
+    * Publication gate: the plan must exist, hold at least one arrangement, and every arrangement
+    * must name a teacher and carry at least one slot. This is the only place the incompleteness is
+    * fatal — {@link #checkPlan} deliberately tolerates it so that reading a half-finished plan does
+    * not fail.
+    *
+    * <p>An empty plan is refused as well, and with its own message: publishing one advances
+    * {@code teaching_calendar.current_schedule_plan_id} onto a plan with no occurrences, and both
+    * the student and the teacher timetable read that pointer, so a single publish would blank both
+    * at once. The two refusals stay separate on purpose — an administrator told the arrangements
+    * are missing a teacher would look for a row that does not exist.
+    */
     public void requirePublishable(Connection connection, long planId) throws SQLException {
         if (scheduleDAO.findPlan(connection, planId) == null) {
             throw new IllegalArgumentException("排课方案不存在");
@@ -235,10 +247,10 @@ public class CourseConflictService {
     }
 
     /**
-     * One stored arrangement reshaped as a candidate, or {@code null} when it cannot form one —
-     * no teacher, or no slots yet. Package-private so the copy path in
-     * {@code ScheduleManagementService} reuses this single rule instead of forking it.
-     */
+    * One stored arrangement reshaped as a candidate, or {@code null} when it cannot form one —
+    * no teacher, or no slots yet. Package-private so the copy path in
+    * {@code ScheduleManagementService} reuses this single rule instead of forking it.
+    */
     static Candidate candidate(long planId, ScheduleArrangementDTO arrangement) {
         ScheduleResourceDTO teacher = arrangement.getTeacher();
         ScheduleResourceDTO classroom = arrangement.getClassroom();
@@ -293,10 +305,10 @@ public class CourseConflictService {
     }
 
     /**
-     * 去重键里带上产生该冲突的教学班：{@link #checkPlan} 的 {@code seen} 跨 candidate 共享，若只按
-     * 「类型 + 时间 + 对象 + 对方教学班」去重，三个教学班共用同一位教师（或同一教室）时，B 报出的
-     * 「与 C 冲突」会被 A 报出的同键条目顶掉，某个教学班在方案级列表里整个消失。
-     */
+    * 去重键里带上产生该冲突的教学班：{@link #checkPlan} 的 {@code seen} 跨 candidate 共享，若只按
+    * 「类型 + 时间 + 对象 + 对方教学班」去重，三个教学班共用同一位教师（或同一教室）时，B 报出的
+    * 「与 C 冲突」会被 A 报出的同键条目顶掉，某个教学班在方案级列表里整个消失。
+    */
     private static void add(List<ScheduleConflictDTO> conflicts, Set<String> seen,
                             ScheduleConflictDTO conflict) {
         String key = conflict.getType() + "|" + conflict.getWeek() + "|" + conflict.getDayOfWeek()
@@ -307,15 +319,15 @@ public class CourseConflictService {
     }
 
     /**
-     * 一条跨 N 周的安排会对每周各报一次同样的冲突（用户案例：9 条「教室容量 40 小于教学班容量 45」），
-     * 这里把「其余字段完全相同、周次连续」的冲突合并成区间：{@code week}=段起，{@code endWeek}=段止。
-     * 只在两个消费点调用——{@link #checkPlan} 与 {@code ScheduleManagementService.checkArrangement}；
-     * {@link #check} 引擎本身保持按周列表，调课模块复用 check 并依赖那个形状。
-     *
-     * <p>每条输入先按其覆盖的周集合展开（旧 journal JSON 缺失 endWeek 时为 0，等价于单周），所以
-     * 对已合并的结果再跑一次不变形；组内周次排序后切连续段，「第 3 周和第 9 周」这种不相邻的周次
-     * 保持两条。分组键含 message 与归属字段，形状相同但文案或归属不同的冲突不会被并到一起。
-     */
+    * 一条跨 N 周的安排会对每周各报一次同样的冲突（用户案例：9 条「教室容量 40 小于教学班容量 45」），
+    * 这里把「其余字段完全相同、周次连续」的冲突合并成区间：{@code week}=段起，{@code endWeek}=段止。
+    * 只在两个消费点调用——{@link #checkPlan} 与 {@code ScheduleManagementService.checkArrangement}；
+    * {@link #check} 引擎本身保持按周列表，调课模块复用 check 并依赖那个形状。
+    *
+    * <p>每条输入先按其覆盖的周集合展开（旧 journal JSON 缺失 endWeek 时为 0，等价于单周），所以
+    * 对已合并的结果再跑一次不变形；组内周次排序后切连续段，「第 3 周和第 9 周」这种不相邻的周次
+    * 保持两条。分组键含 message 与归属字段，形状相同但文案或归属不同的冲突不会被并到一起。
+    */
     static List<ScheduleConflictDTO> mergeWeekRanges(List<ScheduleConflictDTO> conflicts) {
         Map<String, SortedSet<Integer>> weeksByGroup = new LinkedHashMap<>();
         Map<String, ScheduleConflictDTO> templateByGroup = new LinkedHashMap<>();

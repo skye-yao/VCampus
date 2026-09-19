@@ -10,7 +10,13 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+* Data-access type for CourseWaitlistDAO; caller-owned connections are never committed or rolled back here.
+*/
 public class CourseWaitlistDAO {
+    /**
+    * Locks the database rows for StudentProfile.
+    */
     public StudentRow lockStudentProfile(Connection connection, String uid) throws SQLException {
         String sql = "SELECT u.role,sap.status FROM student_academic_profile sap"
                 + " JOIN tbl_user u ON u.UID=sap.uid WHERE sap.uid=? FOR UPDATE";
@@ -23,6 +29,9 @@ public class CourseWaitlistDAO {
         }
     }
 
+    /**
+    * Finds  data.
+    */
     public WaitlistRow find(Connection connection, String uid, long offeringId)
             throws SQLException {
         return one(connection, "SELECT waitlist_id,uid,offering_id,status,queue_time,"
@@ -33,6 +42,9 @@ public class CourseWaitlistDAO {
         });
     }
 
+    /**
+    * Finds ForUpdate data.
+    */
     public WaitlistRow findForUpdate(Connection connection, String uid, long offeringId)
             throws SQLException {
         return one(connection, "SELECT waitlist_id,uid,offering_id,status,queue_time,"
@@ -43,6 +55,9 @@ public class CourseWaitlistDAO {
         });
     }
 
+    /**
+    * Handles the course-management responsibility of head.
+    */
     public WaitlistRow head(Connection connection, long offeringId) throws SQLException {
         return one(connection, "SELECT waitlist_id,uid,offering_id,status,queue_time,"
                 + "offered_at,expires_at FROM course_waitlist"
@@ -51,6 +66,9 @@ public class CourseWaitlistDAO {
                 statement -> statement.setLong(1, offeringId));
     }
 
+    /**
+    * Handles the course-management responsibility of headForUpdate.
+    */
     public WaitlistRow headForUpdate(Connection connection, long offeringId) throws SQLException {
         return one(connection, "SELECT waitlist_id,uid,offering_id,status,queue_time,"
                 + "offered_at,expires_at FROM course_waitlist"
@@ -59,6 +77,9 @@ public class CourseWaitlistDAO {
                 statement -> statement.setLong(1, offeringId));
     }
 
+    /**
+    * Persists saveWaiting data.
+    */
     public void saveWaiting(Connection connection, String uid, long offeringId, Instant queuedAt)
             throws SQLException {
         String sql = "INSERT INTO course_waitlist(uid,offering_id,status,queue_time,offered_at,expires_at)"
@@ -72,6 +93,9 @@ public class CourseWaitlistDAO {
         }
     }
 
+    /**
+    * Handles the course-management responsibility of nextQueueTime.
+    */
     public Instant nextQueueTime(Connection connection, long offeringId, Instant requested)
             throws SQLException {
         String sql = "SELECT MAX(queue_time) FROM course_waitlist"
@@ -88,6 +112,9 @@ public class CourseWaitlistDAO {
         }
     }
 
+    /**
+    * Persists markOffered data.
+    */
     public void markOffered(Connection connection, long waitlistId, Instant offeredAt,
                             Instant expiresAt) throws SQLException {
         update(connection, "UPDATE course_waitlist SET status='OFFERED',offered_at=?,expires_at=?"
@@ -98,6 +125,9 @@ public class CourseWaitlistDAO {
         });
     }
 
+    /**
+    * Persists markStatus data.
+    */
     public void markStatus(Connection connection, long waitlistId, String expected,
                            String next) throws SQLException {
         update(connection, "UPDATE course_waitlist SET status=?,offered_at=NULL,expires_at=NULL"
@@ -108,6 +138,9 @@ public class CourseWaitlistDAO {
         });
     }
 
+    /**
+    * Handles the course-management responsibility of activeReservations.
+    */
     public int activeReservations(Connection connection, long offeringId, Instant now)
             throws SQLException {
         String sql = "SELECT COUNT(*) FROM course_waitlist WHERE offering_id=?"
@@ -122,6 +155,9 @@ public class CourseWaitlistDAO {
         }
     }
 
+    /**
+    * Handles the course-management responsibility of overdueOffers.
+    */
     public List<WaitlistRow> overdueOffers(Connection connection, Instant now, int limit)
             throws SQLException {
         return many(connection, "SELECT waitlist_id,uid,offering_id,status,queue_time,"
@@ -133,6 +169,9 @@ public class CourseWaitlistDAO {
         });
     }
 
+    /**
+    * Handles the course-management responsibility of waitingAfterWindowClose.
+    */
     public List<WaitlistRow> waitingAfterWindowClose(Connection connection, Instant now, int limit)
             throws SQLException {
         return many(connection, "SELECT w.waitlist_id,w.uid,w.offering_id,w.status,w.queue_time,"
@@ -147,6 +186,9 @@ public class CourseWaitlistDAO {
                 });
     }
 
+    /**
+    * Handles the course-management responsibility of vacantOfferingIds.
+    */
     public List<Long> vacantOfferingIds(Connection connection, Instant now, int limit)
             throws SQLException {
         String sql = "SELECT DISTINCT o.offering_id FROM course_offering o"
@@ -172,6 +214,9 @@ public class CourseWaitlistDAO {
         return List.copyOf(ids);
     }
 
+    /**
+    * Handles the course-management responsibility of offeringInfo.
+    */
     public OfferingInfo offeringInfo(Connection connection, long offeringId) throws SQLException {
         String sql = "SELECT offering_id,academic_year,semester,status FROM course_offering"
                 + " WHERE offering_id=?";
@@ -235,16 +280,28 @@ public class CourseWaitlistDAO {
     }
 
     @FunctionalInterface
+    /**
+    * Internal course-management type Binder.
+    */
     private interface Binder {
         void bind(PreparedStatement statement) throws SQLException;
     }
 
+    /**
+    * Internal course-management type StudentRow.
+    */
     public record StudentRow(int role, String status) {
     }
 
+    /**
+    * Internal course-management type OfferingInfo.
+    */
     public record OfferingInfo(long offeringId, int academicYear, int semester, int status) {
     }
 
+    /**
+    * Internal course-management type WaitlistRow.
+    */
     public record WaitlistRow(long waitlistId, String uid, long offeringId, String status,
                               Instant queueTime, Instant offeredAt, Instant expiresAt) {
     }

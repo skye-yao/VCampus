@@ -1,5 +1,6 @@
 package dto.course;
 
+/** 教务模块的 TrainingPlanCourseDTO 数据传输对象。 */
 public final class TrainingPlanCourseDTO {
     private final String courseCode;
     private final String courseName;
@@ -14,18 +15,22 @@ public final class TrainingPlanCourseDTO {
         this.completionStatus = completionStatus;
     }
 
+    /** 获取 CourseCode。 */
     public String getCourseCode() {
         return courseCode;
     }
 
+    /** 获取 CourseName。 */
     public String getCourseName() {
         return courseName;
     }
 
+    /** 获取 Credit。 */
     public double getCredit() {
         return credit;
     }
 
+    /** 获取 CompletionStatus。 */
     public String getCompletionStatus() {
         return completionStatus;
     }

@@ -49,30 +49,37 @@ public final class CourseScheduleWeekDTO {
         this.entries = immutableCopy(entries);
     }
 
+    /** 获取 Week。 */
     public int getWeek() {
         return week;
     }
 
+    /** 获取 MinWeek。 */
     public int getMinWeek() {
         return minWeek;
     }
 
+    /** 获取 MaxWeek。 */
     public int getMaxWeek() {
         return maxWeek;
     }
 
+    /** 获取 CurrentWeek。 */
     public Integer getCurrentWeek() {
         return currentWeek;
     }
 
+    /** 获取 Dates。 */
     public List<CourseCalendarDateDTO> getDates() {
         return unmodifiable(dates);
     }
 
+    /** 获取 Periods。 */
     public List<CoursePeriodDTO> getPeriods() {
         return unmodifiable(periods);
     }
 
+    /** 获取 Entries。 */
     public List<ScheduleEntryDTO> getEntries() {
         return unmodifiable(entries);
     }

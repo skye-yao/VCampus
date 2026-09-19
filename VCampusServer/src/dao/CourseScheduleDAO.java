@@ -23,6 +23,9 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
+/**
+* Data-access type for CourseScheduleDAO; caller-owned connections are never committed or rolled back here.
+*/
 public class CourseScheduleDAO {
     /** Period clock strings are a fixed wire shape; {@code LocalTime.toString()} drops zero seconds. */
     private static final DateTimeFormatter CLOCK = DateTimeFormatter.ofPattern("HH:mm:ss");
@@ -35,22 +38,22 @@ public class CourseScheduleDAO {
                     .thenComparingInt(entry -> displayKindRank(entry.getDisplayKind()));
 
     /**
-     * The student week view covers both date ranges the design requires: the published meetings of
-     * the week (an ACTIVE adjustment keeps its original as a display-only marker) and the ACTIVE
-     * adjustments whose effective target instant falls inside this week, which is what makes a
-     * cross-week move appear in its target week. The published query alone can never describe the
-     * new position, so it only ever contributes NORMAL or ADJUSTED_ORIGINAL entries.
-     *
-     * <p>The grid geometry travels with the entries: {@code dates} and {@code periods} come from
-     * {@code calendar_date ⋈ period_definition}, so the row and column counts are never hardcoded
-     * on either side and the student grid matches the teacher timetable. The same response carries
-     * the calendar's teaching-week bounds and today's teaching week (both from the teaching
-     * calendar's own time zone), so the client can offer “back to the current week” instead of
-     * hardcoding a range.
-     *
-     * @param week 可为 null（或非正）：取 {@code clock} 所在教学周，今天不在学期内时取最小教学周；
-     *             明确给定时照旧查看那一周（见 {@link #effectiveWeek}）
-     */
+    * The student week view covers both date ranges the design requires: the published meetings of
+    * the week (an ACTIVE adjustment keeps its original as a display-only marker) and the ACTIVE
+    * adjustments whose effective target instant falls inside this week, which is what makes a
+    * cross-week move appear in its target week. The published query alone can never describe the
+    * new position, so it only ever contributes NORMAL or ADJUSTED_ORIGINAL entries.
+    *
+    * <p>The grid geometry travels with the entries: {@code dates} and {@code periods} come from
+    * {@code calendar_date ⋈ period_definition}, so the row and column counts are never hardcoded
+    * on either side and the student grid matches the teacher timetable. The same response carries
+    * the calendar's teaching-week bounds and today's teaching week (both from the teaching
+    * calendar's own time zone), so the client can offer “back to the current week” instead of
+    * hardcoding a range.
+    *
+    * @param week 可为 null（或非正）：取 {@code clock} 所在教学周，今天不在学期内时取最小教学周；
+    *             明确给定时照旧查看那一周（见 {@link #effectiveWeek}）
+    */
     public CourseScheduleWeekDTO loadSchedule(Connection connection, String studentUid,
                                               int academicYear, int semester, Integer week,
                                               Clock clock)
@@ -80,10 +83,10 @@ public class CourseScheduleDAO {
     // ------------------------------------------------------------------ 周范围与当前周
 
     /**
-     * min/max teaching week over the whole calendar; non-teaching weeks stay navigable. {@code null}
-     * when the calendar carries no date at all——那时既没有范围也没有当前周，界面只显示正在查看的
-     * 那一周（旧行为：没有日期的教学日历返回一周空课表，不能被这里改成报错）。
-     */
+    * min/max teaching week over the whole calendar; non-teaching weeks stay navigable. {@code null}
+    * when the calendar carries no date at all——那时既没有范围也没有当前周，界面只显示正在查看的
+    * 那一周（旧行为：没有日期的教学日历返回一周空课表，不能被这里改成报错）。
+    */
     private static int[] weekBounds(Connection connection, long calendarId) throws SQLException {
         String sql = "SELECT MIN(week_no) AS min_week, MAX(week_no) AS max_week"
                 + " FROM calendar_date WHERE calendar_id = ?";
@@ -100,9 +103,9 @@ public class CourseScheduleDAO {
     }
 
     /**
-     * 今天落在哪一个教学周，判定用教学日历自己的时区而不是 JVM 时区；今天不在学期内时为 null
-     * （响应里照实为空，GUI 据此禁用“回到本周”）。
-     */
+    * 今天落在哪一个教学周，判定用教学日历自己的时区而不是 JVM 时区；今天不在学期内时为 null
+    * （响应里照实为空，GUI 据此禁用“回到本周”）。
+    */
     private static Integer currentWeek(Connection connection, long calendarId, Clock clock)
             throws SQLException {
         ZoneId zone = ZoneId.of(calendarZone(connection, calendarId));
@@ -129,14 +132,14 @@ public class CourseScheduleDAO {
     }
 
     /**
-     * 实际查看哪一周：缺省（或非正）时取服务端当前周，当前周为空再退回最小教学周（两者都没有时退回
-     * 第 1 周）；明确给定时**原样使用**。
-     *
-     * <p>越界的一周不报错而是一周空课表：这是学生端既有的语义（跨周调课的目标周判定、以及
-     * {@code loadSchedule} 的既有调用点都按"没有课"处理），范围只用来告诉界面可选哪些周——周次
-     * 控件据此夹取，用户根本走不到越界值。教师端的 {@code TeacherScheduleDAO} 选择报错，是因为那条
-     * 链路只服务教师自己的课表，两边在这一点的差别是有意的。
-     */
+    * 实际查看哪一周：缺省（或非正）时取服务端当前周，当前周为空再退回最小教学周（两者都没有时退回
+    * 第 1 周）；明确给定时**原样使用**。
+    *
+    * <p>越界的一周不报错而是一周空课表：这是学生端既有的语义（跨周调课的目标周判定、以及
+    * {@code loadSchedule} 的既有调用点都按"没有课"处理），范围只用来告诉界面可选哪些周——周次
+    * 控件据此夹取，用户根本走不到越界值。教师端的 {@code TeacherScheduleDAO} 选择报错，是因为那条
+    * 链路只服务教师自己的课表，两边在这一点的差别是有意的。
+    */
     private static int effectiveWeek(Integer week, int[] bounds, Integer currentWeek) {
         if (week != null && week > 0) return week;
         if (currentWeek != null) return currentWeek;
@@ -144,11 +147,11 @@ public class CourseScheduleDAO {
     }
 
     /**
-     * Published meetings of the week; the ACTIVE adjustment of the week's occurrence, if any, rides
-     * along so the mapping can emit the published arrangement and the temporary replacement as one
-     * pair. The proposal lives on the request: the adjustment row itself only stores the resolved
-     * UTC window. The pair's target half is discarded by the caller.
-     */
+    * Published meetings of the week; the ACTIVE adjustment of the week's occurrence, if any, rides
+    * along so the mapping can emit the published arrangement and the temporary replacement as one
+    * pair. The proposal lives on the request: the adjustment row itself only stores the resolved
+    * UTC window. The pair's target half is discarded by the caller.
+    */
     private static List<ScheduleEntryDTO> publishedEntries(Connection connection, String studentUid,
             int academicYear, int semester, int week, long planId, String term) throws SQLException {
         String sql = "SELECT o.offering_id, c.course_code, c.course_name,"
@@ -202,12 +205,12 @@ public class CourseScheduleDAO {
     }
 
     /**
-     * ACTIVE adjustments whose target instant falls inside this week's local date range and whose
-     * offering the student is still enrolled in ({@code status=2}, checked on this side exactly as
-     * the published side checks it). The week of the target comes from the adjustment's resolved
-     * UTC window mapped through the teaching calendar, never from the original occurrence, so a
-     * cross-week move appears only in its real target week even when no rule publishes that week.
-     */
+    * ACTIVE adjustments whose target instant falls inside this week's local date range and whose
+    * offering the student is still enrolled in ({@code status=2}, checked on this side exactly as
+    * the published side checks it). The week of the target comes from the adjustment's resolved
+    * UTC window mapped through the teaching calendar, never from the original occurrence, so a
+    * cross-week move appears only in its real target week even when no rule publishes that week.
+    */
     private static List<ScheduleEntryDTO> adjustedTargets(Connection connection, String studentUid,
             int academicYear, int semester, int week, long planId, String term) throws SQLException {
         Window window = weekWindow(connection, planId, week);
@@ -272,11 +275,11 @@ public class CourseScheduleDAO {
     }
 
     /**
-     * The queried week's whole local date range as a UTC instant window, or {@code null} when the
-     * published plan's calendar has no date for that week. The stored UTC wall clock is compared
-     * through the teaching calendar's time zone, so the target instant is judged on the local
-     * teaching day, not on the JVM zone.
-     */
+    * The queried week's whole local date range as a UTC instant window, or {@code null} when the
+    * published plan's calendar has no date for that week. The stored UTC wall clock is compared
+    * through the teaching calendar's time zone, so the target instant is judged on the local
+    * teaching day, not on the JVM zone.
+    */
     private static Window weekWindow(Connection connection, long planId, int week)
             throws SQLException {
         String sql = "SELECT cal.timezone, MIN(cd.local_date) AS first_date,"
@@ -300,11 +303,11 @@ public class CourseScheduleDAO {
     }
 
     /**
-     * The published notice surface keeps the plain week filter, but a notice linked to an
-     * adjustment request is scoped to that request's original and target weeks and returned once
-     * (the EXISTS de-duplicates multiple targets): the summary must not sit in every week of the
-     * term, and a same-week move must not produce two notices.
-     */
+    * The published notice surface keeps the plain week filter, but a notice linked to an
+    * adjustment request is scoped to that request's original and target weeks and returned once
+    * (the EXISTS de-duplicates multiple targets): the summary must not sit in every week of the
+    * term, and a same-week move must not produce two notices.
+    */
     public List<CourseNoticeDTO> loadNotices(Connection connection, String studentUid,
                                              int academicYear, int semester, int week)
             throws SQLException {
@@ -336,15 +339,15 @@ public class CourseScheduleDAO {
     }
 
     /**
-     * One row per published weekly meeting. A meeting whose occurrence carries an ACTIVE adjustment
-     * becomes a pair: the original is display-only and no longer occupies its slot, while the target
-     * states where the lesson actually happens. Either half carries both texts, so a detail view can
-     * render from whichever block the student picked.
-     *
-     * <p>The student week assembly keeps only the original half of this pair and rebuilds the target
-     * from the adjustment instant ({@link #adjustedTargets}), because the published week can never
-     * describe a position outside it; the teacher timetable reads the original half directly.
-     */
+    * One row per published weekly meeting. A meeting whose occurrence carries an ACTIVE adjustment
+    * becomes a pair: the original is display-only and no longer occupies its slot, while the target
+    * states where the lesson actually happens. Either half carries both texts, so a detail view can
+    * render from whichever block the student picked.
+    *
+    * <p>The student week assembly keeps only the original half of this pair and rebuilds the target
+    * from the adjustment instant ({@link #adjustedTargets}), because the published week can never
+    * describe a position outside it; the teacher timetable reads the original half directly.
+    */
     static List<ScheduleEntryDTO> mapScheduleRows(ResultSet rows, String term)
             throws SQLException {
         List<ScheduleEntryDTO> entries = new ArrayList<>();
@@ -437,6 +440,9 @@ public class CourseScheduleDAO {
         return Timestamp.valueOf(LocalDateTime.ofInstant(instant, ZoneOffset.UTC));
     }
 
+    /**
+    * Internal course-management type Window.
+    */
     private record Window(Instant start, Instant end) {
     }
 
@@ -509,9 +515,9 @@ public class CourseScheduleDAO {
     }
 
     /**
-     * Periods are per date, because two dates of the same week may use different day templates.
-     * {@code start_time}/{@code end_time} are local wall clocks and must never be read as UTC.
-     */
+    * Periods are per date, because two dates of the same week may use different day templates.
+    * {@code start_time}/{@code end_time} are local wall clocks and must never be read as UTC.
+    */
     private static List<CoursePeriodDTO> periods(Connection connection, long calendarId, int week)
             throws SQLException {
         String sql = "SELECT cd.local_date, pd.period_no, pd.start_time, pd.end_time"

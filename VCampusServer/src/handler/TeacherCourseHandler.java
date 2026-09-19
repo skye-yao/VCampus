@@ -42,44 +42,44 @@ import java.util.Set;
 import java.util.function.Consumer;
 
 /**
- * 教师端课程查询与调课（module {@code courseTeacher}）的 TCP 入口。
- *
- * <p>处理顺序固定为：认证 → 角色 → 参数 → 调用服务。教师 UID 只取自服务端校验过的
- * Session（{@link UserSession#getUsername()}），请求体里的 {@code uid}/{@code teacherId}/
- * {@code sender} 不参与任何判定，防止客户端用请求体替换真实身份。
- *
- * <p>只读查询的响应键为 terms、offerings、offering、students、schedules、schedule；调课动作的
- * 响应键为 options、conflicts（预览）、adjustmentRequest、applications、result（写操作）。列表类的
- * items 由 {@link dto.course.teacher.TeacherPageDTO} 承载（含 totalCount/page/size），客户端用
- * TypeToken 解析泛型页。数据库异常只写服务端日志，响应里不出现 SQL、表名或堆栈。
- *
- * <p>调课与成绩写请求体都位于 {@code data.request}；其中身份字段（uid/教师/助教）与 {@code force}
- * 是协议外字段，出现即 BAD_REQUEST，绝不传入服务——教师没有强制权限，新安排的教师/助教由服务端按
- * 原课次快照派生。提交与撤销/保存与提交都是写操作，Handler 不做“先查后写”的归属判断，权限一律由
- * 服务端在事务内重新计算。
- *
- * <p>文件动作的响应键：{@code ticket}（上传票据，以及成绩模板、名单导出、成绩导出三张下载票据）。
- * Excel 文件本身绝不进业务 JSON，业务请求只带回一张绑定当前 Session、教师、教学班、用途与长度的
- * 短时票据，字节走独立文件端口。下载票据的生成顺序固定为「校验归属 → 生成文件 → 签发票据」：
- * 文件是从某个教学班的名单/成绩生成的，先发票据就等于先把别人的数据借出去。
- *
- * <p>成绩动作的响应键：{@code offerings}（成绩列表）、{@code gradeBook}（成绩表）、{@code result}
- * （保存/提交/驳回重开/发起更正/确认导入的操作结果信封）、{@code preview}（导入预览与修订）。成绩冲突用
- * {@code gradeBook} 带回最新成绩表，与调课冲突的 {@code conflicts}/{@code latest} 区分开，
- * 客户端不解析对方的类型。
- *
- * <p>「我的申请」动作的响应键沿用模块的「复数列表 / 单数详情」约定：{@code applications} 是合并了
- * 调课申请与成绩提交的统一分页（元素是 {@link dto.course.teacher.TeacherApplicationDTO}，与旧动作
- * {@code listMyAdjustmentRequests} 的 {@code applications} 同名但泛型实参不同，客户端各按自己的
- * TypeToken 解析），{@code application} 是**单数**详情；标记已读是写操作，走 {@code result} 信封。
- * 过期读取确认的冲突同样用 {@code application} 带回当前行——调课冲突的 {@code latest} 与成绩冲突的
- * {@code gradeBook} 已各有所属，不能再塞进第三种实体。
- *
- * <p>导入动作（previewGradeImport/reviseGradeImport/confirmGradeImport/cancelGradeImport）走同一套
- * 防线：身份只来自会话，写请求体不许带身份/人员/强制字段，预览的编辑副本与保存草稿的内容共用同一份
- * 形状校验。预览请求里的 {@code baseDraft} 直接沿用成绩写入的字段约定（offeringId 与每行
- * enrollmentId 只接受十进制字符串），因此导入不是绕过写请求校验的第二条入口。
- */
+* 教师端课程查询与调课（module {@code courseTeacher}）的 TCP 入口。
+*
+* <p>处理顺序固定为：认证 → 角色 → 参数 → 调用服务。教师 UID 只取自服务端校验过的
+* Session（{@link UserSession#getUsername()}），请求体里的 {@code uid}/{@code teacherId}/
+* {@code sender} 不参与任何判定，防止客户端用请求体替换真实身份。
+*
+* <p>只读查询的响应键为 terms、offerings、offering、students、schedules、schedule；调课动作的
+* 响应键为 options、conflicts（预览）、adjustmentRequest、applications、result（写操作）。列表类的
+* items 由 {@link dto.course.teacher.TeacherPageDTO} 承载（含 totalCount/page/size），客户端用
+* TypeToken 解析泛型页。数据库异常只写服务端日志，响应里不出现 SQL、表名或堆栈。
+*
+* <p>调课与成绩写请求体都位于 {@code data.request}；其中身份字段（uid/教师/助教）与 {@code force}
+* 是协议外字段，出现即 BAD_REQUEST，绝不传入服务——教师没有强制权限，新安排的教师/助教由服务端按
+* 原课次快照派生。提交与撤销/保存与提交都是写操作，Handler 不做“先查后写”的归属判断，权限一律由
+* 服务端在事务内重新计算。
+*
+* <p>文件动作的响应键：{@code ticket}（上传票据，以及成绩模板、名单导出、成绩导出三张下载票据）。
+* Excel 文件本身绝不进业务 JSON，业务请求只带回一张绑定当前 Session、教师、教学班、用途与长度的
+* 短时票据，字节走独立文件端口。下载票据的生成顺序固定为「校验归属 → 生成文件 → 签发票据」：
+* 文件是从某个教学班的名单/成绩生成的，先发票据就等于先把别人的数据借出去。
+*
+* <p>成绩动作的响应键：{@code offerings}（成绩列表）、{@code gradeBook}（成绩表）、{@code result}
+* （保存/提交/驳回重开/发起更正/确认导入的操作结果信封）、{@code preview}（导入预览与修订）。成绩冲突用
+* {@code gradeBook} 带回最新成绩表，与调课冲突的 {@code conflicts}/{@code latest} 区分开，
+* 客户端不解析对方的类型。
+*
+* <p>「我的申请」动作的响应键沿用模块的「复数列表 / 单数详情」约定：{@code applications} 是合并了
+* 调课申请与成绩提交的统一分页（元素是 {@link dto.course.teacher.TeacherApplicationDTO}，与旧动作
+* {@code listMyAdjustmentRequests} 的 {@code applications} 同名但泛型实参不同，客户端各按自己的
+* TypeToken 解析），{@code application} 是**单数**详情；标记已读是写操作，走 {@code result} 信封。
+* 过期读取确认的冲突同样用 {@code application} 带回当前行——调课冲突的 {@code latest} 与成绩冲突的
+* {@code gradeBook} 已各有所属，不能再塞进第三种实体。
+*
+* <p>导入动作（previewGradeImport/reviseGradeImport/confirmGradeImport/cancelGradeImport）走同一套
+* 防线：身份只来自会话，写请求体不许带身份/人员/强制字段，预览的编辑副本与保存草稿的内容共用同一份
+* 形状校验。预览请求里的 {@code baseDraft} 直接沿用成绩写入的字段约定（offeringId 与每行
+* enrollmentId 只接受十进制字符串），因此导入不是绕过写请求校验的第二条入口。
+*/
 public class TeacherCourseHandler {
     private static final String MODULE = "courseTeacher";
     /** 与设计第 3 节一致：size 为 1..100。 */
@@ -90,9 +90,9 @@ public class TeacherCourseHandler {
     /** 写请求体只做一次 JSON → 类型转换，转换失败统一按 BAD_REQUEST 返回。 */
     private static final Gson GSON = new Gson();
     /**
-     * 教师写请求体里绝不允许出现的字段：uid/教师/助教身份与强制标志。教师协议没有可替换人员
-     * 的字段（服务端从原课次快照派生），也没有 force；出现任何一个是客户端伪造，直接拒绝。
-     */
+    * 教师写请求体里绝不允许出现的字段：uid/教师/助教身份与强制标志。教师协议没有可替换人员
+    * 的字段（服务端从原课次快照派生），也没有 force；出现任何一个是客户端伪造，直接拒绝。
+    */
     private static final Set<String> FORGED_WRITE_FIELDS = Set.of(
             "uid", "teacherId", "teacherUid", "newTeacherUid",
             "assistantId", "assistantUid", "newAssistantUid", "force");
@@ -103,40 +103,52 @@ public class TeacherCourseHandler {
     private final TeacherFileTicketService files;
     private final TeacherGradeImportService imports;
     /**
-     * 我的申请：查询与已读回执照旧由服务端在事务内重算归属。它没有外部资源依赖（不像票据服务要
-     * 临时目录），因此即使未显式接线也按默认实例可用，与只读查询服务同一口径。
-     */
+    * 我的申请：查询与已读回执照旧由服务端在事务内重算归属。它没有外部资源依赖（不像票据服务要
+    * 临时目录），因此即使未显式接线也按默认实例可用，与只读查询服务同一口径。
+    */
     private final TeacherApplicationService applications;
     /**
-     * 表格读写本身不碰数据库也不碰票据，因此固定实例化，没有构造参数：调用方只需保证
-     * 「先校验归属、再生成文件、最后签发票据」的顺序（下载票据一旦签发，文件就已经是别人的名单了）。
-     */
+    * 表格读写本身不碰数据库也不碰票据，因此固定实例化，没有构造参数：调用方只需保证
+    * 「先校验归属、再生成文件、最后签发票据」的顺序（下载票据一旦签发，文件就已经是别人的名单了）。
+    */
     private final TeacherSpreadsheetService spreadsheets = new TeacherSpreadsheetService();
 
+    /**
+    * Handles the course-management responsibility of TeacherCourseHandler.
+    */
     public TeacherCourseHandler() {
         this(new TeacherCourseQueryService(), new TeacherAdjustmentApplicationService(),
                 new TeacherGradeBookService(), null);
     }
 
     /**
-     * 只读查询的构造：调课与成绩动作在该形态下报告“尚未开放”，与
-     * {@link AdminCourseHandler} 对未接线服务的处理一致；生产入口使用无参构造。
-     */
+    * 只读查询的构造：调课与成绩动作在该形态下报告“尚未开放”，与
+    * {@link AdminCourseHandler} 对未接线服务的处理一致；生产入口使用无参构造。
+    */
     public TeacherCourseHandler(TeacherCourseQueryService queries) {
         this(queries, null, null, null);
     }
 
+    /**
+    * Handles the course-management responsibility of TeacherCourseHandler.
+    */
     public TeacherCourseHandler(TeacherCourseQueryService queries,
                                 TeacherAdjustmentApplicationService adjustments) {
         this(queries, adjustments, null, null);
     }
 
+    /**
+    * Handles the course-management responsibility of TeacherCourseHandler.
+    */
     public TeacherCourseHandler(TeacherCourseQueryService queries,
                                 TeacherAdjustmentApplicationService adjustments,
                                 TeacherGradeBookService grades) {
         this(queries, adjustments, grades, null);
     }
 
+    /**
+    * Handles the course-management responsibility of TeacherCourseHandler.
+    */
     public TeacherCourseHandler(TeacherCourseQueryService queries,
                                 TeacherAdjustmentApplicationService adjustments,
                                 TeacherGradeBookService grades,
@@ -145,9 +157,9 @@ public class TeacherCourseHandler {
     }
 
     /**
-     * 生产装配：导入预览/修订/确认需要一个同时认识文件票据、成绩表与预览仓的服务。
-     * 未接线时导入动作报「尚未开放」，与其它可选服务的处理一致。
-     */
+    * 生产装配：导入预览/修订/确认需要一个同时认识文件票据、成绩表与预览仓的服务。
+    * 未接线时导入动作报「尚未开放」，与其它可选服务的处理一致。
+    */
     public TeacherCourseHandler(TeacherCourseQueryService queries,
                                 TeacherAdjustmentApplicationService adjustments,
                                 TeacherGradeBookService grades,
@@ -157,9 +169,9 @@ public class TeacherCourseHandler {
     }
 
     /**
-     * 全参构造：把「我的申请」也交给调用方决定（测试用它注入固定时钟或空实现）。
-     * 传 {@code null} 时该组动作报「尚未开放」，与其它可选服务一致。
-     */
+    * 全参构造：把「我的申请」也交给调用方决定（测试用它注入固定时钟或空实现）。
+    * 传 {@code null} 时该组动作报「尚未开放」，与其它可选服务一致。
+    */
     public TeacherCourseHandler(TeacherCourseQueryService queries,
                                 TeacherAdjustmentApplicationService adjustments,
                                 TeacherGradeBookService grades,
@@ -174,6 +186,9 @@ public class TeacherCourseHandler {
         this.applications = applications;
     }
 
+    /**
+    * Dispatches the course-management protocol request by action.
+    */
     public Message handle(Message request) {
         Message response = response(request);
         UserSession session = SessionManager.getInstance().getSession(request.getToken());
@@ -421,15 +436,15 @@ public class TeacherCourseHandler {
     }
 
     /**
-     * 在文件服务的临时目录里生成一个下载用的表格**并签发票据**，返回票据（响应键 {@code ticket}）。
-     *
-     * <p>文件名由服务端生成，客户端只贡献扩展名。生成与签发必须共用同一个收尾：写表失败与签发失败
-     * （工作簿超过 5 MiB、会话失效）都会留下一个**没有票据条目**的文件，而
-     * {@link TeacherFileTicketService#purgeExpired} 是按票据条目回收临时文件的——看不见它，就永远
-     * 收不走，一份这样的残件会一直占到停服。因此两步放在同一个 try 里，任何一步抛出都先删掉半成品
-     * 再抛。签发成功之后的回收有两条路，都归文件连接管：字节发完（或中途断开）当场回收，以及
-     * 兑换成功之后长度/摘要核对失败时当场回收——这两条路上的票据都已被消费，清理器看不见了。
-     */
+    * 在文件服务的临时目录里生成一个下载用的表格**并签发票据**，返回票据（响应键 {@code ticket}）。
+    *
+    * <p>文件名由服务端生成，客户端只贡献扩展名。生成与签发必须共用同一个收尾：写表失败与签发失败
+    * （工作簿超过 5 MiB、会话失效）都会留下一个**没有票据条目**的文件，而
+    * {@link TeacherFileTicketService#purgeExpired} 是按票据条目回收临时文件的——看不见它，就永远
+    * 收不走，一份这样的残件会一直占到停服。因此两步放在同一个 try 里，任何一步抛出都先删掉半成品
+    * 再抛。签发成功之后的回收有两条路，都归文件连接管：字节发完（或中途断开）当场回收，以及
+    * 兑换成功之后长度/摘要核对失败时当场回收——这两条路上的票据都已被消费，清理器看不见了。
+    */
     private TeacherFileTicketDTO issueDownloadFile(TeacherFileTicketService fileService,
             UserSession session, String offeringId, String clientFileName, Consumer<Path> writer) {
         Path target = fileService.newTempFile(clientFileName);
@@ -451,9 +466,9 @@ public class TeacherCourseHandler {
     }
 
     /**
-     * 解析调课写请求体。先拒绝身份/人员/force 伪造字段与非法原始类型，再交给 Gson；operationId
-     * 对提交/撤销由服务校验 UUID（BAD_REQUEST 原样返回），预览忽略它。
-     */
+    * 解析调课写请求体。先拒绝身份/人员/force 伪造字段与非法原始类型，再交给 Gson；operationId
+    * 对提交/撤销由服务校验 UUID（BAD_REQUEST 原样返回），预览忽略它。
+    */
     private TeacherAdjustmentWriteDTO adjustmentWrite(Message request) {
         Map<String, Object> values = requestValues(request);
         requireDecimalText(values.get("offeringId"), "offeringId");
@@ -478,14 +493,14 @@ public class TeacherCourseHandler {
     }
 
     /**
-     * 解析成绩写请求体（保存草稿/提交）。
-     *
-     * <p>与调课写请求同一套防线，但字段不同：身份/人员/force 伪造字段同样出现即拒绝；BIGINT 标识
-     * （offeringId、每行的 enrollmentId）只接受十进制字符串，避免 Gson 经 double 静默改写；
-     * operationId/rosterDigest 必须是字符串，内容里的 rows 必须是对象数组。这些检查都在 Gson 之前，
-     * 因此“数字放进字符串字段”这类输入会在转换阶段就被拒绝，而不是变成一个看似合法的请求。
-     * 归属与版本的真实性由服务端在事务内重新校验，Handler 只保证形状。
-     */
+    * 解析成绩写请求体（保存草稿/提交）。
+    *
+    * <p>与调课写请求同一套防线，但字段不同：身份/人员/force 伪造字段同样出现即拒绝；BIGINT 标识
+    * （offeringId、每行的 enrollmentId）只接受十进制字符串，避免 Gson 经 double 静默改写；
+    * operationId/rosterDigest 必须是字符串，内容里的 rows 必须是对象数组。这些检查都在 Gson 之前，
+    * 因此“数字放进字符串字段”这类输入会在转换阶段就被拒绝，而不是变成一个看似合法的请求。
+    * 归属与版本的真实性由服务端在事务内重新校验，Handler 只保证形状。
+    */
     private WriteGradeBookRequestDTO gradeWrite(Message request) {
         Map<String, Object> values = gradeValues(request);
         Object rawContent = values.get("content");
@@ -498,14 +513,14 @@ public class TeacherCourseHandler {
     }
 
     /**
-     * 解析版本变更请求体（驳回重开/发起更正）。
-     *
-     * <p>只有五个字段，但和别的写请求走同一套防线：身份/人员/force 伪造字段出现即拒绝；两个 BIGINT
-     * 标识（offeringId、sourceSubmissionId）只接受十进制字符串，避免 Gson 经 double 静默改写——
-     * 「来源批次」是这次操作唯一认准的历史依据，被悄悄改掉一个数字就等于换了一份基础。
-     * operationId/reason 必须是字符串，expectedRevision 必须是整数；原因是否为空由服务端判定（更正
-     * 必填、重提不要求），Handler 只保证形状。
-     */
+    * 解析版本变更请求体（驳回重开/发起更正）。
+    *
+    * <p>只有五个字段，但和别的写请求走同一套防线：身份/人员/force 伪造字段出现即拒绝；两个 BIGINT
+    * 标识（offeringId、sourceSubmissionId）只接受十进制字符串，避免 Gson 经 double 静默改写——
+    * 「来源批次」是这次操作唯一认准的历史依据，被悄悄改掉一个数字就等于换了一份基础。
+    * operationId/reason 必须是字符串，expectedRevision 必须是整数；原因是否为空由服务端判定（更正
+    * 必填、重提不要求），Handler 只保证形状。
+    */
     private StartGradeRevisionRequestDTO revisionWrite(Message request) {
         Map<String, Object> values = gradeValues(request);
         requireDecimalText(values.get("offeringId"), "offeringId");
@@ -517,13 +532,13 @@ public class TeacherCourseHandler {
     }
 
     /**
-     * 成绩内容（保存/提交的 {@code content} 与导入预览的 {@code baseDraft}）的形状校验：
-     * 同一份规则只写一次，两个入口不会各有一套取整与伪造字段口径。
-     *
-     * <p>内容里不许出现身份/人员/强制字段（出现即说明客户端在试图自己指定归属）；BIGINT 标识只接受
-     * 十进制字符串，避免 Gson 经 double 静默改写；内容里的 rows 必须是对象数组。归属与版本的真实性
-     * 由服务端在事务内重新校验，Handler 只保证形状。
-     */
+    * 成绩内容（保存/提交的 {@code content} 与导入预览的 {@code baseDraft}）的形状校验：
+    * 同一份规则只写一次，两个入口不会各有一套取整与伪造字段口径。
+    *
+    * <p>内容里不许出现身份/人员/强制字段（出现即说明客户端在试图自己指定归属）；BIGINT 标识只接受
+    * 十进制字符串，避免 Gson 经 double 静默改写；内容里的 rows 必须是对象数组。归属与版本的真实性
+    * 由服务端在事务内重新校验，Handler 只保证形状。
+    */
     private static void requireGradeContent(Map<?, ?> content, String label) {
         rejectForgedFields(content, "成绩");
         requireDecimalText(content.get("offeringId"), "offeringId");
@@ -545,9 +560,9 @@ public class TeacherCourseHandler {
     }
 
     /**
-     * 导入预览请求体：一张已经上传成功的票据 + 教师当前的编辑副本。副本走与成绩写入完全相同的内容
-     * 校验（含伪造字段防线），因此预览收到的 baseDraft 形状与保存草稿时一致。
-     */
+    * 导入预览请求体：一张已经上传成功的票据 + 教师当前的编辑副本。副本走与成绩写入完全相同的内容
+    * 校验（含伪造字段防线），因此预览收到的 baseDraft 形状与保存草稿时一致。
+    */
     private PreviewGradeImportRequestDTO previewImport(Message request) {
         Map<String, Object> values = gradeValues(request);
         requireOptionalString(values, "uploadTicket");
@@ -598,8 +613,8 @@ public class TeacherCourseHandler {
     }
 
     /**
-     * 确认导入请求体：确认请求刻意不带成绩内容，因此这里只需要形状检查——候选只存在于服务端。
-     */
+    * 确认导入请求体：确认请求刻意不带成绩内容，因此这里只需要形状检查——候选只存在于服务端。
+    */
     private ConfirmGradeImportRequestDTO confirmImport(Message request) {
         Map<String, Object> values = gradeValues(request);
         requireOptionalString(values, "operationId");
@@ -621,12 +636,12 @@ public class TeacherCourseHandler {
     }
 
     /**
-     * 解析上传票据请求体：只有“哪个教学班、基于哪个草稿版本、文件多大、摘要是什么”，没有文件内容。
-     *
-     * <p>与调课/成绩写请求同一套伪造字段防线；BIGINT 标识只接受十进制字符串，长度必须是整数
-     * （越界、摘要格式与归属由票据服务在签发时再校验，规则只有一个出口）。教学班的归属在导入
-     * 预览/确认时重新核验，票据只负责把用途、长度和身份钉在一起。
-     */
+    * 解析上传票据请求体：只有“哪个教学班、基于哪个草稿版本、文件多大、摘要是什么”，没有文件内容。
+    *
+    * <p>与调课/成绩写请求同一套伪造字段防线；BIGINT 标识只接受十进制字符串，长度必须是整数
+    * （越界、摘要格式与归属由票据服务在签发时再校验，规则只有一个出口）。教学班的归属在导入
+    * 预览/确认时重新核验，票据只负责把用途、长度和身份钉在一起。
+    */
     private TeacherFileUploadRequestDTO uploadRequest(Message request) {
         Map<String, Object> values = writeValues(request, "上传");
         requireDecimalText(values.get("offeringId"), "offeringId");
@@ -638,9 +653,9 @@ public class TeacherCourseHandler {
     }
 
     /**
-     * 列表的类型筛选：缺省或空白表示两种都查；给了值就必须是白名单里的两种之一。
-     * 白名单本身只写在 {@link TeacherApplicationDTO} 里，服务层用的是同一份判断，不会各有一套口径。
-     */
+    * 列表的类型筛选：缺省或空白表示两种都查；给了值就必须是白名单里的两种之一。
+    * 白名单本身只写在 {@link TeacherApplicationDTO} 里，服务层用的是同一份判断，不会各有一套口径。
+    */
     private static String applicationType(Message request) {
         String type = optionalText(request, "type");
         if (type == null) return null;
@@ -672,10 +687,10 @@ public class TeacherCourseHandler {
     }
 
     /**
-     * 标记已读的写请求体：类型、ID 与客户端看到的状态键。ID 必须是十进制字符串（BIGINT 在网络上的
-     * 唯一形态，数字会被 Gson 经 double 静默改写）；类型与状态键都必须在 Gson 之前就是字符串，
-     * 避免「数字放进字符串字段」这种输入变成一个看似合法的请求。归属由服务端在事务内重新校验。
-     */
+    * 标记已读的写请求体：类型、ID 与客户端看到的状态键。ID 必须是十进制字符串（BIGINT 在网络上的
+    * 唯一形态，数字会被 Gson 经 double 静默改写）；类型与状态键都必须在 Gson 之前就是字符串，
+    * 避免「数字放进字符串字段」这种输入变成一个看似合法的请求。归属由服务端在事务内重新校验。
+    */
     private MarkTeacherApplicationReadDTO applicationRead(Message request) {
         Map<String, Object> values = writeValues(request, "申请");
         requireOptionalString(values, "type");
@@ -692,9 +707,9 @@ public class TeacherCourseHandler {
     }
 
     /**
-     * data.request 必须是 JSON 对象，且不得携带伪造身份/人员/强制字段：教师写协议没有这些字段，
-     * 出现即拒绝，避免客户端以为可以替换人员或强制通过。
-     */
+    * data.request 必须是 JSON 对象，且不得携带伪造身份/人员/强制字段：教师写协议没有这些字段，
+    * 出现即拒绝，避免客户端以为可以替换人员或强制通过。
+    */
     private static Map<String, Object> requestValues(Message request) {
         return writeValues(request, "调课");
     }
@@ -816,9 +831,9 @@ public class TeacherCourseHandler {
     }
 
     /**
-     * week 可缺省：缺省表示“由服务端按教学日历决定当前周”。出现时必须是合法整数（越界由服务层判定，
-     * 因为它们依赖教学日历的 minWeek/maxWeek）。
-     */
+    * week 可缺省：缺省表示“由服务端按教学日历决定当前周”。出现时必须是合法整数（越界由服务层判定，
+    * 因为它们依赖教学日历的 minWeek/maxWeek）。
+    */
     private static Integer optionalInteger(Message request, String key) {
         Map<String, Object> data = request.getData();
         if (data == null || data.get(key) == null) return null;
@@ -845,9 +860,9 @@ public class TeacherCourseHandler {
     }
 
     /**
-     * 整数字段的统一判定：data 顶层的查询参数与 data.request 内的写请求体共用同一套规则，
-     * 因此“上传声明了几个字节”和“第几页”不会各有一套取整口径。
-     */
+    * 整数字段的统一判定：data 顶层的查询参数与 data.request 内的写请求体共用同一套规则，
+    * 因此“上传声明了几个字节”和“第几页”不会各有一套取整口径。
+    */
     private static int integerValue(Object value, String key) {
         if (value == null) {
             throw new IllegalArgumentException("缺少参数: " + key);

@@ -90,14 +90,17 @@ public final class TeacherApplicationDTO {
         return ADJUSTMENT_STATUSES;
     }
 
+    /** 获取 Type。 */
     public String getType() {
         return type;
     }
 
+    /** 获取 Id。 */
     public String getId() {
         return id;
     }
 
+    /** 获取 OfferingId。 */
     public String getOfferingId() {
         return offeringId;
     }
@@ -107,10 +110,12 @@ public final class TeacherApplicationDTO {
         return title;
     }
 
+    /** 获取 Status。 */
     public String getStatus() {
         return status;
     }
 
+    /** 获取 SubmittedAt。 */
     public String getSubmittedAt() {
         return submittedAt;
     }
@@ -120,10 +125,12 @@ public final class TeacherApplicationDTO {
         return handledAt;
     }
 
+    /** 获取 ReviewComment。 */
     public String getReviewComment() {
         return reviewComment;
     }
 
+    /** 判断 CanWithdraw 是否成立。 */
     public boolean isCanWithdraw() {
         return canWithdraw;
     }
@@ -133,6 +140,7 @@ public final class TeacherApplicationDTO {
         return stateKey;
     }
 
+    /** 判断 Unread 是否成立。 */
     public boolean isUnread() {
         return unread;
     }

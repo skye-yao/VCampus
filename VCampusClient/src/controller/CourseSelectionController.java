@@ -51,6 +51,12 @@ import service.CourseService;
 import service.CourseServices;
 import util.AlertUtil;
 
+/**
+ * 学生选课页面的 JavaFX 控制器。
+ *
+ * <p>异步服务回调完成后在 JavaFX 线程刷新课程、教学班和选课快照；页面离开时应调用
+ * {@link #dispose()} 解除课程推送订阅。
+ */
 public final class CourseSelectionController {
     enum SelectionTab {
         ALL, PLAN, WAITLIST, ENROLLED
@@ -104,6 +110,7 @@ public final class CourseSelectionController {
     @FXML private Label electiveCountLabel;
     @FXML private Label generalCountLabel;
 
+    /** 创建控制器并取得共享的选课服务。 */
     public CourseSelectionController() {
         this(CourseServices.current(), AlertUtil::showConfirm,
                 AlertUtil::showWaitlistDecision, AlertUtil::showError,
@@ -132,6 +139,7 @@ public final class CourseSelectionController {
     }
 
     @FXML
+    /** 由 FXMLLoader 在注入控件后调用，装配事件与首次加载。 */
     public void initialize() {
         typeFilter.getItems().addAll("全部", "必修", "限选", "选修", "通选");
         typeFilter.setValue("全部");
@@ -149,6 +157,7 @@ public final class CourseSelectionController {
     /**
      * 视图 detached 或被替换时释放推送/reconnect 监听与本地重试。幂等。
      */
+    /** 页面离开时取消课程推送订阅并使未完成回调失效。 */
     public void dispose() {
         CoursePushCoordinator coordinator = pushCoordinator;
         pushCoordinator = null;
@@ -199,6 +208,7 @@ public final class CourseSelectionController {
     }
 
     @FXML
+    /** 重新加载当前学期的选课数据。 */
     public void refresh() {
         fxExecutor.accept(() -> {
             invalidateOfferingCache();

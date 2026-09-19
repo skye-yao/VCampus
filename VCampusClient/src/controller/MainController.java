@@ -62,8 +62,11 @@ public class MainController {
     private static final Set<String> SHOWN_REJECTED_REQUESTS = ConcurrentHashMap.newKeySet();
     private static final Preferences NOTICE_PREFERENCES = Preferences.userNodeForPackage(MainController.class);
 
+    /** 管理员教务管理入口的 FXML 路由。 */
     static final String ADMIN_COURSE_VIEW = "/resources/fxml/AdminCourseManagementView.fxml";
+    /** 学生选课与成绩相关入口的 FXML 路由。 */
     static final String STUDENT_COURSE_VIEW = "/resources/fxml/CourseManagementView.fxml";
+    /** 教师教学班、课表与成绩管理入口的 FXML 路由。 */
     static final String TEACHER_COURSE_VIEW = "/resources/fxml/TeacherCourseManagementView.fxml";
     static final String COURSE_NOTICE_TITLE = "系统提示";
     static final String COURSE_NOTICE_MESSAGE = "当前身份无法进入教务模块";
@@ -943,6 +946,11 @@ public class MainController {
     }
 
     @FXML
+    /**
+     * 根据当前会话角色和教务权限路由到对应的教务入口。
+     *
+     * <p>管理员无权限时仅提示，不切换场景；学生和教师分别进入各自的教务管理视图。
+     */
     public void openCourseSelection(ActionEvent event) {
         String role = ClientSession.getInstance().getRole();
         if (isAdminUser()) {

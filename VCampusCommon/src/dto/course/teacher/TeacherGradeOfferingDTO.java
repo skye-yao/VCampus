@@ -24,22 +24,27 @@ public final class TeacherGradeOfferingDTO {
         this.lastSubmissionId = lastSubmissionId;
     }
 
+    /** 获取 Offering。 */
     public TeacherOfferingDTO getOffering() {
         return offering;
     }
 
+    /** 获取 State。 */
     public String getState() {
         return state;
     }
 
+    /** 获取 EnteredCount。 */
     public int getEnteredCount() {
         return enteredCount;
     }
 
+    /** 获取 MissingCount。 */
     public int getMissingCount() {
         return missingCount;
     }
 
+    /** 获取 LastSubmissionId。 */
     public String getLastSubmissionId() {
         return lastSubmissionId;
     }

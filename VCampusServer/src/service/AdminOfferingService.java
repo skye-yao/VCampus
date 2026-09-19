@@ -19,6 +19,9 @@ import java.time.Clock;
 import java.util.List;
 import java.util.Set;
 
+/**
+* Internal course-management type AdminOfferingService.
+*/
 public class AdminOfferingService {
     private static final Type OFFERING_RESULT_TYPE =
             new TypeToken<AdminOperationResultDTO<AdminOfferingDTO>>() { }.getType();
@@ -35,6 +38,9 @@ public class AdminOfferingService {
     private final AdminOperationTransaction transaction;
     private final Clock clock;
 
+    /**
+    * Handles the course-management responsibility of AdminOfferingService.
+    */
     public AdminOfferingService() {
         this(Clock.systemUTC());
     }
@@ -51,6 +57,9 @@ public class AdminOfferingService {
         this.clock = clock;
     }
 
+    /**
+    * Lists  data.
+    */
     public List<AdminOfferingDTO> list(String courseId, Integer academicYear, Integer semester) {
         long id = AdminOperationTransaction.parseId(courseId, "courseId");
         if ((academicYear == null) != (semester == null)) {
@@ -66,6 +75,9 @@ public class AdminOfferingService {
         }
     }
 
+    /**
+    * Lists Terms data.
+    */
     public List<CourseTermDTO> listTerms() {
         try (Connection connection = DBUtil.getConnection()) {
             return offeringDAO.listTerms(connection);
@@ -74,6 +86,9 @@ public class AdminOfferingService {
         }
     }
 
+    /**
+    * Creates create data.
+    */
     public AdminOperationResultDTO<AdminOfferingDTO> create(String adminUid,
                                                             OfferingEditorRequestDTO request) {
         AdminOfferingDAO.OfferingFields fields = fields(request, CREATE_STATUSES);
@@ -91,6 +106,9 @@ public class AdminOfferingService {
                 });
     }
 
+    /**
+    * Persists update data.
+    */
     public AdminOperationResultDTO<AdminOfferingDTO> update(String adminUid,
                                                             OfferingEditorRequestDTO request) {
         AdminOfferingDAO.OfferingFields fields = fields(request, UPDATE_STATUSES);
@@ -125,6 +143,9 @@ public class AdminOfferingService {
                 });
     }
 
+    /**
+    * Removes or cancels cancel data.
+    */
     public AdminOperationResultDTO<AdminOfferingDTO> cancel(String adminUid, String offeringId,
                                                             int expectedVersion,
                                                             String operationId) {
@@ -141,6 +162,9 @@ public class AdminOfferingService {
                 });
     }
 
+    /**
+    * Removes or cancels deleteDraft data.
+    */
     public AdminOperationResultDTO<Void> deleteDraft(String adminUid, String offeringId,
                                                      int expectedVersion, String operationId) {
         long id = AdminOperationTransaction.parseId(offeringId, "offeringId");
@@ -251,27 +275,51 @@ public class AdminOfferingService {
     }
 
     @FunctionalInterface
+    /**
+    * Internal course-management type SqlCall.
+    */
     private interface SqlCall<T> {
         T call() throws SQLException;
     }
 
+    /**
+    * Internal course-management type Staff.
+    */
     private record Staff(String teacherUid, String assistantUid) {
     }
 
+    /**
+    * Internal course-management type NotFoundException.
+    */
     public static class NotFoundException extends RuntimeException {
+        /**
+        * Handles the course-management responsibility of NotFoundException.
+        */
         public NotFoundException(String message) { super(message); }
     }
 
+    /**
+    * Internal course-management type ConflictException.
+    */
     public static class ConflictException extends RuntimeException {
         private final AdminOfferingDTO latest;
 
+        /**
+        * Handles the course-management responsibility of ConflictException.
+        */
         public ConflictException(String message) { this(message, null); }
 
+        /**
+        * Handles the course-management responsibility of ConflictException.
+        */
         public ConflictException(String message, AdminOfferingDTO latest) {
             super(message);
             this.latest = latest;
         }
 
+        /**
+        * Obtains Latest data.
+        */
         public AdminOfferingDTO getLatest() { return latest; }
     }
 }

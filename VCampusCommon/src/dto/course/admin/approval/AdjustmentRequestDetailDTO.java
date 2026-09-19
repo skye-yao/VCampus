@@ -84,78 +84,96 @@ public final class AdjustmentRequestDetailDTO {
                 reviewComment);
     }
 
+    /** 获取 RequestId。 */
     public String getRequestId() {
         return requestId;
     }
 
+    /** 获取 OfferingId。 */
     public String getOfferingId() {
         return offeringId;
     }
 
+    /** 获取 ApplicantUid。 */
     public String getApplicantUid() {
         return applicantUid;
     }
 
+    /** 获取 Reason。 */
     public String getReason() {
         return reason;
     }
 
+    /** 获取 Status。 */
     public AdjustmentRequestStatusDTO getStatus() {
         return status;
     }
 
+    /** 获取 Version。 */
     public int getVersion() {
         return version;
     }
 
+    /** 获取 NewDayOfWeek。 */
     public int getNewDayOfWeek() {
         return newDayOfWeek;
     }
 
+    /** 获取 NewStartPeriod。 */
     public int getNewStartPeriod() {
         return newStartPeriod;
     }
 
+    /** 获取 NewEndPeriod。 */
     public int getNewEndPeriod() {
         return newEndPeriod;
     }
 
+    /** 获取 NewTeacher。 */
     public ScheduleResourceDTO getNewTeacher() {
         return newTeacher;
     }
 
+    /** 获取 NewAssistant。 */
     public ScheduleResourceDTO getNewAssistant() {
         return newAssistant;
     }
 
+    /** 获取 NewClassroom。 */
     public ScheduleResourceDTO getNewClassroom() {
         return newClassroom;
     }
 
+    /** 获取 Targets。 */
     public List<AdjustmentTargetDTO> getTargets() {
         return targets == null
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(targets);
     }
 
+    /** 获取 Conflicts。 */
     public List<ScheduleConflictDTO> getConflicts() {
         return conflicts == null
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(conflicts);
     }
 
+    /** 获取 SubmittedAt。 */
     public String getSubmittedAt() {
         return submittedAt;
     }
 
+    /** 获取 ReviewedBy。 */
     public String getReviewedBy() {
         return reviewedBy;
     }
 
+    /** 获取 ReviewedAt。 */
     public String getReviewedAt() {
         return reviewedAt;
     }
 
+    /** 获取 ReviewComment。 */
     public String getReviewComment() {
         return reviewComment;
     }

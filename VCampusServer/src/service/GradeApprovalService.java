@@ -39,22 +39,22 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * Administrator review of teacher grade submissions.
- *
- * <p>A submission is a frozen batch: its header and items are never rewritten. Approval is
- * all-or-nothing — it validates the batch, then upserts one current {@code grade} row per item in
- * a single READ_COMMITTED transaction, publishing every row with one transaction timestamp before
- * marking the submission APPROVED and committing. Rejection only stamps the submission's review
- * fields, so the current projection is never touched and a corrected batch can follow.
- *
- * <p>The validation depends on the batch. A batch captured with its scheme (V007) is judged by what
- * it captured: it must cover exactly its own students, each recomputed against that captured scheme,
- * and enrollments added after submission neither join the batch nor invalidate it. A legacy batch
- * without a scheme snapshot keeps the original rule — its items must equal the offering's eligible
- * active enrollments — and no recomputation is invented for it.
- *
- * <p>Whole-batch decisions only: a single item can neither be approved nor rejected on its own.
- */
+* Administrator review of teacher grade submissions.
+*
+* <p>A submission is a frozen batch: its header and items are never rewritten. Approval is
+* all-or-nothing — it validates the batch, then upserts one current {@code grade} row per item in
+* a single READ_COMMITTED transaction, publishing every row with one transaction timestamp before
+* marking the submission APPROVED and committing. Rejection only stamps the submission's review
+* fields, so the current projection is never touched and a corrected batch can follow.
+*
+* <p>The validation depends on the batch. A batch captured with its scheme (V007) is judged by what
+* it captured: it must cover exactly its own students, each recomputed against that captured scheme,
+* and enrollments added after submission neither join the batch nor invalidate it. A legacy batch
+* without a scheme snapshot keeps the original rule — its items must equal the offering's eligible
+* active enrollments — and no recomputation is invented for it.
+*
+* <p>Whole-batch decisions only: a single item can neither be approved nor rejected on its own.
+*/
 public class GradeApprovalService {
     private static final String TARGET_TYPE = "GRADE_SUBMISSION";
     private static final String OK = "OK";
@@ -74,10 +74,16 @@ public class GradeApprovalService {
     private final AdminCourseOperationDAO operations;
     private final Clock clock;
 
+    /**
+    * Handles the course-management responsibility of GradeApprovalService.
+    */
     public GradeApprovalService() {
         this(new GradeApprovalDAO(), new AdminCourseOperationDAO(), Clock.systemUTC());
     }
 
+    /**
+    * Handles the course-management responsibility of GradeApprovalService.
+    */
     public GradeApprovalService(GradeApprovalDAO dao, AdminCourseOperationDAO operations,
                                 Clock clock) {
         this.dao = dao;
@@ -87,6 +93,9 @@ public class GradeApprovalService {
 
     // ------------------------------------------------------------------- reads
 
+    /**
+    * Lists GradeSubmissionsPage data.
+    */
     public GradeSubmissionPageDTO listGradeSubmissionsPage(ApprovalStatusDTO status, int page,
                                                            int size) {
         if (page < 1) throw new IllegalArgumentException("页码必须大于 0");
@@ -108,6 +117,9 @@ public class GradeApprovalService {
         return listGradeSubmissionsPage(status, page, size).getItems();
     }
 
+    /**
+    * Obtains GradeSubmission data.
+    */
     public GradeSubmissionDetailDTO getGradeSubmission(String submissionId) {
         long id = AdminOperationTransaction.parseId(submissionId, "submissionId");
         try (Connection connection = DBUtil.getConnection()) {
@@ -121,6 +133,9 @@ public class GradeApprovalService {
 
     // ------------------------------------------------------------------ review
 
+    /**
+    * Handles the course-management responsibility of review.
+    */
     public AdminOperationResultDTO<GradeSubmissionDetailDTO> review(String adminUid,
             ApprovalDecisionRequestDTO raw) {
         String admin = adminUid == null ? null : adminUid.trim();
@@ -227,11 +242,11 @@ public class GradeApprovalService {
     }
 
     /**
-     * The operation log is the only thing two decisions that hold <em>different</em> submission locks
-     * still share, so it is where a reused operation id is detected. A losing insert waits for the
-     * winner to commit; every local write is then discarded and the committed operation is read back
-     * as a replay or a digest conflict instead of surfacing as a driver error.
-     */
+    * The operation log is the only thing two decisions that hold <em>different</em> submission locks
+    * still share, so it is where a reused operation id is detected. A losing insert waits for the
+    * winner to commit; every local write is then discarded and the committed operation is read back
+    * as a replay or a digest conflict instead of surfacing as a driver error.
+    */
     private AdminOperationResultDTO<GradeSubmissionDetailDTO> auditOrRecover(Connection connection,
             String admin, ApprovalDecisionRequestDTO request, String action, String digest,
             AdminOperationResultDTO<GradeSubmissionDetailDTO> result) throws SQLException {
@@ -261,17 +276,17 @@ public class GradeApprovalService {
     // -------------------------------------------------------------- validation
 
     /**
-     * Null-safe and rounded whole-batch validation: every component and the grade point must be in
-     * range, the covered set must be approvable and the header snapshot must agree with what the
-     * items recompute. A {@code NULL} stored statistic matches only when no item carries a non-null
-     * score.
-     *
-     * <p>Which covered set is approvable depends on the batch: a batch that captured its scheme
-     * (V007) must publish exactly the students it captured, while a legacy batch with a NULL
-     * snapshot keeps the original "must cover every eligible enrollment" rule verbatim.
-     *
-     * @return the reason the batch cannot be approved, or {@code null} when it is approvable
-     */
+    * Null-safe and rounded whole-batch validation: every component and the grade point must be in
+    * range, the covered set must be approvable and the header snapshot must agree with what the
+    * items recompute. A {@code NULL} stored statistic matches only when no item carries a non-null
+    * score.
+    *
+    * <p>Which covered set is approvable depends on the batch: a batch that captured its scheme
+    * (V007) must publish exactly the students it captured, while a legacy batch with a NULL
+    * snapshot keeps the original "must cover every eligible enrollment" rule verbatim.
+    *
+    * @return the reason the batch cannot be approved, or {@code null} when it is approvable
+    */
     private String validationProblem(Connection connection, GradeApprovalDAO.SubmissionRow row,
                                      List<GradeApprovalDAO.ItemRow> items) throws SQLException {
         Set<Long> covered = new LinkedHashSet<>();
@@ -317,18 +332,18 @@ public class GradeApprovalService {
     }
 
     /**
-     * Validation of a batch that captured its scheme. Approval publishes <em>exactly</em> the
-     * captured student set: a student who dropped after submission stays in the batch, and a
-     * student who enrolled afterwards neither gets stuffed into the batch nor invalidates it (the
-     * detail carries the count of such students, and the follow-up version picks them up).
-     *
-     * <p>What is still verified: every item's enrollment must belong to the offering whatever its
-     * status, the captured identity must match the enrollment, and every item's stored component
-     * scores, total and grade point must recompute from the captured scheme with the same pure
-     * calculator the teacher's submission used.
-     *
-     * @return the reason the batch cannot be approved, or {@code null} when it is approvable
-     */
+    * Validation of a batch that captured its scheme. Approval publishes <em>exactly</em> the
+    * captured student set: a student who dropped after submission stays in the batch, and a
+    * student who enrolled afterwards neither gets stuffed into the batch nor invalidates it (the
+    * detail carries the count of such students, and the follow-up version picks them up).
+    *
+    * <p>What is still verified: every item's enrollment must belong to the offering whatever its
+    * status, the captured identity must match the enrollment, and every item's stored component
+    * scores, total and grade point must recompute from the captured scheme with the same pure
+    * calculator the teacher's submission used.
+    *
+    * @return the reason the batch cannot be approved, or {@code null} when it is approvable
+    */
     private String capturedProblem(Connection connection, GradeApprovalDAO.SubmissionRow row,
                                    List<GradeApprovalDAO.ItemRow> items) throws SQLException {
         GradeSchemeDTO scheme;
@@ -383,9 +398,9 @@ public class GradeApprovalService {
     }
 
     /**
-     * The exact mean, carried to a scale far finer than the 0.005 tolerance, so the tolerance itself
-     * is what absorbs the header's {@code DECIMAL(5,2)} rounding rather than a pre-rounded mean.
-     */
+    * The exact mean, carried to a scale far finer than the 0.005 tolerance, so the tolerance itself
+    * is what absorbs the header's {@code DECIMAL(5,2)} rounding rather than a pre-rounded mean.
+    */
     private static BigDecimal mean(List<BigDecimal> scores) {
         BigDecimal total = BigDecimal.ZERO;
         for (BigDecimal score : scores) total = total.add(score);
@@ -411,16 +426,16 @@ public class GradeApprovalService {
     }
 
     /**
-     * What this batch actually changed against the batch it was based on.
-     *
-     * <p>Both sides are read from their own {@code grade_submission_item} rows. That is the whole
-     * point: the teacher's working copy has moved on since submission (or is about to), so a
-     * "previous value" taken from it would be a fabricated history. A batch without a base, or whose
-     * base can no longer be read, yields {@code null} rather than an invented comparison.
-     *
-     * <p>Only genuinely moved students are listed — including one who was added by this correction
-     * (no previous item) and one who dropped between the two submissions (no current item).
-     */
+    * What this batch actually changed against the batch it was based on.
+    *
+    * <p>Both sides are read from their own {@code grade_submission_item} rows. That is the whole
+    * point: the teacher's working copy has moved on since submission (or is about to), so a
+    * "previous value" taken from it would be a fabricated history. A batch without a base, or whose
+    * base can no longer be read, yields {@code null} rather than an invented comparison.
+    *
+    * <p>Only genuinely moved students are listed — including one who was added by this correction
+    * (no previous item) and one who dropped between the two submissions (no current item).
+    */
     private GradeCorrectionComparisonDTO comparison(Connection connection,
             GradeApprovalDAO.SubmissionRow row, List<GradeApprovalDAO.ItemRow> items)
             throws SQLException {
@@ -453,9 +468,9 @@ public class GradeApprovalService {
     }
 
     /**
-     * Every published value of one item: a student whose four component scores are identical but
-     * whose total or grade point moved is still a change worth showing.
-     */
+    * Every published value of one item: a student whose four component scores are identical but
+    * whose total or grade point moved is still a change worth showing.
+    */
     private static boolean sameItem(GradeApprovalDAO.ItemRow left, GradeApprovalDAO.ItemRow right) {
         return same(left.dailyScore(), right.dailyScore())
                 && same(left.midtermScore(), right.midtermScore())
@@ -472,10 +487,10 @@ public class GradeApprovalService {
     }
 
     /**
-     * The students the offering now has as normal enrollments but the batch never captured. It is
-     * what the administrator's "尚未纳入已提交批次" hint counts; approving the batch neither adds
-     * them nor refuses it, so the display is the only place the gap becomes visible.
-     */
+    * The students the offering now has as normal enrollments but the batch never captured. It is
+    * what the administrator's "尚未纳入已提交批次" hint counts; approving the batch neither adds
+    * them nor refuses it, so the display is the only place the gap becomes visible.
+    */
     private int uncoveredCount(Connection connection, GradeApprovalDAO.SubmissionRow row,
                                List<GradeApprovalDAO.ItemRow> items) throws SQLException {
         Set<Long> covered = new LinkedHashSet<>();
@@ -506,9 +521,9 @@ public class GradeApprovalService {
     }
 
     /**
-     * The five bands always present in order, counting the items whose rounded-to-2dp score falls in
-     * each. An item without a score belongs to no band, so the bucket total may trail the item count.
-     */
+    * The five bands always present in order, counting the items whose rounded-to-2dp score falls in
+    * each. An item without a score belongs to no band, so the bucket total may trail the item count.
+    */
     private static List<GradeDistributionBucketDTO> distribution(
             List<GradeApprovalDAO.ItemRow> items) {
         int[] counts = new int[BAND_LABELS.size()];
@@ -564,7 +579,7 @@ public class GradeApprovalService {
     // ------------------------------------------------------------ transaction
 
     /** Null-safe: an unfinished transaction is rolled back even when no failure is in flight,
-     *  and a failed rollback is swallowed rather than replacing an escaping {@link Error}. */
+    *  and a failed rollback is swallowed rather than replacing an escaping {@link Error}. */
     private static void rollback(Connection connection, Throwable failure) {
         try {
             connection.rollback();
@@ -587,20 +602,38 @@ public class GradeApprovalService {
         }
     }
 
+    /**
+    * Internal course-management type NotFoundException.
+    */
     public static class NotFoundException extends RuntimeException {
+        /**
+        * Handles the course-management responsibility of NotFoundException.
+        */
         public NotFoundException(String message) { super(message); }
     }
 
+    /**
+    * Internal course-management type ConflictException.
+    */
     public static class ConflictException extends RuntimeException {
         private final GradeSubmissionDetailDTO entity;
 
+        /**
+        * Handles the course-management responsibility of ConflictException.
+        */
         public ConflictException(String message) { this(message, null); }
 
+        /**
+        * Handles the course-management responsibility of ConflictException.
+        */
         public ConflictException(String message, GradeSubmissionDetailDTO entity) {
             super(message);
             this.entity = entity;
         }
 
+        /**
+        * Obtains Entity data.
+        */
         public GradeSubmissionDetailDTO getEntity() { return entity; }
     }
 }

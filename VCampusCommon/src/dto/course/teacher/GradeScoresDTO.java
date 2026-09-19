@@ -23,18 +23,22 @@ public final class GradeScoresDTO {
         this.finaltermScore = finaltermScore;
     }
 
+    /** 获取 DailyScore。 */
     public BigDecimal getDailyScore() {
         return dailyScore;
     }
 
+    /** 获取 MidtermScore。 */
     public BigDecimal getMidtermScore() {
         return midtermScore;
     }
 
+    /** 获取 ExperimentScore。 */
     public BigDecimal getExperimentScore() {
         return experimentScore;
     }
 
+    /** 获取 FinaltermScore。 */
     public BigDecimal getFinaltermScore() {
         return finaltermScore;
     }

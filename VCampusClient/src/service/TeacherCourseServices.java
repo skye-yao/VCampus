@@ -9,14 +9,17 @@ public final class TeacherCourseServices {
     private TeacherCourseServices() {
     }
 
+    /** 返回当前安装的教师教务服务。 */
     public static TeacherCourseService current() {
         return current;
     }
 
+    /** 为预览或测试安装教师教务服务实现。 */
     public static void install(TeacherCourseService service) {
         current = Objects.requireNonNull(service, "Teacher course service is required");
     }
 
+    /** 恢复默认的 Socket 教师教务服务。 */
     public static void resetToSocket() {
         current = new SocketTeacherCourseService();
     }

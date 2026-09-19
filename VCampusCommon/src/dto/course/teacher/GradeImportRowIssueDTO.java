@@ -49,14 +49,17 @@ public final class GradeImportRowIssueDTO {
         return rowNumber;
     }
 
+    /** 获取 StudentUid。 */
     public String getStudentUid() {
         return studentUid;
     }
 
+    /** 获取 StudentName。 */
     public String getStudentName() {
         return studentName;
     }
 
+    /** 获取 Field。 */
     public String getField() {
         return field;
     }

@@ -5,6 +5,7 @@ import javafx.fxml.FXML;
 import javafx.scene.Node;
 import javafx.scene.control.ToggleButton;
 
+/** 教务管理入口页面的 JavaFX 控制器，负责加载课程管理子页面。 */
 public final class CourseManagementController {
 
     private Runnable backAction =

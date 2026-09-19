@@ -47,6 +47,7 @@ import util.FXMLUtil;
  * 点“查看教学班”或 {@code Stage.setOnHidden}）在途的教学班快照回调一律直接返回，绝不写已经关闭的
  * 控件。所有节点都可能为 {@code null}，控制器测试因此在无工具包的环境下也能跑完整流程。
  */
+/** 教师查看课表中单次课程安排详情的 JavaFX 对话框控制器。 */
 public final class TeacherCourseDetailDialogController {
     /** 弹窗 Stage 的标题；GUI 冒烟测试靠它在窗口列表里认出弹窗，因此不做成动态标题。 */
     static final String TITLE = "课程详情";

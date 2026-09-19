@@ -25,20 +25,24 @@ public final class TeacherPageDTO<T> {
         this.size = size;
     }
 
+    /** 获取 Items。 */
     public List<T> getItems() {
         return items == null
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(items);
     }
 
+    /** 获取 TotalCount。 */
     public long getTotalCount() {
         return totalCount;
     }
 
+    /** 获取 Page。 */
     public int getPage() {
         return page;
     }
 
+    /** 获取 Size。 */
     public int getSize() {
         return size;
     }

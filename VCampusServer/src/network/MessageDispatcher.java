@@ -15,13 +15,13 @@ import service.BankService;
 import handler.LibraryHandler;
 
 /**
- * 服务端消息分发器
- *
- * <p>根据消息的 module 字段，将请求分发到对应的 Handler 处理。
- *
- * @author VirtualCampus 架构组
- * @version 1.0
- */
+* 服务端消息分发器
+*
+* <p>根据消息的 module 字段，将请求分发到对应的 Handler 处理。
+*
+* @author VirtualCampus 架构组
+* @version 1.0
+*/
 public class MessageDispatcher {
 
     // 各模块 Handler
@@ -37,14 +37,23 @@ public class MessageDispatcher {
     private final CourseHandler courseHandler;
     private final AdminCourseHandler adminCourseHandler;
     private final TeacherCourseHandler teacherCourseHandler;
+    /**
+    * Handles the course-management responsibility of MessageDispatcher.
+    */
     public MessageDispatcher() {
         this(new CourseHandler(), new AdminCourseHandler(), new TeacherCourseHandler());
     }
 
+    /**
+    * Handles the course-management responsibility of MessageDispatcher.
+    */
     public MessageDispatcher(CourseHandler courseHandler) {
         this(courseHandler, new AdminCourseHandler(), new TeacherCourseHandler());
     }
 
+    /**
+    * Handles the course-management responsibility of MessageDispatcher.
+    */
     public MessageDispatcher(CourseHandler courseHandler,
                              AdminCourseHandler adminCourseHandler) {
         this(courseHandler, adminCourseHandler, new TeacherCourseHandler());
@@ -55,6 +64,9 @@ public class MessageDispatcher {
         this(new CourseHandler(), new AdminCourseHandler(), teacherCourseHandler);
     }
 
+    /**
+    * Handles the course-management responsibility of MessageDispatcher.
+    */
     public MessageDispatcher(CourseHandler courseHandler,
                               AdminCourseHandler adminCourseHandler,
                               TeacherCourseHandler teacherCourseHandler) {
@@ -74,11 +86,11 @@ public class MessageDispatcher {
     }
 
     /**
-     * 分发消息到对应的 Handler
-     *
-     * @param request 请求消息
-     * @return 响应消息
-     */
+    * 分发消息到对应的 Handler
+    *
+    * @param request 请求消息
+    * @return 响应消息
+    */
     public Message dispatch(Message request) {
         if (request == null) {
             Message response = new Message(MessageType.RESPONSE, "system", "unknown");

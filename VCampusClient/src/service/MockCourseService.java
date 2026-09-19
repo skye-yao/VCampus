@@ -29,6 +29,7 @@ import model.course.TrainingPlanCourseView;
 import model.course.TrainingPlanGroupView;
 import model.course.WaitlistDecision;
 
+/** 供客户端演示与测试使用的内存学生选课服务实现。 */
 public final class MockCourseService implements CourseService {
     private static final String DEFAULT_TERM_NAME = "2026-2027 秋学期";
     private static final CourseTermView DEFAULT_TERM =

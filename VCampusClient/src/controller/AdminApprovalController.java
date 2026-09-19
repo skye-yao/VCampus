@@ -41,6 +41,7 @@ import util.AlertUtil;
  * 请求。FXML 只提供稳定骨架；列表行、详情文本与冲突说明都由控制器按服务端结果生成，且这些
  * 生成逻辑都是纯函数，因此无需 JavaFX 运行时即可测试。
  */
+/** 管理员处理调课与成绩提交审批的 JavaFX 页面控制器。 */
 public final class AdminApprovalController {
     static final String PENDING_LABEL = "待审批";
     static final String APPROVED_LABEL = "已通过";

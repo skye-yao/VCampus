@@ -20,18 +20,22 @@ public final class TeacherCalendarDateDTO {
         this.teachingDay = teachingDay;
     }
 
+    /** 获取 Date。 */
     public String getDate() {
         return date;
     }
 
+    /** 获取 Week。 */
     public int getWeek() {
         return week;
     }
 
+    /** 获取 TeachingWeekday。 */
     public int getTeachingWeekday() {
         return teachingWeekday;
     }
 
+    /** 判断 TeachingDay 是否成立。 */
     public boolean isTeachingDay() {
         return teachingDay;
     }

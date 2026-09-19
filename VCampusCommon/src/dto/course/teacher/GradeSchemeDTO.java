@@ -26,6 +26,7 @@ public final class GradeSchemeDTO {
         requireFourDistinctComponents(this.components);
     }
 
+    /** 获取 Components。 */
     public List<GradeComponentDTO> getComponents() {
         return unmodifiable(components);
     }

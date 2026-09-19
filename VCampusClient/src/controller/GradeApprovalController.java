@@ -48,6 +48,7 @@ import util.AlertUtil;
  * 标签页处于激活状态时把共享的状态筛选交给本控制器刷新；隐藏时不会发起任何请求。所有用户
  * 可见的文本都由本类的纯函数生成，因此无需 JavaFX 运行时即可测试。
  */
+/** 管理员查看并处理教师成绩提交审批的 JavaFX 页面控制器。 */
 public final class GradeApprovalController {
     /** 没有更正原因（驳回重提或普通批次）时「版本差异」这一节的标题。 */
     static final String DEFAULT_COMPARISON_TITLE = "版本差异";

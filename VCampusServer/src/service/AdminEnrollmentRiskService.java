@@ -24,13 +24,22 @@ public class AdminEnrollmentRiskService {
     private final AdminEnrollmentDAO dao;
     private final CourseConflictService conflicts;
 
+    /**
+    * Handles the course-management responsibility of AdminEnrollmentRiskService.
+    */
     public AdminEnrollmentRiskService() { this(new AdminEnrollmentDAO(), new CourseConflictService()); }
 
+    /**
+    * Handles the course-management responsibility of AdminEnrollmentRiskService.
+    */
     public AdminEnrollmentRiskService(AdminEnrollmentDAO dao, CourseConflictService conflicts) {
         this.dao = dao;
         this.conflicts = conflicts;
     }
 
+    /**
+    * Handles the course-management responsibility of calculate.
+    */
     public List<ScheduleConflictDTO> calculate(Connection connection, AdminEnrollmentDAO.StudentRow student,
             AdminEnrollmentDAO.OfferingRow offering, AdminEnrollmentDAO.EnrollmentRow enrollment,
             boolean removal, Instant now) throws SQLException {

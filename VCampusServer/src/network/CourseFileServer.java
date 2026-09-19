@@ -14,18 +14,18 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * 教师成绩 Excel 的文件短连接监听器。
- *
- * <p>与业务服务器完全分开：业务连接是长连接、按行传 JSON；这里每一张文件票据换一条短连接，
- * 传完原始字节立即关闭，绝不在业务 readLine 连接里混入二进制，也不把文件塞进业务 JSON。
- *
- * <p>端口默认 {@value #DEFAULT_FILE_PORT}，由系统属性 {@value #PORT_PROPERTY} 覆盖；测试用 0 让
- * 操作系统分配，再通过 {@link #getPort()} 读回真实端口。绑定成功后端口回填给票据服务，
- * 客户端拿到的票据因此始终指向真正在监听的端口。
- *
- * <p>停止是幂等的：关闭监听器、关闭所有活跃短连接、停止连接线程池，并让票据服务回收临时目录，
- * 所以停服后既没有活动传输线程，也不会留下半截上传或生成的表格。
- */
+* 教师成绩 Excel 的文件短连接监听器。
+*
+* <p>与业务服务器完全分开：业务连接是长连接、按行传 JSON；这里每一张文件票据换一条短连接，
+* 传完原始字节立即关闭，绝不在业务 readLine 连接里混入二进制，也不把文件塞进业务 JSON。
+*
+* <p>端口默认 {@value #DEFAULT_FILE_PORT}，由系统属性 {@value #PORT_PROPERTY} 覆盖；测试用 0 让
+* 操作系统分配，再通过 {@link #getPort()} 读回真实端口。绑定成功后端口回填给票据服务，
+* 客户端拿到的票据因此始终指向真正在监听的端口。
+*
+* <p>停止是幂等的：关闭监听器、关闭所有活跃短连接、停止连接线程池，并让票据服务回收临时目录，
+* 所以停服后既没有活动传输线程，也不会留下半截上传或生成的表格。
+*/
 public final class CourseFileServer implements AutoCloseable {
 
     /** 文件短连接默认端口。 */
@@ -45,13 +45,16 @@ public final class CourseFileServer implements AutoCloseable {
 
     private volatile boolean running;
 
+    /**
+    * Handles the course-management responsibility of CourseFileServer.
+    */
     public CourseFileServer(TeacherFileTicketService tickets) {
         this(tickets, configuredPort());
     }
 
     /**
-     * 绑定文件端口并回填给票据服务；端口被占用时抛出运行时异常，由启动流程决定如何收尾。
-     */
+    * 绑定文件端口并回填给票据服务；端口被占用时抛出运行时异常，由启动流程决定如何收尾。
+    */
     public CourseFileServer(TeacherFileTicketService tickets, int port) {
         if (tickets == null) {
             throw new IllegalArgumentException("文件票据服务不能为空");
@@ -71,8 +74,8 @@ public final class CourseFileServer implements AutoCloseable {
     }
 
     /**
-     * 读取配置的文件端口；缺省为 {@value #DEFAULT_FILE_PORT}，非法值在启动时就拒绝而不是退化成默认端口。
-     */
+    * 读取配置的文件端口；缺省为 {@value #DEFAULT_FILE_PORT}，非法值在启动时就拒绝而不是退化成默认端口。
+    */
     public static int configuredPort() {
         String raw = System.getProperty(PORT_PROPERTY);
         if (raw == null || raw.isBlank()) {
@@ -91,8 +94,8 @@ public final class CourseFileServer implements AutoCloseable {
     }
 
     /**
-     * 启动监听：在工作线程上接受短连接，不阻塞调用方（业务服务器自己占着主线程的接受循环）。
-     */
+    * 启动监听：在工作线程上接受短连接，不阻塞调用方（业务服务器自己占着主线程的接受循环）。
+    */
     public synchronized void start() {
         if (running || stopped.get()) {
             return;
@@ -104,8 +107,8 @@ public final class CourseFileServer implements AutoCloseable {
     }
 
     /**
-     * 幂等停止：监听器、活跃短连接、连接线程池与临时文件一次性收干净。
-     */
+    * 幂等停止：监听器、活跃短连接、连接线程池与临时文件一次性收干净。
+    */
     public void stop() {
         if (!stopped.compareAndSet(false, true)) {
             return;
@@ -137,6 +140,9 @@ public final class CourseFileServer implements AutoCloseable {
     }
 
     @Override
+    /**
+    * Handles the course-management responsibility of close.
+    */
     public void close() {
         stop();
     }
@@ -146,6 +152,9 @@ public final class CourseFileServer implements AutoCloseable {
         return serverSocket.getLocalPort();
     }
 
+    /**
+    * Determines whether isRunning holds.
+    */
     public boolean isRunning() {
         return running;
     }

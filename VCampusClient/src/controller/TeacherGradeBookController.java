@@ -104,6 +104,11 @@ import util.PageLeaveGuard;
  * <p>所有节点都可能为 {@code null}，控制器测试因此无需 JavaFX 工具包；离开确认函数可注入，
  * 测试不会真的弹对话框。
  */
+/**
+ * 教师成绩工作副本的 JavaFX 编辑器控制器。
+ *
+ * <p>编辑模型与服务端 DTO 分离；离页时由 {@link #requestLeave()} 决定是否保留或放弃未保存修改。
+ */
 public final class TeacherGradeBookController implements PageLeaveGuard,
         TeacherGradeImportController.Host {
     static final String LOAD_FAILURE_TEXT = "成绩表加载失败，请重试";

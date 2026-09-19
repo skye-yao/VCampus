@@ -6,6 +6,7 @@ import java.util.List;
 
 import dto.course.admin.schedule.ScheduleConflictDTO;
 
+/** 教务模块的 AdminEnrollmentPreviewDTO 数据传输对象。 */
 public final class AdminEnrollmentPreviewDTO {
     private final String offeringId;
     private final String studentUid;
@@ -20,14 +21,17 @@ public final class AdminEnrollmentPreviewDTO {
                 : Collections.unmodifiableList(new ArrayList<>(risks));
     }
 
+    /** 获取 OfferingId。 */
     public String getOfferingId() {
         return offeringId;
     }
 
+    /** 获取 StudentUid。 */
     public String getStudentUid() {
         return studentUid;
     }
 
+    /** 获取 Risks。 */
     public List<ScheduleConflictDTO> getRisks() {
         return risks == null
                 ? Collections.emptyList()

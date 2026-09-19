@@ -16,10 +16,12 @@ public final class WriteGradeBookRequestDTO {
         this.content = content;
     }
 
+    /** 获取 OperationId。 */
     public String getOperationId() {
         return operationId;
     }
 
+    /** 获取 Content。 */
     public GradeBookContentDTO getContent() {
         return content;
     }

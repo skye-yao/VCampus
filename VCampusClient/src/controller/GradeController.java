@@ -19,6 +19,7 @@ import service.CourseService;
 import service.CourseServices;
 import util.AlertUtil;
 
+/** 学生查看学期成绩汇总与课程成绩明细的 JavaFX 页面控制器。 */
 public final class GradeController {
     private final CourseService service;
     private final BiConsumer<String, String> errorReporter;
@@ -46,6 +47,7 @@ public final class GradeController {
     @FXML private Label totalScoreLabel;
     @FXML private Label detailGpaLabel;
 
+    /** 创建成绩页面控制器并取得共享课程服务。 */
     public GradeController() {
         this(CourseServices.current(), AlertUtil::showError, GradeController::runOnFxThread);
     }
@@ -58,6 +60,7 @@ public final class GradeController {
     }
 
     @FXML
+    /** 由 FXMLLoader 在字段注入后加载可选学期与成绩。 */
     public void initialize() {
         configureColumns();
         termFilter.valueProperty().addListener(
@@ -75,6 +78,7 @@ public final class GradeController {
     }
 
     @FXML
+    /** 异步刷新当前学期的成绩汇总。 */
     public void refresh() {
         fxExecutor.accept(this::loadGrades); // this:: 与service中的loadGrades相区分
     }

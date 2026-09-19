@@ -20,15 +20,15 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Reads, locks and writes of the grade-submission aggregate. Every mutation belongs to a
- * caller-owned transaction; {@link #upsertGrade} is the write seam a test overrides to prove that a
- * failure anywhere in the decision rolls the whole transaction back.
- *
- * <p>A submission and its items are frozen history, so this DAO never rewrites them. Approval only
- * upserts the current {@code grade} projection by {@code enrollment_id} and stamps the submission
- * decision; the database's {@code UNIQUE KEY uk_grade_enrollment(enrollment_id)} is what makes that
- * upsert well-defined.
- */
+* Reads, locks and writes of the grade-submission aggregate. Every mutation belongs to a
+* caller-owned transaction; {@link #upsertGrade} is the write seam a test overrides to prove that a
+* failure anywhere in the decision rolls the whole transaction back.
+*
+* <p>A submission and its items are frozen history, so this DAO never rewrites them. Approval only
+* upserts the current {@code grade} projection by {@code enrollment_id} and stamps the submission
+* decision; the database's {@code UNIQUE KEY uk_grade_enrollment(enrollment_id)} is what makes that
+* upsert well-defined.
+*/
 public class GradeApprovalDAO {
     private static final String SUBMISSION_COLUMNS =
             "s.submission_id,s.offering_id,c.course_name,o.offering_code,s.version,s.submitted_by,"
@@ -45,6 +45,9 @@ public class GradeApprovalDAO {
 
     // ------------------------------------------------------------------- reads
 
+    /**
+    * Finds Submission data.
+    */
     public SubmissionRow findSubmission(Connection connection, long submissionId) throws SQLException {
         String sql = "SELECT " + SUBMISSION_COLUMNS + SUBMISSION_JOINS + " WHERE s.submission_id=?";
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -55,6 +58,9 @@ public class GradeApprovalDAO {
         }
     }
 
+    /**
+    * Lists Submissions data.
+    */
     public List<GradeSubmissionSummaryDTO> listSubmissions(Connection connection,
                                                            ApprovalStatusDTO status, int offset,
                                                            int limit) throws SQLException {
@@ -72,6 +78,9 @@ public class GradeApprovalDAO {
         return List.copyOf(summaries);
     }
 
+    /**
+    * Handles the course-management responsibility of countSubmissions.
+    */
     public long countSubmissions(Connection connection, ApprovalStatusDTO status)
             throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
@@ -85,10 +94,10 @@ public class GradeApprovalDAO {
     }
 
     /**
-     * Items joined with their student identity and ordered by student UID, as the detail requires.
-     * A new batch shows the identity captured at submission; a legacy item with no snapshot keeps
-     * the historical join, so no identity is invented for batches written before V007.
-     */
+    * Items joined with their student identity and ordered by student UID, as the detail requires.
+    * A new batch shows the identity captured at submission; a legacy item with no snapshot keeps
+    * the historical join, so no identity is invented for batches written before V007.
+    */
     public List<ItemRow> findItems(Connection connection, long submissionId) throws SQLException {
         String sql = "SELECT i.item_id,i.submission_id,i.enrollment_id,"
                 + "COALESCE(i.student_uid_snapshot,e.uid) AS student_uid,"
@@ -124,10 +133,10 @@ public class GradeApprovalDAO {
     }
 
     /**
-     * One enrollment row regardless of its status: a batch keeps the students who dropped after
-     * submission, so membership is judged by the offering, not by {@code status = 2}. Missing
-     * rows return {@code null}; foreign keys make a deleted enrollment unreachable in practice.
-     */
+    * One enrollment row regardless of its status: a batch keeps the students who dropped after
+    * submission, so membership is judged by the offering, not by {@code status = 2}. Missing
+    * rows return {@code null}; foreign keys make a deleted enrollment unreachable in practice.
+    */
     public EnrollmentRow findEnrollment(Connection connection, long enrollmentId)
             throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
@@ -144,6 +153,9 @@ public class GradeApprovalDAO {
 
     // ------------------------------------------------------------------- locks
 
+    /**
+    * Locks the database rows for Submission.
+    */
     public void lockSubmission(Connection connection, long submissionId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT submission_id FROM grade_submission WHERE submission_id=? FOR UPDATE")) {
@@ -171,10 +183,10 @@ public class GradeApprovalDAO {
     // ------------------------------------------------------------------ writes
 
     /**
-     * Pins the correction version being decided. Unlike the schedule-adjustment request, the version
-     * column is the batch's correction version fixed by {@code uk_grade_submission_offering_version},
-     * so it is never bumped here.
-     */
+    * Pins the correction version being decided. Unlike the schedule-adjustment request, the version
+    * column is the batch's correction version fixed by {@code uk_grade_submission_offering_version},
+    * so it is never bumped here.
+    */
     public int updateDecision(Connection connection, long submissionId, int expectedVersion,
                               ApprovalStatusDTO status, String reviewerUid, Instant reviewedAt,
                               String reviewComment) throws SQLException {
@@ -193,13 +205,13 @@ public class GradeApprovalDAO {
     }
 
     /**
-     * Upserts one student's current projection by {@code enrollment_id}. Every nullable component is
-     * assigned exactly, so a missing component stays {@code NULL} rather than becoming zero, and the
-     * row is published with the decision's single transaction timestamp.
-     *
-     * <p>Overridable seam: a failure here must roll back the projection, the submission decision and
-     * the audit row together.
-     */
+    * Upserts one student's current projection by {@code enrollment_id}. Every nullable component is
+    * assigned exactly, so a missing component stays {@code NULL} rather than becoming zero, and the
+    * row is published with the decision's single transaction timestamp.
+    *
+    * <p>Overridable seam: a failure here must roll back the projection, the submission decision and
+    * the audit row together.
+    */
     public void upsertGrade(Connection connection, ItemRow item, Timestamp publishTime)
             throws SQLException {
         String sql = "INSERT INTO grade (enrollment_id, daily_score, midterm_score,"
@@ -280,20 +292,26 @@ public class GradeApprovalDAO {
         return value == null ? null : value.toLocalDateTime().toInstant(ZoneOffset.UTC);
     }
 
+    /**
+    * Handles the course-management responsibility of instantText.
+    */
     public static String instantText(Timestamp value) {
         return value == null ? null : DateTimeFormatter.ISO_INSTANT.format(instant(value));
     }
 
+    /**
+    * Handles the course-management responsibility of timestamp.
+    */
     public static Timestamp timestamp(Instant instant) {
         return Timestamp.valueOf(LocalDateTime.ofInstant(instant, ZoneOffset.UTC));
     }
 
     /**
-     * {@code correctionReason} is the reason the teacher wrote when this batch was started as a
-     * correction; it is {@code NULL} for ordinary submissions and for resubmissions. The approval
-     * detail shows it next to the comparison, and it is read from the batch itself — never from the
-     * mutable working copy, which the teacher may already have moved on from.
-     */
+    * {@code correctionReason} is the reason the teacher wrote when this batch was started as a
+    * correction; it is {@code NULL} for ordinary submissions and for resubmissions. The approval
+    * detail shows it next to the comparison, and it is read from the batch itself — never from the
+    * mutable working copy, which the teacher may already have moved on from.
+    */
     public record SubmissionRow(long submissionId, long offeringId, String courseName,
                                 String offeringCode, int version, String submittedBy,
                                 String teacherName, Timestamp submittedAt, ApprovalStatusDTO status,
@@ -305,11 +323,11 @@ public class GradeApprovalDAO {
     }
 
     /**
-     * One submitted item. {@code studentUid}/{@code studentName} are the display identity
-     * (captured snapshot when the batch has one, otherwise the historical enrollment join);
-     * {@code snapshotUid} is the raw captured value, {@code null} for pre-V007 batches, and is
-     * what approval checks against the enrollment.
-     */
+    * One submitted item. {@code studentUid}/{@code studentName} are the display identity
+    * (captured snapshot when the batch has one, otherwise the historical enrollment join);
+    * {@code snapshotUid} is the raw captured value, {@code null} for pre-V007 batches, and is
+    * what approval checks against the enrollment.
+    */
     public record ItemRow(long itemId, long submissionId, long enrollmentId, String studentUid,
                           String studentName, String snapshotUid, BigDecimal dailyScore,
                           BigDecimal midtermScore, BigDecimal experimentScore,

@@ -45,37 +45,37 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * 教师成绩工作副本：成绩列表、成绩表读取与草稿保存。
- *
- * <p>权限（设计第 4 节）：读取走 {@link TeacherAccessPolicy#requireViewOffering}（任课教师、助教与
- * 有效课表里的任课教师都能看，但助教的能力位是只读）；每次写入都在事务内重新调用
- * {@link TeacherAccessPolicy#requireEditGrades}，只认该教学班 {@code role=0} 的任课教师。
- * {@code uid} 必须是服务端校验过的 Session 身份，客户端传来的 teacherId/sender 一律不参与。
- *
- * <p>写事务的顺序（设计第 7、8 节）：规范化/校验 → 查同操作结果 → 锁 offering → 复查 role=0 →
- * 再查同操作结果 → 锁工作副本 → 复核 rosterDigest 与学生归属 → 驳回惰性重开 → 方案/版本原子更新
- * （影响行数不是 1 就中止，绝不再碰明细）→ 按 enrollment_id 升序写明细 → 写变更审计 → 写教师操作
- * 日志 → commit。读取永远不写库：没有工作副本时返回 {@code revision=0} 的虚拟草稿（服务端默认
- * 方案 + 当前正常名单全空分数），首次保存才在 offering 锁内创建。
- *
- * <p>幂等：相同 operationId 且规范化请求相同时重放 {@code teacher_course_operation_log} 里已提交的
- * 响应（哪怕此时 expectedRevision 已经过期，重试不会变成冲突）；相同 operationId 但内容不同是
- * CONFLICT。规范化请求按 enrollment_id 升序、方案按固定四项枚举顺序、分数按两位小数文本生成摘要，
- * 所以行序或 {@code 88.5}/{@code 88.50} 的写法不会造成假冲突。
- *
- * <p>提交（设计第 8 节）在同一把 offering 锁内完成：先按同一套规则保存工作副本，再用 <em>刚写入的
- * 草稿行</em>捕获整份正常名单（方案、名单摘要、身份、统计与每条明细）建成一个不可变批次，最后关闭
- * 草稿并记下 last_submission_id，全程一个事务。提交版本取该班历史最大 version+1，不与草稿 revision
- * 混用；“每班至多一个 PENDING 批次”在 offering 锁内检查，并发的第二次提交拿到 CONFLICT 而不是第二
- * 个待审批次。提交快照里禁用组成写 NULL（草稿仍保留原值），等级不写（不编造等级编码）。
- *
- * <p>版本链（设计第 8、12 节）：{@link #reopenRejectedGradeBook} 从最后一次<b>被驳回</b>的批次复制
- * 出可编辑副本（草稿类型 RESUBMISSION），{@link #beginGradeCorrection} 从最后一次<b>已通过</b>的
- * 批次复制（草稿类型 CORRECTION + 基础批次 + 必填原因）。复制的一律是批次快照而不是当前草稿，并合并
- * 当前正常名单：提交之后才入学的学生没有草稿行（四项 NULL），名单里已经消失的学生没有草稿行。两个
- * 入口都不递增 revision（随后那次保存才递增），也不碰 {@code grade} 投影——学生的当前成绩只有在
- * 新批次被管理员通过之后才切换，旧的批次快照永远可查。
- */
+* 教师成绩工作副本：成绩列表、成绩表读取与草稿保存。
+*
+* <p>权限（设计第 4 节）：读取走 {@link TeacherAccessPolicy#requireViewOffering}（任课教师、助教与
+* 有效课表里的任课教师都能看，但助教的能力位是只读）；每次写入都在事务内重新调用
+* {@link TeacherAccessPolicy#requireEditGrades}，只认该教学班 {@code role=0} 的任课教师。
+* {@code uid} 必须是服务端校验过的 Session 身份，客户端传来的 teacherId/sender 一律不参与。
+*
+* <p>写事务的顺序（设计第 7、8 节）：规范化/校验 → 查同操作结果 → 锁 offering → 复查 role=0 →
+* 再查同操作结果 → 锁工作副本 → 复核 rosterDigest 与学生归属 → 驳回惰性重开 → 方案/版本原子更新
+* （影响行数不是 1 就中止，绝不再碰明细）→ 按 enrollment_id 升序写明细 → 写变更审计 → 写教师操作
+* 日志 → commit。读取永远不写库：没有工作副本时返回 {@code revision=0} 的虚拟草稿（服务端默认
+* 方案 + 当前正常名单全空分数），首次保存才在 offering 锁内创建。
+*
+* <p>幂等：相同 operationId 且规范化请求相同时重放 {@code teacher_course_operation_log} 里已提交的
+* 响应（哪怕此时 expectedRevision 已经过期，重试不会变成冲突）；相同 operationId 但内容不同是
+* CONFLICT。规范化请求按 enrollment_id 升序、方案按固定四项枚举顺序、分数按两位小数文本生成摘要，
+* 所以行序或 {@code 88.5}/{@code 88.50} 的写法不会造成假冲突。
+*
+* <p>提交（设计第 8 节）在同一把 offering 锁内完成：先按同一套规则保存工作副本，再用 <em>刚写入的
+* 草稿行</em>捕获整份正常名单（方案、名单摘要、身份、统计与每条明细）建成一个不可变批次，最后关闭
+* 草稿并记下 last_submission_id，全程一个事务。提交版本取该班历史最大 version+1，不与草稿 revision
+* 混用；“每班至多一个 PENDING 批次”在 offering 锁内检查，并发的第二次提交拿到 CONFLICT 而不是第二
+* 个待审批次。提交快照里禁用组成写 NULL（草稿仍保留原值），等级不写（不编造等级编码）。
+*
+* <p>版本链（设计第 8、12 节）：{@link #reopenRejectedGradeBook} 从最后一次<b>被驳回</b>的批次复制
+* 出可编辑副本（草稿类型 RESUBMISSION），{@link #beginGradeCorrection} 从最后一次<b>已通过</b>的
+* 批次复制（草稿类型 CORRECTION + 基础批次 + 必填原因）。复制的一律是批次快照而不是当前草稿，并合并
+* 当前正常名单：提交之后才入学的学生没有草稿行（四项 NULL），名单里已经消失的学生没有草稿行。两个
+* 入口都不递增 revision（随后那次保存才递增），也不碰 {@code grade} 投影——学生的当前成绩只有在
+* 新批次被管理员通过之后才切换，旧的批次快照永远可查。
+*/
 public class TeacherGradeBookService {
     /** 教师操作日志的目标类型：一份教学班成绩工作副本。 */
     public static final String TARGET_TYPE = "GRADE_BOOK";
@@ -94,11 +94,11 @@ public class TeacherGradeBookService {
     private static final String DRAFT_KIND_CORRECTION = "CORRECTION";
     private static final int SCORE_SCALE = 2;
     /**
-     * 更正原因的字符上限，与 {@code teacher_grade_book.correction_reason}、
-     * {@code grade_submission.correction_reason} 与 {@code teacher_grade_change_log.reason} 的
-     * {@code VARCHAR(500)} 一致，也与同模块的调课原因同一个口径。超长必须在服务端按坏请求拒绝：
-     * 交给 MySQL 严格模式就会变成 1406 / 服务不可用，非严格模式则把原因静默截断在审计里。
-     */
+    * 更正原因的字符上限，与 {@code teacher_grade_book.correction_reason}、
+    * {@code grade_submission.correction_reason} 与 {@code teacher_grade_change_log.reason} 的
+    * {@code VARCHAR(500)} 一致，也与同模块的调课原因同一个口径。超长必须在服务端按坏请求拒绝：
+    * 交给 MySQL 严格模式就会变成 1406 / 服务不可用，非严格模式则把原因静默截断在审计里。
+    */
     private static final int MAX_REASON = 500;
     /** 不及格线：总评严格小于 60 计入批次头的 failed_count。 */
     private static final BigDecimal FAIL_SCORE = new BigDecimal("60");
@@ -125,6 +125,9 @@ public class TeacherGradeBookService {
     private final TeacherAccessPolicy accessPolicy;
     private final Clock clock;
 
+    /**
+    * Handles the course-management responsibility of TeacherGradeBookService.
+    */
     public TeacherGradeBookService() {
         this(new TeacherGradeBookDAO(), new TeacherGradeAuditDAO(), new TeacherCourseOperationDAO(),
                 new TeacherAccessPolicy(), Clock.systemUTC());
@@ -142,10 +145,10 @@ public class TeacherGradeBookService {
     }
 
     /**
-     * 新工作副本的默认方案：四项固定组成，全部启用，权重为 0。草稿允许权重未配齐，正式提交的
-     * “启用项权重大于 0、合计 10000”由 Task 4 的提交校验把关；客户端永远不需要（也不许）自己
-     * 发明一份方案。
-     */
+    * 新工作副本的默认方案：四项固定组成，全部启用，权重为 0。草稿允许权重未配齐，正式提交的
+    * “启用项权重大于 0、合计 10000”由 Task 4 的提交校验把关；客户端永远不需要（也不许）自己
+    * 发明一份方案。
+    */
     public static GradeSchemeDTO defaultScheme() {
         List<GradeComponentDTO> components = new ArrayList<>();
         for (GradeComponentCodeDTO code : GradeComponentCodeDTO.values()) {
@@ -157,9 +160,9 @@ public class TeacherGradeBookService {
     // -------------------------------------------------------------------- 读
 
     /**
-     * 一个教学班的成绩表。没有工作副本时返回 {@code revision=0} 的虚拟草稿且不写库；
-     * 未提交的批次显示 DRAFT，已提交的批次显示 PENDING/APPROVED/REJECTED。
-     */
+    * 一个教学班的成绩表。没有工作副本时返回 {@code revision=0} 的虚拟草稿且不写库；
+    * 未提交的批次显示 DRAFT，已提交的批次显示 PENDING/APPROVED/REJECTED。
+    */
     public TeacherGradeBookDTO getGradeBook(String uid, String offeringId) {
         String teacher = requireUid(uid);
         long offering = AdminOperationTransaction.parseId(offeringId, "offeringId");
@@ -215,6 +218,9 @@ public class TeacherGradeBookService {
 
     // -------------------------------------------------------------------- 写
 
+    /**
+    * Persists saveDraft data.
+    */
     public TeacherOperationResultDTO<TeacherGradeBookDTO> saveDraft(String uid,
             WriteGradeBookRequestDTO raw) {
         String teacher = requireUid(uid);
@@ -251,18 +257,18 @@ public class TeacherGradeBookService {
     }
 
     /**
-     * 在**调用方持有**的连接与事务里执行一次草稿写入：不打开连接、不提交、不回滚、不恢复
-     * autoCommit，连接的生命周期完全由调用方负责。
-     *
-     * <p>导入确认要用它：候选草稿、教师操作日志与（若重试）已提交结果的重放必须在同一个事务里
-     * 完成，而 {@link #saveDraft} 自带一个独立事务，从另一个事务里调用它就会把「这一笔到底提交了
-     * 没有」拆成两段。这里复用同一套 {@code validate → normalize → digest → saveTransaction} 流程，
-     * 所以确认导入写的草稿与教师手工保存出来的草稿完全是同一种状态，唯一的差别是动作名：
-     * {@code action} 会写进单元格变更审计，导入改写整班与手工改一格必须能分辨。
-     *
-     * @param action 触发本次写入的动作名（导入确认用
-     *         {@link TeacherCourseActions#CONFIRM_GRADE_IMPORT}），参与请求摘要
-     */
+    * 在**调用方持有**的连接与事务里执行一次草稿写入：不打开连接、不提交、不回滚、不恢复
+    * autoCommit，连接的生命周期完全由调用方负责。
+    *
+    * <p>导入确认要用它：候选草稿、教师操作日志与（若重试）已提交结果的重放必须在同一个事务里
+    * 完成，而 {@link #saveDraft} 自带一个独立事务，从另一个事务里调用它就会把「这一笔到底提交了
+    * 没有」拆成两段。这里复用同一套 {@code validate → normalize → digest → saveTransaction} 流程，
+    * 所以确认导入写的草稿与教师手工保存出来的草稿完全是同一种状态，唯一的差别是动作名：
+    * {@code action} 会写进单元格变更审计，导入改写整班与手工改一格必须能分辨。
+    *
+    * @param action 触发本次写入的动作名（导入确认用
+    *         {@link TeacherCourseActions#CONFIRM_GRADE_IMPORT}），参与请求摘要
+    */
     TeacherOperationResultDTO<TeacherGradeBookDTO> saveDraftInTransaction(Connection connection,
             String uid, WriteGradeBookRequestDTO raw, String action) throws SQLException {
         String teacher = requireUid(uid);
@@ -274,13 +280,13 @@ public class TeacherGradeBookService {
     }
 
     /**
-     * 正式提交：请求就是当前完整编辑内容，事务内先按草稿规则保存工作副本，再把它整份捕获成一个
-     * 不可变批次（方案/名单摘要/身份/统计/明细），关闭草稿并记录 last_submission_id。
-     *
-     * <p>与 {@link #saveDraft} 的差别：方案必须配齐权重（否则提交没有确定的总评），整份正常名单的
-     * 每个启用组成都必须有分数（缺失不是 0 分，拒绝而不是补 0），并且该教学班不能已有 PENDING 批次。
-     * 提交不额外写正式成绩：只有管理员审批成功才发布 {@code grade} 投影。
-     */
+    * 正式提交：请求就是当前完整编辑内容，事务内先按草稿规则保存工作副本，再把它整份捕获成一个
+    * 不可变批次（方案/名单摘要/身份/统计/明细），关闭草稿并记录 last_submission_id。
+    *
+    * <p>与 {@link #saveDraft} 的差别：方案必须配齐权重（否则提交没有确定的总评），整份正常名单的
+    * 每个启用组成都必须有分数（缺失不是 0 分，拒绝而不是补 0），并且该教学班不能已有 PENDING 批次。
+    * 提交不额外写正式成绩：只有管理员审批成功才发布 {@code grade} 投影。
+    */
     public TeacherOperationResultDTO<TeacherGradeBookDTO> submitGradeBook(String uid,
             WriteGradeBookRequestDTO raw) {
         String teacher = requireUid(uid);
@@ -319,24 +325,24 @@ public class TeacherGradeBookService {
     // ------------------------------------------------------------ 驳回重开与更正
 
     /**
-     * 驳回重开：把本班最后一次<b>被驳回</b>的批次复制成一份新的可编辑草稿。
-     *
-     * <p>与「直接对被驳回的草稿再保存一次」（{@link #prepareBook} 里的惰性重开）是同一件事的两个
-     * 入口：草稿类型都标 RESUBMISSION、基础批次都是那一批被驳回的批次、都不在这里递增 revision。
-     * 差别只在时机——显式重开不要求教师先改一格成绩，也不要求原因。
-     */
+    * 驳回重开：把本班最后一次<b>被驳回</b>的批次复制成一份新的可编辑草稿。
+    *
+    * <p>与「直接对被驳回的草稿再保存一次」（{@link #prepareBook} 里的惰性重开）是同一件事的两个
+    * 入口：草稿类型都标 RESUBMISSION、基础批次都是那一批被驳回的批次、都不在这里递增 revision。
+    * 差别只在时机——显式重开不要求教师先改一格成绩，也不要求原因。
+    */
     public TeacherOperationResultDTO<TeacherGradeBookDTO> reopenRejectedGradeBook(String uid,
             StartGradeRevisionRequestDTO raw) {
         return startRevision(uid, raw, REOPEN_GOAL);
     }
 
     /**
-     * 发起更正：把本班最后一次<b>已通过</b>的批次复制成一份新的可编辑草稿，更正原因必填。
-     *
-     * <p>学生的当前成绩在更正批次被管理员通过之前不会改变：这里只动工作副本与草稿，不碰
-     * {@code grade} 投影。后续提交的批次带 CORRECTION 类型与 base_submission_id，由
-     * {@link #submitTransaction} 从工作副本读出，不需要第二条写通路。
-     */
+    * 发起更正：把本班最后一次<b>已通过</b>的批次复制成一份新的可编辑草稿，更正原因必填。
+    *
+    * <p>学生的当前成绩在更正批次被管理员通过之前不会改变：这里只动工作副本与草稿，不碰
+    * {@code grade} 投影。后续提交的批次带 CORRECTION 类型与 base_submission_id，由
+    * {@link #submitTransaction} 从工作副本读出，不需要第二条写通路。
+    */
     public TeacherOperationResultDTO<TeacherGradeBookDTO> beginGradeCorrection(String uid,
             StartGradeRevisionRequestDTO raw) {
         return startRevision(uid, raw, CORRECTION_GOAL);
@@ -377,11 +383,11 @@ public class TeacherGradeBookService {
     }
 
     /**
-     * 版本变更事务：与保存/提交共用同一把 offering 锁与同一个锁顺序（offering → grade book →
-     * 明细），守卫依次是「没有未审批批次」「没有已打开未处理的草稿」「来源就是最后一次批次且状态
-     * 正好对上」「客户端看到的版本就是当前版本」。任何一条不满足都只给冲突与最新成绩表，绝不在
-     * 一个不属于本次操作的批次上动手。
-     */
+    * 版本变更事务：与保存/提交共用同一把 offering 锁与同一个锁顺序（offering → grade book →
+    * 明细），守卫依次是「没有未审批批次」「没有已打开未处理的草稿」「来源就是最后一次批次且状态
+    * 正好对上」「客户端看到的版本就是当前版本」。任何一条不满足都只给冲突与最新成绩表，绝不在
+    * 一个不属于本次操作的批次上动手。
+    */
     private TeacherOperationResultDTO<TeacherGradeBookDTO> startRevisionTransaction(
             Connection connection, Revision request, RevisionGoal goal, String digest)
             throws SQLException {
@@ -444,11 +450,11 @@ public class TeacherGradeBookService {
     }
 
     /**
-     * 来源批次必须是本班最后一次提交，且处于本次操作要求的状态（重开只认 REJECTED、更正只认
-     * APPROVED）。批次一旦被审批就是终态，所以这里对 {@code grade_submission} 的非锁定读是安全的：
-     * 最坏情况是"还没有看到刚刚提交的审批结论"，那只会多给一次可重试的冲突，不会放行不该放行的写入
-     * （与 {@link #reopenDraft} 的判断同源）。
-     */
+    * 来源批次必须是本班最后一次提交，且处于本次操作要求的状态（重开只认 REJECTED、更正只认
+    * APPROVED）。批次一旦被审批就是终态，所以这里对 {@code grade_submission} 的非锁定读是安全的：
+    * 最坏情况是"还没有看到刚刚提交的审批结论"，那只会多给一次可重试的冲突，不会放行不该放行的写入
+    * （与 {@link #reopenDraft} 的判断同源）。
+    */
     private void requireRevisionSource(Connection connection, Revision request, RevisionGoal goal,
                                        TeacherGradeBookDAO.GradeBookRow book) throws SQLException {
         if (book.lastSubmissionId() == null
@@ -468,13 +474,13 @@ public class TeacherGradeBookService {
     }
 
     /**
-     * 从来源批次的冻结快照重建可编辑副本：先删掉当前名单里已经没有的草稿行，再把快照里<b>同时</b>
-     * 属于当前正常名单的分数写回草稿。
-     *
-     * <p>来源是批次快照而不是当前草稿：草稿里可能留着从没进过任何批次的旧值（被禁用的组成、
-     * 退课学生改之前的分数），把它当历史事实复制过来就是在编造依据。提交之后才入学的学生因此
-     * 没有草稿行——四项 NULL，不是 0 分，也绝不从别人的成绩里抄一份。
-     */
+    * 从来源批次的冻结快照重建可编辑副本：先删掉当前名单里已经没有的草稿行，再把快照里<b>同时</b>
+    * 属于当前正常名单的分数写回草稿。
+    *
+    * <p>来源是批次快照而不是当前草稿：草稿里可能留着从没进过任何批次的旧值（被禁用的组成、
+    * 退课学生改之前的分数），把它当历史事实复制过来就是在编造依据。提交之后才入学的学生因此
+    * 没有草稿行——四项 NULL，不是 0 分，也绝不从别人的成绩里抄一份。
+    */
     private void copySnapshotIntoDraft(Connection connection, Revision request) throws SQLException {
         List<Long> roster = dao.normalEnrollmentIds(connection, request.offeringId());
         dao.deleteItemsOutsideRoster(connection, request.offeringId(), roster);
@@ -491,9 +497,9 @@ public class TeacherGradeBookService {
     }
 
     /**
-     * 版本变更请求的规范化：两个 BIGINT 标识只解析一次，原因按空白归一（空白等于没写），更正要求
-     * 原因非空。规范化后的 JSON 是幂等摘要的输入，所以 {@code ""}/空格/缺省三种写法是同一次请求。
-     */
+    * 版本变更请求的规范化：两个 BIGINT 标识只解析一次，原因按空白归一（空白等于没写），更正要求
+    * 原因非空。规范化后的 JSON 是幂等摘要的输入，所以 {@code ""}/空格/缺省三种写法是同一次请求。
+    */
     private static Revision normalizeRevision(String uid, StartGradeRevisionRequestDTO raw,
                                               String operationId, RevisionGoal goal) {
         if (raw == null) throw new IllegalArgumentException("请求体不能为空");
@@ -576,9 +582,9 @@ public class TeacherGradeBookService {
     }
 
     /**
-     * 保存草稿的公共写路径：方案/版本原子更新 → 按 enrollment_id 升序写合并后的明细 → 变更审计。
-     * 保存与提交共用它，所以提交保存的草稿和单独保存草稿得到的是同一份状态。
-     */
+    * 保存草稿的公共写路径：方案/版本原子更新 → 按 enrollment_id 升序写合并后的明细 → 变更审计。
+    * 保存与提交共用它，所以提交保存的草稿和单独保存草稿得到的是同一份状态。
+    */
     private PreparedBook writeDraft(Connection connection, Normalized request,
                                     TeacherGradeBookDAO.GradeBookRow book, String action)
             throws SQLException {
@@ -604,11 +610,11 @@ public class TeacherGradeBookService {
     }
 
     /**
-     * 工作副本的方案与版本原子更新。首次创建只认 {@code expectedRevision=0}（守卫在调用方）；
-     * 被驳回的关闭草稿先惰性重开；其余关闭状态（PENDING/APPROVED）直接冲突。
-     *
-     * @return 本次写入后的 revision 与工作副本类型，供提交记录批次来源
-     */
+    * 工作副本的方案与版本原子更新。首次创建只认 {@code expectedRevision=0}（守卫在调用方）；
+    * 被驳回的关闭草稿先惰性重开；其余关闭状态（PENDING/APPROVED）直接冲突。
+    *
+    * @return 本次写入后的 revision 与工作副本类型，供提交记录批次来源
+    */
     private PreparedBook prepareBook(Connection connection, Normalized request,
                                      TeacherGradeBookDAO.GradeBookRow book) throws SQLException {
         String schemeJson = TeacherGradeBookDAO.schemeJson(request.scheme());
@@ -637,9 +643,9 @@ public class TeacherGradeBookService {
     }
 
     /**
-     * 驳回后的惰性重开：只把草稿状态翻回来，revision 留给随后那次方案更新递增。
-     * 非 REJECTED 的关闭草稿（PENDING/APPROVED）保持只读，这里直接冲突。
-     */
+    * 驳回后的惰性重开：只把草稿状态翻回来，revision 留给随后那次方案更新递增。
+    * 非 REJECTED 的关闭草稿（PENDING/APPROVED）保持只读，这里直接冲突。
+    */
     private void reopenDraft(Connection connection, Normalized request,
                              TeacherGradeBookDAO.GradeBookRow book) throws SQLException {
         if (book.lastSubmissionId() == null
@@ -656,14 +662,14 @@ public class TeacherGradeBookService {
     }
 
     /**
-     * 提交事务。锁顺序与保存一致：offering → grade book → 按 enrollment_id 排序的明细；
-     * 新建的批次行排在最后（批次头 → 明细 → 关闭草稿），审批路径只锁批次、从不回锁工作副本，
-     * 两边不存在环。
-     *
-     * <p>捕获的快照直接来自刚写入的草稿行：提交不引入第二条数据通路，事务内被拒绝时整笔回滚
-     * （草稿、批次、统计、日志一起消失），所以“响应丢失后重试”只会重放一个已提交批次，
-     * 不会留下半个批次。
-     */
+    * 提交事务。锁顺序与保存一致：offering → grade book → 按 enrollment_id 排序的明细；
+    * 新建的批次行排在最后（批次头 → 明细 → 关闭草稿），审批路径只锁批次、从不回锁工作副本，
+    * 两边不存在环。
+    *
+    * <p>捕获的快照直接来自刚写入的草稿行：提交不引入第二条数据通路，事务内被拒绝时整笔回滚
+    * （草稿、批次、统计、日志一起消失），所以“响应丢失后重试”只会重放一个已提交批次，
+    * 不会留下半个批次。
+    */
     private TeacherOperationResultDTO<TeacherGradeBookDTO> submitTransaction(Connection connection,
             Normalized request, String action, String digest) throws SQLException {
         TeacherCourseOperationDAO.StoredOperation stored =
@@ -836,10 +842,10 @@ public class TeacherGradeBookService {
     }
 
     /**
-     * 规范化请求：字段顺序固定、行按 enrollment_id 升序、方案按枚举顺序、分数按两位小数文本。
-     * 摘要与操作日志都建立在这份 JSON 上，所以行序或 {@code 88.5}/{@code 88.50} 的写法不会造成
-     * 假冲突；内容真的不同时摘要必然不同。
-     */
+    * 规范化请求：字段顺序固定、行按 enrollment_id 升序、方案按枚举顺序、分数按两位小数文本。
+    * 摘要与操作日志都建立在这份 JSON 上，所以行序或 {@code 88.5}/{@code 88.50} 的写法不会造成
+    * 假冲突；内容真的不同时摘要必然不同。
+    */
     private static JsonObject canonical(String operationId, long offeringId, int expectedRevision,
                                         String rosterDigest, GradeSchemeDTO scheme,
                                         List<Row> rows) {
@@ -881,9 +887,9 @@ public class TeacherGradeBookService {
     }
 
     /**
-     * 禁用项不是“清空”：客户端没有给值时保留草稿里已有的值，重新启用后原值还在。
-     * 只有提交快照把禁用项置 NULL（{@link #disabledAsNull}），草稿阶段不做这个替换。
-     */
+    * 禁用项不是“清空”：客户端没有给值时保留草稿里已有的值，重新启用后原值还在。
+    * 只有提交快照把禁用项置 NULL（{@link #disabledAsNull}），草稿阶段不做这个替换。
+    */
     private static GradeScoresDTO mergeDisabled(GradeScoresDTO incoming, GradeScoresDTO stored,
                                                 GradeSchemeDTO scheme) {
         if (stored == null) return incoming;
@@ -910,16 +916,16 @@ public class TeacherGradeBookService {
     // -------------------------------------------------------------------- 审计
 
     /**
-     * 权重（方案）变化记班级级日志，分数变化记学生级日志；首次创建没有 before_json。
-     * 学生级快照带服务器按当时方案算出的总评与绩点，便于追责时核对“当时是多少”。
-     * {@code action} 是触发本次写入的动作：单独保存记 saveGradeDraft，提交连带保存记 submitGradeBook；
-     * {@code reason} 是更正原因（普通草稿为 null），更正批次的学生级日志因此也带着原因。
-     *
-     * <p>权重变化会影响<b>整班</b>：四个组成分数一个字节都没动，重算后的总评和绩点却可能整片改变，
-     * 所以方案变了的学生级日志不能只看「分数有没有改」，而要比「按变更前后方案分别重算的总评/绩点
-     * 有没有改」，否则一次纯权重调整在审计里会看起来什么都没发生。分数确实改了的行照旧记录——
-     * 禁用组成上的改动也是改动，不因为总评恰好没动就被吞掉。
-     */
+    * 权重（方案）变化记班级级日志，分数变化记学生级日志；首次创建没有 before_json。
+    * 学生级快照带服务器按当时方案算出的总评与绩点，便于追责时核对“当时是多少”。
+    * {@code action} 是触发本次写入的动作：单独保存记 saveGradeDraft，提交连带保存记 submitGradeBook；
+    * {@code reason} 是更正原因（普通草稿为 null），更正批次的学生级日志因此也带着原因。
+    *
+    * <p>权重变化会影响<b>整班</b>：四个组成分数一个字节都没动，重算后的总评和绩点却可能整片改变，
+    * 所以方案变了的学生级日志不能只看「分数有没有改」，而要比「按变更前后方案分别重算的总评/绩点
+    * 有没有改」，否则一次纯权重调整在审计里会看起来什么都没发生。分数确实改了的行照旧记录——
+    * 禁用组成上的改动也是改动，不因为总评恰好没动就被吞掉。
+    */
     private void auditChanges(Connection connection, Normalized request, String action,
                               GradeSchemeDTO beforeScheme, Map<Long, GradeScoresDTO> before,
                               List<Row> after, int revision, String reason) throws SQLException {
@@ -955,9 +961,9 @@ public class TeacherGradeBookService {
     }
 
     /**
-     * 这一行的总评或绩点是否真的变了：变更前方案配旧分数 vs 变更后方案配存下来的分数。
-     * 绩点目前是总评的纯函数，两项仍然各比一次：判据是「总评或绩点变了」，不给将来留空子。
-     */
+    * 这一行的总评或绩点是否真的变了：变更前方案配旧分数 vs 变更后方案配存下来的分数。
+    * 绩点目前是总评的纯函数，两项仍然各比一次：判据是「总评或绩点变了」，不给将来留空子。
+    */
     private static boolean moved(GradeSchemeDTO beforeScheme, GradeScoresDTO before,
                                  GradeSchemeDTO afterScheme, GradeScoresDTO after) {
         BigDecimal beforeTotal = safeTotal(beforeScheme, before);
@@ -969,9 +975,9 @@ public class TeacherGradeBookService {
     }
 
     /**
-     * 算不出总评时按 null 处理。库里可能存着手工改过的非法分数（读取路径也为同样的情况准备了行级
-     * 错误），这一层是审计的取舍：不该把一次保存变成失败，也不该因为算不出来就编一个总评。
-     */
+    * 算不出总评时按 null 处理。库里可能存着手工改过的非法分数（读取路径也为同样的情况准备了行级
+    * 错误），这一层是审计的取舍：不该把一次保存变成失败，也不该因为算不出来就编一个总评。
+    */
     private static BigDecimal safeTotal(GradeSchemeDTO scheme, GradeScoresDTO scores) {
         try {
             return total(scheme, scores);
@@ -983,9 +989,9 @@ public class TeacherGradeBookService {
     // -------------------------------------------------------------------- 组装
 
     /**
-     * 一个教学班的成绩表：当前正常名单 + 草稿分数 + 服务端重算的总评/绩点。
-     * 工作副本不存在时给默认方案，但绝不写库。
-     */
+    * 一个教学班的成绩表：当前正常名单 + 草稿分数 + 服务端重算的总评/绩点。
+    * 工作副本不存在时给默认方案，但绝不写库。
+    */
     private TeacherGradeBookDTO readBook(Connection connection, long offeringId, boolean gradeEditor)
             throws SQLException {
         TeacherGradeBookDAO.GradeBookRow book = dao.findBook(connection, offeringId);
@@ -1028,9 +1034,9 @@ public class TeacherGradeBookService {
     }
 
     /**
-     * 界面状态与可编辑位：草稿开放时是 DRAFT；否则按最后一次批次显示 PENDING/APPROVED/REJECTED。
-     * 被驳回的批次虽然 draft_open=0，但下一次保存会惰性重开，所以对任课教师仍是可编辑的。
-     */
+    * 界面状态与可编辑位：草稿开放时是 DRAFT；否则按最后一次批次显示 PENDING/APPROVED/REJECTED。
+    * 被驳回的批次虽然 draft_open=0，但下一次保存会惰性重开，所以对任课教师仍是可编辑的。
+    */
     private static BookState bookState(TeacherGradeBookDAO.GradeBookRow book,
                                        boolean gradeEditor) {
         if (book == null || book.draftOpen()) return new BookState(STATE_DRAFT, gradeEditor);
@@ -1044,9 +1050,9 @@ public class TeacherGradeBookService {
     }
 
     /**
-     * 已录入 = 至少一项非 null 分数；缺失 = 至少一个启用项没有分数（全空自然也算缺失）。
-     * 四项都被禁用时没人缺分：没有启用项就没有“缺了什么”可言，缺失数因此是 0。
-     */
+    * 已录入 = 至少一项非 null 分数；缺失 = 至少一个启用项没有分数（全空自然也算缺失）。
+    * 四项都被禁用时没人缺分：没有启用项就没有“缺了什么”可言，缺失数因此是 0。
+    */
     private static Counters counters(GradeSchemeDTO scheme,
                                      List<TeacherGradeBookDAO.RosterScoreRow> roster) {
         int entered = 0;
@@ -1107,11 +1113,11 @@ public class TeacherGradeBookService {
     // ---------------------------------------------------------------- 幂等与事务
 
     /**
-     * 操作日志是同一 operationId 的两个并发请求唯一共享的行：插入撞上主键时回滚本地写入，
-     * 读回已提交结果，按摘要重放或返回摘要冲突，而不是把驱动错误抛给客户端。
-     *
-     * <p>保存、提交与版本变更（重开/更正）共用这一个入口，所以三种写操作的幂等语义只有一份实现。
-     */
+    * 操作日志是同一 operationId 的两个并发请求唯一共享的行：插入撞上主键时回滚本地写入，
+    * 读回已提交结果，按摘要重放或返回摘要冲突，而不是把驱动错误抛给客户端。
+    *
+    * <p>保存、提交与版本变更（重开/更正）共用这一个入口，所以三种写操作的幂等语义只有一份实现。
+    */
     private TeacherOperationResultDTO<TeacherGradeBookDTO> auditOrRecover(Connection connection,
             String uid, String operationId, long offeringId, JsonObject canonical, String action,
             String digest, TeacherOperationResultDTO<TeacherGradeBookDTO> result)
@@ -1144,7 +1150,7 @@ public class TeacherGradeBookService {
     }
 
     /** Null-safe: an unfinished transaction is rolled back even when no failure is in flight,
-     *  and a failed rollback is swallowed rather than replacing an escaping {@link Error}. */
+    *  and a failed rollback is swallowed rather than replacing an escaping {@link Error}. */
     private static void rollback(Connection connection, Throwable failure) {
         try {
             connection.rollback();
@@ -1176,6 +1182,9 @@ public class TeacherGradeBookService {
     }
 
     @FunctionalInterface
+    /**
+    * Internal course-management type SqlRead.
+    */
     private interface SqlRead<T> {
         T execute(Connection connection) throws SQLException;
     }
@@ -1201,6 +1210,9 @@ public class TeacherGradeBookService {
 
     // -------------------------------------------------------------------- records
 
+    /**
+    * Internal course-management type Row.
+    */
     private record Row(long enrollmentId, GradeScoresDTO scores) {
     }
 
@@ -1208,22 +1220,28 @@ public class TeacherGradeBookService {
     private record BookState(String state, boolean canEdit) {
     }
 
+    /**
+    * Internal course-management type Counters.
+    */
     private record Counters(int entered, int missing) {
     }
 
     /**
-     * 保存/提交写入后的工作副本状态：{@code revision} 是本次写入后的版本，类型与基础批次供提交
-     * 记录批次来源（重开的草稿固定是 RESUBMISSION，基础批次是被驳回的那一批）。
-     *
-     * <p>{@code correctionReason} 是本次写入后工作副本上的更正原因：重开一律为 null（重提不是更正，
-     * 被驳回的批次本身就是一次更正时也不能把上一轮的原因带进新批次与变更审计），其余情况沿用工作
-     * 副本原来的值。它必须从这里取而不是从写事务开头读到的那一行取——惰性重开已经把原因清掉了，
-     * 而那个 {@code GradeBookRow} 还是清之前的样子。
-     */
+    * 保存/提交写入后的工作副本状态：{@code revision} 是本次写入后的版本，类型与基础批次供提交
+    * 记录批次来源（重开的草稿固定是 RESUBMISSION，基础批次是被驳回的那一批）。
+    *
+    * <p>{@code correctionReason} 是本次写入后工作副本上的更正原因：重开一律为 null（重提不是更正，
+    * 被驳回的批次本身就是一次更正时也不能把上一轮的原因带进新批次与变更审计），其余情况沿用工作
+    * 副本原来的值。它必须从这里取而不是从写事务开头读到的那一行取——惰性重开已经把原因清掉了，
+    * 而那个 {@code GradeBookRow} 还是清之前的样子。
+    */
     private record PreparedBook(int revision, String draftKind, Long baseSubmissionId,
                                 String correctionReason) {
     }
 
+    /**
+    * Internal course-management type Normalized.
+    */
     private record Normalized(String uid, String operationId, long offeringId, int expectedRevision,
                               String rosterDigest, GradeSchemeDTO scheme, List<Row> rows,
                               JsonObject canonical) {
@@ -1235,15 +1253,15 @@ public class TeacherGradeBookService {
     }
 
     /**
-     * 一次版本变更的目标。
-     *
-     * @param action        写进操作日志与变更审计的动作名
-     * @param requiredStatus 来源批次必须处于的状态（REJECTED 重提 / APPROVED 更正）
-     * @param draftKind     写进工作副本的草稿类型
-     * @param correction    true 表示更正草稿：原因必填并写入 correction_reason；false（重提）不要求
-     *                      原因，correction_reason 一律 NULL，绝不沿用上一轮的更正原因
-     * @param message       成功响应的消息
-     */
+    * 一次版本变更的目标。
+    *
+    * @param action        写进操作日志与变更审计的动作名
+    * @param requiredStatus 来源批次必须处于的状态（REJECTED 重提 / APPROVED 更正）
+    * @param draftKind     写进工作副本的草稿类型
+    * @param correction    true 表示更正草稿：原因必填并写入 correction_reason；false（重提）不要求
+    *                      原因，correction_reason 一律 NULL，绝不沿用上一轮的更正原因
+    * @param message       成功响应的消息
+    */
     private record RevisionGoal(String action, String requiredStatus, String draftKind,
                                 boolean correction, String message) {
     }
@@ -1254,10 +1272,16 @@ public class TeacherGradeBookService {
 
         private final TeacherGradeBookDTO entity;
 
+        /**
+        * Handles the course-management responsibility of ConflictException.
+        */
         public ConflictException(String message) {
             this(message, null);
         }
 
+        /**
+        * Handles the course-management responsibility of ConflictException.
+        */
         public ConflictException(String message, TeacherGradeBookDTO entity) {
             super(message);
             this.entity = entity;

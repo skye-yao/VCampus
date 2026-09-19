@@ -22,14 +22,14 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Reads, locks and writes of the temporary-adjustment aggregate. Every mutation belongs to a
- * caller-owned transaction; the write methods are the seam a test overrides to prove that a
- * failure anywhere in the decision rolls the whole transaction back.
- *
- * <p>Temporary adjustments never rewrite the published base plan, so this DAO only touches
- * {@code course_schedule_adjustment_request}, {@code course_schedule_adjustment_target},
- * {@code course_schedule_adjustment} and the linked notice.
- */
+* Reads, locks and writes of the temporary-adjustment aggregate. Every mutation belongs to a
+* caller-owned transaction; the write methods are the seam a test overrides to prove that a
+* failure anywhere in the decision rolls the whole transaction back.
+*
+* <p>Temporary adjustments never rewrite the published base plan, so this DAO only touches
+* {@code course_schedule_adjustment_request}, {@code course_schedule_adjustment_target},
+* {@code course_schedule_adjustment} and the linked notice.
+*/
 public class ScheduleAdjustmentDAO {
     private static final String TEACHER = "teacher";
     private static final String CLASSROOM = "classroom";
@@ -42,16 +42,25 @@ public class ScheduleAdjustmentDAO {
 
     private final AdminScheduleDAO scheduleDAO;
 
+    /**
+    * Handles the course-management responsibility of ScheduleAdjustmentDAO.
+    */
     public ScheduleAdjustmentDAO() {
         this(new AdminScheduleDAO());
     }
 
+    /**
+    * Handles the course-management responsibility of ScheduleAdjustmentDAO.
+    */
     public ScheduleAdjustmentDAO(AdminScheduleDAO scheduleDAO) {
         this.scheduleDAO = scheduleDAO;
     }
 
     // ------------------------------------------------------------------- reads
 
+    /**
+    * Finds Request data.
+    */
     public RequestRow findRequest(Connection connection, long requestId) throws SQLException {
         String sql = "SELECT " + REQUEST_COLUMNS + " FROM course_schedule_adjustment_request"
                 + " WHERE request_id=?";
@@ -63,6 +72,9 @@ public class ScheduleAdjustmentDAO {
         }
     }
 
+    /**
+    * Lists Requests data.
+    */
     public List<AdjustmentRequestSummaryDTO> listRequests(Connection connection,
                                                           AdjustmentRequestStatusDTO status, int offset,
                                                           int limit) throws SQLException {
@@ -94,6 +106,9 @@ public class ScheduleAdjustmentDAO {
         return List.copyOf(summaries);
     }
 
+    /**
+    * Handles the course-management responsibility of countRequests.
+    */
     public long countRequests(Connection connection, AdjustmentRequestStatusDTO status) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT COUNT(*) FROM course_schedule_adjustment_request WHERE status=?")) {
@@ -105,6 +120,9 @@ public class ScheduleAdjustmentDAO {
         }
     }
 
+    /**
+    * Lists Targets data.
+    */
     public List<TargetRow> listTargets(Connection connection, long requestId) throws SQLException {
         String sql = "SELECT t.target_id,t.original_occurrence_id,t.original_week_no,"
                 + "t.original_start_at,t.original_end_at,t.original_teacher_uid,"
@@ -156,6 +174,9 @@ public class ScheduleAdjustmentDAO {
         return Map.copyOf(occurrences);
     }
 
+    /**
+    * Handles the course-management responsibility of teacherResource.
+    */
     public ScheduleResourceDTO teacherResource(Connection connection, String uid) throws SQLException {
         String name = uid;
         try (PreparedStatement statement = connection.prepareStatement(
@@ -168,6 +189,9 @@ public class ScheduleAdjustmentDAO {
         return new ScheduleResourceDTO(uid, uid, name, TEACHER, 0);
     }
 
+    /**
+    * Handles the course-management responsibility of classroomResource.
+    */
     public ScheduleResourceDTO classroomResource(Connection connection, long classroomId)
             throws SQLException {
         String id = Long.toString(classroomId);
@@ -195,10 +219,10 @@ public class ScheduleAdjustmentDAO {
     // ------------------------------------------------------------- target dates
 
     /**
-     * One calendar_date row, addressed either by id (the explicit V006 target date) or by the
-     * legacy {@code (calendar, week, new_weekday)} derivation. A missing row means the proposed
-     * target cannot be placed and the caller reports it as a slot conflict.
-     */
+    * One calendar_date row, addressed either by id (the explicit V006 target date) or by the
+    * legacy {@code (calendar, week, new_weekday)} derivation. A missing row means the proposed
+    * target cannot be placed and the caller reports it as a slot conflict.
+    */
     public CalendarDateRow findCalendarDate(Connection connection, long calendarDateId)
             throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
@@ -211,6 +235,9 @@ public class ScheduleAdjustmentDAO {
         }
     }
 
+    /**
+    * Finds CalendarDate data.
+    */
     public CalendarDateRow findCalendarDate(Connection connection, long calendarId, int weekNo,
                                             int weekday) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
@@ -228,6 +255,9 @@ public class ScheduleAdjustmentDAO {
 
     // ------------------------------------------------------------------- locks
 
+    /**
+    * Locks the database rows for Request.
+    */
     public void lockRequest(Connection connection, long requestId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT request_id FROM course_schedule_adjustment_request WHERE request_id=?"
@@ -240,9 +270,9 @@ public class ScheduleAdjustmentDAO {
     }
 
     /**
-     * The teaching offering serializes submits and approvals of the same offering before any
-     * occurrence is locked, which is the order design section 7 requires from both sides.
-     */
+    * The teaching offering serializes submits and approvals of the same offering before any
+    * occurrence is locked, which is the order design section 7 requires from both sides.
+    */
     public void lockOffering(Connection connection, long offeringId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT offering_id FROM course_offering WHERE offering_id=? FOR UPDATE")) {
@@ -278,6 +308,9 @@ public class ScheduleAdjustmentDAO {
 
     // ------------------------------------------------------------------ writes
 
+    /**
+    * Creates insertAdjustment data.
+    */
     public long insertAdjustment(Connection connection, long requestId, long originalOccurrenceId,
                                  Timestamp startAt, Timestamp endAt, String teacherUid,
                                  String assistantUid, Long classroomId) throws SQLException {
@@ -303,6 +336,9 @@ public class ScheduleAdjustmentDAO {
         }
     }
 
+    /**
+    * Persists updateDecision data.
+    */
     public int updateDecision(Connection connection, long requestId, int expectedVersion,
                               AdjustmentRequestStatusDTO status, String reviewerUid, Instant reviewedAt,
                               String reviewComment) throws SQLException {
@@ -397,6 +433,9 @@ public class ScheduleAdjustmentDAO {
         return value == null ? null : value.toLocalDateTime().toInstant(ZoneOffset.UTC);
     }
 
+    /**
+    * Handles the course-management responsibility of instantText.
+    */
     public static String instantText(Timestamp value) {
         return value == null ? null : DateTimeFormatter.ISO_INSTANT.format(instant(value));
     }
@@ -405,6 +444,9 @@ public class ScheduleAdjustmentDAO {
         return Timestamp.valueOf(LocalDateTime.ofInstant(instant, ZoneOffset.UTC));
     }
 
+    /**
+    * Internal course-management type RequestRow.
+    */
     public record RequestRow(long requestId, long offeringId, String applicantUid, String reason,
                              int version, AdjustmentRequestStatusDTO status, int newDayOfWeek,
                              int newStartPeriod, int newEndPeriod, String newTeacherUid,
@@ -412,6 +454,9 @@ public class ScheduleAdjustmentDAO {
                              String reviewedBy, Timestamp reviewedAt, String reviewComment) {
     }
 
+    /**
+    * Internal course-management type TargetRow.
+    */
     public record TargetRow(long targetId, long originalOccurrenceId, int week, Timestamp startAt,
                             Timestamp endAt, String teacherUid, String assistantUid,
                             Long classroomId, Long targetCalendarDateId,
@@ -424,6 +469,9 @@ public class ScheduleAdjustmentDAO {
                                   boolean teachingDay) {
     }
 
+    /**
+    * Internal course-management type OccurrenceRow.
+    */
     public record OccurrenceRow(long occurrenceId, long ruleId, long planId, int weekNo,
                                 Timestamp startAt, Timestamp endAt, long arrangementId,
                                 long offeringId, String teacherUid, String assistantUid,

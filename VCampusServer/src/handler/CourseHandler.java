@@ -16,20 +16,32 @@ import session.UserSession;
 
 import java.util.Map;
 
+/**
+* Internal course-management type CourseHandler.
+*/
 public class CourseHandler {
     private final CourseQueryService service;
     private final CourseSelectionService selectionService;
     private final CourseWaitlistService waitlistService;
     private final CourseEventDispatcher eventDispatcher;
 
+    /**
+    * Handles the course-management responsibility of CourseHandler.
+    */
     public CourseHandler() {
         this(defaultServices(), null);
     }
 
+    /**
+    * Handles the course-management responsibility of CourseHandler.
+    */
     public CourseHandler(CourseEventDispatcher eventDispatcher) {
         this(defaultServices(), eventDispatcher);
     }
 
+    /**
+    * Handles the course-management responsibility of CourseHandler.
+    */
     public CourseHandler(CourseWaitlistService waitlistService,
                          CourseEventDispatcher eventDispatcher) {
         this(new CourseQueryService(), waitlistService.newSelectionService(),
@@ -62,6 +74,9 @@ public class CourseHandler {
         this.eventDispatcher = eventDispatcher;
     }
 
+    /**
+    * Dispatches the course-management protocol request by action.
+    */
     public Message handle(Message request) {
         Message response = response(request);
         UserSession session = SessionManager.getInstance().getSession(request.getToken());
@@ -237,9 +252,9 @@ public class CourseHandler {
     }
 
     /**
-     * week 可缺省：缺省表示“由服务端按教学日历决定当前周”。出现时必须是合法整数（越界由服务层
-     * 判定，因为它依赖教学日历的 minWeek/maxWeek）。与教师端 {@code TeacherCourseHandler} 同形。
-     */
+    * week 可缺省：缺省表示“由服务端按教学日历决定当前周”。出现时必须是合法整数（越界由服务层
+    * 判定，因为它依赖教学日历的 minWeek/maxWeek）。与教师端 {@code TeacherCourseHandler} 同形。
+    */
     private static Integer optionalInteger(Message request, String key) {
         Map<String, Object> data = request.getData();
         if (data == null || data.get(key) == null) return null;
@@ -295,6 +310,9 @@ public class CourseHandler {
         return value;
     }
 
+    /**
+    * Internal course-management type Term.
+    */
     private record Term(int academicYear, int semester) {
         private CourseTermDTO dto() {
             return new CourseTermDTO(academicYear, semester, "");
@@ -307,6 +325,9 @@ public class CourseHandler {
                 waitlistService.newSelectionService(), waitlistService);
     }
 
+    /**
+    * Internal course-management type DefaultServices.
+    */
     private record DefaultServices(CourseQueryService queryService,
                                    CourseSelectionService selectionService,
                                    CourseWaitlistService waitlistService) {

@@ -22,6 +22,9 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
+/**
+* Internal course-management type CourseSelectionService.
+*/
 public class CourseSelectionService {
     private final CourseSelectionDAO selectionDAO;
     private final CourseOperationDAO operationDAO;
@@ -29,6 +32,9 @@ public class CourseSelectionService {
     private final Clock clock;
     private final WaitlistAdvanceTrigger waitlistTrigger;
 
+    /**
+    * Handles the course-management responsibility of CourseSelectionService.
+    */
     public CourseSelectionService() {
         this(Clock.systemUTC(), WaitlistAdvanceTrigger.NO_OP);
     }
@@ -48,24 +54,36 @@ public class CourseSelectionService {
         this.waitlistTrigger = waitlistTrigger;
     }
 
+    /**
+    * Handles the course-management responsibility of addToPlan.
+    */
     public CourseMutationResultDTO addToPlan(String uid, CourseTermDTO term,
                                              long offeringId, String operationId) {
         return transact(uid, term, offeringId, operationId, CourseActions.ADD_TO_PLAN,
                 connection -> addToPlan(connection, uid, term, offeringId, operationId));
     }
 
+    /**
+    * Removes or cancels removeFromPlan data.
+    */
     public CourseMutationResultDTO removeFromPlan(String uid, CourseTermDTO term,
                                                   long offeringId, String operationId) {
         return transact(uid, term, offeringId, operationId, CourseActions.REMOVE_FROM_PLAN,
                 connection -> removeFromPlan(connection, uid, term, offeringId, operationId));
     }
 
+    /**
+    * Handles the course-management responsibility of selectOffering.
+    */
     public CourseMutationResultDTO selectOffering(String uid, CourseTermDTO term,
                                                   long offeringId, String operationId) {
         return transact(uid, term, offeringId, operationId, CourseActions.SELECT_OFFERING,
                 connection -> selectOffering(connection, uid, term, offeringId, operationId));
     }
 
+    /**
+    * Removes or cancels dropOffering data.
+    */
     public CourseMutationResultDTO dropOffering(String uid, CourseTermDTO term,
                                                 long offeringId, String operationId) {
         return transact(uid, term, offeringId, operationId, CourseActions.DROP_OFFERING,
@@ -354,23 +372,50 @@ public class CourseSelectionService {
     }
 
     @FunctionalInterface
+    /**
+    * Internal course-management type Mutation.
+    */
     private interface Mutation {
         Execution execute(Connection connection) throws SQLException;
     }
 
+    /**
+    * Internal course-management type Execution.
+    */
     private record Execution(CourseMutationResultDTO result, Long freedOfferingId) {
     }
 
+    /**
+    * Internal course-management type NotFoundException.
+    */
     public static class NotFoundException extends RuntimeException {
+        /**
+        * Handles the course-management responsibility of NotFoundException.
+        */
         public NotFoundException(String message) { super(message); }
+        /**
+        * Handles the course-management responsibility of NotFoundException.
+        */
         public NotFoundException(String message, Throwable cause) { super(message, cause); }
     }
 
+    /**
+    * Internal course-management type ConflictException.
+    */
     public static class ConflictException extends RuntimeException {
+        /**
+        * Handles the course-management responsibility of ConflictException.
+        */
         public ConflictException(String message) { super(message); }
     }
 
+    /**
+    * Internal course-management type OperationConflictException.
+    */
     public static class OperationConflictException extends IllegalArgumentException {
+        /**
+        * Handles the course-management responsibility of OperationConflictException.
+        */
         public OperationConflictException(String message) { super(message); }
     }
 }

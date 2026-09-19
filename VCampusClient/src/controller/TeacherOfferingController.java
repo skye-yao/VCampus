@@ -51,6 +51,7 @@ import util.AlertUtil;
  *
  * <p>所有节点都可能为 {@code null}：控制器测试按仓库约定在无工具包、无 FXML 节点的环境下运行。
  */
+/** 教师查询本人教学班及学生名单的 JavaFX 页面控制器。 */
 public final class TeacherOfferingController {
     /** 列表分页大小；名单与列表共用的固定页长。 */
     static final int PAGE_SIZE = 20;

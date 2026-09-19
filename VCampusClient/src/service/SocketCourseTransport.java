@@ -6,6 +6,7 @@ import java.util.function.Consumer;
 import network.SocketClient;
 import protocol.Message;
 
+/** 基于共享 SocketClient 的学生教务协议传输实现。 */
 public final class SocketCourseTransport implements CourseTransport {
     private final SocketClient client;
 

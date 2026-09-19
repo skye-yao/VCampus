@@ -29,20 +29,24 @@ public final class TeacherOfferingDetailDTO {
         this.description = description;
     }
 
+    /** 获取 Offering。 */
     public TeacherOfferingDTO getOffering() {
         return offering;
     }
 
+    /** 获取 Teachers。 */
     public List<ScheduleResourceDTO> getTeachers() {
         return teachers == null
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(teachers);
     }
 
+    /** 获取 OfferingCollege。 */
     public String getOfferingCollege() {
         return offeringCollege;
     }
 
+    /** 获取 Description。 */
     public String getDescription() {
         return description;
     }

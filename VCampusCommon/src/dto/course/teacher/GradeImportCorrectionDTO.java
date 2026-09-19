@@ -23,6 +23,7 @@ public final class GradeImportCorrectionDTO {
         this.correctedCells = immutableCopy(correctedCells);
     }
 
+    /** 获取 RowNumber。 */
     public int getRowNumber() {
         return rowNumber;
     }

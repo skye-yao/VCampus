@@ -28,18 +28,22 @@ public final class GradeBookContentDTO {
         this.rows = immutableCopy(rows);
     }
 
+    /** 获取 OfferingId。 */
     public String getOfferingId() {
         return offeringId;
     }
 
+    /** 获取 ExpectedRevision。 */
     public int getExpectedRevision() {
         return expectedRevision;
     }
 
+    /** 获取 RosterDigest。 */
     public String getRosterDigest() {
         return rosterDigest;
     }
 
+    /** 获取 Scheme。 */
     public GradeSchemeDTO getScheme() {
         return scheme;
     }

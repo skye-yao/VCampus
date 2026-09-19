@@ -32,10 +32,12 @@ public final class TeacherAdjustmentWriteDTO {
         this.reason = reason;
     }
 
+    /** 获取 OperationId。 */
     public String getOperationId() {
         return operationId;
     }
 
+    /** 获取 OfferingId。 */
     public String getOfferingId() {
         return offeringId;
     }
@@ -45,18 +47,22 @@ public final class TeacherAdjustmentWriteDTO {
         return unmodifiable(targets);
     }
 
+    /** 获取 NewStartPeriod。 */
     public int getNewStartPeriod() {
         return newStartPeriod;
     }
 
+    /** 获取 NewEndPeriod。 */
     public int getNewEndPeriod() {
         return newEndPeriod;
     }
 
+    /** 获取 NewClassroomId。 */
     public String getNewClassroomId() {
         return newClassroomId;
     }
 
+    /** 获取 Reason。 */
     public String getReason() {
         return reason;
     }

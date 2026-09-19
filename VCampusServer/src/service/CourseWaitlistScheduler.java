@@ -8,6 +8,9 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+/**
+* Internal course-management type CourseWaitlistScheduler.
+*/
 public final class CourseWaitlistScheduler implements AutoCloseable {
     private static final Duration DEFAULT_INTERVAL = Duration.ofSeconds(15);
     private static final int DEFAULT_BATCH_LIMIT = 100;
@@ -20,6 +23,9 @@ public final class CourseWaitlistScheduler implements AutoCloseable {
     private final AtomicBoolean started = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
 
+    /**
+    * Handles the course-management responsibility of CourseWaitlistScheduler.
+    */
     public CourseWaitlistScheduler(CourseWaitlistService service) {
         this(service, Clock.systemUTC(), DEFAULT_INTERVAL, DEFAULT_BATCH_LIMIT);
     }
@@ -43,6 +49,9 @@ public final class CourseWaitlistScheduler implements AutoCloseable {
         });
     }
 
+    /**
+    * Handles the course-management responsibility of start.
+    */
     public void start() {
         if (closed.get() || !started.compareAndSet(false, true)) return;
         executor.scheduleAtFixedRate(() -> runOnce(clock.instant()), 0,
@@ -63,6 +72,9 @@ public final class CourseWaitlistScheduler implements AutoCloseable {
     }
 
     @Override
+    /**
+    * Handles the course-management responsibility of close.
+    */
     public void close() {
         if (!closed.compareAndSet(false, true)) return;
         executor.shutdownNow();

@@ -40,38 +40,47 @@ public final class TeacherScheduleWeekDTO {
         this.entries = immutableCopy(entries);
     }
 
+    /** 获取 CalendarId。 */
     public String getCalendarId() {
         return calendarId;
     }
 
+    /** 获取 Timezone。 */
     public String getTimezone() {
         return timezone;
     }
 
+    /** 获取 Week。 */
     public int getWeek() {
         return week;
     }
 
+    /** 获取 MinWeek。 */
     public int getMinWeek() {
         return minWeek;
     }
 
+    /** 获取 MaxWeek。 */
     public int getMaxWeek() {
         return maxWeek;
     }
 
+    /** 获取 CurrentWeek。 */
     public Integer getCurrentWeek() {
         return currentWeek;
     }
 
+    /** 获取 Dates。 */
     public List<TeacherCalendarDateDTO> getDates() {
         return unmodifiable(dates);
     }
 
+    /** 获取 Periods。 */
     public List<TeacherPeriodDTO> getPeriods() {
         return unmodifiable(periods);
     }
 
+    /** 获取 Entries。 */
     public List<TeacherScheduleEntryDTO> getEntries() {
         return unmodifiable(entries);
     }

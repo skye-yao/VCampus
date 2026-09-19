@@ -29,22 +29,27 @@ public final class StartGradeRevisionRequestDTO {
         this.reason = reason;
     }
 
+    /** 获取 OperationId。 */
     public String getOperationId() {
         return operationId;
     }
 
+    /** 获取 OfferingId。 */
     public String getOfferingId() {
         return offeringId;
     }
 
+    /** 获取 SourceSubmissionId。 */
     public String getSourceSubmissionId() {
         return sourceSubmissionId;
     }
 
+    /** 获取 ExpectedRevision。 */
     public long getExpectedRevision() {
         return expectedRevision;
     }
 
+    /** 获取 Reason。 */
     public String getReason() {
         return reason;
     }

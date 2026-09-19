@@ -21,6 +21,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+* Data-access type for CourseQueryDAO; caller-owned connections are never committed or rolled back here.
+*/
 public class CourseQueryDAO {
     private static final String VISIBLE_COURSE = ""
             + " EXISTS (SELECT 1 FROM student_academic_profile sap"
@@ -86,6 +89,9 @@ public class CourseQueryDAO {
             + " ) meeting ON meeting.course_offering_id = o.offering_id"
             + "     AND meeting.plan_id = win.schedule_plan_id ";
 
+    /**
+    * Lists Terms data.
+    */
     public List<CourseTermDTO> listTerms(Connection connection, String studentUid)
             throws SQLException {
         String sql = "SELECT DISTINCT win.academic_year, win.semester "
@@ -109,6 +115,9 @@ public class CourseQueryDAO {
         return List.copyOf(terms);
     }
 
+    /**
+    * Lists Courses data.
+    */
     public List<CourseDTO> listCourses(Connection connection, String studentUid,
                                        int academicYear, int semester) throws SQLException {
         String sql = "SELECT DISTINCT c.course_id, c.course_code, c.course_name, c.course_type,"
@@ -129,6 +138,9 @@ public class CourseQueryDAO {
         }
     }
 
+    /**
+    * Lists CourseOfferings data.
+    */
     public List<CourseOfferingDTO> listCourseOfferings(Connection connection, String studentUid,
                                                        int academicYear, int semester,
                                                        long courseId) throws SQLException {
@@ -148,6 +160,9 @@ public class CourseQueryDAO {
         }
     }
 
+    /**
+    * Obtains dSelectionSnapshot data.
+    */
     public CoursePlanSnapshotDTO loadSelectionSnapshot(Connection connection, String studentUid,
                                                        int academicYear, int semester)
             throws SQLException {
@@ -290,6 +305,9 @@ public class CourseQueryDAO {
         }
     }
 
+    /**
+    * Handles the course-management responsibility of term.
+    */
     public static CourseTermDTO term(int academicYear, int semester) {
         return new CourseTermDTO(academicYear, semester,
                 TermLabels.displayName(academicYear, semester));
@@ -305,6 +323,9 @@ public class CourseQueryDAO {
         };
     }
 
+    /**
+    * Internal course-management type OfferingAccumulator.
+    */
     private static final class OfferingAccumulator {
         private final CourseDTO course;
         private final String offeringId;
@@ -341,6 +362,9 @@ public class CourseQueryDAO {
         }
     }
 
+    /**
+    * Internal course-management type RowMappingException.
+    */
     private static final class RowMappingException extends RuntimeException {
         private RowMappingException(SQLException cause) {
             super(cause);
